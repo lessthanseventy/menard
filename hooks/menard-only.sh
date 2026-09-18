@@ -28,12 +28,11 @@ exempt() { # bare-data .exs and anything generated: menard has no verbs for a ke
   esac
 }
 
-# However menard is reachable from here: its own bin, a mise task, or the PATH.
+# However menard is reachable from here: its own bin, or the PATH. This only picks the wording of
+# a suggestion, so a wrong guess costs a retry, not an edit.
 menard_cmd() {
   if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" && -x "$CLAUDE_PLUGIN_ROOT/bin/menard" ]]; then
     echo "$CLAUDE_PLUGIN_ROOT/bin/menard"
-  elif [[ -f "${CLAUDE_PROJECT_DIR:-.}/modules/menard/tasks.toml" ]]; then
-    echo "mise run menard --"
   elif command -v menard >/dev/null 2>&1; then
     echo "menard"
   else
