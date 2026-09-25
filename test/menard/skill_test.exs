@@ -23,4 +23,24 @@ defmodule Menard.SkillTest do
       assert Mix.Task.get("menard.#{noun}"), "the skill names `#{noun}`, and there is no menard.#{noun}"
     end
   end
+
+  test "every verb a table row gives its tool is one that tool takes" do
+    rows = Regex.scan(~r/^\| [^|]+ \| `(\w+) \{(.*)$/m, File.read!(@skill), capture: :all_but_first)
+    assert rows != []
+
+    for [noun, rest] <- rows, verb <- verbs(rest) do
+      tool = Module.concat(Menard.MCP, Macro.camelize(noun))
+      allowed = get_in(tool.input_schema(), ["properties", "verb", "enum"]) || []
+      assert verb in allowed, "the skill gives `#{noun}` the verb #{verb}; it takes #{inspect(allowed)}"
+    end
+  end
+
+  # `verb: "a" \| "b"` and the `{verb: "c"` of a second call on the same row
+  defp verbs(row) do
+    ~r/verb: "(\w+)"((?: \\\| "\w+")*)/
+    |> Regex.scan(row, capture: :all_but_first)
+    |> Enum.flat_map(fn [first, more] ->
+      [first | Regex.scan(~r/"(\w+)"/, more, capture: :all_but_first) |> List.flatten()]
+    end)
+  end
 end
