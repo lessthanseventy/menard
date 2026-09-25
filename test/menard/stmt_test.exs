@@ -274,4 +274,26 @@ defmodule Menard.StmtTest do
     assert message =~ "elixir_files ="
     assert message =~ "elixir_tests ="
   end
+
+  test "a __MODULE__ call and a literal before end are patched at their own bytes" do
+    # Sourceror starts `__MODULE__.go()` after the `__MODULE__`, and ends a literal before `end` one
+    # past it: a patch over either left `__MODULE__` behind, or ate the space before `end`
+    src = """
+    defmodule A do
+      def go do
+        __MODULE__.Docs.helper(1)
+      end
+
+      def cb, do: Enum.map([1], fn _ -> nil end)
+    end
+    """
+
+    assert Stmt.replace(src, "go/0", "", "__MODULE__.Docs.helper(1)", "__MODULE__.Docs.helper(2)") =~
+             "\n    __MODULE__.Docs.helper(2)\n"
+
+    assert Menard.Clause.replace_body(src, "go/0", "", "__MODULE__.Docs.other()") =~
+             "\n    __MODULE__.Docs.other()\n  end"
+
+    assert Stmt.replace(src, "cb/0", "", "nil", "nil") == src
+  end
 end

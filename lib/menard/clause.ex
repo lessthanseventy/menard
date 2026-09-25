@@ -44,8 +44,7 @@ defmodule Menard.Clause do
        ) do
     range =
       body
-      |> Sourceror.get_range()
-      |> Menard.Source.clamp(source)
+      |> Menard.Source.range(source)
       |> Menard.Source.with_leading_comments(source, code)
 
     cond do

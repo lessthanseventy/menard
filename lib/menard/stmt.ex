@@ -149,10 +149,8 @@ defmodule Menard.Stmt do
   end
 
   defp describe(node, source, clause) do
-    case Sourceror.get_range(node) do
+    case Menard.Source.range(node, source) do
       %{start: [line: a, column: col], end: [line: b, column: _]} = range ->
-        range = Menard.Source.clamp(range, source)
-
         if within?(range, clause.range) and not same_as?(range, clause.range) do
           [%{range: range, text: slice(source, range), indent: String.duplicate(" ", col - 1), span: b - a}]
         else

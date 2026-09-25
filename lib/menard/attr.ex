@@ -109,7 +109,7 @@ defmodule Menard.Attr do
   # -- editing -------------------------------------------------------------
 
   defp replace(source, node, name, value) do
-    %{start: [line: _, column: col]} = range = node |> Sourceror.get_range() |> Menard.Source.clamp(source)
+    %{start: [line: _, column: col]} = range = Menard.Source.range(node, source)
     written = "@#{to_atom(name)} " <> reindent(value, String.duplicate(" ", col - 1))
     Sourceror.patch_string(source, [%{range: range, change: written, preserve_indentation: false}])
   end

@@ -112,9 +112,28 @@ defmodule Menard.Test.Identity do
   # there, so it makes no edit, rather than a crash that hides every other edit in the file
   defp slice(source, node) do
     case Sourceror.get_range(node) do
-      %{start: [line: a, column: ca], end: [line: b, column: cb]} -> slice(source, a, ca, b, cb)
-      nil -> nil
+      %{start: start, end: [line: b, column: cb]} ->
+        {a, ca} = first_position(node, {start[:line], start[:column]})
+        slice(source, a, ca, b, cb)
+
+      nil ->
+        nil
     end
+  end
+
+  # Sourceror starts `x not in y` at `not` and `__MODULE__.A.f()` after `__MODULE__`; where a node
+  # inside says it begins earlier, it does
+  defp first_position(node, earliest) do
+    node
+    |> Macro.prewalker()
+    |> Enum.reduce(earliest, fn
+      {_, meta, _}, acc when is_list(meta) ->
+        here = {meta[:line], meta[:column]}
+        if is_integer(elem(here, 0)) and is_integer(elem(here, 1)) and here < acc, do: here, else: acc
+
+      _, acc ->
+        acc
+    end)
   end
 
   defp slice(source, a, ca, b, cb) do
@@ -124,7 +143,8 @@ defmodule Menard.Test.Identity do
     # quotes of an interpolated heredoc
     cb =
       case Regex.run(~r/^\s*"""/, last_line) do
-        [closing] -> String.length(closing) + 1
+        # the closing quotes, or past them when the node goes on: `raise(E, """ … """)` ends after `)`
+        [closing] -> cb |> max(String.length(closing) + 1) |> min(String.length(last_line) + 1)
         nil -> min(cb, String.length(last_line) + 1)
       end
 

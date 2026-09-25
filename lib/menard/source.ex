@@ -54,8 +54,16 @@ defmodule Menard.Source do
         nil -> c
       end
 
-    %{range | end: [line: b, column: min(c, String.length(line) + 1)]}
+    %{range | end: [line: b, column: line |> String.length() |> Kernel.+(1) |> min(c) |> off_blanks(line)]}
   end
+
+  # A literal before `end` (`fn -> nil end`) ends one past itself in Sourceror, on the space: a patch
+  # over it ate the space, `nilend`. No node ends on whitespace.
+  defp off_blanks(c, line) when c > 1 do
+    if String.at(line, c - 2) in [" ", "\t"], do: off_blanks(c - 1, line), else: c
+  end
+
+  defp off_blanks(c, _line), do: c
 
   @doc """
   `code` placed at `indent`: its first line bare (a patch starts at the column), every later line
@@ -135,5 +143,35 @@ defmodule Menard.Source do
     else
       range
     end
+  end
+
+  @doc """
+  `node`'s range as the verbs patch it: Sourceror's, corrected where it is wrong, then `clamp/2`ed.
+  It starts `__MODULE__.Docs.go()` after the `__MODULE__`, which left `__MODULE__` behind a patch
+  and made the statement unreachable by what is written: the true start is the earliest position
+  any node inside carries. nil where Sourceror has no range.
+  """
+  def range(node, source) do
+    case Sourceror.get_range(node) do
+      nil -> nil
+      range -> range |> earliest_start(node) |> clamp(source)
+    end
+  end
+
+  defp earliest_start(%{start: [line: line, column: col]} = range, node) do
+    {_node, {line, col}} =
+      Macro.prewalk(node, {line, col}, fn
+        {_, meta, _} = inner, earliest when is_list(meta) ->
+          here = {meta[:line], meta[:column]}
+
+          if is_integer(elem(here, 0)) and is_integer(elem(here, 1)) and here < earliest,
+            do: {inner, here},
+            else: {inner, earliest}
+
+        inner, earliest ->
+          {inner, earliest}
+      end)
+
+    %{range | start: [line: line, column: col]}
   end
 end
