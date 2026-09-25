@@ -25,29 +25,60 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def replace_body(source, name_arity, head, code, opts \\ []) do
     with :ok <- body_only(code),
-         {:ok, clause} <- find(source, name_arity, head, opts),
-         {:ok, patch} <- body_patch(clause, code) do
-      Sourceror.patch_string(source, [patch])
+         {:ok, clause} <- find(source, name_arity, head, opts) do
+      body_edit(source, clause, code, name_arity, opts)
     end
   end
 
-  # A clause with `rescue`/`catch`/`after`/`else` beside its `do` keeps them: rebuilding it from the
-  # head and the new body would drop them, and the result still parses. So only the do-body moves.
-  defp body_patch(%{node: {_kind, meta, [_head, [{_do, body}, _ | _]]}} = clause, code) do
-    if meta[:do] do
-      {:ok,
-       %{
-         range: Sourceror.get_range(body),
-         change: reindent(code, clause.indent <> "  "),
-         preserve_indentation: false
-       }}
+  # Only the body's bytes move, so a clause keeps its form. `do … end` holds anything. `, do:` holds
+  # the new body only if it reads back as itself there — `do: if a, do: b, else: c` hands `else:` to
+  # the def — so that is checked, and a body that does not fit turns the clause into `do … end`.
+  # `rescue`/`after`/… beside a `do:` would need the same care, and is refused toward `rewrite`.
+  defp body_edit(
+         source,
+         %{node: {_kind, meta, [_head, [{_do, body} | rest]]}} = clause,
+         code,
+         name_arity,
+         opts
+       ) do
+    range = Sourceror.get_range(body)
+
+    cond do
+      meta[:do] ->
+        patch(source, range, reindent(code, clause.indent <> "  "))
+
+      rest != [] ->
+        {:error, "this clause has rescue/catch/after/else in keyword form — use `rewrite`"}
+
+      true ->
+        inline = patch(source, range, String.trim(code))
+
+        if reads_back?(inline, source, name_arity, clause, code, opts),
+          do: inline,
+          else: patch(source, clause.range, clause_text(clause, code))
+    end
+  end
+
+  defp body_edit(source, clause, code, _name_arity, _opts),
+    do: patch(source, clause.range, clause_text(clause, code))
+
+  defp reads_back?(out, source, name_arity, clause, code, opts) do
+    with false <- String.contains?(String.trim(code), "\n"),
+         {:ok, %{node: {_kind, _meta, [_head, [{_do, body}]]}}} <-
+           find(out, name_arity, clause.head_text, opts),
+         {:ok, want} <- Sourceror.parse_string(code) do
+      # parsed "right" can still be parsed with a warning: an unparenthesised call in a keyword is
+      # ambiguous to Elixir, which picks a reading and says so
+      Sourceror.to_string(body) == Sourceror.to_string(want) and parse_warnings(out) <= parse_warnings(source)
     else
-      {:error, "this clause has rescue/catch/after/else in keyword form — use `rewrite`"}
+      _ -> false
     end
   end
 
-  defp body_patch(clause, code),
-    do: {:ok, %{range: clause.range, change: clause_text(clause, code), preserve_indentation: false}}
+  defp parse_warnings(source) do
+    {_result, diagnostics} = Code.with_diagnostics(fn -> Code.string_to_quoted(source) end)
+    length(diagnostics)
+  end
 
   @doc """
   Replace the WHOLE clause — head included — with `code`, a complete `def …`. The verb for the
@@ -611,11 +642,8 @@ defmodule Menard.Clause do
       if String.trim(args) == "", do: "#{kind} #{name}", else: "#{kind} #{name}(#{args})"
 
     head = head <> if(guard, do: " when " <> guard, else: "")
-
-    case String.split(String.trim(code), "\n") do
-      [one] -> head <> ", do: " <> one
-      many -> Enum.join([head <> " do" | Enum.map(many, &(indent <> "  " <> &1))] ++ [indent <> "end"], "\n")
-    end
+    lines = code |> String.trim() |> String.split("\n") |> Enum.map(&(indent <> "  " <> &1))
+    Enum.join([head <> " do" | lines] ++ [indent <> "end"], "\n")
   end
 
   # A rewrite patches AT the clause's own column, so the first line carries no indent of its own and

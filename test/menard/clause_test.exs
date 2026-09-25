@@ -20,12 +20,13 @@ defmodule Menard.ClauseTest do
   end
   """
 
-  test "replace_body swaps one clause's body, one-liner or block, leaving the rest" do
+  test "replace_body swaps one clause's body and keeps its form — do…end or do:" do
     out = Clause.replace_body(@src, "go/1", ":b", "20")
-    assert out =~ "def go(:b), do: 20"
-    refute out =~ "\n    2\n"
+    assert out =~ "def go(:b) do\n    20\n  end"
     assert out =~ "# first\n  def go(:a), do: 1"
     assert out =~ "def go(other), do: other"
+
+    assert Clause.replace_body(@src, "go/1", ":a", "10") =~ "def go(:a), do: 10"
   end
 
   test "delete removes the clause (and the comment glued above it), nothing else" do
@@ -108,7 +109,7 @@ defmodule Menard.ClauseTest do
 
   describe "head matching tolerates the parens people copy off the def line" do
     test "`(:b)` finds the clause whose head is `:b`" do
-      assert Clause.replace_body(@src, "go/1", "(:b)", "20") =~ "def go(:b), do: 20"
+      assert Clause.replace_body(@src, "go/1", "(:b)", "20") =~ "def go(:b) do\n    20\n  end"
     end
 
     test "the parens may wrap the args of a GUARDED head, with the guard left outside" do
@@ -466,5 +467,21 @@ defmodule Menard.ClauseTest do
 
     assert {:error, message} = Clause.replace_body(src, "foo/1", "x", ":any")
     assert message =~ "Outer, Outer.Inner"
+  end
+
+  test "a body with keywords of its own is not handed to a do: clause's def" do
+    src = """
+    defmodule A do
+      def f(x), do: x
+    end
+    """
+
+    assert Clause.replace_body(src, "f/1", "x", "if x, do: 1, else: 2") == """
+           defmodule A do
+             def f(x) do
+               if x, do: 1, else: 2
+             end
+           end
+           """
   end
 end
