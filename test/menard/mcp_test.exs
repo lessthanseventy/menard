@@ -400,4 +400,15 @@ defmodule Menard.MCPTest do
     assert response.isError
     assert response.content |> hd() |> Map.fetch!("text") =~ "no file matches lib/**/*.exs"
   end
+
+  test "block add in a test file writes a test when no name is given", %{root: root} do
+    File.write!(
+      Path.join(root, "lib/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"one\" do\n    assert true\n  end\nend\n"
+    )
+
+    refute call(Menard.MCP.Block, %{verb: "add", file: "lib/a_test.exs", label: "two", code: "assert 2"}).isError
+
+    assert File.read!(Path.join(root, "lib/a_test.exs")) =~ "test \"two\" do\n    assert 2\n  end"
+  end
 end
