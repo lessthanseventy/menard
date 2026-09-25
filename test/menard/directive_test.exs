@@ -147,4 +147,25 @@ defmodule Menard.DirectiveTest do
     assert message =~ "Foo.{Bar, Baz}"
     assert Directive.add(src, :alias, "Zed") =~ "alias Foo.{Bar, Baz}\n  alias Zed\n"
   end
+
+  test "replace changes a directive's options in place, in one step" do
+    src = """
+    defmodule A do
+      use B, version: "1"
+
+      def go, do: 1
+    end
+    """
+
+    assert Directive.replace(src, :use, "B", args: ~s(version: "2")) == """
+           defmodule A do
+             use B, version: "2"
+
+             def go, do: 1
+           end
+           """
+
+    assert {:error, message} = Directive.replace(src, :alias, "Nope", args: nil)
+    assert message =~ "no alias Nope"
+  end
 end
