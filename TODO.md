@@ -13,16 +13,11 @@ commit lands.
       (Skill load, then ToolSearch for the deferred MCP schemas), each re-reading the whole
       context. Pilot, sonnet: ~1.7× the turns and context of no-menard on small tasks, +20% cost.
       Put what a verb needs into the tool descriptions so the skill isn't a prerequisite, and see
-      whether the tools can load up front instead of deferred.
-- [ ] Eval: the guard's refusal lists `bin/menard …` CLI lines, so a blocked agent reaches for Bash
-      rather than the MCP tools (haiku: CLI in 2 of 3 menard runs, with shell-quoting mistakes, e.g.
-      a clause BODY passed as HEAD). Under Claude Code, name the MCP tool and the call to make.
+      whether the tools can load up front instead of deferred. `alwaysLoad: true` on the server
+      (undocumented, works in the CLI, bench 2026-09-25) drops the ToolSearch turn for ~3.7k tokens
+      of schemas on every turn: being measured in eval round 2.
 - [ ] Eval: agents edit `.ex` with `sed -i` or a python heredoc in both arms (Bash is unguarded, by
       design); with menard it happened in 1 of 6 sonnet runs and in haiku's. Count stays in the
       report's "shell edit" column; decide whether the Bash PostToolUse hook should say something.
 - [ ] Eval: in the 1,016-line-module case a menard run still `Read` the whole file; nothing steered
       it to `outline`/`find` first, which is where menard should save context.
-- [ ] `clause replace FILE call/2 …` in a file with several modules is refused listing the modules
-      but not the way out: `Mod.Name.call/2` works as the name/arity. Say so in the refusal.
-- [ ] `mix menard.block` usage omits `--module` for add, though add refuses "several modules here —
-      name one" without it.
