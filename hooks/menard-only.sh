@@ -23,7 +23,10 @@ case "$tool" in
     case "$file" in *.ex | *.exs) ;; *) exit 0 ;; esac
     [[ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/menard" ]] || exit 0
     # --mcp: name the plugin's MCP tools in the refusal; CLI lines sent blocked agents to Bash
-    "$CLAUDE_PLUGIN_ROOT/bin/menard" guard "$file" --mcp mcp__plugin_menard_menard__ </dev/null
+    # --edit: the edit itself, so one that only changes text inside a string (a heredoc, a ~H
+    # template, which no verb reaches into) can pass
+    edit=$(jq -c '.tool_input // {}' <<<"$payload" 2>/dev/null)
+    "$CLAUDE_PLUGIN_ROOT/bin/menard" guard "$file" --mcp mcp__plugin_menard_menard__ --edit "$edit" </dev/null
     status=$?
     # 2 is the refusal; anything else (menard failing to start) must never block an edit
     ((status == 2)) && exit 2

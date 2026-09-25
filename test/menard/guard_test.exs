@@ -52,4 +52,69 @@ defmodule Menard.GuardTest do
     assert out =~ "name_arity"
     refute out =~ "bin/menard"
   end
+
+  describe "--edit: an edit that only changes text inside strings passes" do
+    @src ~S'''
+    defmodule Shop.Mailer do
+      # the receipt
+      @receipt """
+      Total: {{totl}}
+      """
+
+      def render(assigns) do
+        ~H"""
+        <p>{Cart.total(@cart)}</p>
+        """
+      end
+
+      def hi(name), do: "hi #{name}"
+    end
+    '''
+
+    setup %{tmp_dir: dir} do
+      file = Path.join(dir, "mailer.ex")
+      File.write!(file, @src)
+      %{mailer: file}
+    end
+
+    defp edit(file, input),
+      do:
+        System.cmd(@bin, ["guard", file, "--edit", JSON.encode!(input)],
+          stderr_to_stdout: true,
+          env: [{"MIX_ENV", "dev"}]
+        )
+
+    test "a heredoc attribute's text and a ~H template's text pass", %{mailer: file} do
+      assert {_, 0} = edit(file, %{old_string: "{{totl}}", new_string: "{{total}}"})
+      assert {_, 0} = edit(file, %{old_string: "Cart.total(@cart)", new_string: "Cart.total(@cart, rate)"})
+    end
+
+    test "MultiEdit and Write are judged the same way, on the file they would leave", %{mailer: file} do
+      assert {_, 0} =
+               edit(file, %{
+                 edits: [
+                   %{old_string: "totl", new_string: "total"},
+                   %{old_string: "<p>", new_string: "<p class=\"t\">"}
+                 ]
+               })
+
+      assert {_, 0} = edit(file, %{content: String.replace(@src, "totl", "total")})
+      assert {_, 2} = edit(file, %{content: String.replace(@src, "hi(name)", "hi(first)")})
+    end
+
+    test "code is refused, even code interpolated into a string", %{mailer: file} do
+      assert {out, 2} = edit(file, %{old_string: "def hi(name)", new_string: "def hi(first)"})
+      assert out =~ "an Elixir module"
+      assert {_, 2} = edit(file, %{old_string: "\#{name}", new_string: "\#{String.upcase(name)}"})
+    end
+
+    test "a comment is refused: menard has verbs for those", %{mailer: file} do
+      assert {_, 2} = edit(file, %{old_string: "# the receipt", new_string: "# the mail"})
+    end
+
+    test "an edit that breaks the parse, or does not apply, is refused", %{mailer: file} do
+      assert {_, 2} = edit(file, %{old_string: "Total: {{totl}}\n  \"\"\"", new_string: "Total"})
+      assert {_, 2} = edit(file, %{old_string: "not in the file", new_string: "x"})
+    end
+  end
 end

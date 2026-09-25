@@ -21,3 +21,8 @@ commit lands.
       report's "shell edit" column; decide whether the Bash PostToolUse hook should say something.
 - [ ] Eval: in the 1,016-line-module case a menard run still `Read` the whole file; nothing steered
       it to `outline`/`find` first, which is where menard should save context.
+- [ ] `clause rewrite` with a comment leading CODE puts it between the clause's `@impl true` and
+      its `def`, and no verb then reaches a comment there (rewrite and `attr comment` both no-op);
+      it took a raw edit to move (guard's run/1, 2026-09-25).
+- [ ] pi's guard doesn't pass the edit to `menard guard --edit`, so pi still blocks edits that only
+      change text inside a string; Claude Code's hook does.

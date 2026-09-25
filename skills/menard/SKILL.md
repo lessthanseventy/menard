@@ -9,7 +9,8 @@ An `Edit` or `Write` on an existing `.ex`/`.exs` holding a `defmodule` is **bloc
 instead: they parse the file, change the tree, and parse-check what they write, where a text
 substitution is a guess whose failures are silent.
 
-Exempt: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`, `mix.lock`. **`Bash` is not
+Exempt: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`, `mix.lock`, and (Claude
+Code) an `Edit` that only changes text inside a string: a heredoc, a `~H` template. **`Bash` is not
 watched, and that is not permission**: `sed -i` on a module is just as wrong, only unenforceable.
 
 ## Calling a verb

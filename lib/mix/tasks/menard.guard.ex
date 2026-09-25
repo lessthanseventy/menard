@@ -12,13 +12,16 @@ defmodule Mix.Tasks.Menard.Guard do
 
   @exempt ~r{(^|/)(_build|deps)/|(^|/)config/[^/]*\.exs$|(^|/)\.formatter\.exs$|(^|/)mix\.lock$}
 
-  @impl true
-  def run([file]), do: check(file, nil)
   # `--mcp PREFIX`: the harness has menard as MCP tools named PREFIX<noun>, so the refusal names those,
-  # not CLI lines a blocked agent would then run through its shell
-  def run([file, "--mcp", prefix]), do: check(file, prefix)
-
-  def run(_argv), do: Mix.raise("usage: mix menard.guard FILE [--mcp TOOL_PREFIX]")
+  # not CLI lines a blocked agent would then run through its shell. `--edit JSON`: the harness's edit
+  # (Claude Code's tool_input), so an edit that only changes text inside strings can pass.
+  @impl true
+  def run(argv) do
+    case OptionParser.parse(argv, strict: [mcp: :string, edit: :string]) do
+      {opts, [file], []} -> check(file, opts[:mcp], opts[:edit])
+      _ -> Mix.raise("usage: mix menard.guard FILE [--mcp TOOL_PREFIX] [--edit TOOL_INPUT_JSON]")
+    end
+  end
 
   defp module?(path) do
     Path.extname(path) in [".ex", ".exs"] and File.regular?(path) and
@@ -70,12 +73,61 @@ defmodule Mix.Tasks.Menard.Guard do
     """
   end
 
-  defp check(file, prefix) do
+  defp check(file, prefix, edit) do
     path = Menard.resolve(file)
 
-    if module?(path) and not Regex.match?(@exempt, path) do
+    if module?(path) and not Regex.match?(@exempt, path) and not strings_only?(path, edit) do
       IO.puts(:stderr, refusal(path, prefix))
       exit({:shutdown, 2})
     end
+  end
+
+  # Text inside a string or sigil (a heredoc, a ~H template) is one node to menard, so no verb reaches
+  # into it. Such an edit passes: the file it leaves parses to the same tree, strings aside, with the
+  # same comments. Code interpolated into a string is still tree, so a change to it is refused.
+  defp strings_only?(_path, nil), do: false
+
+  defp strings_only?(path, json) do
+    old = File.read!(path)
+
+    with {:ok, input} <- JSON.decode(json),
+         {:ok, new} <- applied(old, input),
+         {:ok, a, a_comments} <- Code.string_to_quoted_with_comments(old),
+         {:ok, b, b_comments} <- Code.string_to_quoted_with_comments(new) do
+      unstrung(a) == unstrung(b) and Enum.map(a_comments, & &1.text) == Enum.map(b_comments, & &1.text)
+    else
+      _ -> false
+    end
+  end
+
+  # The file the edit would leave, from Claude Code's Write, MultiEdit or Edit input
+  defp applied(_old, %{"content" => content}) when is_binary(content), do: {:ok, content}
+
+  defp applied(old, %{"edits" => edits}) when is_list(edits) do
+    Enum.reduce_while(edits, {:ok, old}, fn edit, {:ok, src} ->
+      case applied(src, edit) do
+        {:ok, next} -> {:cont, {:ok, next}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp applied(old, %{"old_string" => from, "new_string" => to} = edit) when from != "" do
+    case {length(:binary.matches(old, from)), edit["replace_all"]} do
+      {0, _} -> :error
+      {_, true} -> {:ok, String.replace(old, from, to)}
+      {1, _} -> {:ok, String.replace(old, from, to, global: false)}
+      _ -> :error
+    end
+  end
+
+  defp applied(_old, _input), do: :error
+
+  defp unstrung(ast) do
+    Macro.prewalk(ast, fn
+      string when is_binary(string) -> :string
+      {form, meta, args} when is_list(meta) -> {form, [], args}
+      other -> other
+    end)
   end
 end
