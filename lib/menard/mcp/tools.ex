@@ -124,8 +124,11 @@ if Code.ensure_loaded?(Anubis.Server) do
     included — the verb for changing args or adding a guard), `delete`, `insert_after` or
     `insert_before` (`code` is the new clause). Address it by `name_arity` ("go/1", or "Mod.go/1" in
     a file with several modules — an unqualified name that several modules define is refused) and
-    `head` — its args as written plus any guard, parens optional. A miss lists the heads that exist.
-    Only the clause's bytes change.
+    `head`: the clause's CURRENT head as `outline` prints it (args as written, guard optional, parens
+    optional), or "" for a zero-arity clause or a function's only one. What it becomes goes in `code`:
+    a `rewrite` from `total(cart)` to `total(cart, rate)` is `name_arity: "total/1"`, `head: "cart"`.
+    A miss lists the heads that exist. Only the clause's bytes change. An ExUnit `test` is a macro,
+    not a clause: `block` reaches it.
 
     `visibility` flips a function public/private — EVERY clause of it, since a half-flipped
     function does not compile; going private also drops an attached `@doc`, which Elixir discards

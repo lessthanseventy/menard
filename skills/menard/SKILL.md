@@ -1,117 +1,89 @@
 ---
 name: menard
-description: How to edit Elixir (.ex/.exs) with menard's AST-aware verbs instead of Edit/Write or sed — which verb fits which change, and the traps no error message explains. Use before changing any Elixir module, test file or directive, and when an Edit on a .ex/.exs file is blocked.
+description: How to edit Elixir (.ex/.exs) with menard's AST-aware tools instead of Edit/Write or sed — which tool fits which change, and the traps no error message explains. Use before changing any Elixir module, test file or directive, and when an Edit on a .ex/.exs file is blocked.
 ---
 
 # Editing Elixir with menard
 
-An `Edit` or `Write` on an existing `.ex`/`.exs` holding a `defmodule` is **blocked**. Use the verbs
-instead: they parse the file, change the tree, and parse-check what they write, where a text
-substitution is a guess whose failures are silent.
+An `Edit` or `Write` on an existing `.ex`/`.exs` holding a `defmodule` is **blocked**; `sed` or a
+script on one is the same guess, unguarded. Edit with menard's tools: each parses the file, changes
+the tree, formats with the project's formatter and parse-checks what it writes.
 
-Exempt: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`, `mix.lock`, and (Claude
-Code) an `Edit` that only changes text inside a string: a heredoc, a `~H` template. **`Bash` is not
-watched, and that is not permission**: `sed -i` on a module is just as wrong, only unenforceable.
+Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`,
+`mix.lock`, and an `Edit` that only changes text inside a string (a heredoc, a `~H` template).
 
-## Calling a verb
+## Calling a tool
 
-**Claude Code** — MCP tools `mcp__plugin_menard_menard__<noun>` (`clause`, `stmt`, `block`,
-`attr`, `outline`, …), with the verb as an argument. Paths are relative to the project.
+- **Claude Code**: MCP tools `mcp__plugin_menard_menard__<tool>`, verb as an argument.
+- **pi**: `mcp({ tool: "menard__<tool>", args: {…} })`, the same arguments.
+- **CLI**, where there is no MCP: `menard <tool> <verb> FILE …`, the same fields in order; a
+  wrong call prints the usage. CODE full of quotes goes in a file, passed with `--stdin`.
 
-**pi** — the `menard` MCP server's tools: `mcp({ tool: "menard__<noun>", args: {…} })`. Paths
-are relative to the project root.
+`file` is relative to the project.
 
-**CLI** (either harness) — `menard VERB …`. Paths are relative to where you stand.
-**CODE full of quotes or backslashes:** write it to a file and pass `--stdin`, so the verb's last
-argument is read from stdin, which no shell quoting can mangle.
+## Which tool
 
-## Which verb
+Start with `outline {file}`: every module, and every clause's `name_arity`, `head`, lines and doc,
+in far fewer tokens than reading the file. `Read` only the lines you need after it. Then match the
+SHAPE of the change, not its size:
 
-Read the file first: `outline FILE` names every module, clause and doc in it. Then match the
-SHAPE of what you are changing, not the size of the change:
-
-| you are changing | verb |
+| changing | call |
 |---|---|
-| what a function does | `clause replace FILE name/arity HEAD BODY` |
-| its head, args or guard | `clause rewrite FILE name/arity HEAD 'def …'` |
-| one expression inside it | `stmt replace FILE name/arity HEAD MATCH CODE` |
-| a whole clause's existence | `clause insert-after` / `insert-before` / `delete` |
-| a whole new function | `clause insert-at FILE Mod.Name CODE` |
-| which FILE a function lives in | `clause move FILE name/arity --to DEST [--as Mod.Name]` |
-| a module attribute (`@colors`, `@hints`) | `attr get\|set\|delete\|list FILE @name` |
-| the comment above one | `attr comment FILE @name [TEXT]`; no TEXT removes it |
-| the comment above a function (above its `@doc`/`@impl`) | `clause comment FILE name/arity HEAD [TEXT]`; no TEXT removes it |
-| the comment above a statement, inside a body | `stmt comment FILE name/arity HEAD MATCH [TEXT]` |
-| the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
-| the comment above `defmodule` (a license header) | `module comment FILE (Mod\|-) [TEXT] --above` |
-| an ExUnit `test`, a `describe`, a `schema` | `block get\|replace\|add\|delete\|relabel FILE test --label "…"` |
-| a function's `@spec` | `clause spec FILE name/arity [SPEC]`; no SPEC removes it |
-| an alias/import/require/use, or a test's `doctest Mod` | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
-| a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
-| a whole new file | `write FILE CODE` (`-` or `--stdin` reads it from stdin) |
-| one whole module, in a file of several | `module replace FILE Mod.Name CODE` |
-| a project dependency | `deps add [--in DIR] '{:req, "~> 0.5"}'` (or a bare name) · `deps upgrade [APPS] [--to REQ]` |
+| what a function does | `clause {verb: "replace", file, name_arity, head, code: BODY}` |
+| its head, args or guard | `clause {verb: "rewrite", …, code: "def …"}` |
+| one expression inside it | `stmt {verb: "replace", file, name_arity, head, match, code}` |
+| a new function | `clause {verb: "insert_at", file, module, code}`; a new clause of one: `insert_after` its sibling |
+| a clause's existence | `clause {verb: "delete" \| "insert_before", …}` |
+| public or private | `clause {verb: "visibility", file, name_arity, visibility}`: every clause at once |
+| which file a function lives in | `clause {verb: "move", file, name_arity, to, as?}` |
+| a function's `@spec`, `@doc`, or the comment above it | `clause {verb: "spec" \| "doc" \| "comment", …, text}`; no `text` removes it |
+| the comment above a statement | `stmt {verb: "comment", …, match, text}` |
+| a module attribute, or its comment | `attr {verb: "get" \| "set" \| "delete" \| "comment", file, name, value \| text}` |
+| a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}` |
+| an alias/import/use/require, a `doctest` | `directive {verb: "add" \| "replace" \| "remove", file, kind, target}` |
+| a module's header comment, or one whole module | `module {verb: "comment" \| "replace", file, module, text \| code}` |
+| a name, everywhere | `rename {old, new, files: ["lib/**/*.ex", "test/**/*.exs"]}` |
+| who calls what | `find {kind: "calls" \| "defs" \| "aliases", target, files}`: strings and comments never match |
+| what a function uses, who calls its helpers | `deps {verb: "refs", file, name_arity}` |
+| a project dependency | `deps {verb: "add", spec}` or `{verb: "upgrade", apps?, to?}`: fetches, compiles, answers with the lock diff |
+| a whole new file | `write {file, code}` |
 
-`replace` takes the **body**; `rewrite` takes the **whole clause**. Passing a `def` to `replace` is
-refused, because `def bg, do: def(bg, do: X)` is valid Elixir and only the compiler would object.
+**`head` is an address: the clause's CURRENT head, copied from `outline`** (`head:
+"%__MODULE__{items: items}"`), not what it will become. What the clause BECOMES goes in `code`:
 
-What the verbs guarantee, where it is not obvious from the name:
+- `replace`: `code` is the new body alone.
+- `rewrite`: `code` is the whole new clause, new head included. Changing `total(cart)` into
+  `total(cart, rate)` is `{verb: "rewrite", name_arity: "total/1", head: "cart", code: "def
+  total(cart, rate) do … end"}`: the arity is the old one.
 
-- `stmt` reaches a line in a `do` block, a step in a `with`, and a `case` **arm** alike: address
-  the clause, then the statement by what is WRITTEN: the whole of it, or its start (`total =`) when
-  only one statement starts that way. `list` prints what is there, and so does a miss.
-- `clause insert-at` places by the code: a `defp` lands with the private functions. A new *clause*
-  of an existing function is `insert-after`, named against its sibling; a different function given
-  to `insert-after` goes after the whole function, never between its clauses.
-- `clause replace` keeps a clause's form (`do … end` or `do:`) and its `rescue`/`after`.
-- `clause visibility` flips EVERY clause at once: a half-flipped function does not compile.
-- `directive add` places in Elixir's conventional order (use → import → alias → require →
-  doctest, alphabetised), so the next format pass does not move it. `directive replace` changes a
-  directive's options in place.
-- `block add FILE test CODE --label L [--args '%{conn: conn}'] [--in "describe label"] [--tag
-  :tmp_dir]…` writes a new test, with its context if it takes one and an `@tag` line per `--tag`.
-- `attr` refuses a name that repeats per clause (`@doc`, `@impl`, `@spec`); the clause verbs
-  already carry those.
-- `find calls|defs|aliases` is grep that knows the code: strings and comments never match.
-- `deps add` writes the dependency into the deps list, fetches and compiles, and answers with the
-  lock diff and the compile; a fetch that fails puts mix.exs back. `deps upgrade` goes through the
-  host's own `mix igniter.upgrade` when it has Igniter, so each package's upgraders run.
-- `clause move` carries the function's `@doc`, `@spec` and the comment above it, and takes EVERY
-  clause. It does NOT touch aliases or call sites: that is the judgement, and `deps FILE
-  name/arity` (what a function references, who else calls its helpers) is how you make it.
+A function name repeated across modules is `Mod.Name.fun/2`.
 
-## What no error can tell you
+## Traps
 
-- **ExUnit `test` and `describe` are macros, not definitions.** The clause verbs cannot address
-  them; `block` can, by macro name with `--label`.
-- **A zero-arity clause has no head.** `bg`, `bg()`, `def bg` and `""` all address it. Nor does a
-  function's only clause: `""` is that one, and among several it is refused with their heads.
+- **`test` and `describe` are macros, not functions**: `block` reaches them by `label`.
+- **A zero-arity clause, or a function's only clause, takes `head: ""`.** Among several it is
+  refused with their heads: copy one.
 - **A head answers without its defaults.** `source, opts` finds `def f(source, opts \\ [])`.
-- **An ambiguous head is refused, not guessed at.** `--nth 1..N` says which. Acting on "the first"
-  silently is how a delete eats the clause that was just written.
-- **`delete` takes the clause's `@doc`/`@spec` with it**, and `insert-before` goes above them. A
-  `@doc` attaches to whatever definition *follows* it.
+- **An ambiguous head is refused with the candidates**; `nth` picks one.
+- **`delete` takes the clause's `@doc`/`@spec` with it**; `insert_before` goes above them.
+- **`clause move` carries the function, not its call sites or aliases**: fix those after, with
+  `find calls`.
+- `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
+  whole statement or its unique start (`total =`). A miss lists what is there.
+- `attr` refuses `@doc`/`@impl`/`@spec`, which repeat per clause: the clause verbs carry those.
 
-## Before you are done
+## The reply
 
-`run [--in DIR] check`: format, warnings-as-errors, tests, in one call. `run test` and
-`run compile` answer the same way: one JSON line, `{"ok":…,"tests":…,"failures":[…]}`, each failure
-carrying its source, instead of output to grep.
+Its stages say what touched your code after you: `formatter` is `mix format`, `plugins` is the
+project's plugins (Styler: sorted aliases, a collapsed pipe). Read them before looking for an edit
+that moved. `unformatted` means written but not formatted, and says why.
 
-**Hunting a flake:** `run test FILE --repeat-until-failure 50` repeats until the first failure and
-answers with that run alone: its failures, its `seed` (rerun with `--seed N` to reproduce), and
-`runs`, how many passed before it. Any other `mix test` flag passes through the same way.
+Pass the reply's `version` back on your next edit to that file. If another session changed it
+since, the edit is refused with the diff: re-read and redo it.
 
-The verbs format after every edit with the project's own formatter, so what you read next is what
-the formatter wrote. The reply says what each step did: `patch` is what you wrote, `formatter` what
-`mix format` changed, and `plugins` what the project's plugins (Styler) rewrote after that:
-sorted aliases, a collapsed pipe, an added `@moduledoc false`. Read `plugins` before you go
-looking for your edit and find it moved. A reply with `unformatted` was written but NOT formatted,
-and says why (a project plugin that will not load here): run the project's own `mix format`.
+## Done
 
-**Pass the reply's `version` back** (or `outline`'s, for the first edit) on your next edit to that file (`--version SHA`, or MCP
-`version`). If another session changed the file since, the edit is refused with the diff since
-your version: re-read what changed and redo the edit. `--force` writes anyway. `rename` takes one per file,
-`--version FILE=SHA` (repeat it), all checked before any file is written; `clause move` checks the
-file it moves from. A parse-checked write catches **malformed** output, not **wrong** output: it
-is a floor, not a proof. Run the check.
+`run {verb: "check"}` is format, warnings-as-errors and the tests in one JSON line, each failure
+with its source. `run {verb: "test", args: [FILE, "--repeat-until-failure", "50"]}` hunts a flake
+and answers with the failing run's `seed`. A parse-checked write is a floor, not a proof: finish on
+a green check.
