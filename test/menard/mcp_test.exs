@@ -297,4 +297,28 @@ defmodule Menard.MCPTest do
     refute forced.isError
     assert File.read!(file) =~ "do: 3"
   end
+
+  test "a tool that never returns still gets an answer out of the door, in time" do
+    # a verb stuck on a lock, or a format that never returns, must still get an answer out of the door
+    defmodule Stuck do
+      def call(_params, frame) do
+        Process.sleep(:infinity)
+        {:reply, :never, frame}
+      end
+    end
+
+    {us, {:reply, response, _frame}} =
+      :timer.tc(fn -> Menard.MCP.Reply.bounded(Stuck, %{}, Frame.new(), 200) end)
+
+    assert response.isError
+    assert response.content |> hd() |> Map.fetch!("text") =~ "did not finish in"
+    assert us < 2_000_000
+  end
+
+  test "every tool answers through the deadline" do
+    # every tool answers through bounded/4: its body is call/2, and execute/2 only puts a deadline on it
+    for %{handler: tool} <- Menard.MCP.__components__(:tool) do
+      assert function_exported?(tool, :call, 2), "#{inspect(tool)} answers without a deadline"
+    end
+  end
 end
