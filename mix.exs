@@ -16,6 +16,8 @@ defmodule Menard.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: false,
+      # the identity oracle the tests and the hex corpus benchmark share
+      elixirc_paths: if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]),
       description:
         "AST-aware editing for Elixir: every verb parses the file, changes the tree and parse-checks what it writes.",
       package: package(),
