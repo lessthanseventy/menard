@@ -62,4 +62,13 @@ defmodule Menard.WriteTest do
 
     assert File.read!(file) == "defmodule A do\nend\n"
   end
+
+  test "a parse error that carries a hint is refused with it, not crashed on", %{dir: dir} do
+    path = Path.join(dir, "a.ex")
+    # a stray `end`: the parser's message is a {prefix, hint} tuple
+    assert {:error, message} = Write.run(path, "defmodule A do\n  x\n  end\nend\nend")
+    assert message =~ "not parseable at line"
+    assert message =~ "hint"
+    refute File.exists?(path)
+  end
 end
