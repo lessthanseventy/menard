@@ -14,11 +14,15 @@ watched, and that is not permission**: `sed -i` on a module is just as wrong, on
 
 ## Calling a verb
 
-- **MCP tools** `mcp__plugin_menard_menard__<noun>` (`clause`, `stmt`, `block`, `attr`, `outline`,
-  …), with the verb as an argument. Paths are relative to the project.
-- **CLI:** `${CLAUDE_PLUGIN_ROOT}/bin/menard VERB …`. Paths are relative to where you stand.
-  **CODE full of quotes or backslashes:** write it to a file and pass `--stdin`, so the verb's last
-  argument is read from stdin, which no shell quoting can mangle.
+**Claude Code** — MCP tools `mcp__plugin_menard_menard__<noun>` (`clause`, `stmt`, `block`,
+`attr`, `outline`, …), with the verb as an argument. Paths are relative to the project.
+
+**pi** — the `menard` MCP server's tools: `mcp({ tool: "menard__<noun>", args: {…} })`. Paths
+are relative to the project root.
+
+**CLI** (either harness) — `menard VERB …`. Paths are relative to where you stand.
+**CODE full of quotes or backslashes:** write it to a file and pass `--stdin`, so the verb's last
+argument is read from stdin, which no shell quoting can mangle.
 
 ## Which verb
 
