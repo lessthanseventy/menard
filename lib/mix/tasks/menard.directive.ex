@@ -57,12 +57,10 @@ defmodule Mix.Tasks.Menard.Directive do
         Mix.raise(message)
 
       out ->
-        case Menard.checked_write(file, out) do
-          :ok -> :ok
+        case Menard.write(file, out, did: "directive in #{Path.basename(file)}") do
+          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end
-
-    Mix.shell().info("menard.directive: #{file} written")
   end
 end

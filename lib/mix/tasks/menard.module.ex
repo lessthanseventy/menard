@@ -27,13 +27,11 @@ defmodule Mix.Tasks.Menard.Module do
             Mix.raise(message)
 
           out ->
-            case Menard.checked_write(file, out) do
-              :ok -> :ok
+            case Menard.write(file, out, did: "module add in #{Path.basename(file)}") do
+              {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
               {:error, message} -> Mix.raise(message)
             end
         end
-
-        Mix.shell().info("menard.module: #{file} written")
 
       ["comment", file, module | text] when length(text) <= 1 ->
         file = Menard.resolve(file)
@@ -44,8 +42,8 @@ defmodule Mix.Tasks.Menard.Module do
             Mix.raise(message)
 
           out ->
-            case Menard.checked_write(file, out) do
-              :ok -> Mix.shell().info("menard.module: #{file} written")
+            case Menard.write(file, out, did: "module comment in #{Path.basename(file)}") do
+              {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
               {:error, message} -> Mix.raise(message)
             end
         end
@@ -58,8 +56,8 @@ defmodule Mix.Tasks.Menard.Module do
             Mix.raise(message)
 
           out ->
-            case Menard.checked_write(file, out) do
-              :ok -> Mix.shell().info("menard.module: #{file} written")
+            case Menard.write(file, out, did: "module replace #{name} in #{Path.basename(file)}") do
+              {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
               {:error, message} -> Mix.raise(message)
             end
         end

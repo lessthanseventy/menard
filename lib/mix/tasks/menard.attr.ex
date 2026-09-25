@@ -52,6 +52,7 @@ defmodule Mix.Tasks.Menard.Attr do
 
   defp edit(file, name, change) do
     file = Menard.resolve(file)
+    did = "#{name} in #{Path.basename(file)}"
 
     case change.(File.read!(file)) do
       {:error, :missing} ->
@@ -61,13 +62,11 @@ defmodule Mix.Tasks.Menard.Attr do
         Mix.raise(message)
 
       out ->
-        case Menard.checked_write(file, out) do
-          :ok -> :ok
+        case Menard.write(file, out, did: did) do
+          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end
-
-    Mix.shell().info("menard.attr: #{file} written")
   end
 
   # `:missing` before the general error: matched as `message`, the atom crashed Mix.raise/1.

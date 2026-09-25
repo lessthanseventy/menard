@@ -31,19 +31,41 @@ defmodule Menard do
   means "written but not formatted", never "not written".
   """
   def format(file, opts \\ []) do
+    content = File.read!(file)
+
+    case format_content(file, content, opts) do
+      {:ok, formatted} ->
+        if formatted != content, do: File.write!(file, formatted)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Format `content` for `file` in-memory — the host's `.formatter.exs`, plugins and `import_deps`,
+  without writing to disk. Returns `{:ok, formatted}` or `{:error, reason}`. The fallback path
+  (shell out to the host's `mix format`) writes to disk and reads back, since `mix format` works on
+  a file path; the caller's write is then a no-op.
+  """
+  def format_content(file, content, opts \\ []) do
     work = fn ->
       in_vm? =
-        Code.ensure_loaded?(Mix.Tasks.Format) and function_exported?(Mix.Tasks.Format, :formatter_for_file, 2)
+        Code.ensure_loaded?(Mix.Tasks.Format) and
+          function_exported?(Mix.Tasks.Format, :formatter_for_file, 2)
 
-      case if(in_vm?, do: in_process(file, opts), else: {:fallback, "Mix is not loaded here"}) do
+      case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
+        {:ok, formatted} ->
+          {:ok, formatted}
+
         {:fallback, why} ->
+          File.write!(file, content)
+
           case shell_format(file) do
-            :ok -> :ok
+            :ok -> {:ok, File.read!(file)}
             {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
           end
-
-        result ->
-          result
       end
     end
 
@@ -58,7 +80,7 @@ defmodule Menard do
     end
   end
 
-  defp in_process(file, opts) do
+  defp in_process(file, content, opts) do
     root = formatter_root(file)
     project = find_up(root, "mix.exs") || root
     dot = Path.join(root, ".formatter.exs")
@@ -75,10 +97,7 @@ defmodule Menard do
           plugin_loader: & &1
         )
 
-      content = File.read!(file)
-      formatted = formatter.(content)
-      if formatted != content, do: File.write!(file, formatted)
-      :ok
+      {:ok, formatter.(content)}
     end
   rescue
     e -> {:fallback, Exception.message(e)}
@@ -180,26 +199,61 @@ defmodule Menard do
   end
 
   @doc """
-  Write `content` to `file`, but only if it still parses as Elixir, then format it. Every edit verb
-  goes through here: an AST patch that lands unparseable bytes locks the file out of every other
-  verb, and text editing is then the only door back.
-  """
-  @spec checked_write(String.t(), String.t()) :: :ok | {:error, String.t()}
-  def checked_write(file, content) do
-    case Menard.Write.checked(file, content) do
-      {:ok, checked} ->
-        File.write!(file, checked)
-        # A format timeout is NOT a write failure: the bytes are on disk and correct, just not
-        # reformatted. Say so rather than failing an edit that actually landed.
-        case format(file) do
-          :ok -> :ok
-          {:error, reason} -> Mix.shell().error("menard: " <> reason)
-        end
+  Write `content` to `file` through the staged pipeline: parse-check, format in-memory, diff each
+  stage, write the result. Returns `{:ok, reply}` where reply is `%{did, file, version, stages}` —
+  the LiveView reply (docs/live.md). `stages` has `:patch` (what the verb changed) and `:formatter`
+  (what `mix format` changed after it), each as a list of `%{start, removed, added}` hunks.
 
-        :ok
+  `did` is a human-readable one-liner (`opts[:did]`), `version` is `sha256:` + the hex digest of the
+  file after every stage. A format failure is NOT a write failure: the bytes are on disk and
+  correct, just not reformatted — the reason goes to stderr and the `:formatter` stage is empty.
+  """
+  @spec write(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, String.t()}
+  def write(file, content, opts \\ []) do
+    did = opts[:did] || "edit #{Path.relative_to_cwd(file)}"
+    original = if File.regular?(file), do: File.read!(file), else: ""
+
+    case Menard.Write.checked(file, content) do
+      {:ok, patched} ->
+        {formatted, format_error} =
+          case format_content(file, patched) do
+            {:ok, f} -> {f, nil}
+            {:error, reason} -> {patched, reason}
+          end
+
+        File.write!(file, formatted)
+
+        if format_error, do: Mix.shell().error("menard: " <> format_error)
+
+        version =
+          "sha256:" <> Base.encode16(:crypto.hash(:sha256, formatted), case: :lower)
+
+        stages = [
+          %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
+          %{
+            stage: :formatter,
+            hunks: if(formatted != patched, do: Menard.Diff.hunks(patched, formatted), else: [])
+          }
+        ]
+
+        {:ok, %{did: did, file: file, version: version, stages: stages}}
 
       {:error, reason} ->
         {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
+    end
+  end
+
+  @doc """
+  Write `content` to `file`, but only if it still parses as Elixir, then format it. The thin
+  wrapper over `write/3` for callers that don't need the reply yet. Every edit verb goes through
+  here: an AST patch that lands unparseable bytes locks the file out of every other verb.
+  """
+  @spec checked_write(String.t(), String.t()) :: :ok | {:error, String.t()}
+  def checked_write(file, content) do
+    case write(file, content) do
+      {:ok, _reply} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
