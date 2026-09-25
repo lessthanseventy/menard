@@ -58,3 +58,8 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
 - 13:35 smoke and probe runs through `plugin eval`: findings above. Switched to headless runner.
 - 13:38 fixture, runner, 3 cases built; pilot started.
 - 13:43 pilot done (12/12 pass); round 1 started over the full matrix.
+- 13:50 harness bug: an agent (haiku) `git commit`ed its work and the runner diffed against HEAD,
+  so 2 runs were graded on an empty diff. Fixed (diff/checks against a tag `eval-base`), the 2 rows
+  dropped and redone; runner restarted 13:52. Also: the bug cases now accept a new test anywhere
+  under `test/`, which is what the prompt asks.
+- 13:58 REPORT.md gained a "menard adoption" table (MCP vs CLI-through-Bash vs shell edits).

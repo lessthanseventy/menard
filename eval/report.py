@@ -5,6 +5,7 @@
 """
 
 import json
+import re
 import statistics as st
 import sys
 from collections import defaultdict
@@ -46,6 +47,32 @@ def stats(rows):
         "failed": mean([r["failed_calls"] for r in rows]),
         "rereads": mean([r["rereads"] for r in rows]),
     }
+
+
+def usage(r, rounds):
+    """What a run reached for, read from its trace when it's still on disk."""
+    tools = r["tools"]
+    u = {"mcp": any(k.startswith("menard:") for k in tools), "cli": False, "skill": tools.get("Skill", 0) > 0,
+         "shell_edit": any(g["kind"] == "shell_edit_ex" for g in r["gaps"]),
+         "guard": any(g["kind"] == "guard_block" for g in r["gaps"]), "edit_ex": False}
+    for rd in rounds:
+        t = EVAL / "results" / rd / "traces" / f"{r['id']}.jsonl"
+        if not t.exists():
+            continue
+        for line in open(t):
+            if '"tool_use"' not in line:
+                continue
+            o = json.loads(line)
+            for c in o.get("message", {}).get("content", []):
+                if c.get("type") != "tool_use":
+                    continue
+                inp = c.get("input", {})
+                if c["name"] == "Bash" and re.search(r"(^|[\s/;&|(])(menard\s+\w|mix menard\.)", inp.get("command", "")):
+                    u["cli"] = True
+                if c["name"] in ("Edit", "Write", "MultiEdit") and str(inp.get("file_path", "")).endswith((".ex", ".exs")):
+                    u["edit_ex"] = True
+        break
+    return u
 
 
 def pct(x):
@@ -109,6 +136,20 @@ def main():
                     tot[k] += v
         if n:
             md.append(f"- **{arm}** ({n} runs): " + ", ".join(f"{k} {v / n:.1f}" for k, v in sorted(tot.items(), key=lambda kv: -kv[1])))
+
+    md.append("\n## menard adoption (share of runs)\n")
+    md.append("MCP: called a menard MCP tool. CLI: ran `menard …` or `mix menard.…` through Bash. "
+              "Skill: loaded the menard skill. Shell edit: wrote a .ex/.exs with sed -i, a redirect or a script. "
+              "Guard block: an Edit/Write on a .ex/.exs refused by the hook.\n")
+    md.append("| arm · model | n | MCP | CLI | Skill | shell edit | guard block | Edit/Write on .ex |")
+    md.append("|---|---|---|---|---|---|---|---|")
+    g = defaultdict(list)
+    for r in rows:
+        g[(r["arm"], r["model"])].append(r)
+    for (arm, model), rs in sorted(g.items(), key=lambda kv: (kv[0][0], MODELS.index(kv[0][1]) if kv[0][1] in MODELS else 9)):
+        u = [usage(r, rounds) for r in rs]
+        share = lambda k: pct(mean([1.0 if x[k] else 0.0 for x in u]))
+        md.append(f"| {arm} · {model} | {len(rs)} | {share('mcp')} | {share('cli')} | {share('skill')} | {share('shell_edit')} | {share('guard')} | {share('edit_ex')} |")
 
     md.append("\n## Gap signals (B and C)\n")
     kinds = defaultdict(list)
