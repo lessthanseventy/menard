@@ -103,12 +103,19 @@ defmodule Menard.Block do
   @spec get(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def get(source, name, opts \\ []) do
     with {:ok, node} <- one(source, name, opts) do
-      %{start: [line: a, column: _], end: [line: b, column: _]} = body_range(node)
+      {_name, meta, _args} = node
+      %{start: [line: a, column: _], end: [line: b, column: _]} = range = body_range(node)
 
-      source
-      |> String.split("\n")
-      |> Enum.slice((a - 1)..(b - 1))
-      |> Enum.join("\n")
+      # a `do:` body shares its line with the call, so only its own range is the body
+      if meta[:do] do
+        source
+        |> String.split("\n")
+        |> Enum.slice((a - 1)..(b - 1))
+        |> Enum.join("\n")
+        |> Menard.Source.dedent()
+      else
+        Menard.Source.slice(source, range)
+      end
     end
   end
 
@@ -149,12 +156,15 @@ defmodule Menard.Block do
   defp blocks(source, opts) do
     with {:ok, ast} <- parse(source),
          {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
+      # into a describe, but not into a function: an `if` in a def body is a statement, not a block
       found =
         module
         |> Zipper.zip()
-        |> Zipper.traverse([], fn zipper, acc ->
-          node = Zipper.node(zipper)
-          if block?(node), do: {zipper, acc ++ [node]}, else: {zipper, acc}
+        |> Zipper.traverse_while([], fn zipper, acc ->
+          case Zipper.node(zipper) do
+            {kind, _, _} when kind in [:def, :defp, :defmacro, :defmacrop] -> {:skip, zipper, acc}
+            node -> {:cont, zipper, if(block?(node), do: acc ++ [node], else: acc)}
+          end
         end)
         |> elem(1)
 
