@@ -215,4 +215,63 @@ defmodule Menard.StmtTest do
     refute replaced =~ "old why"
     assert Stmt.comment(src, "go/1", "x", "step(x)", nil) =~ "def go(x) do\n    step(x)"
   end
+
+  test "a with's steps and its else arms are statements" do
+    # a `with`'s steps are statements, and so is each arm of its `else` — with an `else` or without
+    src = """
+    defmodule W do
+      def go(x) do
+        with {:ok, a} <- fetch(x),
+             {:ok, b} <- parse(a) do
+          b
+        else
+          {:error, e} -> e
+        end
+      end
+    end
+    """
+
+    listed = Stmt.list(src, "go/1", "x")
+    assert "{:ok, a} <- fetch(x)" in listed
+    assert "{:ok, b} <- parse(a)" in listed
+    assert "{:error, e} -> e" in listed
+
+    out = Stmt.replace(src, "go/1", "x", "{:ok, b} <- parse(a)", "{:ok, b} <- parse(a, strict: true)")
+    assert out =~ "{:ok, b} <- parse(a, strict: true) do"
+    assert out =~ "{:error, e} -> e"
+  end
+
+  test "a leading fragment addresses the one statement that starts with it" do
+    # a statement is addressed by what is written, and its start is enough when only one starts so
+    src = """
+    defmodule P do
+      def go(dir) do
+        elixir_files =
+          dir
+          |> Path.join("**/*.ex")
+          |> Path.wildcard()
+
+        elixir_tests = Path.wildcard(Path.join(dir, "**/*_test.exs"))
+        {elixir_files, elixir_tests}
+      end
+    end
+    """
+
+    out =
+      Stmt.replace(
+        src,
+        "go/1",
+        "dir",
+        "elixir_files =",
+        "elixir_files = Path.wildcard(Path.join(dir, \"**/*.ex\"))"
+      )
+
+    assert out =~ ~s[elixir_files = Path.wildcard(Path.join(dir, "**/*.ex"))\n]
+    assert out =~ "elixir_tests = Path.wildcard"
+
+    # two start that way: refused, and both named
+    assert {:error, message} = Stmt.delete(src, "go/1", "dir", "elixir_")
+    assert message =~ "elixir_files ="
+    assert message =~ "elixir_tests ="
+  end
 end

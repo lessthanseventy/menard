@@ -93,7 +93,7 @@ defmodule Menard.Stmt do
       want = Clause.squash(match)
       all = candidates(source, clause)
 
-      case Enum.filter(all, &(Clause.squash(&1.text) == want)) do
+      case matching(all, want) do
         [] ->
           {:error,
            "no statement `#{match}` in #{name_arity} — have: #{Enum.map_join(all, " · ", &"`#{&1.text}`")}"}
@@ -107,11 +107,21 @@ defmodule Menard.Stmt do
     end
   end
 
+  # The whole statement as written, or, when none is, the ones that start with it: `elixir_files =`
+  # reaches a multi-line assignment without restating its pipeline.
+  defp matching(all, want) do
+    case Enum.filter(all, &(Clause.squash(&1.text) == want)) do
+      [] when want != "" -> Enum.filter(all, &String.starts_with?(Clause.squash(&1.text), want))
+      exact -> exact
+    end
+  end
+
   defp nth(many, match, nil) do
-    lines = Enum.map_join(many, ", ", &"line #{line_of(&1)}")
+    # each by its first line as written, not a line number alone: which is which is the question
+    found = Enum.map_join(many, ", ", &"`#{&1.text |> String.split("\n") |> hd()}` (line #{line_of(&1)})")
 
     {:error,
-     "#{length(many)} statements match `#{match}` (#{lines}) — say which with --nth 1..#{length(many)}"}
+     "#{length(many)} statements match `#{match}`: #{found} — say which with --nth 1..#{length(many)}"}
   end
 
   defp nth(many, match, n) do
@@ -202,12 +212,13 @@ defmodule Menard.Stmt do
 
   defp statement_nodes({:->, _meta, [_pattern, body]}), do: body_statements(body)
 
-  defp statement_nodes({_call, _meta, args}) when is_list(args) do
-    args
-    |> List.last()
-    |> case do
-      [{{:__block__, _m, [key]}, body} | _rest] when key in [:do, :else, :after, :catch, :rescue] ->
-        body_statements(body)
+  defp statement_nodes({call, _meta, args}) when is_list(args) do
+    case List.last(args) do
+      [{{:__block__, _m, [key]}, _body} | _rest] = blocks when key in [:do, :else, :after, :catch, :rescue] ->
+        # a `with`'s steps are statements too, and every block's body is, not the first alone: an
+        # `else` arm or a `rescue` was unreachable
+        steps = if call == :with, do: Enum.drop(args, -1), else: []
+        steps ++ Enum.flat_map(blocks, fn {_key, body} -> body_statements(body) end)
 
       _other ->
         []

@@ -56,7 +56,8 @@ refused, because `def bg, do: def(bg, do: X)` is valid Elixir and only the compi
 What the verbs guarantee, where it is not obvious from the name:
 
 - `stmt` reaches a line in a `do` block, a step in a `with`, and a `case` **arm** alike: address
-  the clause, then the statement by what is WRITTEN. `list` prints what is there, and so does a miss.
+  the clause, then the statement by what is WRITTEN: the whole of it, or its start (`total =`) when
+  only one statement starts that way. `list` prints what is there, and so does a miss.
 - `clause insert-at` places by the code: a `defp` lands with the private functions. A new *clause*
   of an existing function is `insert-after`, named against its sibling; a different function given
   to `insert-after` goes after the whole function, never between its clauses.
