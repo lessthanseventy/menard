@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Removed `diagnostics` (`run compile` answers the same) and `inspect` (`mix xref callers`,
+  `hex.outdated` and a Boundary-only export list, each a thin wrapper).
+
 ## 0.1.0
 
 First release.
