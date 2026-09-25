@@ -96,7 +96,8 @@ defmodule Menard.Stmt do
       case matching(all, want) do
         [] ->
           {:error,
-           "no statement `#{match}` in #{name_arity} — have: #{Enum.map_join(all, " · ", &"`#{&1.text}`")}"}
+           "no statement `#{match}` in #{name_arity} — have: #{Enum.map_join(all, " · ", &"`#{&1.text}`")}" <>
+             inside_string(all, match)}
 
         [one] ->
           {:ok, one}
@@ -105,6 +106,16 @@ defmodule Menard.Stmt do
           nth(many, match, opts[:nth])
       end
     end
+  end
+
+  # A line of a ~H template or a heredoc is text, not a statement, and no verb reaches into it: an
+  # agent that tried says so here, where it will look next
+  defp inside_string(all, match) do
+    if Enum.any?(all, &(&1.text =~ ~r/\A\s*(~[a-zA-Z]|")/ and String.contains?(&1.text, String.trim(match)))),
+      do:
+        " — that text is inside a string or sigil, which no verb reaches into: change it with Edit, " <>
+          "which passes the guard when only text inside a string changes",
+      else: ""
   end
 
   # The whole statement as written, or, when none is, the ones that start with it: `elixir_files =`
