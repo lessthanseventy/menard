@@ -46,4 +46,21 @@ defmodule Menard.HooksTest do
 
     assert status == 2
   end
+
+  @tag :tmp_dir
+  test "format-elixir formats a file in a host whose mix.exs does not parse", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "mix.exs"), "defmodule Broken do\n  this does not parse (\n")
+    File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")
+    file = Path.join(dir, "messy.ex")
+    File.write!(file, "defmodule M do\n  def   go, do: 1\nend\n")
+    input = Path.join(dir, "payload.json")
+    File.write!(input, JSON.encode!(%{tool_name: "Write", tool_input: %{file_path: file}}))
+
+    System.cmd("bash", ["-c", "bash #{@root}/hooks/format-elixir.sh < #{input}"],
+      env: [{"CLAUDE_PLUGIN_ROOT", @root}],
+      stderr_to_stdout: true
+    )
+
+    assert File.read!(file) =~ "def go, do: 1"
+  end
 end
