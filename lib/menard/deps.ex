@@ -1,16 +1,11 @@
 defmodule Menard.Deps do
   @moduledoc """
-  What one function actually references — the read that answers "can this move, and what comes
-  with it?".
+  What one function actually references — the read before `clause move`.
 
-  There is deliberately no `move` verb. Moving a function is not a patch: its body resolves
-  against the SOURCE module's aliases, it may call private helpers that other functions also need,
-  it may read module attributes that do not travel, and every call site has to change. Get any one
-  wrong and you get a green edit and a red compile. So Menard reports, and the move is a recipe
-  out of verbs that already exist:
-
-      deps → clause insert-at (into the destination) → directive add (the aliases it needs)
-           → clause delete (from the source) → find calls (fix the call sites) → run compile
+  A move carries the function, its `@doc`/`@spec` and the comment above it, and nothing else: its
+  body resolves against the SOURCE module's aliases, it may call private helpers other functions
+  also need, it may read attributes that do not travel, and every call site has to change. Which of
+  those travel is a judgement, and this is what it is made from.
 
   `of/3` returns `%{locals, remotes, modules, attributes}`. `locals` is the part that decides the
   question: each is a function of THIS module that the queried one calls, with `shared_with` —
