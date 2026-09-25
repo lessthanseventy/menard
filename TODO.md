@@ -12,6 +12,3 @@ commit lands.
 - [ ] `clause replace` keeps the comment above the old body's first statement; a new BODY that
       starts with that same comment leaves it in the file twice (plugin 0.3.0, seen on
       ex_compact's `lib/ex_compact/client.ex`). Unreproduced here.
-- [ ] No verb edits a function's `@spec`: `attr` refuses it (it repeats per clause) and the clause
-      verbs carry it without changing it, so a changed signature's spec needs `write` or
-      `module replace`. Wants `clause spec FILE name/arity [SPEC]`, the twin of `clause doc`.

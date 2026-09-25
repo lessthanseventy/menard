@@ -149,6 +149,7 @@ if Code.ensure_loaded?(Anubis.Server) do
           "insert_at",
           "move",
           "visibility",
+          "spec",
           "doc",
           "comment"
         ],
@@ -220,6 +221,8 @@ if Code.ensure_loaded?(Anubis.Server) do
         "comment" -> Clause.comment(source, p.name_arity, p.head, p[:text], opts)
         # every clause of the function at once — a half-flipped one does not compile
         "visibility" -> Clause.visibility(source, p.name_arity, want(p[:visibility]))
+        # the function's, not a clause's: no head. `code` is the signature, absent deletes it
+        "spec" -> Clause.spec(source, p.name_arity, p[:code])
       end
     end
   end

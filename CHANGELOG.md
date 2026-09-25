@@ -10,12 +10,22 @@
   the file no longer has is refused, with the diff since that version. `--force` writes anyway.
   `outline` reports the version too, for the first edit.
 
+- `clause spec FILE name/arity [SPEC]` (MCP clause verb `spec`): a function's `@spec`, set,
+  replaced or removed. No verb reached it: `attr` refuses it and the clause verbs carry it.
 - `module comment --above` (MCP `above`): the comment over `defmodule`, where a license header or
   a file's reason goes, not the one at the top of its body.
 
 **Fixed**
 - A new attribute lands above the first node that reads it: a `@moduledoc` interpolating it, or a
   `use Foo, from: @it`. It went above the first table, below both, where the read is nil.
+- A host's formatter plugins run from the host's directory. Quokka reads `.credo.exs` from the
+  cwd; from menard's it found none and rewrapped every edited file at 98 columns.
+- A plugin's cached config (Quokka's and Styler's `:persistent_term`) is forgotten before each
+  format, so the MCP server no longer formats every host with the first host's config.
+- `run --in DIR` with a pinned Erlang or Elixir that is not installed runs the `mix` on PATH and
+  says so. It went through `mise exec`, which built Erlang from source and failed.
+- `clause comment` on a clause whose comment sits between its `@doc` and the `def` replaces that
+  comment, instead of adding a second above the `@doc`.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
