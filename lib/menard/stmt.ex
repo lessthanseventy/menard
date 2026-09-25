@@ -110,6 +110,8 @@ defmodule Menard.Stmt do
 
   defp line_of(%{range: %{start: [line: line, column: _]}}), do: line
 
+  defp column_of(%{range: %{start: [line: _, column: column]}}), do: column
+
   # Every node inside the clause that carries a range, smallest first — so naming a call selects
   # the call, not the block around it.
   defp candidates(source, clause) do
@@ -121,7 +123,7 @@ defmodule Menard.Stmt do
     |> elem(1)
     |> Enum.flat_map(&describe(&1, source, clause))
     |> Enum.uniq_by(& &1.range)
-    |> Enum.sort_by(&{line_of(&1), &1.span})
+    |> Enum.sort_by(&{line_of(&1), &1.span, column_of(&1)})
   end
 
   defp describe(node, source, clause) do
@@ -210,6 +212,8 @@ defmodule Menard.Stmt do
   # A do-block holds either a `__block__` (many lines, collected above), a list of `->` arms, or one
   # bare expression.
   defp body_statements(arms) when is_list(arms), do: arms
+  # One child is a literal Sourceror wrapped (`{:ok, x}`, `:error`) — a statement, not a sequence.
+  defp body_statements({:__block__, _meta, [_one]} = literal), do: [literal]
   defp body_statements({:__block__, _meta, _children}), do: []
   defp body_statements(one), do: [one]
 end

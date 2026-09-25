@@ -23,13 +23,15 @@ defmodule Menard.StmtTest do
   end
   """
 
-  test "list names the body's statements and the case arms — not `do`, the head, or a literal" do
+  test "list names the body's statements, the case arms and their bodies — not `do` or the head" do
     assert Stmt.list(@src, "init/1", "_opts") == [
              "subscribe_a()",
              "subscribe_b()",
              "case start() do\n      0 -> {:ok, :up}\n      n -> {:error, n}\n    end",
              "0 -> {:ok, :up}",
-             "n -> {:error, n}"
+             "{:ok, :up}",
+             "n -> {:error, n}",
+             "{:error, n}"
            ]
   end
 
@@ -150,5 +152,22 @@ defmodule Menard.StmtTest do
   test "an unknown clause is refused before any statement is looked for" do
     assert {:error, message} = Stmt.list(@src, "nope/9", "x")
     assert message =~ "no clause nope/9"
+  end
+
+  test "a literal body — a 2-tuple, an atom — is a statement too" do
+    src = """
+    defmodule A do
+      def go(x) do
+        case x do
+          :a -> {:ok, x}
+          _ -> :error
+        end
+      end
+    end
+    """
+
+    out = Stmt.replace(src, "go/1", "x", "{:ok, x}", "{:ok, x, :tagged}")
+    assert out =~ ":a -> {:ok, x, :tagged}"
+    assert Stmt.replace(src, "go/1", "x", ":error", ":nope") =~ "_ -> :nope"
   end
 end
