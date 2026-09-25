@@ -296,4 +296,21 @@ defmodule Menard.StmtTest do
 
     assert Stmt.replace(src, "cb/0", "", "nil", "nil") == src
   end
+
+  test "a miss on text inside a template says Edit reaches it" do
+    src = ~S'''
+    defmodule L do
+      def render(assigns) do
+        ~H"""
+        <p>{Cart.total(@cart)}</p>
+        """
+      end
+    end
+    '''
+
+    # as the eval's agent tried it: a line of the template as a statement
+    assert {:error, message} = Stmt.replace(src, "render/1", "assigns", "<p>{Cart.total(@cart)}</p>", "x")
+    assert message =~ "inside a string"
+    assert message =~ "Edit"
+  end
 end
