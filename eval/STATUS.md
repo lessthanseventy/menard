@@ -7,7 +7,8 @@ Window: started 2026-09-25 13:26 MDT, stop by ~18:15 MDT.
 Round 1 running since 13:43: all 17 cases × arms A, B, C × haiku, sonnet, opus, fable, up to 3
 runs per cell (run 1 of every cell before any run 2). It starts no run after 17:50. Progress:
 `eval/results/round1/log.txt`, one line per run. `mise run eval:report round1` rebuilds
-`eval/REPORT.md` from whatever has finished.
+`eval/REPORT.md` from whatever has finished; a background loop does that every 5 min, and
+`eval/results/round1/PROGRESS.txt` has the count and the last run.
 
 Pilot (13:38–13:42, 12 runs, sonnet, A vs B on 3 cases): all passed; the harness records what the
 plan asks. First signals: A's rename used `sed` and left `cart_live.ex` unformatted (2/2); B formats

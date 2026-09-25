@@ -69,7 +69,9 @@ def prepare(case_dir, ws):
         code, out = sh(["bash", str(setup)], ws)
         if code != 0:
             sys.exit(f"{case_dir.name}: setup.sh failed:\n{out}")
-    for cmd in ["git init -q", "git add -A", "git -c user.name=eval -c user.email=eval@x commit -qm base"]:
+    # tagged: an agent may commit its work, and the diff and the checks are against this, not HEAD
+    for cmd in ["git init -q", "git add -A", "git -c user.name=eval -c user.email=eval@x commit -qm base",
+                "git tag eval-base"]:
         sh(cmd, ws)
 
 
@@ -84,7 +86,7 @@ def claude_cmd(prompt, model, arm):
 
 def diff_metrics(ws, allowed):
     sh("git add -A --intent-to-add", ws)
-    _, numstat = sh("git diff --numstat HEAD", ws)
+    _, numstat = sh("git diff --numstat eval-base", ws)
     files, lines = [], 0
     for row in numstat.splitlines():
         parts = row.split("\t")
@@ -92,7 +94,7 @@ def diff_metrics(ws, allowed):
             files.append(parts[2])
             lines += sum(int(x) for x in parts[:2] if x.isdigit())
     noise = [f for f in files if not any(fnmatch.fnmatch(f, g) for g in allowed)]
-    _, patch = sh("git diff HEAD", ws)
+    _, patch = sh("git diff eval-base", ws)
     return {"files": files, "lines_changed": lines, "noise_files": noise}, patch
 
 

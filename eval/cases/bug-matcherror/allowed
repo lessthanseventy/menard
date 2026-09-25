@@ -1,2 +1,3 @@
 lib/shop/cart.ex
 test/shop/cart_test.exs
+test/shop/*_test.exs
