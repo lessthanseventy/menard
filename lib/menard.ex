@@ -411,6 +411,9 @@ defmodule Menard do
   @doc """
   `term` as JSON can carry it. JSON has no tuple, and the library answers with them (`lines: {3, 9}`):
   encoding one crashed the MCP tool call and `outline --json` alike.
+
+      iex> Menard.jsonable(%{module: "A", lines: {1, 3}, defs: [%{lines: {2, 2}}]})
+      %{module: "A", lines: [1, 3], defs: [%{lines: [2, 2]}]}
   """
   def jsonable(%{__struct__: _} = struct), do: struct
   def jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
