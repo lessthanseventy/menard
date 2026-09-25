@@ -511,4 +511,22 @@ defmodule Menard.ClauseTest do
     assert {:error, message} = Clause.replace_body(src, "go/1", "x", "safer(x)\nrescue\n  _ -> :other")
     assert message =~ "rewrite"
   end
+
+  test "a DIFFERENT function inserted beside one clause goes around the whole function, never inside it" do
+    src = """
+    defmodule A do
+      def a(1), do: 1
+      def a(2), do: 2
+
+      def z, do: :z
+    end
+    """
+
+    after_out = Clause.insert_after(src, "a/1", "1", "defp helper, do: :h")
+    assert after_out =~ "def a(1), do: 1\n  def a(2), do: 2\n"
+    assert after_out =~ ~r/def a\(2\), do: 2\n\n?  defp helper/
+
+    before_out = Clause.insert_before(src, "a/1", "2", "defp helper, do: :h")
+    assert before_out =~ ~r/defp helper, do: :h\n\n?  def a\(1\), do: 1\n  def a\(2\)/
+  end
 end

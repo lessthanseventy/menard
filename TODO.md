@@ -3,9 +3,6 @@
 Found and not yet fixed. Fix it, or write it here, never just "noted". Delete a line when its
 commit lands.
 
-- [ ] `clause insert-after` with code for a DIFFERENT function, anchored on a multi-clause
-      function's first clause, lands between its clauses. That splits the function, which fails
-      under warnings-as-errors. It should go after the function's last clause.
 - [ ] `hooks/format-elixir.sh` still runs the host's bare `mix format`: wrong toolchain, fails on
       unresolved deps. Route it through menard's formatter.
 - [ ] The installed plugin is a 2026-09-10 snapshot (`menard@ficciones` 0.1.0, hooks run under
