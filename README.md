@@ -24,7 +24,7 @@ functions, for a tool of your own:
 Pinned by ref. Menard is not on hex: its mix tasks would run inside the host project, which is the
 one thing the tool avoids, and `anubis_mcp` would become every user's runtime dependency.
 
-**The verbs** — the CLI, the MCP door and the Claude Code hooks — run from *this* project, with
+**The verbs** — the CLI, the MCP door and the harness adapters — run from *this* project, with
 its own deps, which is what lets them work on a codebase that does not compile:
 
 ```
@@ -34,6 +34,12 @@ its own deps, which is what lets them work on a codebase that does not compile:
 
 Or clone it and put `bin/menard` on your `PATH`. Either way the first invocation fetches and
 compiles its deps for you.
+
+### Wiring a harness
+
+menard ships one adapter per harness, all from this repo — no host repo required. `mise run
+install:pi` and `mise run install:claude` write the right config into `~/.pi/agent/` or register
+the Claude Code plugin. See `docs/adapters.md`.
 
 ## Verbs
 
@@ -69,6 +75,20 @@ the caller's.
 `--frozen` runs the last build straight off `_build` with no compile step: the escape hatch for
 editing menard *with* menard, where a half-applied edit would otherwise lock the tool out of
 finishing its own change.
+
+## pi adapter
+
+`pi/extension.ts` is a pi extension menard ships from its own repo. Two hooks, one tool
+(`bin/menard`, self-located relative to the extension):
+
+- **`tool_call` — the guard.** A raw `edit`/`write` on an `.ex`/`.exs` holding a `defmodule` is
+  blocked — use the verbs instead. `menard guard FILE` decides; the extension only reads
+  `input.path` and calls the verb. Fail open: a missing menard never blocks an edit.
+- **`tool_result` — format-on-save.** `menard run format FILE` on what was just written, so the
+  file on disk is always formatter-compliant. Best-effort and invisible.
+
+`mise run install:pi` wires the extension, the MCP server, and the skill into `~/.pi/agent/`.
+Idempotent — re-running updates paths without duplicating. No ficciones, no Nix required.
 
 ## Claude Code plugin
 

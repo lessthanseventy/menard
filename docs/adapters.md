@@ -1,7 +1,8 @@
 # Harnesses: one core, thin adapters
 
 Status: direction, agreed 2026-09-25. Built so far: `menard guard`, the Claude Code adapter
-declaring the MCP server and shipping the reference as a skill.
+(.claude-plugin/), and the pi adapter (pi/extension.ts). Both ship from this repo — no host repo
+required. `mise run install:pi` and `mise run install:claude` wire them.
 
 ## Three layers
 
@@ -28,8 +29,8 @@ Everything harness-specific is wiring. The Claude Code plugin is one adapter, no
 
 | harness | MCP | guard | reference |
 |---|---|---|---|
-| Claude Code | plugin.json `mcpServers` | `PreToolUse` → `menard guard` | the plugin's skill |
-| pi | its MCP server config | its pre-edit hook → `menard guard` | pi reads the HOST repo's AGENTS.md, not menard's, so this needs its own delivery (a pi skill or extension); menard never writes into the host |
+| Claude Code | plugin.json `mcpServers` | `PreToolUse` hook → `menard guard` (hooks/menard-only.sh) | the plugin's skill |
+| pi | `mcp.json` mcpServers.menard (`mise run install:pi`) | `tool_call` extension → `menard guard` (pi/extension.ts) | the skill, wired by install:pi |
 | Cursor, opencode, … | their MCP config | whatever pre-edit hook they have, or none | their rules mechanism |
 
 A harness with no pre-edit hook still gets the MCP verbs and the reference; it just can't enforce

@@ -1,0 +1,20 @@
+# menard — mise tasks. The install tasks wire menard into a harness with no host repo required:
+# clone menard, `mise run install:pi` (or `install:claude`), and the guard, the MCP server, the
+# formatter and the skill are all in place. menard is standalone.
+
+[tasks."install:pi"]
+description = "Wire menard into pi: the guard extension, the MCP server, and the skill"
+run = "scripts/install-pi.sh"
+
+[tasks."install:claude"]
+description = "Wire menard into Claude Code: the plugin (MCP, hooks, skill) via the marketplace"
+run = "scripts/install-claude.sh"
+
+[tasks.test]
+description = "menard's pi adapter unit suite (bun test)"
+dir = "pi"
+run = "bun test"
+
+[tasks."test:elixir"]
+description = "menard's own gate — format + warnings-as-errors + tests"
+run = "mix format --check-formatted && mix compile --warnings-as-errors && mix test"
