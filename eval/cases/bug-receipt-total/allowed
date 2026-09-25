@@ -1,2 +1,3 @@
 lib/shop/mailer.ex
 test/shop/mailer_test.exs
+test/shop/*_test.exs
