@@ -27,6 +27,8 @@ defmodule Menard.MixProject do
         {:anubis_mcp, "~> 2.0"},
         {:ex_doc, "~> 0.34", only: :dev, runtime: false}
       ],
+      # test/fixtures holds source the tests READ (the identity corpus), not tests to run
+      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
       # `menard run check` runs `mix precommit` like it does for every other project; without this
       # alias the one tool in the repo could not gate itself.
       aliases: [precommit: ["format --check-formatted", "compile --warnings-as-errors", "test"]]
