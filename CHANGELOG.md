@@ -59,6 +59,9 @@
   `nilend`.
 - A module defined twice in a file (`if Code.ensure_loaded?(X) do defmodule M … else … end`) is
   refused by name, naming its lines. Every verb edited the first, whichever was meant.
+- A multi-line value whose lines already sit at or past the target column keeps them there: a
+  sigil's words or a heredoc's lines were pulled left when every line, the closing too, sat
+  deeper than the base.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
