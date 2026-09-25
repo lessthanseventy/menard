@@ -509,13 +509,10 @@ end
 
 defmodule Menard.MCP.Deps do
   @moduledoc """
-  What one function references — the read that answers "can this move, and what comes with it?".
-  Returns the local calls it makes (each with `shared_with`: the OTHER functions here that also
-  call it, so a helper with an empty list can travel and one with entries cannot), the remote
-  calls, the modules whose aliases must travel, and the attributes it reads — which do not.
-
-  There is no `move` verb on purpose: a move is this report plus `clause insert-at`,
-  `directive add`, `clause delete`, `find calls` and `run compile`.
+  What one function references — the read before a move. Returns the local calls it makes (each
+  with `shared_with`: the OTHER functions here that also call it, so a helper with an empty list can
+  travel and one with entries cannot), the remote calls, the modules whose aliases must travel, and
+  the attributes it reads — which do not.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
