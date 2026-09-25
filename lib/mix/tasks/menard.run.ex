@@ -15,14 +15,25 @@ defmodule Mix.Tasks.Menard.Run do
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [in: :string])
-    dir = Menard.resolve(opts[:in] || ".")
+    # Only `--in` is menard's; every other flag belongs to the mix task behind the verb
+    # (`--repeat-until-failure 50`, `--seed 0`, `--only integration`) and passes through untouched.
+    {dir, args} = split_in(argv, ".", [])
 
     case args do
-      [verb | rest] when verb in ~w(check test format compile) -> finish(Menard.Run.result(dir, verb, rest))
-      _ -> Mix.raise("usage: mix menard.run [--in DIR] (check|test [FILE[:LINE]]|format [FILES]|compile)")
+      [verb | rest] when verb in ~w(check test format compile) ->
+        finish(Menard.Run.result(Menard.resolve(dir), verb, rest))
+
+      _ ->
+        Mix.raise(
+          "usage: mix menard.run [--in DIR] (check|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile)"
+        )
     end
   end
+
+  defp split_in(["--in", dir | rest], _dir, acc), do: split_in(rest, dir, acc)
+  defp split_in(["--in=" <> dir | rest], _dir, acc), do: split_in(rest, dir, acc)
+  defp split_in([arg | rest], dir, acc), do: split_in(rest, dir, [arg | acc])
+  defp split_in([], dir, acc), do: {dir, Enum.reverse(acc)}
 
   defp finish(%{ok: ok} = result) do
     Mix.shell().info(JSON.encode!(result))

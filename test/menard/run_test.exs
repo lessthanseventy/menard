@@ -158,4 +158,48 @@ defmodule Menard.RunTest do
     assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", ["messy.ex", "clean.ex"])
     assert File.read!(messy) =~ "def go, do: 1"
   end
+
+  @tag :tmp_dir
+  test "hunts a flake: repeats until it fails, and answers with that run, its seed and the run count", %{
+    tmp_dir: dir
+  } do
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Flaky.MixProject do
+      use Mix.Project
+      def project, do: [app: :flaky, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    counter = Path.join(dir, "runs")
+
+    # passes on the first run, fails on the second: a flake that one run never shows
+    File.write!(Path.join(dir, "test/flaky_test.exs"), """
+    defmodule FlakyTest do
+      use ExUnit.Case
+      test "sometimes" do
+        n = case File.read(#{inspect(counter)}) do
+          {:ok, s} -> String.to_integer(s) + 1
+          _ -> 1
+        end
+        File.write!(#{inspect(counter)}, Integer.to_string(n))
+        assert n < 2
+      end
+    end
+    """)
+
+    bin = Path.expand("../../bin/menard", __DIR__)
+
+    {out, 1} =
+      System.cmd(bin, ["run", "--in", dir, "test", "--repeat-until-failure", "5"], env: [{"MIX_ENV", "dev"}])
+
+    answer = out |> String.split("\n", trim: true) |> List.last() |> JSON.decode!()
+
+    assert answer["ok"] == false
+    assert answer["runs"] == 2
+    assert is_integer(answer["seed"])
+    assert [%{"name" => "sometimes"}] = answer["failures"]
+    assert answer["failed"] == 1
+  end
 end
