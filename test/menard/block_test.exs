@@ -213,4 +213,11 @@ defmodule Menard.BlockTest do
     out = Block.add(src, "test", "with ctx", "assert ws", args: "%{workspace: ws}")
     assert out =~ ~s(test "with ctx", %{workspace: ws} do\n    assert ws\n  end)
   end
+
+  test "replace refuses a whole block given as the body" do
+    # a whole `test "…" do … end` given as the body nested a test inside the test, and it parsed
+    code = "describe \"two\" do\n  test \"c\" do\n    assert 3 == 3\n  end\nend"
+    assert {:error, message} = Block.replace(@src, "describe", code, label: "two")
+    assert message =~ "BODY"
+  end
 end

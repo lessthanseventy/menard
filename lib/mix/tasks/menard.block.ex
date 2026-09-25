@@ -20,27 +20,30 @@ defmodule Mix.Tasks.Menard.Block do
 
     where = [module: opts[:module], label: opts[:label]]
 
+    did = did(args, opts[:label])
+
     case args do
       ["get", file, name] ->
         report(Block.get(File.read!(Menard.resolve(file)), name, where))
 
       ["relabel", file, name, label, new_label] ->
-        edit(file, &Block.relabel(&1, name, label, new_label, module: opts[:module]))
+        edit(file, did, &Block.relabel(&1, name, label, new_label, module: opts[:module]))
 
       ["list", file] ->
         report(list(Block.list(File.read!(Menard.resolve(file)), where)))
 
       ["replace", file, name, code] ->
-        edit(file, &Block.replace(&1, name, code, where))
+        edit(file, did, &Block.replace(&1, name, code, where))
 
       ["add", file, name, code] ->
         edit(
           file,
+          did,
           &Block.add(&1, name, opts[:label], code, in: opts[:in], module: opts[:module], args: opts[:args])
         )
 
       ["delete", file, name] ->
-        edit(file, &Block.delete(&1, name, where))
+        edit(file, did, &Block.delete(&1, name, where))
 
       _ ->
         Mix.raise(
@@ -65,7 +68,7 @@ defmodule Mix.Tasks.Menard.Block do
   defp report({:error, message}), do: Mix.raise(message)
   defp report(text), do: Mix.shell().info(text)
 
-  defp edit(file, change) do
+  defp edit(file, did, change) do
     file = Menard.resolve(file)
 
     case change.(File.read!(file)) do
@@ -73,10 +76,16 @@ defmodule Mix.Tasks.Menard.Block do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: "block in #{Path.basename(file)}") do
+        case Menard.write(file, out, did: "#{did} in #{Path.basename(file)}") do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end
   end
+
+  # what the reply's `did` names: `replace test "it works"`
+  defp did([verb, _file, name | _], label),
+    do: Enum.join([verb, name | List.wrap(label && inspect(label))], " ")
+
+  defp did(_, _), do: nil
 end
