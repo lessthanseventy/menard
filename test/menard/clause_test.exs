@@ -123,6 +123,14 @@ defmodule Menard.ClauseTest do
       assert {:error, message} = Clause.replace_body(src, "pair/2", "(a), (b)", ":ok")
       assert message =~ "have: `a, b`"
     end
+
+    test "the whole def line, or the call, finds the clause too" do
+      assert Clause.replace_body(@src, "go/1", "def go(:b)", "20") =~ "def go(:b) do\n    20\n  end"
+      assert Clause.replace_body(@src, "go/1", "go(:b)", "20") =~ "def go(:b) do\n    20\n  end"
+
+      src = "defmodule D do\n  defp only(x) when is_integer(x), do: x\nend\n"
+      assert Clause.replace_body(src, "only/1", "defp only(x) when is_integer(x)", ":int") =~ ":int"
+    end
   end
 
   describe "insert_at — a new function, with no sibling clause to anchor to" do
