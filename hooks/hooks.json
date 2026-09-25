@@ -1,5 +1,5 @@
 {
-  "description": "Elixir modules are edited with menard's verbs, not with text substitution; whatever is written is formatted with its own project's formatter before anyone reads it back; and a bare `mix test` is pointed at the structured door.",
+  "description": "Elixir modules are edited with menard's verbs, not with text substitution; whatever is written is formatted with its own project's formatter before anyone reads it back; a bare `mix test` is pointed at the structured door; and a module changed by a shell command, or read whole when large, is named.",
   "hooks": {
     "PreToolUse": [
       {
@@ -9,6 +9,15 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/menard-only.sh\"",
             "statusMessage": "menard guard"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shell-edits.sh\""
           }
         ]
       }
@@ -31,6 +40,19 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/prefer-menard-run.sh\"",
             "statusMessage": "menard run"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shell-edits.sh\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/read-hint.sh\""
           }
         ]
       }

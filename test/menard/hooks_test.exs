@@ -86,4 +86,66 @@ defmodule Menard.HooksTest do
     assert out =~ "mcp__plugin_menard_menard__clause"
     assert {_, 0} = run.(notes)
   end
+
+  @tag :tmp_dir
+  test "shell-edits names a module a Bash command changed, and stays quiet otherwise", %{tmp_dir: dir} do
+    module = Path.join(dir, "lib/a.ex")
+    File.mkdir_p!(Path.dirname(module))
+    File.write!(module, "defmodule A do\nend\n")
+    session = "s#{System.unique_integer([:positive])}"
+
+    hook = fn event, cmd ->
+      input = Path.join(dir, "payload.json")
+
+      File.write!(
+        input,
+        JSON.encode!(%{
+          hook_event_name: event,
+          session_id: session,
+          cwd: dir,
+          tool_name: "Bash",
+          tool_input: %{command: cmd}
+        })
+      )
+
+      System.cmd("bash", ["-c", "bash #{@root}/hooks/shell-edits.sh < #{input}"], stderr_to_stdout: true)
+    end
+
+    # a command that changes a module
+    {_, 0} = hook.("PreToolUse", "sed -i s/A/B/ lib/a.ex")
+    Process.sleep(1100)
+    File.write!(module, "defmodule B do\nend\n")
+    assert {out, 2} = hook.("PostToolUse", "sed -i s/A/B/ lib/a.ex")
+    assert out =~ "lib/a.ex"
+    assert out =~ "run"
+
+    # one that changes nothing
+    {_, 0} = hook.("PreToolUse", "ls")
+    assert {_, 0} = hook.("PostToolUse", "ls")
+
+    # menard's own door, and the formatter, rewrite modules by design
+    {_, 0} = hook.("PreToolUse", "mix format")
+    Process.sleep(1100)
+    File.write!(module, "defmodule C do\nend\n")
+    assert {_, 0} = hook.("PostToolUse", "mix format")
+  end
+
+  @tag :tmp_dir
+  test "read-hint points a whole-file Read of a big module at outline, and passes the rest", %{tmp_dir: dir} do
+    big = Path.join(dir, "big.ex")
+    File.write!(big, "defmodule Big do\n" <> String.duplicate("  def f, do: 1\n", 400) <> "end\n")
+    small = Path.join(dir, "small.ex")
+    File.write!(small, "defmodule Small do\nend\n")
+
+    read = fn input ->
+      path = Path.join(dir, "payload.json")
+      File.write!(path, JSON.encode!(%{hook_event_name: "PostToolUse", tool_name: "Read", tool_input: input}))
+      System.cmd("bash", ["-c", "bash #{@root}/hooks/read-hint.sh < #{path}"], stderr_to_stdout: true)
+    end
+
+    assert {out, 2} = read.(%{file_path: big})
+    assert out =~ "outline"
+    assert {_, 0} = read.(%{file_path: big, offset: 10, limit: 40})
+    assert {_, 0} = read.(%{file_path: small})
+  end
 end
