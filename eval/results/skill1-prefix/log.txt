@@ -1,0 +1,19 @@
+14:26 attrs.B.claude-haiku-4-5.1: PASS turns=26 cost=0.31839049999999997 wall=137.6s tools={'Bash': 1, 'Read': 6, 'Skill': 1, 'ToolSearch': 4, 'menard:attr': 7, 'menard:clause': 1, 'Edit': 1, 'menard:run': 2, 'menard:write': 1}
+14:30 attrs.S-mcp-first.claude-haiku-4-5.1: PASS turns=29 cost=0.46320560000000005 wall=250.6s tools={'Read': 6, 'Bash': 3, 'Skill': 1, 'ToolSearch': 5, 'menard:outline': 2, 'menard:attr': 4, 'menard:clause': 1, 'Edit': 1, 'menard:run': 2, 'Write': 1, 'menard:write': 1}
+14:31 attrs.S-none.claude-haiku-4-5.1: FAIL turns=10 cost=0.0934164 wall=29.3s tools={'Read': 3, 'Bash': 2, 'Edit': 1, 'ToolSearch': 1, 'menard:attr': 1, 'menard:stmt': 1}
+14:31 bug-receipt-total.B.claude-haiku-4-5.1: PASS turns=13 cost=0.07558219999999999 wall=35.5s tools={'Bash': 2, 'Read': 4, 'Edit': 2, 'ToolSearch': 2, 'menard:attr': 1, 'menard:block': 1}
+14:32 bug-receipt-total.S-mcp-first.claude-haiku-4-5.1: PASS turns=15 cost=0.0932343 wall=46.2s tools={'Bash': 3, 'Read': 5, 'Edit': 1, 'ToolSearch': 2, 'menard:attr': 1, 'menard:clause': 1, 'menard:block': 1}
+14:33 bug-receipt-total.S-none.claude-haiku-4-5.1: PASS turns=13 cost=0.0757478 wall=40.7s tools={'Bash': 2, 'Read': 4, 'Edit': 2, 'ToolSearch': 2, 'menard:attr': 1, 'menard:block': 1}
+14:36 change-signature.B.claude-haiku-4-5.1: PASS turns=44 cost=0.26432060000000007 wall=180.1s tools={'Bash': 30, 'Read': 10, 'Skill': 1, 'Edit': 1}
+14:39 change-signature.S-mcp-first.claude-haiku-4-5.1: PASS turns=38 cost=0.28582460000000004 wall=126.7s tools={'Bash': 5, 'Read': 10, 'Skill': 1, 'ToolSearch': 4, 'Edit': 1, 'menard:outline': 2, 'menard:clause': 6, 'menard:block': 5, 'menard:directive': 2}
+14:41 change-signature.S-none.claude-haiku-4-5.1: PASS turns=41 cost=0.26681969999999994 wall=150.7s tools={'Bash': 6, 'Read': 11, 'Edit': 2, 'ToolSearch': 2, 'menard:outline': 3, 'menard:clause': 11, 'menard:stmt': 2, 'menard:directive': 1, 'menard:block': 2}
+14:43 new-fn-large.B.claude-haiku-4-5.1: PASS turns=21 cost=0.21282260000000003 wall=108.6s tools={'Bash': 6, 'Read': 4, 'Skill': 1, 'Edit': 1, 'ToolSearch': 2, 'menard:clause': 2, 'menard:block': 3}
+14:44 new-fn-large.S-mcp-first.claude-haiku-4-5.1: PASS turns=15 cost=0.18077300000000002 wall=78.6s tools={'Agent': 1, 'Read': 4, 'Edit': 2, 'ToolSearch': 2, 'menard:clause': 2, 'menard:block': 2, 'Bash': 1}
+14:46 new-fn-large.S-none.claude-haiku-4-5.1: PASS turns=16 cost=0.15742430000000002 wall=58.6s tools={'Bash': 3, 'Read': 4, 'Edit': 2, 'ToolSearch': 2, 'menard:outline': 1, 'menard:clause': 1, 'menard:block': 2}
+14:46 rename-across.B.claude-haiku-4-5.1: PASS turns=9 cost=0.05481900000000001 wall=34.6s tools={'Bash': 6, 'ToolSearch': 1, 'menard:rename': 1}
+14:47 rename-across.S-mcp-first.claude-haiku-4-5.1: PASS turns=18 cost=0.1221973 wall=51.0s tools={'Bash': 2, 'Read': 11, 'Skill': 1, 'ToolSearch': 1, 'menard:rename': 1}
+14:49 rename-across.S-none.claude-haiku-4-5.1: PASS turns=22 cost=0.1298494 wall=65.1s tools={'Bash': 6, 'Read': 7, 'Edit': 6, 'ToolSearch': 1, 'menard:rename': 1}
+14:50 test-tmpdir.B.claude-haiku-4-5.1: PASS turns=13 cost=0.12247149999999998 wall=90.6s tools={'Read': 4, 'Skill': 1, 'ToolSearch': 2, 'menard:block': 2, 'menard:stmt': 1, 'menard:attr': 1}
+14:51 test-tmpdir.S-mcp-first.claude-haiku-4-5.1: FAIL turns=16 cost=0.09477239999999999 wall=43.9s tools={'Read': 7, 'Bash': 3, 'Edit': 1, 'ToolSearch': 2, 'menard:attr': 1, 'menard:block': 1}
+14:53 test-tmpdir.S-none.claude-haiku-4-5.1: PASS (noisy) turns=21 cost=0.1251074 wall=77.5s tools={'Read': 8, 'Bash': 7, 'Edit': 1, 'ToolSearch': 2, 'Write': 1, 'menard:write': 1}
+14:55 attrs.B.claude-sonnet-5.1: PASS turns=10 cost=0.10163 wall=108.5s tools={'Skill': 1, 'Bash': 7}
