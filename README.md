@@ -7,6 +7,11 @@ AST-aware editing for Elixir. Every verb parses the file, changes the tree, and 
 it writes — so a half-applied edit is impossible, and only the bytes a verb names move
 (Sourceror patches, not a reformat of the whole file).
 
+Parsing is not preservation, though: 0.2.0 fixed edits that parsed and still lost code (a
+`rescue` dropped by `clause replace`). What guards that is the identity corpus: every `do … end`
+clause, attribute, block and statement in this repo and a fixture of odd syntax is replaced with
+itself, and the file must come back byte for byte (`test/menard/identity_test.exs`).
+
 It runs as a project of its own, which means `menard` keeps working on a codebase that does not
 currently compile — the case where you most need it.
 
@@ -22,9 +27,16 @@ functions, for a tool of your own, plus every verb as `mix menard.*` inside your
 ```
 
 `only: :dev, runtime: false` is for the tasks; a tool that calls the library at runtime drops both.
-As a dep the tasks run inside your project, so they need it to resolve its deps: for a codebase
-that does not compile, use the verbs below. The MCP door (`mix menard.mcp`) also needs the
-optional `{:anubis_mcp, "~> 2.0"}`; without it, menard brings only Sourceror.
+The MCP door (`mix menard.mcp`) also needs the optional `{:anubis_mcp, "~> 2.0"}`; without it,
+menard brings only Sourceror.
+
+As a dep, the tasks run inside your project, so they survive less of a broken build:
+
+| your project | `mix menard.*` (hex) | the verbs below |
+|---|---|---|
+| its code does not compile or parse | works | works |
+| a dep does not resolve | fails | works |
+| its `mix.exs` does not parse | fails | works |
 
 **The verbs** — the CLI, the MCP door and the harness adapters — run from *this* project, with
 its own deps, which is what lets them work on a codebase that does not compile:
@@ -69,6 +81,11 @@ run     [--in DIR] check|test|format|compile     test takes mix test's flags; an
 mcp                                            the same verbs over MCP
 version                                        which menard, on which Elixir and OTP
 ```
+
+menard complements Igniter, it does not compete with it. Igniter runs the installers and upgraders a
+package ships for its users; menard is the edit an agent makes by hand. They meet at `deps
+upgrade`, which goes through the host's `mix igniter.upgrade` when its lock has Igniter, so each
+package's upgraders run.
 
 `--stdin` reads a verb's last argument from stdin, for CODE that shell quoting would mangle.
 menard runs on its own toolchain (`.tool-versions`, through mise when it is installed), never
