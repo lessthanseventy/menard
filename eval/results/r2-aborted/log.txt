@@ -1,0 +1,7 @@
+14:16 add-alias.A.claude-haiku-4-5.1: PASS (noisy) turns=4 cost=0.031186 wall=10.2s tools={'Read': 1, 'Edit': 2}
+14:17 add-alias.B.claude-haiku-4-5.1: PASS turns=16 cost=0.09391069999999999 wall=57.4s tools={'Read': 2, 'Skill': 1, 'Bash': 11}
+14:17 add-alias.L.claude-haiku-4-5.1: PASS turns=8 cost=0.08694299999999999 wall=28.1s tools={'Read': 1, 'Edit': 1, 'ToolSearch': 2, 'menard:directive': 1, 'menard:stmt': 1, 'menard:clause': 1}
+14:18 add-alias.C.claude-haiku-4-5.1: PASS (noisy) turns=4 cost=0.0313982 wall=13.7s tools={'Read': 1, 'Edit': 2}
+14:18 attrs.A.claude-haiku-4-5.1: PASS turns=6 cost=0.069802 wall=22.5s tools={'Bash': 1, 'Read': 2, 'Edit': 2}
+14:20 attrs.B.claude-haiku-4-5.1: PASS turns=25 cost=0.3397127 wall=135.9s tools={'Bash': 3, 'Read': 8, 'Edit': 1, 'ToolSearch': 4, 'menard:attr': 5, 'menard:clause': 1, 'menard:outline': 1, 'Write': 1}
+14:23 attrs.L.claude-haiku-4-5.1: PASS turns=21 cost=0.29249349999999996 wall=140.2s tools={'Read': 6, 'Bash': 2, 'Skill': 1, 'menard:attr': 3, 'menard:outline': 1, 'menard:clause': 1, 'menard:run': 3, 'Edit': 1, 'menard:write': 1}
