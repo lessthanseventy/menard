@@ -10,8 +10,9 @@ defmodule Menard.BinTest do
     file = Path.join(dir, "a.ex")
     File.write!(file, "defmodule A do\n  @limit 5_000\n\n  def go, do: @limit\nend\n")
 
-    # no manifest: the next verb has to compile menard before it answers
-    File.rm!(Path.join(@root, "_build/dev/lib/menard/.mix/compile.elixir"))
+    # nothing built: the next verb has to compile menard before it answers. The whole app dir, not
+    # just its manifest — stale beams left behind get loaded and then "redefined", 43 warnings.
+    File.rm_rf!(Path.join(@root, "_build/dev/lib/menard"))
 
     {out, 0} =
       System.cmd(Path.join(@root, "bin/menard"), ["attr", "get", file, "limit"], env: [{"MIX_ENV", "dev"}])
