@@ -103,7 +103,11 @@ defmodule Menard.Attr do
   # -- editing -------------------------------------------------------------
 
   defp replace(source, node, name, value) do
-    %{start: [line: _, column: col]} = range = Sourceror.get_range(node)
+    %{start: [line: _, column: col], end: [line: b, column: c]} = range = Sourceror.get_range(node)
+    # A heredoc attribute ends a column PAST its closing quotes, so the range is held to its own line —
+    # patched as given, it eats the newline and glues the next line onto the `"""`.
+    last = source |> String.split("\n") |> Enum.at(b - 1, "") |> String.length()
+    range = %{range | end: [line: b, column: min(c, last + 1)]}
     written = "@#{to_atom(name)} " <> reindent(value, String.duplicate(" ", col - 1))
     Sourceror.patch_string(source, [%{range: range, change: written, preserve_indentation: false}])
   end
