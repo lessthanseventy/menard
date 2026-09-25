@@ -63,4 +63,26 @@ defmodule Menard.HooksTest do
 
     assert File.read!(file) =~ "def go, do: 1"
   end
+
+  @tag :tmp_dir
+  test "menard-only blocks an Edit on a module through the guard verb, and passes the rest", %{tmp_dir: dir} do
+    module = Path.join(dir, "a.ex")
+    File.write!(module, "defmodule A do\nend\n")
+    notes = Path.join(dir, "notes.md")
+    File.write!(notes, "hi\n")
+
+    run = fn file ->
+      input = Path.join(dir, "payload.json")
+      File.write!(input, JSON.encode!(%{tool_name: "Edit", tool_input: %{file_path: file}}))
+
+      System.cmd("bash", ["-c", "bash #{@root}/hooks/menard-only.sh < #{input}"],
+        env: [{"CLAUDE_PLUGIN_ROOT", @root}],
+        stderr_to_stdout: true
+      )
+    end
+
+    assert {out, 2} = run.(module)
+    assert out =~ "#{@root}/bin/menard clause replace"
+    assert {_, 0} = run.(notes)
+  end
 end
