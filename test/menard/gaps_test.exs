@@ -165,6 +165,26 @@ defmodule Menard.AttrTest do
 
     assert Attr.set(src, "timeout", "10_000") =~ "@timeout 10_000 # ms"
   end
+
+  test "set on a heredoc keeps the line after it" do
+    src = """
+    defmodule A do
+      @moduledoc \"\"\"
+      Old.
+      \"\"\"
+
+      use B
+    end
+    """
+
+    assert Attr.set(src, "moduledoc", ~s("New.")) == """
+           defmodule A do
+             @moduledoc "New."
+
+             use B
+           end
+           """
+  end
 end
 
 defmodule Menard.BlockTest do
@@ -286,6 +306,22 @@ defmodule Menard.BlockTest do
              end
            end
            """
+  end
+
+  test "replace of a body that ends in a heredoc keeps the end" do
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+
+      test "t" do
+        assert x() == \"\"\"
+        a
+        \"\"\"
+      end
+    end
+    """
+
+    assert Block.replace(src, "test", "assert true", label: "t") =~ "test \"t\" do\n    assert true\n  end\n"
   end
 end
 

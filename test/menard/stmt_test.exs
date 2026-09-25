@@ -170,4 +170,20 @@ defmodule Menard.StmtTest do
     assert out =~ ":a -> {:ok, x, :tagged}"
     assert Stmt.replace(src, "go/1", "x", ":error", ":nope") =~ "_ -> :nope"
   end
+
+  test "insert_after a heredoc keeps the heredoc closed" do
+    src = """
+    defmodule A do
+      def go do
+        text = \"\"\"
+        hi
+        \"\"\"
+        text
+      end
+    end
+    """
+
+    out = Stmt.insert_after(src, "go/0", "", "text = \"\"\"\nhi\n\"\"\"", "IO.puts(text)")
+    assert out =~ "  \"\"\"\n\n    IO.puts(text)\n    text\n"
+  end
 end
