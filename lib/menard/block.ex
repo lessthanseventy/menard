@@ -68,7 +68,9 @@ defmodule Menard.Block do
            {:ok, module} <- Clause.module_scope(ast, opts[:module]),
            {:ok, all} <- blocks(source, opts),
            {:ok, where, anchor} <- placement(all, ast, module, to_atom(name), opts[:in]) do
-        place(source, where, anchor, render(to_atom(name), label, body, opts[:args]))
+        # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
+        tags = opts[:tag] |> List.wrap() |> Enum.map_join(&"@tag #{&1}\n")
+        place(source, where, anchor, tags <> render(to_atom(name), label, body, opts[:args]))
       end
     end
   end

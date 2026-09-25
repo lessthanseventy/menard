@@ -247,4 +247,17 @@ defmodule Menard.BlockTest do
 
     assert Block.replace(src, "describe", "test \"c\", do: :ok", label: "one") =~ "# the setup these share"
   end
+
+  test "add writes the @tags above the test it adds" do
+    # a test that takes a tmp_dir needs its @tag right above it; with no way to write one it took a
+    # @moduletag, or a hand edit
+    out =
+      Block.add(@src, "test", "c", "assert File.dir?(dir)",
+        in: "two",
+        args: "%{tmp_dir: dir}",
+        tag: [":tmp_dir", "timeout: 5_000"]
+      )
+
+    assert out =~ ~s(    @tag :tmp_dir\n    @tag timeout: 5_000\n    test "c", %{tmp_dir: dir} do)
+  end
 end

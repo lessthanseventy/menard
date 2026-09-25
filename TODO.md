@@ -12,5 +12,3 @@ commit lands.
 - [ ] Reported by the cleanup agents (plugin 0.3.0), 2026-09-25:
 - [ ] `attr delete` of an attribute that had a blank line after it and none before keeps the
       blank: deleting one set between a `@doc` and a `@spec` left them a blank line apart.
-- [ ] `block add` cannot put a `@tag` above the test it adds (a `@tag :tmp_dir` test needs
-      `@moduletag` instead, or a hand edit).
