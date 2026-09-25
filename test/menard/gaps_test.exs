@@ -153,6 +153,18 @@ defmodule Menard.AttrTest do
     refute removed =~ "# stale"
     assert removed =~ "@colors %{a: 1}"
   end
+
+  test "set keeps a trailing comment on the attribute line" do
+    src = """
+    defmodule A do
+      @timeout 5_000 # ms
+
+      def go, do: @timeout
+    end
+    """
+
+    assert Attr.set(src, "timeout", "10_000") =~ "@timeout 10_000 # ms"
+  end
 end
 
 defmodule Menard.BlockTest do
@@ -253,6 +265,27 @@ defmodule Menard.BlockTest do
   test "an --in parent that isn't there is refused, not guessed at" do
     assert {:error, message} = Block.add(@src, "test", "x", "assert true", in: "nope")
     assert message =~ "no block or module"
+  end
+
+  test "replace on a do: block keeps the call line" do
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+      test "one", do: assert(1 == 1)
+    end
+    """
+
+    assert Block.replace(src, "test", "assert 2 == 2", label: "one") =~ ~s(test "one", do: assert 2 == 2)
+
+    assert Block.replace(src, "test", "x = 2\nassert x == 2", label: "one") == """
+           defmodule ATest do
+             use ExUnit.Case
+             test "one" do
+               x = 2
+               assert x == 2
+             end
+           end
+           """
   end
 end
 
