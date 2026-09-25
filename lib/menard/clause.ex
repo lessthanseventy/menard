@@ -42,7 +42,11 @@ defmodule Menard.Clause do
          name_arity,
          opts
        ) do
-    range = body |> Sourceror.get_range() |> Menard.Source.clamp(source)
+    range =
+      body
+      |> Sourceror.get_range()
+      |> Menard.Source.clamp(source)
+      |> Menard.Source.with_leading_comments(source, code)
 
     cond do
       meta[:do] ->

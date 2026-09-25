@@ -39,4 +39,15 @@ defmodule Menard.ClauseCommentTest do
     assert out == String.replace(src, "old why", "new why")
     assert Clause.comment(src, "go/0", "", nil) == "defmodule A do\n  @doc false\n  def go, do: 1\nend\n"
   end
+
+  test "replace_body with a body that repeats its leading comment writes it once" do
+    # a new body that opens with the comment the old one opened with: once, not twice
+    src = "defmodule C do\n  def go do\n    # why one\n    1\n  end\nend\n"
+
+    out = Clause.replace_body(src, "go/0", "", "# why one\n2")
+    assert out == "defmodule C do\n  def go do\n    # why one\n    2\n  end\nend\n"
+
+    # a body with no comment of its own leaves the one there alone
+    assert Clause.replace_body(src, "go/0", "", "3") =~ "    # why one\n    3\n"
+  end
 end

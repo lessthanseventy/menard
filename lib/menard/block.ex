@@ -20,7 +20,12 @@ defmodule Menard.Block do
       {_name, meta, args} = node
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
       indent = String.duplicate(" ", col + 1)
-      range = node |> body_range() |> Menard.Source.clamp(source)
+
+      range =
+        node
+        |> body_range()
+        |> Menard.Source.clamp(source)
+        |> Menard.Source.with_leading_comments(source, code)
 
       cond do
         meta[:do] -> patch(source, range, reindent(code, indent))

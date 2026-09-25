@@ -9,12 +9,7 @@ commit lands.
 - [ ] An MCP `block replace` (plugin 0.3.0) ran past Claude Code's 120s once, and never again.
       The door can no longer go silent (every tool answers within its deadline, 90s for edits),
       but what blocked is still unknown. Suspect: this repo's `_build` lock during a compile.
-- [ ] `clause replace` keeps the comment above the old body's first statement; a new BODY that
-      starts with that same comment leaves it in the file twice (plugin 0.3.0, seen on
-      ex_compact's `lib/ex_compact/client.ex`). Unreproduced here.
 - [ ] Reported by the cleanup agents (plugin 0.3.0), 2026-09-25:
-  - [ ] `block replace` doubles a leading comment the new body repeats; a second replace does not
-        clear it.
   - [ ] `attr set` put a new attribute between a function's `@doc` and its `def` (console's
         router, route/1); `clause doc` then could not delete that `@doc`, and adding made two.
 - [ ] `block add` cannot put a `@tag` above the test it adds (a `@tag :tmp_dir` test needs
