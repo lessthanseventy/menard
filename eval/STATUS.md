@@ -73,3 +73,10 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   pinned build succeeds). MCP calls and the guard were the pinned build. Every CLI-through-Bash
   failure in rounds so far measured 0.3.0. Fixed: run.py strips plugin and repo bin/ dirs from the
   agent's PATH; probe: arm A sees no menard, B only its pinned copy.
+- 16:45 every TODO closed (b77c270..66a03bc): string edits pass the guard, block/clause refusals,
+  MCP-first skill + alwaysLoad in the shipped plugin, shell-edit and big-Read advice hooks, pi's
+  guard (never found menard before). B is now the shipped plugin, so L and the S-/SL- skill arms
+  compare nothing new. skill2 (15 runs, kept in results/skill2/) measured 0.3.0 for every CLI
+  call through Bash: read its B rows with that in mind.
+- 16:46 smoke: B only, the 6 skill2 cases, haiku, 1 run, against skill2's A rows. The point is
+  to find the next obvious thing, not a verdict.

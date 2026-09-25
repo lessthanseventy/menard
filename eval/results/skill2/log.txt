@@ -1,0 +1,16 @@
+15:09 skill2 attrs.A.claude-haiku-4-5.1: PASS turns=5 cost=0.065 wall=19.4s failed_calls=0 tools={'Bash': 1, 'Read': 1, 'Edit': 2}
+15:10 skill2 attrs.B.claude-haiku-4-5.1: PASS turns=11 cost=0.120 wall=37.6s failed_calls=1 tools={'Read': 3, 'Bash': 1, 'Skill': 1, 'ToolSearch': 1, 'menard:outline': 1, 'menard:attr': 1, 'menard:clause': 1}
+15:11 skill2 attrs.S-mcp-first.claude-haiku-4-5.1: PASS turns=19 cost=0.144 wall=58.4s failed_calls=0 tools={'Bash': 10, 'Read': 3, 'Skill': 1, 'ToolSearch': 3}
+15:11 skill2 attrs.S-none.claude-haiku-4-5.1: PASS turns=8 cost=0.080 wall=30.2s failed_calls=1 tools={'Bash': 1, 'Read': 2, 'Edit': 1, 'ToolSearch': 1, 'menard:attr': 1, 'menard:stmt': 1}
+15:12 skill2 attrs.SL-mcp-first.claude-haiku-4-5.1: PASS turns=7 cost=0.099 wall=30.1s failed_calls=1 tools={'menard:outline': 1, 'Read': 2, 'menard:attr': 1, 'menard:clause': 2}
+15:13 skill2 bug-receipt-total.A.claude-haiku-4-5.1: PASS turns=11 cost=0.068 wall=30.8s failed_calls=0 tools={'Bash': 5, 'Read': 3, 'Edit': 2}
+15:15 skill2 bug-receipt-total.B.claude-haiku-4-5.1: PASS turns=20 cost=0.119 wall=122.2s failed_calls=3 tools={'Bash': 2, 'Read': 5, 'Edit': 1, 'ToolSearch': 1, 'menard:outline': 2, 'menard:clause': 2, 'Write': 1, 'menard:block': 1, 'menard:run': 3, 'menard:attr': 1}
+15:17 skill2 bug-receipt-total.S-mcp-first.claude-haiku-4-5.1: PASS turns=22 cost=0.106 wall=70.8s failed_calls=1 tools={'Bash': 5, 'Read': 5, 'Edit': 1, 'Skill': 1, 'ToolSearch': 3, 'menard:outline': 1, 'menard:attr': 2, 'menard:block': 1, 'menard:run': 1}
+15:18 skill2 bug-receipt-total.S-none.claude-haiku-4-5.1: PASS turns=16 cost=0.084 wall=42.3s failed_calls=2 tools={'Bash': 3, 'Read': 4, 'Edit': 2, 'ToolSearch': 2, 'menard:outline': 1, 'menard:attr': 2, 'menard:block': 1}
+15:19 skill2 bug-receipt-total.SL-mcp-first.claude-haiku-4-5.1: PASS turns=13 cost=0.077 wall=47.4s failed_calls=1 tools={'Bash': 2, 'Read': 5, 'Edit': 1, 'menard:outline': 1, 'menard:attr': 1, 'menard:block': 1, 'menard:run': 1}
+15:20 skill2 change-signature.A.claude-haiku-4-5.1: PASS (noisy) turns=15 cost=0.091 wall=53.1s failed_calls=0 tools={'Bash': 5, 'Read': 5, 'Edit': 4}
+15:22 skill2 change-signature.B.claude-haiku-4-5.1: PASS turns=33 cost=0.196 wall=106.8s failed_calls=8 tools={'Bash': 21, 'Read': 8, 'Skill': 1, 'Edit': 1}
+15:24 skill2 change-signature.S-mcp-first.claude-haiku-4-5.1: PASS turns=31 cost=0.181 wall=126.5s failed_calls=2 tools={'Bash': 3, 'Read': 7, 'Skill': 1, 'ToolSearch': 4, 'menard:outline': 3, 'menard:clause': 5, 'menard:block': 3, 'Edit': 1, 'menard:run': 2}
+15:26 skill2 change-signature.S-none.claude-haiku-4-5.1: PASS turns=33 cost=0.198 wall=107.8s failed_calls=6 tools={'Bash': 7, 'Read': 8, 'Edit': 2, 'ToolSearch': 2, 'menard:outline': 3, 'menard:clause': 3, 'menard:stmt': 3, 'menard:block': 3, 'menard:run': 1}
+15:28 skill2 change-signature.SL-mcp-first.claude-haiku-4-5.1: PASS turns=29 cost=0.246 wall=88.4s failed_calls=1 tools={'Bash': 2, 'Read': 10, 'Edit': 1, 'Skill': 1, 'menard:outline': 3, 'menard:clause': 4, 'menard:directive': 2, 'menard:block': 3, 'menard:run': 1}
+15:29 skill2 new-fn-large.A.claude-haiku-4-5.1: PASS (noisy) turns=8 cost=0.083 wall=29.7s failed_calls=0 tools={'Bash': 3, 'Read': 2, 'Edit': 2}
