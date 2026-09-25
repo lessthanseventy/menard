@@ -496,4 +496,19 @@ defmodule Menard.ClauseTest do
 
     assert Clause.replace_body(src, "x?/1", "_node", "true") =~ "do: true\n\n  defp y"
   end
+
+  test "a body carrying its own rescue into a clause that has one is refused, not doubled" do
+    src = """
+    defmodule A do
+      def go(x) do
+        risky(x)
+      rescue
+        _ -> :error
+      end
+    end
+    """
+
+    assert {:error, message} = Clause.replace_body(src, "go/1", "x", "safer(x)\nrescue\n  _ -> :other")
+    assert message =~ "rewrite"
+  end
 end
