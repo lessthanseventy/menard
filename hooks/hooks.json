@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/menard-only.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/menard-only.sh\"",
             "statusMessage": "menard guard"
           }
         ]
@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/format-elixir.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-elixir.sh\"",
             "statusMessage": "mix format"
           }
         ]
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/prefer-menard-run.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/prefer-menard-run.sh\"",
             "statusMessage": "menard run"
           }
         ]

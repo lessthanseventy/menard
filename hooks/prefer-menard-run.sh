@@ -17,9 +17,14 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload" 2>/dev/null)
 # already the right door
 grep -q "menard" <<<"$cmd" && exit 0
 
-# menard has to be reachable, or this is a repo it does not belong to
-root="${CLAUDE_PROJECT_DIR:-$PWD}"
-[[ -x "$root/modules/menard/bin/menard" ]] || command -v menard >/dev/null 2>&1 || exit 0
+# menard has to be reachable — as the plugin or on the PATH — or the advice is a dead end
+if command -v menard >/dev/null 2>&1; then
+  m=menard
+elif [[ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/menard" ]]; then
+  m="$CLAUDE_PLUGIN_ROOT/bin/menard"
+else
+  exit 0
+fi
 
 grep -qE '(^|[[:space:];&|])mix[[:space:]]+(test|compile|format)([[:space:]]|$)' <<<"$cmd" || exit 0
 
@@ -30,9 +35,9 @@ case "$verb" in
 esac
 
 cat >&2 <<MSG
-menard: \`$verb\` has a structured door — \`menard $want [--in DIR]\` returns one line
+menard: \`$verb\` has a structured door — \`$m $want [--in DIR]\` returns one line
 ({"ok":…,"tests":…,"failures":[…]}) with each failure carrying its source, instead of output to
-grep. \`menard run check\` is format + warnings-as-errors + tests in one call.
+grep. \`$m run check\` is format + warnings-as-errors + tests in one call.
 Exception: while editing menard ITSELF, plain mix is right — \`menard run\` would run the
 half-edited code.
 MSG
