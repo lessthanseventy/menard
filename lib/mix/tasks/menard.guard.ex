@@ -61,8 +61,10 @@ defmodule Mix.Tasks.Menard.Guard do
       #{p}directive  {verb: add|replace|remove, file, kind: "alias", target}
       #{p}rename     {old, new, files}
 
-    `replace` takes the body, `rewrite` the whole clause, `head` is the clause's arguments as written.
+    `replace` takes the body, `rewrite` the whole clause; `head` is the clause's current head, as
+    `outline` prints it.
     Not loaded yet: ToolSearch "select:#{p}outline,#{p}clause,#{p}stmt".
+    Finish on #{p}run {verb: "check"}: format, warnings-as-errors and the tests in one reply.
     If this file genuinely is not a module, say so and edit it directly; do not reach for sed or
     another way to write it.
     """
