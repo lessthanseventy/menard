@@ -46,7 +46,7 @@ defmodule Menard.Clause do
 
     cond do
       meta[:do] ->
-        patch(source, range, reindent(code, clause.indent <> "  "))
+        source |> patch(range, reindent(code, clause.indent <> "  ")) |> blocks_once(name_arity, clause, opts)
 
       rest != [] ->
         {:error, "this clause has rescue/catch/after/else in keyword form — use `rewrite`"}
@@ -62,6 +62,19 @@ defmodule Menard.Clause do
 
   defp body_edit(source, clause, code, _name_arity, _opts),
     do: patch(source, clause.range, clause_text(clause, code))
+
+  # A `rescue`/`after`/… in CODE joins the clause's own; given twice, it parses and does not compile.
+  defp blocks_once(out, name_arity, clause, opts) do
+    with {:ok, %{node: {_kind, _meta, [_head, blocks]}}} when is_list(blocks) <-
+           find(out, name_arity, clause.head_text, opts),
+         keys = Enum.map(blocks, fn {{:__block__, _, [key]}, _} -> key end),
+         [_ | _] = twice <- Enum.uniq(keys -- Enum.uniq(keys)) do
+      {:error,
+       "CODE carries its own #{Enum.join(twice, ", ")}, and the clause already has one — use `rewrite`"}
+    else
+      _ -> out
+    end
+  end
 
   defp reads_back?(out, source, name_arity, clause, code, opts) do
     with false <- String.contains?(String.trim(code), "\n"),
