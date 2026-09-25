@@ -30,3 +30,7 @@ commit lands.
   - [ ] `find defs` prints "def def NAME".
   - [ ] `clause replace` with an empty head on a one-clause function with args: the refusal could
         say to pass the head.
+  - [ ] `run check` in a host with no `precommit` alias fails "task precommit could not be found"
+        (ex_ternal); it should run format, warnings-as-errors and tests itself.
+  - [ ] `run` after a pull that moved mix.lock fails on "dependency not available" until someone
+        runs `mix deps.get`; fetch when the deps are behind the lock, and say what was fetched.
