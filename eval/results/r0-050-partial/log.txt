@@ -1,0 +1,29 @@
+13:43 add-alias.A.claude-haiku-4-5.1: PASS (noisy) turns=4 cost=0.030486100000000002 wall=9.2s tools={'Read': 1, 'Edit': 2}
+13:43 add-alias.B.claude-haiku-4-5.1: PASS turns=10 cost=0.06366100000000001 wall=32.4s tools={'Read': 3, 'Skill': 1, 'ToolSearch': 1, 'Bash': 3}
+13:44 add-alias.C.claude-haiku-4-5.1: PASS (noisy) turns=11 cost=0.0645641 wall=36.1s tools={'Read': 2, 'Skill': 1, 'Bash': 5, 'Edit': 1}
+13:45 attrs.A.claude-haiku-4-5.1: PASS turns=7 cost=0.0812111 wall=26.3s tools={'Bash': 2, 'Read': 2, 'Edit': 2}
+13:46 attrs.B.claude-haiku-4-5.1: PASS turns=26 cost=0.24889915 wall=108.7s tools={'Agent': 1, 'Read': 8, 'Skill': 1, 'Bash': 14, 'ToolSearch': 1}
+13:47 attrs.C.claude-haiku-4-5.1: PASS turns=5 cost=0.06347320000000001 wall=18.8s tools={'Bash': 1, 'Read': 1, 'Edit': 2}
+13:47 bug-matcherror.A.claude-haiku-4-5.1: PASS turns=11 cost=0.07044020000000001 wall=36.3s tools={'Bash': 3, 'Read': 4, 'Edit': 3}
+13:48 bug-matcherror.B.claude-haiku-4-5.1: PASS turns=15 cost=0.0974947 wall=53.2s tools={'Bash': 2, 'Read': 5, 'Skill': 1, 'ToolSearch': 2, 'menard:clause': 1, 'menard:block': 2}
+13:49 bug-matcherror.C.claude-haiku-4-5.1: FAIL turns=17 cost=0.10653049999999997 wall=60.7s tools={'Bash': 9, 'Read': 5, 'Skill': 1}
+13:50 bug-receipt-total.A.claude-haiku-4-5.1: FAIL turns=18 cost=0.09049789999999999 wall=46.5s tools={'Bash': 10, 'Read': 3, 'Edit': 4}
+13:52 -- runner restarted: diff against tagged base (agents commit); the 2 runs graded on an empty diff are redone
+13:51 bug-matcherror.C.claude-haiku-4-5.1: PASS turns=10 cost=0.056888400000000006 wall=37.3s tools={'Bash': 3, 'Read': 4, 'Edit': 2}
+13:52 bug-receipt-total.A.claude-haiku-4-5.1: PASS turns=14 cost=0.0764897 wall=46.6s tools={'Bash': 8, 'Read': 3, 'Edit': 2}
+13:53 bug-receipt-total.B.claude-haiku-4-5.1: PASS turns=15 cost=0.07625209999999999 wall=46.9s tools={'Bash': 6, 'Read': 5, 'Edit': 1, 'Skill': 1}
+13:54 bug-receipt-total.C.claude-haiku-4-5.1: PASS turns=12 cost=0.06821060000000001 wall=37.6s tools={'Bash': 4, 'Read': 3, 'Edit': 4}
+13:55 change-signature.A.claude-haiku-4-5.1: PASS (noisy) turns=17 cost=0.10176840000000001 wall=59.1s tools={'Bash': 7, 'Read': 6, 'Edit': 3}
+13:59 change-signature.B.claude-haiku-4-5.1: PASS turns=54 cost=0.39555589999999996 wall=227.4s tools={'Bash': 38, 'Read': 10, 'Skill': 1, 'Edit': 2, 'Write': 1}
+14:01 change-signature.C.claude-haiku-4-5.1: PASS turns=31 cost=0.18676310000000004 wall=105.2s tools={'Bash': 16, 'Read': 9, 'Skill': 1, 'Edit': 3}
+14:01 doctest-line.A.claude-haiku-4-5.1: PASS turns=6 cost=0.042306899999999995 wall=17.5s tools={'Bash': 2, 'Read': 2, 'Edit': 1}
+14:02 doctest-line.B.claude-haiku-4-5.1: PASS turns=12 cost=0.0735723 wall=56.5s tools={'Bash': 7, 'Read': 2, 'Skill': 1}
+14:03 doctest-line.C.claude-haiku-4-5.1: PASS turns=8 cost=0.04814089999999999 wall=39.0s tools={'Bash': 4, 'Read': 2, 'Edit': 1}
+14:03 explore-callers.A.claude-haiku-4-5.1: PASS turns=9 cost=0.08530499999999999 wall=30.7s tools={'Bash': 3, 'Read': 4, 'Write': 1}
+14:04 explore-callers.B.claude-haiku-4-5.1: PASS turns=9 cost=0.0735134 wall=30.6s tools={'Bash': 3, 'Read': 4, 'Write': 1}
+14:04 explore-callers.C.claude-haiku-4-5.1: PASS turns=7 cost=0.0668247 wall=22.6s tools={'Bash': 1, 'Read': 4, 'Write': 1}
+14:05 explore-config.A.claude-haiku-4-5.1: PASS turns=7 cost=0.0374621 wall=15.8s tools={'Bash': 2, 'Read': 3, 'Write': 1}
+14:05 explore-config.B.claude-haiku-4-5.1: PASS turns=5 cost=0.0380492 wall=14.1s tools={'Bash': 1, 'Read': 2, 'Write': 1}
+14:05 explore-config.C.claude-haiku-4-5.1: PASS turns=6 cost=0.0400849 wall=20.3s tools={'Bash': 2, 'Read': 2, 'Write': 1}
+14:06 move-function.A.claude-haiku-4-5.1: PASS turns=24 cost=0.1293746 wall=63.7s tools={'Bash': 8, 'Read': 8, 'Edit': 7}
+14:08 move-function.B.claude-haiku-4-5.1: FAIL turns=29 cost=0.17251519999999998 wall=96.2s tools={'Bash': 18, 'Read': 8, 'Skill': 1}
