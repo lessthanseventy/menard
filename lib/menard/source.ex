@@ -109,4 +109,31 @@ defmodule Menard.Source do
     |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
     |> length()
   end
+
+  @doc """
+  `range` grown upward over the `#` comment lines directly above it, when `code` opens with a
+  comment of its own: a new body that restates the comment above the old body's first statement
+  replaces it, where a body's range alone left it and wrote it twice. Otherwise `range` as it is.
+  """
+  def with_leading_comments(%{start: [line: line, column: _]} = range, source, code) do
+    lines = String.split(source, "\n")
+
+    above =
+      lines
+      |> Enum.take(line - 1)
+      |> Enum.reverse()
+      |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
+
+    if above != [] and code |> String.trim_leading() |> String.starts_with?("#") do
+      first = line - length(above)
+      text = Enum.at(lines, first - 1)
+
+      %{
+        range
+        | start: [line: first, column: String.length(text) - String.length(String.trim_leading(text)) + 1]
+      }
+    else
+      range
+    end
+  end
 end

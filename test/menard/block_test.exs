@@ -220,4 +220,31 @@ defmodule Menard.BlockTest do
     assert {:error, message} = Block.replace(@src, "describe", code, label: "two")
     assert message =~ "BODY"
   end
+
+  test "replace with a body that repeats its leading comment writes it once" do
+    # a new body that opens with the comment the old one opened with: once, not twice
+    src = """
+    defmodule A do
+      describe "one" do
+        # the setup these share
+        test "a" do
+          assert 1 == 1
+        end
+      end
+    end
+    """
+
+    body = "# the setup these share\ntest \"b\" do\n  assert 2 == 2\nend"
+    once = Block.replace(src, "describe", body, label: "one")
+    assert length(String.split(once, "# the setup these share")) == 2
+
+    # a duplicate already there is cleared by the next replace, and a body with no comment keeps it
+    doubled = String.replace(src, "    # the setup", "    # the setup these share\n    # the setup")
+
+    assert length(
+             String.split(Block.replace(doubled, "describe", body, label: "one"), "# the setup these share")
+           ) == 2
+
+    assert Block.replace(src, "describe", "test \"c\", do: :ok", label: "one") =~ "# the setup these share"
+  end
 end

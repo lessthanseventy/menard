@@ -40,6 +40,8 @@
   first block's body was reachable, and no step ever was.
 - `stmt` MATCH may be the statement's start (`elixir_files =`) when no statement matches whole;
   several that start so are refused, each named by its first line.
+- `clause replace` and `block replace` with a body that opens with the comment the old one opened
+  with write it once, and clear a copy already doubled; a body with no comment leaves it alone.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
