@@ -4,17 +4,10 @@ Found and not yet fixed. Fix it, or write it here, never just "noted". Delete a 
 commit lands.
 
 - [ ] docs/live.md, phase 1: every verb replies with per-stage hunks.
-- [ ] Install is one step only for the verbs and hooks. The plugin should also declare the MCP
-      server itself (`mcpServers` in plugin.json, `${CLAUDE_PLUGIN_ROOT}/bin/menard mcp`) instead
-      of a hand-run `claude mcp add` with a version-stamped cache path.
-- [ ] The plugin should ship the verb reference as a skill (`skills/menard/SKILL.md` from
-      AGENTS.md), so an agent in a repo that never mentions menard still learns when to use which
-      verb, not only from the guard's deny message.
-- [ ] menard pins no toolchain of its own: bin/menard runs whatever `mix` is on PATH. On a machine
-      whose default Elixir is < 1.18 it doesn't start, and two toolchains alternating rebuild its
-      `_build` from scratch (seen 2026-09-25). Pin it (mise.toml / .tool-versions) and have
-      bin/menard run under it.
 - [ ] A cold MCP start (a new pin or a fresh install: clone, deps fetch, compile, ~30s) outlasts
       Claude Code's MCP startup wait, so the server comes up "failed" and its tools are missing
       until a manual reconnect. Seen 2026-09-25 right after ficciones' pin bump. Warm the build
       before anything waits on it (SessionStart hook), or answer `initialize` before compiling.
+- [ ] Flake hunting: `run test` drops every flag but `--in` (OptionParser strict), so
+      `--repeat-until-failure N` never reaches mix test. Pass unknown flags through, and put the
+      `seed` (and the number of runs) in the answer: the seed is how any failure is reproduced.
