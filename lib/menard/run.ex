@@ -10,15 +10,23 @@ defmodule Menard.Run do
   file:line), `"format"` (args: files; reports what changed), `"compile"` (warnings as
   diagnostics) — as one map with `ok`. Both doors (`mix menard.run`, the MCP `run` tool) call this.
   """
-  def result(dir, "check", _args), do: shell(dir, ["precommit"])
+  def result(dir, "check", _args) do
+    {out, status, fetched} = mix_fetching(dir, ["precommit"])
+
+    if status != 0 and out =~ ~s(The task "precommit" could not be found),
+      do: check_steps(dir),
+      else: %{ok: status == 0, exit: status, tail: tail(out), fetched: fetched}
+  end
 
   def result(dir, "test", args) do
-    {out, status} = mix(dir, ["test" | args])
-    out |> parse_test(status) |> with_sources(dir)
+    {out, status, fetched} = mix_fetching(dir, ["test" | args])
+    out |> parse_test(status) |> with_sources(dir) |> Map.put(:fetched, fetched)
   end
 
   def result(dir, "format", files) do
-    files = Enum.map(files, &Path.expand(&1, dir))
+    # no files named: what the project's own `mix format` would take, its formatter inputs. Given
+    # none, this formatted nothing and answered ok, while the project's check failed.
+    files = if files == [], do: formatter_inputs(dir), else: Enum.map(files, &Path.expand(&1, dir))
     before = Map.new(files, &{&1, File.read!(&1)})
 
     # menard's own formatter, not the host's bare `mix format`: it works while the host's deps do not
@@ -32,7 +40,7 @@ defmodule Menard.Run do
 
   def result(dir, "compile", _args) do
     # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
-    {out, status} = mix(dir, ["compile", "--warnings-as-errors"])
+    {out, status, fetched} = mix_fetching(dir, ["compile", "--warnings-as-errors"])
 
     diagnostics =
       ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
@@ -41,12 +49,54 @@ defmodule Menard.Run do
         %{severity: sev, message: msg, file: file, line: String.to_integer(line)}
       end)
 
-    %{ok: status == 0, exit: status, diagnostics: diagnostics, tail: tail(out)}
+    %{ok: status == 0, exit: status, diagnostics: diagnostics, tail: tail(out), fetched: fetched}
   end
 
-  defp shell(dir, args) do
+  # A host with no `precommit` alias: the three steps `run check` stands for, each its own mix, so
+  # `test` picks its own env. The first that fails is the answer.
+  defp check_steps(dir) do
+    steps = [["format", "--check-formatted"], ["compile", "--warnings-as-errors"], ["test"]]
+
+    {out, status, fetched} =
+      Enum.reduce_while(steps, {"", 0, []}, fn step, {_out, _status, fetched} ->
+        {out, status, more} = mix_fetching(dir, step)
+        next = {out, status, fetched ++ more}
+        if status == 0, do: {:cont, next}, else: {:halt, next}
+      end)
+
+    %{
+      ok: status == 0,
+      exit: status,
+      tail: tail(out),
+      fetched: fetched,
+      ran: "format --check-formatted, compile --warnings-as-errors, test (no precommit alias)"
+    }
+  end
+
+  # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
+  # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
+  # and name what came.
+  defp mix_fetching(dir, args) do
     {out, status} = mix(dir, args)
-    %{ok: status == 0, exit: status, tail: tail(out)}
+
+    if status != 0 and out =~ ~s(run "mix deps.get") do
+      {got, _status} = mix(dir, ["deps.get"])
+      fetched = ~r/\* Getting (\S+)/ |> Regex.scan(got) |> Enum.map(&List.last/1)
+      {out, status} = mix(dir, args)
+      {out, status, fetched}
+    else
+      {out, status, []}
+    end
+  end
+
+  defp formatter_inputs(dir) do
+    dot = Path.join(dir, ".formatter.exs")
+    inputs = if File.regular?(dot), do: elem(Code.eval_file(dot), 0)[:inputs] || [], else: []
+
+    inputs
+    |> List.wrap()
+    |> Enum.flat_map(&Path.wildcard(Path.join(dir, &1), match_dot: true))
+    |> Enum.uniq()
   end
 
   # the TARGET project's mix, in its own directory and env — never this project's
@@ -153,11 +203,30 @@ defmodule Menard.Run do
         code: first(~r/^\s*code:\s+(.+)$/m, body),
         left: first(~r/^\s*left:\s+(.+)$/m, body),
         right: first(~r/^\s*right:\s+(.+)$/m, body),
-        error: first(~r/^\s*\*\* (.+)$/m, body)
+        error: error_of(body)
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Map.new()
     end)
+  end
+
+  # The `** (Error) message` line and what follows it up to `code:` or `stacktrace:`: a MatchError's
+  # value is on the lines after, and cut at the first line it read "no match of right hand side
+  # value:" and nothing else.
+  defp error_of(body) do
+    case body |> String.split("\n") |> Enum.drop_while(&(not String.starts_with?(String.trim(&1), "** "))) do
+      [] ->
+        nil
+
+      [first | rest] ->
+        more = Enum.take_while(rest, &(not Regex.match?(~r/^\s*(code|left|right|stacktrace|hint):/, &1)))
+
+        [first | more]
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
+        |> String.replace_prefix("** ", "")
+    end
   end
 
   defp first(re, text) do

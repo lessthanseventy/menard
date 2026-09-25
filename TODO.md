@@ -13,10 +13,6 @@ commit lands.
       starts with that same comment leaves it in the file twice (plugin 0.3.0, seen on
       ex_compact's `lib/ex_compact/client.ex`). Unreproduced here.
 - [ ] Reported by the cleanup agents (plugin 0.3.0), 2026-09-25:
-  - [ ] `run test`'s failure JSON cuts a MatchError at "no match of right hand side value:" and
-        drops the value (ex_cortex).
-  - [ ] `run format` answered `{"ok":true,"changed":[]}` while `mix format --check-formatted`
-        failed and plain `mix format` changed the file (tlon/console).
   - [ ] `stmt` MATCH must be the statement's whole text; a leading fragment (`elixir_files =`)
         misses, though the skill says "by what is WRITTEN".
   - [ ] `stmt` cannot reach the steps of a `with` that has an `else`: `list` shows the whole `with`
@@ -25,7 +21,5 @@ commit lands.
         clear it.
   - [ ] `attr set` put a new attribute between a function's `@doc` and its `def` (console's
         router, route/1); `clause doc` then could not delete that `@doc`, and adding made two.
-  - [ ] `run check` in a host with no `precommit` alias fails "task precommit could not be found"
-        (ex_ternal); it should run format, warnings-as-errors and tests itself.
-  - [ ] `run` after a pull that moved mix.lock fails on "dependency not available" until someone
-        runs `mix deps.get`; fetch when the deps are behind the lock, and say what was fetched.
+- [ ] `block add` cannot put a `@tag` above the test it adds (a `@tag :tmp_dir` test needs
+      `@moduletag` instead, or a hand edit).
