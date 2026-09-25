@@ -40,6 +40,7 @@ SHAPE of what you are changing, not the size of the change:
 | which FILE a function lives in | `clause move FILE name/arity --to DEST [--as Mod.Name]` |
 | a module attribute (`@colors`, `@hints`) | `attr get\|set\|delete\|list FILE @name` |
 | the comment above one | `attr comment FILE @name [TEXT]`; no TEXT removes it |
+| the comment above a function (above its `@doc`/`@impl`) | `clause comment FILE name/arity HEAD [TEXT]`; no TEXT removes it |
 | the comment above a statement, inside a body | `stmt comment FILE name/arity HEAD MATCH [TEXT]` |
 | the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
 | the comment above `defmodule` (a license header) | `module comment FILE (Mod\|-) [TEXT] --above` |

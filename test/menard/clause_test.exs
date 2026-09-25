@@ -628,4 +628,10 @@ defmodule Menard.ClauseTest do
     assert message =~ "Money is defined 2 times"
     assert {:error, _} = Clause.replace_body(src, "Money.go/0", "", "3")
   end
+
+  test "rewrite's leading comment lands above the clause's @impl, where clause comment puts one" do
+    src = "defmodule T do\n  @impl true\n  def run(argv), do: argv\nend\n"
+    out = Clause.rewrite(src, "run/1", "argv", "# why\ndef run(args), do: args")
+    assert out =~ "  # why\n  @impl true\n  def run(args), do: args"
+  end
 end
