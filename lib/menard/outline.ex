@@ -1,7 +1,7 @@
 defmodule Menard.Outline do
   @moduledoc """
   A source file as data: every module (nested ones under `modules`) with its moduledoc's first
-  line, the lines it spans, and its defs — name, arity, kind (`def`/`defp`/`defmacro`/…), the
+  line, the lines it spans, and its defs — name, arity, kind (`def`/`defp`/`defmacro`/…), the head the clause verbs address, the
   `@doc` first line and `@spec` text that precede it, and the lines the clause spans. What an
   agent reads before it edits; the outline door is `mix menard.outline FILE`.
   """
@@ -68,7 +68,17 @@ defmodule Menard.Outline do
 
   defp def_entry(kind, head, doc, spec, node) do
     {name, arity} = name_arity(head)
-    %{name: name, arity: arity, kind: kind, doc: doc, spec: spec, lines: lines(node)}
+
+    %{
+      name: name,
+      arity: arity,
+      # the address the clause verbs take, so an edit needs no Read of the def line
+      head: Menard.Clause.bare_head(head),
+      kind: kind,
+      doc: doc,
+      spec: spec,
+      lines: lines(node)
+    }
   end
 
   # `def name(args) when guard` → the guarded head's inner call; `def name` (no parens) → arity 0.
