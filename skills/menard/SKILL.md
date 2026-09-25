@@ -83,6 +83,10 @@ What the verbs guarantee, where it is not obvious from the name:
 `run compile` answer the same way: one JSON line, `{"ok":…,"tests":…,"failures":[…]}`, each failure
 carrying its source, instead of output to grep.
 
+**Hunting a flake:** `run test FILE --repeat-until-failure 50` repeats until the first failure and
+answers with that run alone: its failures, its `seed` (rerun with `--seed N` to reproduce), and
+`runs`, how many passed before it. Any other `mix test` flag passes through the same way.
+
 The verbs format after every edit with the project's own formatter, so what you read next is what
 the formatter wrote. A parse-checked write catches **malformed** output, not **wrong** output: it
 is a floor, not a proof. Run the check.

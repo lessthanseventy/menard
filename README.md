@@ -55,7 +55,7 @@ module  comment FILE (Mod|-) [TEXT]              the # comment heading a module
 directive add|replace|remove|list FILE KIND MOD [OPTS]
 rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE
-run     [--in DIR] check|test|format|compile
+run     [--in DIR] check|test|format|compile     test takes mix test's flags; answers with seed and runs
 mcp                                            the same verbs over MCP
 version                                        which menard, on which Elixir and OTP
 ```

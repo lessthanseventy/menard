@@ -61,16 +61,30 @@ defmodule Menard.Run do
 
   @doc "Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, failures, tail}`."
   def parse_test(out, status) do
-    {tests, failed} = counts(out)
+    # `--repeat-until-failure N` prints one run after another, and only the LAST run says anything:
+    # the one that failed, or the Nth that passed. Its counts, failures and tail are the answer; the
+    # seed is how to reproduce it, and the run count is how long it hid.
+    runs = out |> String.split(~r/Running ExUnit with seed: /)
+    last = List.last(runs)
+    {tests, failed} = counts(last)
 
     %{
       ok: status == 0,
       exit: status,
       tests: tests,
       failed: failed,
-      failures: failures(out),
-      tail: summary(out)
+      failures: failures(last),
+      tail: summary(last),
+      runs: length(runs) - 1,
+      seed: seed(last)
     }
+  end
+
+  defp seed(run) do
+    case Integer.parse(run) do
+      {seed, _rest} -> seed
+      :error -> nil
+    end
   end
 
   @doc """
