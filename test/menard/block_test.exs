@@ -214,10 +214,15 @@ defmodule Menard.BlockTest do
     assert out =~ ~s(test "with ctx", %{workspace: ws} do\n    assert ws\n  end)
   end
 
-  test "replace refuses a whole block given as the body" do
-    # a whole `test "…" do … end` given as the body nested a test inside the test, and it parsed
+  test "replace handed the whole block it names takes that block's body" do
+    # a whole `describe "two" do … end` where its body was asked for: the body is taken, not nested
     code = "describe \"two\" do\n  test \"c\" do\n    assert 3 == 3\n  end\nend"
-    assert {:error, message} = Block.replace(@src, "describe", code, label: "two")
+    out = Block.replace(@src, "describe", code, label: "two")
+    assert out =~ "describe \"two\" do\n    test \"c\" do\n      assert 3 == 3\n    end\n  end"
+    refute out =~ "describe \"two\" do\n    describe"
+    # one labelled otherwise is a mistake, not a shorthand
+    other = "describe \"three\" do\n  test \"c\" do\n    assert 3 == 3\n  end\nend"
+    assert {:error, message} = Block.replace(@src, "describe", other, label: "two")
     assert message =~ "BODY"
   end
 
@@ -273,5 +278,20 @@ defmodule Menard.BlockTest do
 
     assert Block.replace(src, "test", "assert 1 == 1", label: "e") ==
              "defmodule ATest do\n  use ExUnit.Case\n\n  test \"e\" do\n    assert 1 == 1\n  end\nend\n"
+  end
+
+  test "add handed a whole block of its macro writes that block, not one nested in another" do
+    # as the eval's agent wrote it: name and label given, and the whole describe as the code
+    code =
+      "describe \"three\" do\n  @tag :tmp_dir\n  test \"c\", %{tmp_dir: dir} do\n    assert dir\n  end\nend"
+
+    for label <- ["three", nil] do
+      out = Block.add(@src, "describe", label, code)
+      assert out =~ "describe \"three\" do\n    @tag :tmp_dir\n    test \"c\""
+      refute out =~ "describe \"three\" do\n    describe"
+    end
+
+    assert {:error, message} = Block.add(@src, "describe", "four", code)
+    assert message =~ "BODY"
   end
 end

@@ -25,9 +25,15 @@ defmodule Menard.Clause do
   @spec replace_body(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
   def replace_body(source, name_arity, head, code, opts \\ []) do
-    with :ok <- body_only(code),
-         {:ok, clause} <- find(source, name_arity, head, opts) do
-      body_edit(source, clause, code, name_arity, opts)
+    case body_only(code) do
+      # the whole clause of the function named: what the eval's agents meant was the rewrite
+      {:error, _} = refused ->
+        if same_function?(code, name_arity), do: rewrite(source, name_arity, head, code, opts), else: refused
+
+      :ok ->
+        with {:ok, clause} <- find(source, name_arity, head, opts) do
+          body_edit(source, clause, code, name_arity, opts)
+        end
     end
   end
 
@@ -745,6 +751,15 @@ defmodule Menard.Clause do
        "CODE is the clause BODY here, and this looks like a whole clause — use `rewrite`, which replaces the head too"}
     else
       :ok
+    end
+  end
+
+  defp same_function?(code, name_arity) do
+    with {:ok, {_mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, {_kind, _meta, [head | _]}} <- parse_clause(code) do
+      name_arity(head) == {name, arity}
+    else
+      _ -> false
     end
   end
 

@@ -410,7 +410,7 @@ defmodule Menard.ClauseTest do
       refute Clause.replace_body(src, "bg/0", "bg", "1") =~ "def bg()"
     end
 
-    test "replace_body refuses a whole clause, which would nest a def inside itself" do
+    test "replace_body never nests a def inside itself" do
       src = """
       defmodule A do
         def bg, do: 0
@@ -418,9 +418,8 @@ defmodule Menard.ClauseTest do
       """
 
       # `def bg, do: def(bg, do: 1)` is VALID Elixir, so the parse-check passes and only the compiler
-      # objects — the mistake has to be caught here or not at all
-      assert {:error, message} = Clause.replace_body(src, "bg/0", "", "def bg, do: 1")
-      assert message =~ "rewrite"
+      # objects. A whole clause of bg itself is read as the rewrite it means, never nested
+      assert Clause.replace_body(src, "bg/0", "", "def bg, do: 1") == "defmodule A do\n  def bg, do: 1\nend\n"
     end
   end
 
@@ -633,5 +632,16 @@ defmodule Menard.ClauseTest do
     src = "defmodule T do\n  @impl true\n  def run(argv), do: argv\nend\n"
     out = Clause.rewrite(src, "run/1", "argv", "# why\ndef run(args), do: args")
     assert out =~ "  # why\n  @impl true\n  def run(args), do: args"
+  end
+
+  test "replace handed the whole clause of the function it names does the rewrite that was meant" do
+    src = "defmodule T do\n  def total(cart), do: cart\nend\n"
+    # as the eval's agents wrote it: the def line and all
+    out = Clause.replace_body(src, "total/1", "cart", "def total(cart) do\n  cart * 2\nend")
+    assert out =~ "def total(cart) do\n    cart * 2\n  end"
+    refute out =~ "def total(cart) do\n    def"
+    # a whole clause of ANOTHER function is still refused: that one is a mistake, not a shorthand
+    assert {:error, message} = Clause.replace_body(src, "total/1", "cart", "def other(x), do: x")
+    assert message =~ "rewrite"
   end
 end
