@@ -100,4 +100,13 @@ defmodule Menard.Source do
         result
     end
   end
+
+  @doc "How many `#` comment lines sit directly above zero-based line `i` — the why glued to what follows."
+  def comment_lines_above(lines, i) do
+    lines
+    |> Enum.take(i)
+    |> Enum.reverse()
+    |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
+    |> length()
+  end
 end

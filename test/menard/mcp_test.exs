@@ -23,6 +23,30 @@ defmodule Menard.MCPTest do
     response
   end
 
+  test "block add takes a test's context, and block delete removes one", %{root: root} do
+    file = Path.join(root, "lib/a_test.exs")
+
+    File.write!(
+      file,
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"one\" do\n    assert 1\n  end\nend\n"
+    )
+
+    refute call(Menard.MCP.Block, %{
+             verb: "add",
+             file: "lib/a_test.exs",
+             name: "test",
+             label: "ctx",
+             args: "%{ws: ws}",
+             code: "assert ws"
+           }).isError
+
+    refute call(Menard.MCP.Block, %{verb: "delete", file: "lib/a_test.exs", name: "test", label: "one"}).isError
+
+    out = File.read!(file)
+    assert out =~ ~s(test "ctx", %{ws: ws} do)
+    refute out =~ ~s(test "one")
+  end
+
   test "stmt comment and module comment reach the comments no other verb can", %{root: root} do
     File.write!(
       Path.join(root, "lib/a.ex"),

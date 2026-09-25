@@ -169,4 +169,48 @@ defmodule Menard.BlockTest do
 
     assert Block.list(src) == [{:schema, "t", 2}]
   end
+
+  test "delete removes one block, its glued comment, and the blank line it leaves" do
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+
+      # about one
+      test "one" do
+        assert 1
+      end
+
+      test "two" do
+        assert 2
+      end
+    end
+    """
+
+    assert Block.delete(src, "test", label: "one") == """
+           defmodule ATest do
+             use ExUnit.Case
+
+             test "two" do
+               assert 2
+             end
+           end
+           """
+
+    assert {:error, _} = Block.delete(src, "test", label: "nope")
+  end
+
+  test "add writes a test that takes the context" do
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+
+      test "one" do
+        assert 1
+      end
+    end
+    """
+
+    out = Block.add(src, "test", "with ctx", "assert ws", args: "%{workspace: ws}")
+    assert out =~ ~s(test "with ctx", %{workspace: ws} do\n    assert ws\n  end)
+  end
 end

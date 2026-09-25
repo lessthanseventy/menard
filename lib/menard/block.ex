@@ -62,7 +62,7 @@ defmodule Menard.Block do
            {:ok, module} <- Clause.module_scope(ast, opts[:module]),
            {:ok, all} <- blocks(source, opts),
            {:ok, where, anchor} <- placement(all, ast, module, to_atom(name), opts[:in]) do
-        place(source, where, anchor, render(to_atom(name), label, body))
+        place(source, where, anchor, render(to_atom(name), label, body, opts[:args]))
       end
     end
   end
@@ -80,9 +80,6 @@ defmodule Menard.Block do
     at = %{start: [line: last, column: last_col], end: [line: last, column: last_col]}
     patch(source, at, "\n\n" <> indented(text, col))
   end
-
-  defp render(name, nil, body), do: "#{name} do\n" <> indented(body, 3) <> "\nend"
-  defp render(name, label, body), do: "#{name} #{inspect(label)} do\n" <> indented(body, 3) <> "\nend"
 
   defp indented(text, col) do
     indent = String.duplicate(" ", col - 1)
@@ -227,6 +224,26 @@ defmodule Menard.Block do
     end
   end
 
+  @doc """
+  Delete one block — a `test`, a `describe` — with the comment glued above it, and the blank line
+  it leaves when it stood between blank lines.
+  """
+  @spec delete(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
+  def delete(source, name, opts \\ []) do
+    with {:ok, node} <- one(source, name, opts) do
+      %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
+      lines = String.split(source, "\n")
+      first = a - 1 - Menard.Source.comment_lines_above(lines, a - 1)
+      blank_after? = Enum.at(lines, b) == "" and (first == 0 or Enum.at(lines, first - 1) == "")
+      last = if blank_after?, do: b, else: b - 1
+
+      lines
+      |> Enum.with_index()
+      |> Enum.reject(fn {_text, i} -> i >= first and i <= last end)
+      |> Enum.map_join("\n", &elem(&1, 0))
+    end
+  end
+
   # The range of the label STRING itself, quotes included — patching a wider range would reflow the
   # `do` and the first body line with it.
   defp label_range({_name, _meta, args}) do
@@ -264,5 +281,13 @@ defmodule Menard.Block do
       [] -> {:ok, :inside, module}
       siblings -> {:ok, :after, List.last(siblings)}
     end
+  end
+
+  # `name "label", ARGS do` — ARGS is the rest of the head as written: a test's context
+  # (`%{conn: conn}`), a setup's. Without a label it follows the name bare: `setup ctx do`.
+  defp render(name, label, body, args) do
+    parts = Enum.reject([label && inspect(label), args], &(&1 in [nil, ""]))
+    head = if parts == [], do: "#{name}", else: "#{name} " <> Enum.join(parts, ", ")
+    head <> " do\n" <> indented(body, 3) <> "\nend"
   end
 end

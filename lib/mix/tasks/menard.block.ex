@@ -15,7 +15,9 @@ defmodule Mix.Tasks.Menard.Block do
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string, label: :string, in: :string])
+    {opts, args, _} =
+      OptionParser.parse(argv, strict: [module: :string, label: :string, in: :string, args: :string])
+
     where = [module: opts[:module], label: opts[:label]]
 
     case args do
@@ -32,12 +34,19 @@ defmodule Mix.Tasks.Menard.Block do
         edit(file, &Block.replace(&1, name, code, where))
 
       ["add", file, name, code] ->
-        edit(file, &Block.add(&1, name, opts[:label], code, in: opts[:in], module: opts[:module]))
+        edit(
+          file,
+          &Block.add(&1, name, opts[:label], code, in: opts[:in], module: opts[:module], args: opts[:args])
+        )
+
+      ["delete", file, name] ->
+        edit(file, &Block.delete(&1, name, where))
 
       _ ->
         Mix.raise(
           "usage: mix menard.block (get|replace) FILE NAME [CODE] [--label X]\n" <>
-            "       mix menard.block add FILE NAME CODE [--label X] [--in PARENT_LABEL]\n" <>
+            "       mix menard.block add FILE NAME CODE [--label X] [--args CONTEXT] [--in PARENT_LABEL]\n" <>
+            "       mix menard.block delete FILE NAME [--label X]\n" <>
             "       mix menard.block relabel FILE NAME OLD_LABEL NEW_LABEL\n" <>
             "       mix menard.block list FILE [--module Mod]"
         )
