@@ -7,11 +7,6 @@ commit lands.
       `sh`). The version never changed, so Claude Code never updated it. Bump the version on each
       release, and reinstall from menard's own marketplace.
 - [ ] ficciones pins menard at e54b1d6; bump it to the current `main` once pushed.
-- [ ] History narration in comments ("used to…", "the first week of real use"), and
-      `gaps_test.exs` / `verbs_gaps_test.exs` named after history instead of their subject.
-- [ ] README tells people to install the library from hex. Hold off publishing: the mix tasks would
-      run inside the host project, and `anubis_mcp` becomes everyone's runtime dependency.
-- [ ] CHANGELOG `Unreleased` covers only the verb cut; add this session's fixes.
 - [ ] docs/live.md, phase 1: every verb replies with per-stage hunks.
 - [ ] ficciones' `mise run menard` runs the LIVE ~/projects/menard checkout, so editing menard
       breaks other sessions' verbs mid-edit (seen 2026-09-25: they held its build lock). Run a

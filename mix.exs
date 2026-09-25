@@ -1,7 +1,7 @@
 defmodule Menard.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/lessthanseventy/menard"
 
   # AST-aware edits and introspection on Sourceror, a project of its own so `mix menard.*` runs
@@ -34,8 +34,9 @@ defmodule Menard.MixProject do
   end
 
   # The package is the LIBRARY and its mix tasks. `bin/menard` and the plugin manifest stay out of
-  # it: they run from THIS project, with its own deps fetched, which a package unpacked into
-  # someone else's `deps/` does not have. The tool installs from git, the library from hex.
+  # it: they run from THIS project, with its own deps fetched, which a package unpacked into someone
+  # else's `deps/` does not have. Not published: the library installs from git, pinned by ref
+  # (README).
   defp package do
     [
       licenses: ["MIT"],

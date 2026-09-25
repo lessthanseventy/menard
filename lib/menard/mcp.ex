@@ -6,7 +6,7 @@ defmodule Menard.MCP do
 
       claude mcp add menard -- /path/to/menard/bin/menard mcp
   """
-  use Anubis.Server, name: "menard", version: "0.1.0", capabilities: [:tools]
+  use Anubis.Server, name: "menard", version: "0.2.0", capabilities: [:tools]
 
   component(Menard.MCP.Write, name: "write")
   component(Menard.MCP.Rename, name: "rename")
