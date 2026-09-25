@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 The identity corpus over 22 pinned hex packages (`mise run bench:identity`): every clause, attribute,
 block and statement in their lib/ replaced with itself. 81,669 edits over 1,202 files: 96.5% come
@@ -16,7 +16,6 @@ crashed 3; the fixes below are what it found.
   the file no longer has is refused, with the diff since that version. `--force` writes anyway.
   `outline` reports the version too, for the first edit. `rename` takes `--version FILE=SHA` per
   file and `clause move` the source's, all checked before any file is written.
-
 - `clause spec FILE name/arity [SPEC]` (MCP clause verb `spec`): a function's `@spec`, set,
   replaced or removed. No verb reached it: `attr` refuses it and the clause verbs carry it.
 - `directive add|remove|replace|list` take `doctest`: a test module's `doctest Mod` line, placed
@@ -24,7 +23,7 @@ crashed 3; the fixes below are what it found.
 - `block add --tag T` (repeatable; MCP `tag`): the `@tag` lines above the test it adds.
 - `module comment --above` (MCP `above`): the comment over `defmodule`, where a license header or
   a file's reason goes, not the one at the top of its body.
-
+- An empty head addresses a function's only clause; among several it is still refused.
 - menard's own examples are doctests (`Menard.Diff.hunks/2`, `Menard.jsonable/1`), kept
   formatted by `doctest_formatter`, a dev dependency.
 
@@ -79,6 +78,9 @@ crashed 3; the fixes below are what it found.
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
 - The CLI's `attr` reply did not name the verb.
+- `find` on a directory searches its Elixir files (it crashed); a path that matches nothing is
+  refused by name (it printed nothing and exited 0); `find defs` no longer prints "def def".
+- `attr delete` under a def's `@doc` takes the blank line it would leave between them.
 - `outline --json` crashed on every file (a tuple in its answer, fixed for MCP in 0.3.0).
 
 ## 0.4.0
