@@ -3,7 +3,7 @@
   "owner": { "name": "Andrew Moore" },
   "metadata": {
     "description": "AST-aware editing for Elixir",
-    "version": "0.3.0"
+    "version": "0.4.0"
   },
   "plugins": [
     {

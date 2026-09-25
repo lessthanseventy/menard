@@ -219,4 +219,41 @@ defmodule Menard.MCPTest do
     refute response.isError
     assert File.read!(Path.join(root, "lib/a_test.exs")) =~ ~s(test "new" do)
   end
+
+  test "stdout carries only the protocol, even with debug logs on", %{root: root} do
+    # the task sets this up itself: a host that takes menard as a dep never loads menard's config/
+    # the task sets this up itself: a host that takes menard as a dep never loads menard's config/
+    input = Path.join(root, "in.jsonl")
+
+    File.write!(
+      input,
+      JSON.encode!(%{
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+      }) <> "\n"
+    )
+
+    System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
+
+    {out, _} =
+      System.cmd("sh", ["-c", ~S[(cat "$IN"; sleep 3) | "$BIN" mcp 2>"$ERR"]],
+        cd: @root,
+        env: [
+          {"MENARD_ROOT", root},
+          {"MENARD_LOG_LEVEL", "debug"},
+          {"MIX_ENV", "dev"},
+          {"IN", input},
+          {"ERR", Path.join(root, "err.log")},
+          {"BIN", Path.join(@root, "bin/menard")}
+        ]
+      )
+
+    lines = String.split(out, "\n", trim: true)
+    assert [_ | _] = lines
+    for line <- lines, do: assert({:ok, _} = JSON.decode(line), "not protocol on stdout: #{line}")
+    # and the logs did happen, where they belong
+    assert File.read!(Path.join(root, "err.log")) =~ "[debug]"
+  end
 end

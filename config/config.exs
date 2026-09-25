@@ -1,11 +1,5 @@
 import Config
 
-# `mix menard.mcp` speaks MCP over stdio, where STDOUT IS THE PROTOCOL CHANNEL: the spec says a
-# stdio server must not write anything to stdout that is not a valid MCP message, and that logs
-# belong on stderr. Elixir logs to stdout by default, so every transport debug line landed
-# mid-protocol — tolerated by the client, but bytes in a channel that has no room for them.
-config :logger, :default_handler, config: %{type: :standard_error}
-
-# And quiet by default: the transport logs every frame at :debug. Ask for more with
-# MENARD_LOG_LEVEL=debug (read in runtime.exs).
+# Quiet by default for menard's own runs and tests. The MCP door does not rely on this: a host
+# that takes menard as a dep never loads it, so `mix menard.mcp` sets up its own logger.
 config :logger, level: :warning

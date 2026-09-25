@@ -11,7 +11,8 @@ defmodule Menard.VersionTest do
 
     assert JSON.decode!(read.(".claude-plugin/plugin.json"))["version"] == version
     assert JSON.decode!(read.(".claude-plugin/marketplace.json"))["metadata"]["version"] == version
-    assert read.("lib/menard/mcp.ex") =~ ~s(version: "#{version}")
+    # the MCP server takes it from mix.exs rather than stating its own
+    assert read.("lib/menard/mcp.ex") =~ "version: Mix.Project.config()[:version]"
     assert read.("CHANGELOG.md") =~ "## #{version}"
   end
 end
