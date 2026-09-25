@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+The identity corpus over 22 pinned hex packages (`mise run bench:identity`): every clause, attribute,
+block and statement in their lib/ replaced with itself. 81,669 edits over 1,202 files: 96.5% come
+back byte for byte, 1.6% differ only in what the formatter would rewrite, 1.9% are refused (an
+ambiguous head, a module defined twice), and none changes the file. The first run changed 73 and
+crashed 3; the fixes below are what it found.
+
 **New**
 - A project's formatter plugins (Styler) are their own stage in every reply: `formatter` is what
   Elixir's formatter changed, `plugins` what the plugins rewrote after it, and which ran. What is
