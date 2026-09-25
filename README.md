@@ -18,12 +18,14 @@ Two things ship, and they install differently.
 functions, for a tool of your own:
 
 ```elixir
-{:menard, "~> 0.1"}
+{:menard, github: "lessthanseventy/menard", ref: "<a commit>"}
 ```
 
+Pinned by ref. Menard is not on hex: its mix tasks would run inside the host project, which is the
+one thing the tool avoids, and `anubis_mcp` would become every user's runtime dependency.
+
 **The verbs** — the CLI, the MCP door and the Claude Code hooks — run from *this* project, with
-its own deps, which is what lets them work on a codebase that does not compile. So they install
-from git, not from hex:
+its own deps, which is what lets them work on a codebase that does not compile:
 
 ```
 /plugin marketplace add lessthanseventy/menard
@@ -50,7 +52,7 @@ stmt    insert-after|insert-before|replace|delete|comment|list  FILE name/arity 
 block   get|replace|add|relabel|list  FILE NAME [CODE]
 module  add|list FILE [CODE]
 module  comment FILE (Mod|-) [TEXT]              the # comment heading a module
-directive add|remove|list FILE KIND MOD
+directive add|replace|remove|list FILE KIND MOD [OPTS]
 rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE
 run     [--in DIR] check|test|format|compile
