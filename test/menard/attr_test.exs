@@ -236,4 +236,27 @@ defmodule Menard.AttrTest do
     assert at.("@doc \"routes") + 1 == at.("@spec route")
     assert at.("@spec route") + 1 == at.("def route")
   end
+
+  test "delete under a def's @doc takes the blank line it leaves between them" do
+    # deleting one that sat under a def's @doc took its line and left its blank: @doc, a gap, @spec
+    src = """
+    defmodule A do
+      @doc \"\"\"
+      adds
+      \"\"\"
+      @stray 1
+
+      @spec add(integer()) :: integer()
+      def add(a), do: a + 1
+
+      @plain 2
+
+      def other, do: @plain
+    end
+    """
+
+    assert Menard.Attr.delete(src, "stray") =~ "  \"\"\"\n  @spec add(integer())"
+    # elsewhere a blank on each side stays one blank
+    assert Menard.Attr.delete(src, "plain") =~ "def add(a), do: a + 1\n\n\n  def other"
+  end
 end

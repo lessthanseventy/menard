@@ -38,8 +38,14 @@ defmodule Menard.Attr do
   @doc "Remove the attribute and the lines it occupies."
   @spec delete(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def delete(source, name, opts \\ []) do
-    with {:ok, node} <- one(source, name, opts) do
+    with {:ok, body} <- body(source, opts),
+         {:ok, node} <- one(source, name, opts) do
       %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
+      # Under a def's own @doc or @spec, the blank line after it would part them from the def they
+      # belong to: it goes too. Anywhere else a blank on each side is the formatter's to fold.
+      above = body |> Enum.take_while(&(&1 != node)) |> List.last()
+      next_blank? = source |> String.split("\n") |> Enum.at(b) |> Kernel.==("")
+      b = if attr_name(above) in @per_definition and next_blank?, do: b + 1, else: b
       drop_lines(source, a, b)
     end
   end
