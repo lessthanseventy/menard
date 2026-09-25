@@ -27,8 +27,12 @@ defmodule Menard.HostFormatTest do
     code = "defmodule F do\n  def   f, do: 1\nend\n"
     file = write(dir, "f.ex", code)
 
-    assert {:error, message} = Menard.format(file, cache: Path.join(dir, "cache"))
-    assert message =~ "MenardBadPlug"
+    # the VM logs the corrupt beam as it refuses it — expected here, and noise in every gate run
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:error, message} = Menard.format(file, cache: Path.join(dir, "cache"))
+      assert message =~ "MenardBadPlug"
+    end)
+
     assert File.read!(file) == code
   end
 

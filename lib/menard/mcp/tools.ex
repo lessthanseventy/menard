@@ -496,12 +496,13 @@ defmodule Menard.MCP.Block do
   alias Menard.Block
 
   schema do
-    field(:verb, :enum, values: ["get", "replace", "add", "list", "relabel"], required: true)
+    field(:verb, :enum, values: ["get", "replace", "add", "delete", "list", "relabel"], required: true)
     field(:file, :string, required: true)
     field(:name, :string)
     field(:code, :string)
     field(:label, :string)
     field(:new_label, :string)
+    field(:args, :string)
     field(:in, :string)
     field(:module, :string)
   end
@@ -536,12 +537,21 @@ defmodule Menard.MCP.Block do
   end
 
   defp edit(%{verb: "add"} = p, source),
-    do: Block.add(source, p[:name] || "", p[:label], p[:code] || "", in: p[:in], module: p[:module])
+    do:
+      Block.add(source, p[:name] || "", p[:label], p[:code] || "",
+        in: p[:in],
+        module: p[:module],
+        args: p[:args]
+      )
 
   defp edit(%{verb: "relabel"} = p, source),
     do: Block.relabel(source, p[:name] || "", p[:label] || "", p[:new_label] || "", module: p[:module])
 
-  defp edit(p, source), do: Block.replace(source, p[:name] || "", p[:code] || "", where(p))
+  defp edit(%{verb: "replace"} = p, source),
+    do: Block.replace(source, p[:name] || "", p[:code] || "", where(p))
+
+  defp edit(%{verb: "delete"} = p, source), do: Block.delete(source, p[:name] || "", where(p))
+  defp edit(%{verb: verb}, _source), do: {:error, "block has no verb #{inspect(verb)}"}
 
   defp where(params), do: [module: params[:module], label: params[:label]]
 end

@@ -529,4 +529,15 @@ defmodule Menard.ClauseTest do
     before_out = Clause.insert_before(src, "a/1", "2", "defp helper, do: :h")
     assert before_out =~ ~r/defp helper, do: :h\n\n?  def a\(1\), do: 1\n  def a\(2\)/
   end
+
+  test "a head with defaults answers without them too" do
+    src = """
+    defmodule A do
+      def go(a, opts \\\\ []), do: {a, opts}
+    end
+    """
+
+    assert Clause.replace_body(src, "go/2", "a, opts", ":bare") =~ "def go(a, opts \\\\ []), do: :bare"
+    assert Clause.replace_body(src, "go/2", "a, opts \\\\ []", ":full") =~ "do: :full"
+  end
 end

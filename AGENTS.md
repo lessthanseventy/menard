@@ -24,7 +24,7 @@ SHAPE of what you are changing, not the size of the change:
 | the comment above one | `attr comment FILE @name [TEXT]` — no TEXT removes it |
 | the comment above a statement, inside a body | `stmt comment FILE name/arity HEAD MATCH [TEXT]` |
 | the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
-| a `do` block by its label — an ExUnit `test`, a `describe` | `block get\|replace\|add\|relabel FILE test --label "…"` |
+| a `do` block by its label — an ExUnit `test`, a `describe` | `block get\|replace\|add\|delete\|relabel FILE test --label "…"` — `add --args '%{conn: conn}'` for a test's context |
 | an alias/import/require/use | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
 | a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
 
@@ -62,6 +62,10 @@ What the verbs guarantee, where it is not obvious from the name:
   them; `block` can, by macro name with `--label`. `clause insert-at FILE <Module> bottom CODE`
   adds a new test — name the module, since a test file usually holds several.
 - **A zero-arity clause has no head.** `bg`, `bg()`, `def bg` and `""` all address it.
+- **A head answers without its defaults.** `source, opts` finds `def f(source, opts \\ [])`:
+  the arity already says which, and a `\\` is the worst thing to put through a shell.
+- **CODE full of quotes and backslashes:** write it to a file and pass `--stdin` — any verb's
+  last argument is then read from stdin, which no shell quoting can mangle.
 - **An ambiguous head is refused, not guessed at** — `--nth 1..N` says which. Acting on "the
   first" silently is how a delete eats the clause that was just written.
 - **`delete` takes the clause's `@doc`/`@spec` with it**, and `insert-before` goes above them.

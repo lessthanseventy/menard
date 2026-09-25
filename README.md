@@ -49,7 +49,7 @@ clause  move FILE name/arity --to DEST [--as Mod.Name]   with its doc, spec and 
 clause  doc|comment FILE name/arity HEAD [TEXT]
 clause  visibility FILE name/arity public|private
 stmt    insert-after|insert-before|replace|delete|comment|list  FILE name/arity HEAD MATCH [CODE]
-block   get|replace|add|relabel|list  FILE NAME [CODE]
+block   get|replace|add|delete|relabel|list  FILE NAME [CODE] [--label L] [--args CONTEXT]
 module  add|list FILE [CODE]
 module  comment FILE (Mod|-) [TEXT]              the # comment heading a module
 directive add|replace|remove|list FILE KIND MOD [OPTS]
@@ -57,7 +57,12 @@ rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE
 run     [--in DIR] check|test|format|compile
 mcp                                            the same verbs over MCP
+version                                        which menard, on which Elixir and OTP
 ```
+
+`--stdin` reads a verb's last argument from stdin, for CODE that shell quoting would mangle.
+menard runs on its own toolchain (`.tool-versions`, through mise when it is installed), never
+the caller's.
 
 `--frozen` runs the last build straight off `_build` with no compile step: the escape hatch for
 editing menard *with* menard, where a half-applied edit would otherwise lock the tool out of

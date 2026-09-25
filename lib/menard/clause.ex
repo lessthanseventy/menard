@@ -394,7 +394,7 @@ defmodule Menard.Clause do
       clauses = clauses(scope, name, arity)
       want = wanted_head(head, name, arity)
 
-      case Enum.filter(clauses, &(squash(&1.head_text) == want)) do
+      case Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)])) do
         [] -> {:error, "no clause #{name}/#{arity} with head `#{head}` — have: #{heads(clauses)}"}
         [one] -> {:ok, one}
         many -> pick_nth(many, name, arity, head, opts[:nth])
@@ -581,13 +581,16 @@ defmodule Menard.Clause do
   defp clause(kind, name, head, node) do
     %{start: [line: _, column: col]} = range = Sourceror.get_range(node)
     {args, guard} = split_head(head)
+    with_guard = fn text -> if(guard, do: text <> " when " <> guard, else: text) end
 
     %{
       kind: kind,
       name: name,
       args: args,
       guard: guard,
-      head_text: if(guard, do: args <> " when " <> guard, else: args),
+      head_text: with_guard.(args),
+      # the head without its `\\ default`s — what a caller types, since the arity already says which
+      bare_head: with_guard.(bare_args(head)),
       range: range,
       indent: String.duplicate(" ", col - 1),
       node: node
@@ -605,6 +608,17 @@ defmodule Menard.Clause do
     do: {Enum.map_join(args, ", ", &Sourceror.to_string/1), nil}
 
   defp split_head(_head), do: {"", nil}
+
+  defp bare_args({:when, _, [call | _]}), do: bare_args(call)
+
+  defp bare_args({_name, _, args}) when is_list(args) do
+    Enum.map_join(args, ", ", fn
+      {:\\, _, [arg, _default]} -> Sourceror.to_string(arg)
+      arg -> Sourceror.to_string(arg)
+    end)
+  end
+
+  defp bare_args(_head), do: ""
 
   def squash(text), do: text |> String.trim() |> unwrap_parens() |> String.replace(~r/\s+/, "")
   # `(dir, args)` IS how a head is written, so accept the parens people copy off the def line —
