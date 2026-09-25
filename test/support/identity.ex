@@ -15,7 +15,21 @@ defmodule Menard.Test.Identity do
   Every identity edit of `check` on `source`, as `{label, outcome}`: `:same` (byte for byte),
   `:formatted` (different bytes that format the same), `:changed` (a miss) or `:refused`.
   """
-  def run(source, :clause) do
+  def run(source, check) do
+    edits = edits(source, check)
+    for {label, out} <- edits, do: {label, outcome(out, source, formatted(source))}
+  end
+
+  @doc "The edits of `check` that changed the file, each with the hunks it changed: what a miss was."
+  def changes(source, check) do
+    edits = edits(source, check)
+
+    for {label, out} <- edits,
+        outcome(out, source, formatted(source)) == :changed,
+        do: {label, Menard.Diff.hunks(source, out)}
+  end
+
+  defp edits(source, :clause) do
     for {mod, node} <- modules(source),
         {kind, meta, [head, [{_do, body} | _]]} <- Clause.module_body(node),
         kind in @kinds and meta[:do] != nil,
@@ -23,32 +37,32 @@ defmodule Menard.Test.Identity do
         is_binary(text) do
       {name, arity, args} = head_of(head)
       out = Clause.replace_body(source, "#{mod}.#{name}/#{arity}", args, text)
-      {"#{mod}.#{name}/#{arity} `#{args}`", outcome(out, source)}
+      {"#{mod}.#{name}/#{arity} `#{args}`", out}
     end
   end
 
-  def run(source, :attr) do
+  defp edits(source, :attr) do
     for {mod, node} <- modules(source),
         # a name set more than once is refused by `set` — the clause verbs own those
         {name, 1} <- source |> Attr.list(module: mod) |> Enum.frequencies_by(&elem(&1, 0)),
         {:@, _, [{^name, _, [value]}]} <- Clause.module_body(node),
         text = slice(source, value),
         is_binary(text) do
-      {"#{mod} @#{name}", outcome(Attr.set(source, name, text, module: mod), source)}
+      {"#{mod} @#{name}", Attr.set(source, name, text, module: mod)}
     end
   end
 
-  def run(source, :block) do
+  defp edits(source, :block) do
     for {mod, _node} <- modules(source),
         {name, label, _line} <- Block.list(source, module: mod),
         body = Block.get(source, name, module: mod, label: label),
         is_binary(body) do
       out = Block.replace(source, name, body, module: mod, label: label)
-      {"#{mod} #{name} #{inspect(label)}", outcome(out, source)}
+      {"#{mod} #{name} #{inspect(label)}", out}
     end
   end
 
-  def run(source, :stmt) do
+  defp edits(source, :stmt) do
     for {mod, node} <- modules(source),
         {kind, _meta, [head | _]} <- Clause.module_body(node),
         kind in @kinds,
@@ -57,7 +71,7 @@ defmodule Menard.Test.Identity do
         statements = Stmt.list(source, na, args),
         is_list(statements),
         text <- Enum.uniq(statements) do
-      {"#{na} `#{String.slice(text, 0, 50)}`", outcome(Stmt.replace(source, na, args, text, text), source)}
+      {"#{na} `#{String.slice(text, 0, 50)}`", Stmt.replace(source, na, args, text, text)}
     end
   end
 
@@ -65,10 +79,23 @@ defmodule Menard.Test.Identity do
   def misses(source, check), do: for({label, :changed} <- run(source, check), do: label)
 
   # A refusal is not a miss (an ambiguous head, a name two modules share); a changed file is.
-  # Bytes first — formatting both sides is the slow part, and most writes are byte-identical.
-  defp outcome(out, _source) when not is_binary(out), do: :refused
-  defp outcome(source, source), do: :same
-  defp outcome(out, source), do: if(fmt(out) == fmt(source), do: :formatted, else: :changed)
+  # Bytes first — formatting both sides is the slow part, and most writes are byte-identical. The
+  # source's own format is the same for every edit of it, so it is made once, and only if needed:
+  # made per edit, it was most of the hex corpus benchmark's time.
+  defp outcome(out, _source, _formatted) when not is_binary(out), do: :refused
+  defp outcome(source, source, _formatted), do: :same
+  defp outcome(out, _source, formatted), do: if(fmt(out) == formatted.(), do: :formatted, else: :changed)
+
+  defp formatted(source) do
+    key = {__MODULE__, :erlang.phash2(source)}
+
+    fn ->
+      case Process.get(key) do
+        nil -> tap(fmt(source), &Process.put(key, &1))
+        cached -> cached
+      end
+    end
+  end
 
   defp fmt(source) do
     source |> Code.format_string!(line_length: 110) |> IO.iodata_to_binary()
