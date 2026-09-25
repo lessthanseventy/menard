@@ -49,7 +49,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     Rename an identifier across files, AST-aware: every def head, call (local or remote), capture and
     variable named `old` becomes `new`; strings stay. `only` narrows it to `functions` or `variables`;
     `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
-    identifier's bytes move. Paths are under the launch root.
+    identifier's bytes move. `files` are paths or globs (`lib/**/*.ex`) under the launch root.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
