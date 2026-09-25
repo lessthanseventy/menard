@@ -112,6 +112,14 @@ defmodule Mix.Tasks.Menard.Clause do
           flags
         )
 
+      ["spec", file, na | spec] when length(spec) <= 1 ->
+        write(
+          file,
+          &Clause.spec(&1, na, List.first(spec)),
+          "spec #{na} in #{Path.basename(file)}",
+          flags
+        )
+
       ["visibility", file, na, want] ->
         write(
           file,
@@ -127,6 +135,7 @@ defmodule Mix.Tasks.Menard.Clause do
             "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
             "       mix menard.clause doc FILE name/arity HEAD [TEXT]       (no TEXT deletes it)\n" <>
             "       mix menard.clause comment FILE name/arity HEAD [TEXT]   (no TEXT deletes it)\n" <>
+            "       mix menard.clause spec FILE name/arity [SPEC]           (no SPEC deletes it)\n" <>
             "       mix menard.clause visibility FILE name/arity (public|private)"
         )
     end

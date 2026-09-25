@@ -43,6 +43,7 @@ SHAPE of what you are changing, not the size of the change:
 | the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
 | the comment above `defmodule` (a license header) | `module comment FILE (Mod\|-) [TEXT] --above` |
 | an ExUnit `test`, a `describe`, a `schema` | `block get\|replace\|add\|delete\|relabel FILE test --label "…"` |
+| a function's `@spec` | `clause spec FILE name/arity [SPEC]`; no SPEC removes it |
 | an alias/import/require/use | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
 | a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
 | a whole new file | `write FILE CODE` (`-` or `--stdin` reads it from stdin) |

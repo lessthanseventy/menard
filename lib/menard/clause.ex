@@ -828,9 +828,6 @@ defmodule Menard.Clause do
     end)
   end
 
-  defp doc_attr?({:@, _meta, [{:doc, _inner, _args}]}), do: true
-  defp doc_attr?(_node), do: false
-
   @doc """
   Set (or replace) the `@doc` attached to a clause. A docstring is a string literal on an
   attribute, so no other verb reaches it. `text` is the prose, not the `@doc` line: it is wrapped in
@@ -841,7 +838,7 @@ defmodule Menard.Clause do
   def doc(source, name_arity, head, text, opts \\ []) do
     with {:ok, ast} <- parse(source),
          {:ok, clause} <- find(source, name_arity, head, opts) do
-      existing = attached_doc_lines(ast, clause.range)
+      existing = attached_lines(ast, clause.range, :doc)
       rendered = if is_nil(text), do: nil, else: clause.indent <> doc_text(text, clause.indent)
 
       case {existing, text} do
@@ -849,6 +846,36 @@ defmodule Menard.Clause do
         {nil, _} -> insert_at_line(source, doc_start(ast, clause.range), rendered)
         {{a, b}, nil} -> delete_line_range(source, a, b)
         {{a, b}, _} -> replace_line_range(source, a, b, rendered)
+      end
+    end
+  end
+
+  @doc """
+  Set, replace, or with `spec` nil remove the `@spec` of `name_arity`. A spec belongs to the
+  function, not to one clause, so there is no HEAD: it sits above the first clause, below its
+  `@doc`. `spec` is the signature (`go(integer()) :: atom()`); a leading `@spec ` is dropped.
+  """
+  @spec spec(String.t(), String.t(), String.t() | nil) :: String.t() | {:error, String.t()}
+  def spec(source, name_arity, spec) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity) do
+      case clauses(scope, name, arity) do
+        [] ->
+          {:error, "no #{name}/#{arity} in this file"}
+
+        [first | _] ->
+          rendered =
+            spec && first.indent <> "@spec " <> (spec |> String.trim() |> String.replace_prefix("@spec ", ""))
+
+          %{start: [line: line, column: _]} = first.range
+
+          case {attached_lines(ast, first.range, :spec), rendered} do
+            {nil, nil} -> source
+            {nil, _} -> insert_at_line(source, line, rendered)
+            {{a, b}, nil} -> delete_line_range(source, a, b)
+            {{a, b}, _} -> replace_line_range(source, a, b, rendered)
+          end
       end
     end
   end
@@ -905,9 +932,18 @@ defmodule Menard.Clause do
   def comment(source, name_arity, head, text, opts \\ []) do
     with {:ok, ast} <- parse(source),
          {:ok, clause} <- find(source, name_arity, head, opts) do
+      %{start: [line: def_line, column: _]} = clause.range
+      above_attrs = attrs_start(ast, clause.range)
+
       # Above the clause's ATTACHED attributes, not above the `def` — a `@doc` written between them
-      # would orphan the comment from what it explains.
-      comment_at(source, attrs_start(ast, clause.range), clause.indent, text)
+      # would orphan the comment from what it explains. But a comment already written between the
+      # attributes and the def IS the clause's: replaced there, or the clause ends up with two.
+      anchor =
+        if above_attrs < def_line and comment_lines_above(String.split(source, "\n"), def_line - 1) > 0,
+          do: def_line,
+          else: above_attrs
+
+      comment_at(source, anchor, clause.indent, text)
     end
   end
 
@@ -957,7 +993,8 @@ defmodule Menard.Clause do
     |> Enum.join("\n")
   end
 
-  defp attached_doc_lines(ast, %{start: [line: line, column: _]}) do
+  # The lines of the `@name` attached above the clause at `range`, or nil.
+  defp attached_lines(ast, %{start: [line: line, column: _]}, name) do
     Enum.reduce(module_bodies(ast), nil, fn statements, acc ->
       case Enum.find_index(statements, &(start_line(&1) == line)) do
         nil ->
@@ -968,7 +1005,7 @@ defmodule Menard.Clause do
           |> Enum.take(i)
           |> Enum.reverse()
           |> Enum.take_while(&attached_attr?/1)
-          |> Enum.find(&doc_attr?/1)
+          |> Enum.find(&match?({:@, _, [{^name, _, _}]}, &1))
           |> case do
             nil -> acc
             node -> line_span(node)
@@ -984,4 +1021,7 @@ defmodule Menard.Clause do
     %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
     {a, b}
   end
+
+  defp doc_attr?({:@, _meta, [{:doc, _inner, _args}]}), do: true
+  defp doc_attr?(_node), do: false
 end
