@@ -577,15 +577,16 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(params, frame) do
+      # the name may come with its `@` or without; the reply names it once either way
+      at = "@" <> String.trim_leading(params[:name] || "", "@")
+
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- write(params.verb, File.read!(file), params),
            {:ok, reply} <-
-             staged_write(file, out, params,
-               did: "#{params.verb} @#{params[:name]} in #{Path.basename(file)}"
-             ) do
+             staged_write(file, out, params, did: "#{params.verb} #{at} in #{Path.basename(file)}") do
         ok(frame, reply)
       else
-        {:error, :missing} -> fail(frame, "no @#{params[:name]} in this module")
+        {:error, :missing} -> fail(frame, "no #{at} in this module")
         {:error, message} -> fail(frame, message)
       end
     end
