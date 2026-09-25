@@ -31,16 +31,17 @@ defmodule Mix.Tasks.Menard.Write do
   defp write(file, code) do
     file = Menard.resolve(file)
 
-    case Menard.Write.run(file, code) do
-      {:error, message} ->
-        Mix.raise(message)
+    cond do
+      File.exists?(file) and File.read!(file) == String.trim_trailing(code, "\n") <> "\n" ->
+        Mix.shell().info(JSON.encode!(%{did: "write #{Path.basename(file)}", file: file, unchanged: true}))
 
-      {:ok, :unchanged} ->
-        Mix.shell().info("menard.write: #{file} unchanged")
+      true ->
+        File.mkdir_p!(Path.dirname(file))
 
-      {:ok, what} ->
-        Menard.format(file)
-        Mix.shell().info("menard.write: #{file} #{what}")
+        case Menard.write(file, code, did: "write #{Path.basename(file)}") do
+          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
+          {:error, message} -> Mix.raise(message)
+        end
     end
   end
 end

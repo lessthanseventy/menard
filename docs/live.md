@@ -75,9 +75,141 @@ file another session had just rewritten would land somewhere wrong or not at all
 4. **Diagnostics on touched lines.** Credo, and compile warnings, filtered to the lines this edit
    changed.
 
-## Open questions
+## Open questions — resolved
 
-- Credo in-process has the same OTP problem as Styler. Vendor it too, or run it in the host?
-- Does the reply go into the agent's context in full, or as a one-line summary with the full JSON
-  a verb away?
-- Is `version` required (strict), or optional and advisory?
+- **Credo in-process has the same OTP problem as Styler.** Run it in the host. `mix credo
+  lib/file.ex` and `mix compile --warnings-as-errors` via `Menard.host_mix/3`, the same fallback
+  pattern the formatter uses. Parse the output, filter to the lines the edit touched. No new
+  deps, no OTP compatibility headache. ex_check was considered and rejected: it's a whole-project
+  CI gate orchestrator (credo + dialyxir + doctor + sobelow + mix_audit + formatter + compiler +
+  ex_unit in parallel), the wrong scope for per-edit, line-filtered diagnostics that run after
+  every verb call.
+- **Does the reply go into the agent's context in full?** Yes — the MCP tool result IS the
+  reply, and that's the agent's context. The CLI prints one JSON line. A hook (Claude Code
+  PostToolUse, pi tool_result) can extract `did` for a toast/status, but the model already sees
+  the full structure. No separate "one-line summary" channel needed.
+- **Is `version` required (strict), or optional and advisory?** Advisory to start (phase 3).
+  The agent passes `version` if it has one; a mismatch warns and replies with the diff since
+  that version, but the edit still runs. Strict is a later opt-in (a project that wants it sets
+  it in `.menard.exs` or passes `--strict`).
+
+## Implementation plan
+
+### What changes concretely
+
+`Menard.checked_write/2` today: parse-check → `File.write!` → `format(file)` (in-place) → `:ok`.
+
+It becomes `Menard.write/3` (the old name stays as a thin wrapper for callers that don't care
+about the reply yet): read the original → keep the patched content → format in-memory (not
+on-disk) → diff the three versions → write the formatted result → return `{:ok, reply}`.
+
+The three versions are already in hand — no new I/O:
+
+```
+original   File.read!(file) in the verb task (before the edit)
+patched    the `out` argument to checked_write (the verb's Sourceror patch)
+formatted  formatter.(content) in in_process/2 — already computed, just not returned
+```
+
+### Phase 1: the reply (no new deps)
+
+1. **`Menard.Diff`** — a line-level diff, ~50 lines of Myers. Returns hunks as
+   `%{start: line, removed: [lines], added: [lines]}`. No deps; the algorithm is small and the
+   hunks don't need to be minimal, just informative. For the `:patch` stage, prefer the
+   Sourceror patch range (menard already knows which bytes it changed) — the line diff is the
+   fallback for verbs that don't carry a range.
+
+2. **`Menard.write/3`** — the staged pipeline:
+   - parse-check (`Menard.Write.checked`)
+   - format in-memory: `in_process/2` returns `{:ok, formatted}` instead of writing the file
+   - diff `original → patched` = `:patch` hunks
+   - diff `patched → formatted` = `:formatter` hunks (includes Styler today; phase 2 splits it)
+   - `File.write!(file, formatted)`
+   - `version: sha256(formatted)`
+   - return `{:ok, %{did, version, stages: [%{stage: :patch, hunks}, %{stage: :formatter, hunks}]}}`
+
+3. **`did`** — a human-readable one-liner built from the verb + its args. Each verb task passes
+   a `did:` string to `write/3`: `"replace go/1 `:b` in lib/a.ex"`.
+
+4. **The CLI tasks** — print `JSON.encode!(reply)` instead of `"menard.clause: #{file} written"`.
+   One line, the same shape the MCP door returns. The `--frozen` verbs and read-only verbs
+   (`outline`, `find`, `deps`, `run`) are unchanged — they already answer in one line.
+
+5. **The MCP door** — `ok(frame, reply)` instead of `ok(frame, %{"did" => ..., "file" => ...})`.
+   The reply IS the tool result. Claude Code, pi, and opencode all see it the same way — it's
+   just the MCP tool's return value, harness-agnostic.
+
+6. **`rename`** — multi-file: the reply carries `stages` per file, or a list of per-file replies.
+   The `:patch` hunks for a rename are the Sourceror ranges rename already patches.
+
+### Phase 2: Styler as a stage
+
+1. **Add Styler as a menard dep.** menard's own build always loads it (no OTP `:badfile`).
+
+2. **Run Styler separately from the formatter.** Today `mix format` runs both. To split:
+   - `in_process/2` runs `formatter_for_file` with the plugin list MINUS Styler → `:formatter` stage
+   - then runs Styler on the result → `:styler` stage
+   - Styler's rewrites are reported per rule (Styler names the rule that fired)
+
+3. **Version match.** Read the host's `mix.lock` for Styler's version. If it matches menard's,
+   use menard's Styler (in-process, separate stage). If not, fall back to the host's `mix format`
+   (formatter + Styler as one pass, same as phase 1) — the `:styler` stage is absent and the
+   `:formatter` stage carries both. The host's `format --check-formatted` gate always agrees.
+
+4. **When it applies.** Only when the host's `.formatter.exs` lists `Styler`. menard never
+   forces a style onto a project that did not choose it.
+
+### Phase 3: versions
+
+1. **`version` parameter** — optional on every writing verb (CLI `--version SHA`, MCP `version`
+   field). `sha256` of the file content after the last stage.
+
+2. **Stale check.** Before the edit, hash the file on disk. If `version` is given and doesn't
+   match, reply with `{:stale, %{version: current, diff: hunks(original, disk)}}` — the diff
+   since the version the agent had, so it can re-sync. The edit does not run.
+
+3. **Advisory.** A mismatch refuses by default (the safe choice — a stale edit can land wrong).
+   `--force` overrides. Later: a project config for strict vs advisory.
+
+### Phase 4: diagnostics on touched lines
+
+1. **`mix compile`** via `Menard.host_mix/3` — already what `run compile` does. Parse warnings,
+   filter to the file and line range the edit touched.
+
+2. **`mix credo lib/file.ex`** via `Menard.host_mix/3` — parse issues, filter to touched lines.
+   Only when the host has credo (`.credo.exs` or credo in its deps).
+
+3. **The `:diagnostics` stage** — `%{stage: :diagnostics, issues: [%{line, severity, message,
+   tool}]}`. Only on writing verbs. Filtered to the lines the `:patch` stage touched, so a
+   pre-existing warning on line 10 doesn't surface when the edit was on line 40.
+
+4. **Timeout.** Same `@format_timeout` pattern — diagnostics that don't finish in N seconds are
+   dropped (the edit already landed; diagnostics are advisory, not a gate).
+
+### Harness delivery
+
+The reply is harness-agnostic — one JSON shape, three doors:
+
+| harness | how the reply reaches the agent | guard |
+|---|---|---|
+| Claude Code | MCP tool result (the model sees it directly) | PreToolUse hook (menard-only.sh) |
+| pi | MCP tool result (the model sees it directly) | tool_call extension (pi/extension.ts) |
+| opencode | MCP tool result (any MCP client) | its pre-edit hook, or none |
+
+No per-harness work for the reply itself — it's the MCP return value. The guard and the
+format-on-save are the per-harness pieces (already built for Claude Code and pi). opencode gets
+the MCP verbs and the reply for free; it just can't enforce the guard without its own hook.
+
+A hook can extract `did` for a toast/status line, but the model already has the full reply in
+its context via the tool result.
+
+### What phase 1 does NOT do
+
+- No Styler separation (formatter + Styler are one `:formatter` stage).
+- No version/stale detection.
+- No diagnostics.
+- No new deps.
+
+Phase 1 is: every writing verb returns `%{did, version, stages: [:patch, :formatter]}` instead
+of `"written"`. The agent's picture of the file is the file, with no re-read needed — that's
+the row that matters most, and it needs nothing new.

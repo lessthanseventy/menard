@@ -66,8 +66,8 @@ defmodule Mix.Tasks.Menard.Stmt do
         Mix.raise(message)
 
       out ->
-        case Menard.checked_write(file, out) do
-          :ok -> Mix.shell().info("menard.stmt: #{file} written")
+        case Menard.write(file, out, did: "stmt in #{Path.basename(file)}") do
+          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end

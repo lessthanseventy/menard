@@ -19,9 +19,18 @@ defmodule Mix.Tasks.Menard.Rename do
 
     case args do
       [old, new | files] when files != [] ->
-        written = files |> Enum.map(&Menard.resolve/1) |> Enum.filter(&rewrite(&1, old, new, opts))
+        replies =
+          files
+          |> Enum.map(&Menard.resolve/1)
+          |> Enum.map(&rewrite(&1, old, new, opts))
+          |> Enum.reject(&is_nil/1)
 
-        Mix.shell().info("menard.rename: #{old} → #{new} in #{length(written)} of #{length(files)} file(s)")
+        Mix.shell().info(
+          JSON.encode!(%{
+            did: "rename #{old} → #{new} in #{length(replies)} of #{length(files)} file(s)",
+            files: replies
+          })
+        )
 
       _ ->
         Mix.raise(
@@ -40,19 +49,19 @@ defmodule Mix.Tasks.Menard.Rename do
          ) do
       {:error, reason} ->
         Mix.shell().error("#{file}: not parseable, skipped — #{inspect(reason)}")
-        false
+        nil
 
       ^source ->
-        false
+        nil
 
       out ->
-        case Menard.checked_write(file, out) do
-          :ok ->
-            true
+        case Menard.write(file, out, did: "rename #{old} → #{new} in #{Path.basename(file)}") do
+          {:ok, reply} ->
+            reply
 
           {:error, message} ->
             Mix.shell().error(message)
-            false
+            nil
         end
     end
   end

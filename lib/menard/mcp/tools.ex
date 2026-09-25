@@ -43,16 +43,24 @@ defmodule Menard.MCP.Rename do
       ]
 
       {changed, unchanged} =
-        Enum.split_with(files, fn file ->
+        Enum.reduce(files, {[], []}, fn file, {changed, unchanged} ->
           source = File.read!(file)
 
           case Menard.Rename.run(source, params.old, params.new, opts) do
-            out when is_binary(out) and out != source -> Menard.checked_write(file, out) == :ok
-            _ -> false
+            out when is_binary(out) and out != source ->
+              case Menard.write(file, out,
+                     did: "rename #{params.old} → #{params.new} in #{Path.basename(file)}"
+                   ) do
+                {:ok, _reply} -> {[file | changed], unchanged}
+                {:error, _} -> {changed, [file | unchanged]}
+              end
+
+            _ ->
+              {changed, [file | unchanged]}
           end
         end)
 
-      ok(frame, %{"changed" => changed, "unchanged" => unchanged})
+      ok(frame, %{"changed" => Enum.reverse(changed), "unchanged" => Enum.reverse(unchanged)})
     else
       {:error, message} -> fail(frame, message)
     end
@@ -143,13 +151,12 @@ defmodule Menard.MCP.Clause do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
          source <- File.read!(file),
          out when is_binary(out) <- edit(params, source),
-         :ok <- Menard.checked_write(file, out) do
-      # the one line a transcript shows: what happened, to which clause, where
-      ok(frame, %{
-        "did" =>
-          "#{params.verb} #{params[:name_arity] || params[:module] || "-"} `#{params[:head] || params[:at]}` in #{Path.basename(file)}",
-        "file" => file
-      })
+         {:ok, reply} <-
+           Menard.write(file, out,
+             did:
+               "#{params.verb} #{params[:name_arity] || params[:module] || "-"} `#{params[:head] || params[:at]}` in #{Path.basename(file)}"
+           ) do
+      ok(frame, reply)
     else
       {:error, message} -> fail(frame, message)
     end
@@ -224,11 +231,11 @@ defmodule Menard.MCP.Stmt do
   def execute(params, frame) do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
          out when is_binary(out) <- edit(params, File.read!(file)),
-         :ok <- Menard.checked_write(file, out) do
-      ok(frame, %{
-        "did" => "#{params.verb} `#{params[:match]}` in #{params.name_arity} of #{Path.basename(file)}",
-        "file" => file
-      })
+         {:ok, reply} <-
+           Menard.write(file, out,
+             did: "#{params.verb} `#{params[:match]}` in #{params.name_arity} of #{Path.basename(file)}"
+           ) do
+      ok(frame, reply)
     else
       {:error, message} -> fail(frame, message)
     end
@@ -401,8 +408,9 @@ defmodule Menard.MCP.Directive do
          {:ok, kind} <- kind(params[:kind]),
          {:ok, target} <- target(params[:target]),
          out when is_binary(out) <- edit(params.verb, File.read!(file), kind, target, params),
-         :ok <- Menard.checked_write(file, out) do
-      ok(frame, %{"did" => "#{params.verb} #{kind} #{target} in #{Path.basename(file)}", "file" => file})
+         {:ok, reply} <-
+           Menard.write(file, out, did: "#{params.verb} #{kind} #{target} in #{Path.basename(file)}") do
+      ok(frame, reply)
     else
       {:error, message} -> fail(frame, message)
     end
@@ -473,8 +481,9 @@ defmodule Menard.MCP.Attr do
   def execute(params, frame) do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
          out when is_binary(out) <- write(params.verb, File.read!(file), params),
-         :ok <- Menard.checked_write(file, out) do
-      ok(frame, %{"did" => "#{params.verb} @#{params[:name]} in #{Path.basename(file)}", "file" => file})
+         {:ok, reply} <-
+           Menard.write(file, out, did: "#{params.verb} @#{params[:name]} in #{Path.basename(file)}") do
+      ok(frame, reply)
     else
       {:error, :missing} -> fail(frame, "no @#{params[:name]} in this module")
       {:error, message} -> fail(frame, message)
@@ -537,8 +546,9 @@ defmodule Menard.MCP.Block do
   def execute(params, frame) do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
          out when is_binary(out) <- edit(params, File.read!(file)),
-         :ok <- Menard.checked_write(file, out) do
-      ok(frame, %{"did" => "#{params.verb} #{params[:name]} in #{Path.basename(file)}", "file" => file})
+         {:ok, reply} <-
+           Menard.write(file, out, did: "#{params.verb} #{params[:name]} in #{Path.basename(file)}") do
+      ok(frame, reply)
     else
       {:error, message} -> fail(frame, message)
     end
@@ -656,11 +666,9 @@ defmodule Menard.MCP.Module do
   def execute(%{verb: verb} = params, frame) when verb in ["add", "replace", "comment"] do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
          out when is_binary(out) <- edit(verb, File.read!(file), params),
-         :ok <- Menard.checked_write(file, out) do
-      ok(frame, %{
-        "did" => "#{verb} #{params[:module] || "a module"} in #{Path.basename(file)}",
-        "file" => file
-      })
+         {:ok, reply} <-
+           Menard.write(file, out, did: "#{verb} #{params[:module] || "a module"} in #{Path.basename(file)}") do
+      ok(frame, reply)
     else
       {:error, message} -> fail(frame, message)
     end

@@ -73,12 +73,10 @@ defmodule Mix.Tasks.Menard.Block do
         Mix.raise(message)
 
       out ->
-        case Menard.checked_write(file, out) do
-          :ok -> :ok
+        case Menard.write(file, out, did: "block in #{Path.basename(file)}") do
+          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end
-
-    Mix.shell().info("menard.block: #{file} written")
   end
 end
