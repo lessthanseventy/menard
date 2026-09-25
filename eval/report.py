@@ -87,7 +87,7 @@ def table(groups, key_label):
     out = [f"| {key_label} | arm | n | pass | clean | cost $ | context tok | out tok | turns | wall s | failed calls |",
            "|---|---|---|---|---|---|---|---|---|---|---|"]
     for key, by_arm in groups:
-        for arm in ARMS:
+        for arm in ARMS + sorted(a for a in by_arm if a not in ARMS):
             rows = by_arm.get(arm, [])
             if not rows:
                 continue
@@ -126,7 +126,7 @@ def main():
         md.append(f"- `{r['id']}`{' (timed out)' if r['timed_out'] else ''}: {why[:200]}")
 
     md.append("\n## Tool use by arm\n")
-    for arm in ARMS:
+    for arm in ARMS + sorted({r["arm"] for r in rows} - set(ARMS)):
         tot = defaultdict(int)
         n = 0
         for r in rows:
