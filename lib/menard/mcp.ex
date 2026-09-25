@@ -26,7 +26,7 @@ defmodule Menard.MCP do
 
   @doc "A path under the root, or a refusal — no edit escapes the launch directory."
   def resolve(path) do
-    root = root()
+    root = Path.expand(root())
     abs = Path.expand(path, root)
 
     if String.starts_with?(abs, root <> "/") or abs == root,
