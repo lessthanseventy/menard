@@ -19,6 +19,37 @@ defmodule Menard.HostFormatTest do
     file
   end
 
+  test "a plugin built by a newer OTP is passed over without the VM's load error", %{tmp_dir: dir} do
+    installs = Path.expand("~/.local/share/mise/installs")
+    elixirc = Path.join(installs, "elixir/1.20.4-otp-29/bin/elixirc")
+    erl_bin = Path.join(installs, "erlang/29.0.6/bin")
+
+    if File.exists?(elixirc) and File.dir?(erl_bin) and System.otp_release() < "29" do
+      ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
+      File.mkdir_p!(ebin)
+      src = Path.join(dir, "plug.ex")
+
+      File.write!(src, """
+      defmodule MenardNewerPlug do
+        def features(_opts), do: [extensions: [".ex"]]
+        def format(contents, _opts), do: contents
+      end
+      """)
+
+      {_, 0} =
+        System.cmd(elixirc, ["-o", ebin, src], env: [{"PATH", erl_bin <> ":" <> System.get_env("PATH")}])
+
+      host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardNewerPlug]]")
+      code = "defmodule G do\n  def   g, do: 1\nend\n"
+      file = write(dir, "g.ex", code)
+
+      log = ExUnit.CaptureLog.capture_log(fn -> Menard.format(file, cache: Path.join(dir, "cache")) end)
+
+      refute log =~ "Error loading module"
+      assert File.read!(file) == code
+    end
+  end
+
   test "a plugin that will not load is never skipped silently — the file is left alone", %{tmp_dir: dir} do
     ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
     File.mkdir_p!(ebin)

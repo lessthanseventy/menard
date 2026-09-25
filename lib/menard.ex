@@ -62,48 +62,66 @@ defmodule Menard do
     root = formatter_root(file)
     project = find_up(root, "mix.exs") || root
     dot = Path.join(root, ".formatter.exs")
+    dot_opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
 
-    with {:ok, deps_paths} <- import_deps(dot, project, opts[:cache] || cache_dir(project)) do
+    with {:ok, deps_paths} <-
+           import_deps(dot_opts[:import_deps] || [], project, opts[:cache] || cache_dir(project)),
+         :ok <- plugins_here(dot_opts[:plugins] || [], project) do
       {formatter, _opts} =
         Mix.Tasks.Format.formatter_for_file(file,
           root: root,
           dot_formatter: dot,
           deps_paths: deps_paths,
-          plugin_loader: &load_plugins(&1, project)
+          plugin_loader: & &1
         )
 
       content = File.read!(file)
       formatted = formatter.(content)
-
-      # without one of its plugins the formatter writes code the host's own would rewrite — a diff
-      # on lines nobody touched — so a missing plugin means not here, never "format without it"
-      case Process.get(:menard_skipped_plugins, []) do
-        [] ->
-          if formatted != content, do: File.write!(file, formatted)
-          :ok
-
-        skipped ->
-          {:fallback, "#{inspect(skipped)} will not load from #{project}/_build in this VM"}
-      end
+      if formatted != content, do: File.write!(file, formatted)
+      :ok
     end
   rescue
     e -> {:fallback, Exception.message(e)}
   end
 
-  # The host's last build: appended, so menard's own modules win any name both have.
-  defp load_plugins(plugins, project) do
+  # Every plugin must load here, or none is used: without one of them the formatter writes code the
+  # host's own would rewrite, a diff on lines nobody touched. Decided BEFORE Mix sees the file, since
+  # it loads every plugin .formatter.exs names when it picks one by extension, whatever a
+  # plugin_loader returned. The host's last build is appended, so menard's own modules win any name
+  # both have.
+  defp plugins_here(plugins, project) do
     for ebin <- Path.wildcard(Path.join(project, "_build/*/lib/*/ebin")),
         to_charlist(ebin) not in :code.get_path(),
         do: Code.append_path(ebin)
 
-    {loaded, skipped} = Enum.split_with(plugins, &Code.ensure_loaded?/1)
-    Process.put(:menard_skipped_plugins, skipped)
-    loaded
+    case Enum.reject(plugins, &(loadable?(&1) and Code.ensure_loaded?(&1))) do
+      [] -> :ok
+      skipped -> {:fallback, "#{inspect(skipped)} will not load from #{project}/_build in this VM"}
+    end
   end
 
-  defp import_deps(dot, project, cache) do
-    wanted = if File.regular?(dot), do: Keyword.get(elem(Code.eval_file(dot), 0), :import_deps, []), else: []
+  # A beam a newer compiler built will not load in this VM, and trying makes the VM log an error per
+  # attempt. Its compile_info chunk names the compiler, and reading a chunk loads nothing.
+  defp loadable?(module) do
+    with path when is_list(path) <- :code.which(module),
+         {:ok, {_, [compile_info: info]}} <- :beam_lib.chunks(path, [:compile_info]),
+         built when is_list(built) <- info[:version] do
+      Application.load(:compiler)
+      vsn_parts(built) <= vsn_parts(Application.spec(:compiler, :vsn))
+    else
+      # loaded already, preloaded, not on the path, or unreadable: loading it is the test
+      _ -> true
+    end
+  end
 
+  defp vsn_parts(vsn) do
+    vsn |> to_string() |> String.split(".") |> Enum.map(&(Integer.parse(&1) |> elem_or_zero()))
+  end
+
+  defp elem_or_zero({n, _rest}), do: n
+  defp elem_or_zero(:error), do: 0
+
+  defp import_deps(wanted, project, cache) do
     Enum.reduce_while(wanted, {:ok, %{}}, fn dep, {:ok, acc} ->
       real = Path.join([project, "deps", to_string(dep)])
       cached = Path.join(cache, to_string(dep))
