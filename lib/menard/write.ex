@@ -43,6 +43,9 @@ defmodule Menard.Write do
         {:ok, _ast} ->
           {:ok, content}
 
+        {:error, {meta, {prefix, suffix}, token}} ->
+          {:error, "not parseable at line #{line(meta)}: #{prefix}#{token}#{suffix}"}
+
         {:error, {meta, message, token}} ->
           {:error, "not parseable at line #{line(meta)}: #{message}#{token}"}
 
