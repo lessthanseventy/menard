@@ -237,4 +237,24 @@ defmodule Menard.HostFormatTest do
       assert File.read!(file) =~ "# seen: #{name}\n"
     end
   end
+
+  test "a write the format could not finish says so in its reply", %{tmp_dir: dir} do
+    # a write the format could not finish said so on stderr only, and the reply looked clean
+    ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
+    File.mkdir_p!(ebin)
+    File.write!(Path.join(ebin, "Elixir.MenardBadPlug.beam"), "not a beam")
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardBadPlug]]")
+    file = write(dir, "f.ex", "defmodule F do\nend\n")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        send(self(), {:reply, Menard.write(file, "defmodule F do\n  def   f, do: 1\nend\n")})
+      end)
+    end)
+
+    assert_received {:reply, {:ok, reply}}
+    assert reply.unformatted =~ "MenardBadPlug"
+    assert %{error: _} = Enum.find(reply.stages, &(&1.stage == :formatter))
+    assert File.read!(file) =~ "def   f"
+  end
 end
