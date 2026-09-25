@@ -10,3 +10,6 @@ commit lands.
       120s while `bin/menard` was compiling this repo; the same call replayed later answered in
       seconds. Suspect waiting on this repo's `_build` lock (the formatter loads host plugins from
       it). Unconfirmed; a verb waiting on a lock should say so, not go silent.
+- [ ] `clause replace` keeps the comment above the old body's first statement; a new BODY that
+      starts with that same comment leaves it in the file twice (plugin 0.3.0, seen on
+      ex_compact's `lib/ex_compact/client.ex`). Unreproduced here.
