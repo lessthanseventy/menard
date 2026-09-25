@@ -41,19 +41,18 @@ if Code.ensure_loaded?(Anubis.Server) do
     def resolve_all(paths) do
       # a glob (`lib/**/*.ex`) is expanded under the root: agents pass them, and no shell is there to expand them
       root = Path.expand(root())
+      globs = Enum.filter(paths, &String.contains?(&1, ["*", "?", "[", "{"]))
 
-      Enum.reduce_while(paths, {:ok, []}, fn p, {:ok, acc} ->
-        expanded =
-          if String.contains?(p, ["*", "?", "[", "{"]), do: Path.wildcard(Path.expand(p, root)), else: [p]
+      expanded =
+        Enum.flat_map(paths, fn p ->
+          if p in globs, do: Path.wildcard(Path.expand(p, root)), else: [p]
+        end)
 
-        with [_ | _] <- expanded,
-             {:ok, abs} <- resolve_all_plain(expanded) do
-          {:cont, {:ok, acc ++ abs}}
-        else
-          [] -> {:halt, {:error, "no file matches #{p}"}}
-          {:error, _} = e -> {:halt, e}
-        end
-      end)
+      # a glob that matches nothing beside others that do is dropped; only an empty whole is refused
+      case expanded do
+        [] -> {:error, "no file matches #{Enum.join(globs, ", ")}"}
+        _ -> resolve_all_plain(expanded)
+      end
     end
 
     defp resolve_all_plain(paths) do

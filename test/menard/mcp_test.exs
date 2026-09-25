@@ -396,7 +396,13 @@ defmodule Menard.MCPTest do
     assert File.read!(Path.join(root, "lib/a.ex")) =~ "def fresh"
     assert File.read!(Path.join(root, "lib/sub/b.ex")) =~ "A.fresh()"
 
-    response = call(Menard.MCP.Rename, %{old: "fresh", new: "x", files: ["lib/**/*.exs"]})
+    # beside one that matches, an empty glob is no reason to refuse: the eval's agent wrote
+    # `test/**/*.ex` for tests that are .exs, and lost a turn to it
+    refute call(Menard.MCP.Rename, %{old: "fresh", new: "fine", files: ["lib/**/*.ex", "test/**/*.ex"]}).isError
+
+    assert File.read!(Path.join(root, "lib/a.ex")) =~ "def fine"
+
+    response = call(Menard.MCP.Rename, %{old: "fine", new: "x", files: ["lib/**/*.exs"]})
     assert response.isError
     assert response.content |> hd() |> Map.fetch!("text") =~ "no file matches lib/**/*.exs"
   end
