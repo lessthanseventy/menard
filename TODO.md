@@ -10,5 +10,3 @@ commit lands.
       The door can no longer go silent (every tool answers within its deadline, 90s for edits),
       but what blocked is still unknown. Suspect: this repo's `_build` lock during a compile.
 - [ ] Reported by the cleanup agents (plugin 0.3.0), 2026-09-25:
-- [ ] `attr delete` of an attribute that had a blank line after it and none before keeps the
-      blank: deleting one set between a `@doc` and a `@spec` left them a blank line apart.
