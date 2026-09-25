@@ -21,16 +21,25 @@ defmodule Menard.Block do
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
       indent = String.duplicate(" ", col + 1)
 
-      range =
-        node
-        |> body_range()
-        |> Menard.Source.clamp(source)
-        |> Menard.Source.with_leading_comments(source, code)
+      case {body_range(node), meta[:do]} do
+        # `test "x" do end` has no body to take a range from: write between the `do` and the `end`
+        {nil, [line: line, column: column]} ->
+          at = %{start: [line: line, column: column + 2], end: meta[:end]}
 
-      cond do
-        meta[:do] -> patch(source, range, reindent(code, indent))
-        not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
-        true -> to_do_block(source, args, range, code, col)
+          patch(
+            source,
+            at,
+            "\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1)
+          )
+
+        {body, _do} ->
+          range = body |> Menard.Source.clamp(source) |> Menard.Source.with_leading_comments(source, code)
+
+          cond do
+            meta[:do] -> patch(source, range, reindent(code, indent))
+            not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
+            true -> to_do_block(source, args, range, code, col)
+          end
       end
     end
   end
@@ -60,18 +69,25 @@ defmodule Menard.Block do
   # `defmodule` is not a block to add — a module with a `--label` renders `defmodule "Name"`, which
   # parses and then dies at compile with "invalid module name". `module add` is the verb for that.
   def add(source, name, label, body, opts \\ []) do
-    if to_atom(name) == :defmodule do
-      {:error,
-       "add a module with `menard.module add`, not `block add defmodule` (a --label would become a string module name)"}
-    else
-      with {:ok, ast} <- parse(source),
-           {:ok, module} <- Clause.module_scope(ast, opts[:module]),
-           {:ok, all} <- blocks(source, opts),
-           {:ok, where, anchor} <- placement(all, ast, module, to_atom(name), opts[:in]) do
-        # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
-        tags = opts[:tag] |> List.wrap() |> Enum.map_join(&"@tag #{&1}\n")
-        place(source, where, anchor, tags <> render(to_atom(name), label, body, opts[:args]))
-      end
+    cond do
+      # an MCP call may leave `name` out; `"label" do … end` is what that would write, and it doesn't parse
+      name in [nil, ""] ->
+        {:error,
+         "add needs the macro to write — `test`, `describe`, `setup` — as `name`; the label alone is not one"}
+
+      to_atom(name) == :defmodule ->
+        {:error,
+         "add a module with `menard.module add`, not `block add defmodule` (a --label would become a string module name)"}
+
+      true ->
+        with {:ok, ast} <- parse(source),
+             {:ok, module} <- Clause.module_scope(ast, opts[:module]),
+             {:ok, all} <- blocks(source, opts),
+             {:ok, where, anchor} <- placement(all, ast, module, to_atom(name), opts[:in]) do
+          # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
+          tags = opts[:tag] |> List.wrap() |> Enum.map_join(&"@tag #{&1}\n")
+          place(source, where, anchor, tags <> render(to_atom(name), label, body, opts[:args]))
+        end
     end
   end
 

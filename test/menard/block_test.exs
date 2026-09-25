@@ -260,4 +260,18 @@ defmodule Menard.BlockTest do
 
     assert out =~ ~s(    @tag :tmp_dir\n    @tag timeout: 5_000\n    test "c", %{tmp_dir: dir} do)
   end
+
+  test "add with no macro name is refused, naming the fix, not written as unparseable code" do
+    for name <- ["", nil] do
+      assert {:error, message} = Block.add(@src, name, "x", "assert true")
+      assert message =~ "test"
+    end
+  end
+
+  test "replace fills an empty body, where there is no body to take a range from" do
+    src = "defmodule ATest do\n  use ExUnit.Case\n\n  test \"e\" do\n  end\nend\n"
+
+    assert Block.replace(src, "test", "assert 1 == 1", label: "e") ==
+             "defmodule ATest do\n  use ExUnit.Case\n\n  test \"e\" do\n    assert 1 == 1\n  end\nend\n"
+  end
 end
