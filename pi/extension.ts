@@ -8,11 +8,16 @@
 //                (never block) when menard is missing or errors.
 //   tool_result  format-on-save: `menard run format FILE` on what was just written, so the file
 //                on disk is always formatter-compliant. Best-effort and invisible.
+//   advice       hooks/shell-edits.sh (a module a bash command changed) and hooks/read-hint.sh (a
+//                big module read whole), the same scripts Claude Code runs, fed its payload shape;
+//                what they say is appended to the tool's result. Never blocks.
 //
 // See docs/adapters.md — the Claude Code plugin is one adapter; this is another.
 
-import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { advise, hook } from "./advice.ts";
+import { run, runQuiet } from "./spawn.ts";
 import type {
   ExtensionAPI,
   ToolCallEvent,
@@ -24,11 +29,17 @@ import type {
 
 // Self-locating: bin/menard is one level up from pi/extension.ts. MENARD_BIN overrides (a dev
 // box pointing at a different checkout, or a Nix wrapper on PATH).
-const MENARD = process.env.MENARD_BIN ?? join(dirname(import.meta.dir), "bin", "menard");
+// import.meta.url, not import.meta.dir: pi loads an extension as a data: URL, and there .dir is that
+// URL while .url is still the file's.
+const MENARD = process.env.MENARD_BIN ?? join(dirname(dirname(fileURLToPath(import.meta.url))), "bin", "menard");
 
 export default function menard(pi: ExtensionAPI): void {
-  pi.on("tool_call", (event, ctx) => guard(event, ctx));
+  pi.on("tool_call", async (event, ctx) => {
+    if (event.toolName === "bash") await hook("shell-edits.sh", "PreToolUse", event, ctx);
+    return guard(event, ctx);
+  });
   pi.on("tool_result", (event, ctx) => formatTouched(event, ctx));
+  pi.on("tool_result", (event, ctx) => advise(event, ctx));
 }
 
 // -- the shared decision: is this an edit/write on an .ex/.exs? -----------------------------
@@ -79,30 +90,4 @@ async function formatTouched(
     // silent — the edit stands regardless.
   }
   return undefined;
-}
-
-// -- spawn helpers ---------------------------------------------------------------------------
-
-function run(
-  cmd: string,
-  args: string[],
-  cwd: string,
-): Promise<{ status: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout?.on("data", (d: Buffer | string) => (stdout += d));
-    proc.stderr?.on("data", (d: Buffer | string) => (stderr += d));
-    proc.on("close", (status) => resolve({ status, stdout, stderr }));
-    proc.on("error", reject);
-  });
-}
-
-function runQuiet(cmd: string, args: string[], cwd: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, { cwd, stdio: "ignore" });
-    proc.on("close", () => resolve());
-    proc.on("error", reject);
-  });
 }

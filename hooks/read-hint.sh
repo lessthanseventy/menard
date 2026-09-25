@@ -14,8 +14,9 @@ case "$file" in *.ex | *.exs) ;; *) exit 0 ;; esac
 [[ $(jq -r '.tool_input.offset // .tool_input.limit // empty' <<<"$payload") == "" ]] || exit 0
 [[ -f "$file" ]] && (($(wc -l <"$file") > 300)) || exit 0
 
+p=${MENARD_TOOL_PREFIX:-mcp__plugin_menard_menard__}
 cat >&2 <<MSG
-menard: $(wc -l <"$file") lines read whole. Next time, mcp__plugin_menard_menard__outline {file} lists every
+menard: $(wc -l <"$file") lines read whole. Next time, ${p}outline {file} lists every
 clause's name, head and lines in far fewer tokens; then Read only the lines you need (offset, limit).
 MSG
 exit 2

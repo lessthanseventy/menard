@@ -28,6 +28,8 @@ export interface ToolResultEvent {
   toolName: string;
   toolCallId: string;
   input: { path?: string } & Record<string, unknown>;
+  /** What the model will see: text blocks, which a handler may extend. */
+  content?: unknown[];
   isError?: boolean;
 }
 

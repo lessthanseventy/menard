@@ -13,6 +13,7 @@ event=$(jq -r '.hook_event_name // empty' <<<"$payload")
 session=$(jq -r '.session_id // "none"' <<<"$payload")
 dir=$(jq -r '.cwd // empty' <<<"$payload")
 dir=${dir:-${CLAUDE_PROJECT_DIR:-$PWD}}
+p=${MENARD_TOOL_PREFIX:-mcp__plugin_menard_menard__}
 mark="${TMPDIR:-/tmp}/menard-shell-edits-${session//[^A-Za-z0-9_-]/}"
 
 if [[ "$event" == "PreToolUse" ]]; then
@@ -33,7 +34,7 @@ changed=$(find "$dir" \( -name _build -o -name deps -o -name .git -o -name node_
 cat >&2 <<MSG
 menard: that command changed Elixir modules outside menard's verbs, with nothing parse-checked:
 $(sed 's/^/  /' <<<"$changed")
-Confirm they still compile: mcp__plugin_menard_menard__run {verb: "check"}. The next edit to a
+Confirm they still compile: ${p}run {verb: "check"}. The next edit to a
 module goes through menard's tools, which parse-check what they write.
 MSG
 exit 2
