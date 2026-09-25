@@ -2,8 +2,16 @@ defmodule Menard.MCP.Reply do
   @moduledoc false
   alias Anubis.Server.Response
 
-  def ok(frame, payload), do: {:reply, Response.json(Response.tool(), payload), frame}
+  def ok(frame, payload), do: {:reply, Response.json(Response.tool(), jsonable(payload)), frame}
   def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
+
+  # JSON has no tuple: the library answers with them (`lines: {3, 9}`), and encoding one crashed
+  # the tool call. Every answer passes through here on its way out.
+  defp jsonable(%{__struct__: _} = struct), do: struct
+  defp jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
+  defp jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
+  defp jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
+  defp jsonable(other), do: other
 end
 
 defmodule Menard.MCP.Rename do

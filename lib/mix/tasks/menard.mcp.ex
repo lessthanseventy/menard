@@ -12,6 +12,13 @@ defmodule Mix.Tasks.Menard.Mcp do
   def run(_argv) do
     Mix.Task.run("app.start", ["--no-compile"])
     {:ok, _} = Supervisor.start_child(Menard.Supervisor, {Menard.MCP, transport: :stdio})
-    Process.sleep(:infinity)
+
+    # The transport stops when the client closes stdin, and the VM goes with it: kept alive, the
+    # server of a client that died without killing it lingers for good.
+    ref = Process.monitor(Anubis.Server.Registry.transport_name(Menard.MCP, :stdio))
+
+    receive do
+      {:DOWN, ^ref, :process, _pid, _reason} -> System.halt(0)
+    end
   end
 end
