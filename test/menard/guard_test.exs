@@ -116,5 +116,10 @@ defmodule Menard.GuardTest do
       assert {_, 2} = edit(file, %{old_string: "Total: {{totl}}\n  \"\"\"", new_string: "Total"})
       assert {_, 2} = edit(file, %{old_string: "not in the file", new_string: "x"})
     end
+
+    test "pi's edit shape is judged the same way", %{mailer: file} do
+      assert {_, 0} = edit(file, %{path: file, edits: [%{oldText: "{{totl}}", newText: "{{total}}"}]})
+      assert {_, 2} = edit(file, %{path: file, edits: [%{oldText: "def hi(name)", newText: "def hi(first)"}]})
+    end
   end
 end

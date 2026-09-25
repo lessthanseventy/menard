@@ -52,7 +52,10 @@ async function guard(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolC
   // else (new files, scripts with no module, config/, deps/, _build/). Fail open: a missing or
   // broken menard must never be the reason an edit is blocked.
   try {
-    const { status, stderr } = await run(MENARD, ["guard", file], ctx.cwd);
+    // --edit: the edit itself, so one that only changes text inside a string (a heredoc, a ~H
+    // template, which no verb reaches into) can pass
+    const edit = JSON.stringify(event.input ?? {});
+    const { status, stderr } = await run(MENARD, ["guard", file, "--edit", edit], ctx.cwd);
     if (status === 2) return { block: true, reason: stderr.trim() };
   } catch {
     // menard not found or failed to start — fail open.
