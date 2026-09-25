@@ -226,6 +226,11 @@ def run_one(case_dir, arm, model, n, out_dir):
     trace.parent.mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, CLAUDE_CODE_DISABLE_CLAUDE_MDS="1", ENABLE_CLAUDEAI_MCP_SERVERS="false")
     env.pop("CLAUDECODE", None)
+    # A runner started from a Claude Code shell inherits its plugins' bin/ dirs, and an installed
+    # menard there (0.3.0 once) answered every `menard` the agents ran through Bash. The arm's own
+    # --plugin-dir is the only menard a run may see.
+    env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
+                                  if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
     t0 = time.time()
     timed_out = False
     with open(trace, "w") as f:

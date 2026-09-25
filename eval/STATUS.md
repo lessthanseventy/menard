@@ -67,3 +67,9 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
 - 14:16 round 2 started.
 - 14:23 round 2 stopped; skill loop iteration 1 started 14:24.
 - 14:55 skill1 stopped; menard fixes above; 15:08 skill loop iteration 2 started.
+- 15:40 skill2 stopped at 15/60 (Andrew: fix the obvious first). Harness bug found: the runner
+  inherited its launching Claude Code shell's PATH, which held the installed menard 0.3.0's bin/,
+  so every `menard` an agent ran through Bash was 0.3.0 (its errors reproduce word for word; the
+  pinned build succeeds). MCP calls and the guard were the pinned build. Every CLI-through-Bash
+  failure in rounds so far measured 0.3.0. Fixed: run.py strips plugin and repo bin/ dirs from the
+  agent's PATH; probe: arm A sees no menard, B only its pinned copy.
