@@ -14,3 +14,7 @@ commit lands.
       whose default Elixir is < 1.18 it doesn't start, and two toolchains alternating rebuild its
       `_build` from scratch (seen 2026-09-25). Pin it (mise.toml / .tool-versions) and have
       bin/menard run under it.
+- [ ] A cold MCP start (a new pin or a fresh install: clone, deps fetch, compile, ~30s) outlasts
+      Claude Code's MCP startup wait, so the server comes up "failed" and its tools are missing
+      until a manual reconnect. Seen 2026-09-25 right after ficciones' pin bump. Warm the build
+      before anything waits on it (SessionStart hook), or answer `initialize` before compiling.
