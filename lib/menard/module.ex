@@ -51,7 +51,7 @@ defmodule Menard.Module do
   defp module_name(code) do
     case Sourceror.parse_string(code) do
       {:ok, {:defmodule, _meta, [{:__aliases__, _alias_meta, parts} | _rest]}} ->
-        {:ok, Enum.join(parts, ".")}
+        {:ok, Menard.Source.alias_name(parts)}
 
       {:ok, _other} ->
         {:error, "add takes a whole `defmodule …`, got: #{String.slice(String.trim(code), 0, 40)}"}
