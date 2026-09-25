@@ -20,24 +20,26 @@ defmodule Mix.Tasks.Menard.Stmt do
   def run(argv) do
     {flags, argv, _} = OptionParser.parse(argv, strict: [nth: :integer])
 
+    did = did(argv)
+
     case normalize(argv) do
       ["insert_after", file, na, head, match, code] ->
-        write(file, &Stmt.insert_after(&1, na, head, match, code, flags))
+        write(file, did, &Stmt.insert_after(&1, na, head, match, code, flags))
 
       ["insert_before", file, na, head, match, code] ->
-        write(file, &Stmt.insert_before(&1, na, head, match, code, flags))
+        write(file, did, &Stmt.insert_before(&1, na, head, match, code, flags))
 
       ["replace", file, na, head, match, code] ->
-        write(file, &Stmt.replace(&1, na, head, match, code, flags))
+        write(file, did, &Stmt.replace(&1, na, head, match, code, flags))
 
       ["delete", file, na, head, match] ->
-        write(file, &Stmt.delete(&1, na, head, match, flags))
+        write(file, did, &Stmt.delete(&1, na, head, match, flags))
 
       ["comment", file, na, head, match, text] ->
-        write(file, &Stmt.comment(&1, na, head, match, text, flags))
+        write(file, did, &Stmt.comment(&1, na, head, match, text, flags))
 
       ["comment", file, na, head, match] ->
-        write(file, &Stmt.comment(&1, na, head, match, nil, flags))
+        write(file, did, &Stmt.comment(&1, na, head, match, nil, flags))
 
       ["list", file, na, head] ->
         case Stmt.list(File.read!(Menard.resolve(file)), na, head, flags) do
@@ -58,7 +60,7 @@ defmodule Mix.Tasks.Menard.Stmt do
   defp normalize([verb | rest]) when is_binary(verb), do: [String.replace(verb, "-", "_") | rest]
   defp normalize(argv), do: argv
 
-  defp write(file, edit) do
+  defp write(file, did, edit) do
     file = Menard.resolve(file)
 
     case edit.(File.read!(file)) do
@@ -66,10 +68,14 @@ defmodule Mix.Tasks.Menard.Stmt do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: "stmt in #{Path.basename(file)}") do
+        case Menard.write(file, out, did: "#{did} in #{Path.basename(file)}") do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end
   end
+
+  # what the reply's `did` names: `replace `x = 1` in go/1`
+  defp did([verb, _file, na, _head, match | _]), do: "#{verb} `#{match}` in #{na}"
+  defp did(_), do: nil
 end

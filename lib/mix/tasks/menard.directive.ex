@@ -18,6 +18,8 @@ defmodule Mix.Tasks.Menard.Directive do
   def run(argv) do
     {opts, args, _} = OptionParser.parse(argv, strict: [module: :string])
 
+    did = did(args)
+
     case args do
       ["list", file] ->
         file = Menard.resolve(file)
@@ -28,13 +30,17 @@ defmodule Mix.Tasks.Menard.Directive do
         end
 
       ["add", file, kind, target | rest] ->
-        edit(file, &Directive.add(&1, atom(kind), target, module: opts[:module], args: List.first(rest)))
+        edit(file, did, &Directive.add(&1, atom(kind), target, module: opts[:module], args: List.first(rest)))
 
       ["remove", file, kind, target] ->
-        edit(file, &Directive.remove(&1, atom(kind), target, module: opts[:module]))
+        edit(file, did, &Directive.remove(&1, atom(kind), target, module: opts[:module]))
 
       ["replace", file, kind, target | rest] ->
-        edit(file, &Directive.replace(&1, atom(kind), target, module: opts[:module], args: List.first(rest)))
+        edit(
+          file,
+          did,
+          &Directive.replace(&1, atom(kind), target, module: opts[:module], args: List.first(rest))
+        )
 
       _ ->
         Mix.raise(
@@ -49,7 +55,7 @@ defmodule Mix.Tasks.Menard.Directive do
   defp atom(kind) when kind in ~w(alias import require use), do: String.to_existing_atom(kind)
   defp atom(kind), do: Mix.raise("unknown directive #{kind} — one of alias, import, require, use")
 
-  defp edit(file, change) do
+  defp edit(file, did, change) do
     file = Menard.resolve(file)
 
     case change.(File.read!(file)) do
@@ -57,10 +63,14 @@ defmodule Mix.Tasks.Menard.Directive do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: "directive in #{Path.basename(file)}") do
+        case Menard.write(file, out, did: "#{did} in #{Path.basename(file)}") do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
     end
   end
+
+  # what the reply's `did` names: `add alias Foo.Bar`
+  defp did([verb, _file, kind, target | _]), do: "#{verb} #{kind} #{target}"
+  defp did(_), do: nil
 end

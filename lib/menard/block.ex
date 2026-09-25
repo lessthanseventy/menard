@@ -15,7 +15,8 @@ defmodule Menard.Block do
   @doc "Replace the block's body with `code`, keeping the `name … do` line and the `end`."
   @spec replace(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, name, code, opts \\ []) do
-    with {:ok, node} <- one(source, name, opts) do
+    with :ok <- body_only(name, code),
+         {:ok, node} <- one(source, name, opts) do
       {_name, meta, args} = node
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
       indent = String.duplicate(" ", col + 1)
@@ -289,5 +290,16 @@ defmodule Menard.Block do
     parts = Enum.reject([label && inspect(label), args], &(&1 in [nil, ""]))
     head = if parts == [], do: "#{name}", else: "#{name} " <> Enum.join(parts, ", ")
     head <> " do\n" <> indented(body, 3) <> "\nend"
+  end
+
+  # `describe "x" do … end` handed to `replace describe` is valid Elixir as a body — a block nested in
+  # itself — so only the reader would notice
+  defp body_only(name, code) do
+    if Regex.match?(~r/\A\s*#{Regex.escape(to_string(name))}[\s(].*\bdo\b/s, code) do
+      {:error,
+       "CODE is the block's BODY here, and this looks like a whole `#{name}` block — pass what goes inside it"}
+    else
+      :ok
+    end
   end
 end
