@@ -570,4 +570,26 @@ defmodule Menard.ClauseTest do
     assert Clause.replace_body(src, "keep?/1", "name", "name in [:x]") =~
              "defp keep?(name) do\n    name in [:x]\n  end"
   end
+
+  test "a module defined twice is refused by name, not edited in the first" do
+    # a module defined twice (`if Code.ensure_loaded?(Decimal) do … else … end`): an edit landed in the
+    # first whatever was meant, and one set from the second's value swapped them
+    src = """
+    if Code.ensure_loaded?(Decimal) do
+      defmodule Money do
+        @moduledoc "with Decimal"
+        def go, do: 1
+      end
+    else
+      defmodule Money do
+        @moduledoc false
+        def go, do: 2
+      end
+    end
+    """
+
+    assert {:error, message} = Menard.Attr.set(src, "moduledoc", "false", module: "Money")
+    assert message =~ "Money is defined 2 times"
+    assert {:error, _} = Clause.replace_body(src, "Money.go/0", "", "3")
+  end
 end
