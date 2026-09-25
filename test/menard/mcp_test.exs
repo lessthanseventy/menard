@@ -25,6 +25,14 @@ defmodule Menard.MCPTest do
     response
   end
 
+  test "the plugin's MCP server waits out a first start: deps fetch and compile, on a slow network" do
+    [server] =
+      Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])
+
+    # an integer: nil compares greater than any number, so `>=` alone passes on a missing field
+    assert is_integer(server["timeout"]) and server["timeout"] >= 120_000
+  end
+
   @tag :tmp_dir
   test "the plugin's MCP server, started from the plugin root, works in the project MENARD_ROOT names", %{
     tmp_dir: dir

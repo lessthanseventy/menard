@@ -8,7 +8,7 @@ defmodule Menard.MixProject do
   # even while the app being edited does not compile.
   # `precommit` ends in `test`, so it must run in :test — mix infers that for tasks it knows, not
   # for an alias.
-  def cli, do: [preferred_envs: [precommit: :test]]
+  def cli, do: [preferred_envs: [precommit: :test, docs: :docs]]
 
   def project do
     [
@@ -25,7 +25,9 @@ defmodule Menard.MixProject do
         {:sourceror, "~> 1.12"},
         # the stdio MCP door (`mix menard.mcp`): the same functions for any harness that speaks MCP
         {:anubis_mcp, "~> 2.0"},
-        {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+        # its own env: in :dev it was 29s of a fresh install's 42s first start (makeup's lexers alone
+        # take 10s each), which the MCP server has to finish before it can answer
+        {:ex_doc, "~> 0.34", only: :docs, runtime: false}
       ],
       # test/fixtures holds source the tests READ (the identity corpus), not tests to run
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],

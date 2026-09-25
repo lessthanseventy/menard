@@ -9,6 +9,7 @@
     "menard": {
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/menard",
       "args": ["mcp"],
+      "timeout": 180000,
       "env": { "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}" }
     }
   }
