@@ -131,6 +131,20 @@ defmodule Menard.ClauseTest do
       src = "defmodule D do\n  defp only(x) when is_integer(x), do: x\nend\n"
       assert Clause.replace_body(src, "only/1", "defp only(x) when is_integer(x)", ":int") =~ ":int"
     end
+
+    test "an empty head is the function's only clause, and refused among several" do
+      # with only one clause there is nothing to tell apart: an empty head means that one
+      one = "defmodule D do\n  def pct(done, total), do: done / total\nend\n"
+
+      assert Clause.replace_body(one, "pct/2", "", "done * 100 / total") =~
+               "def pct(done, total), do: done * 100 / total"
+
+      # with two, it still names the heads to choose from
+      two = "defmodule D do\n  def pct(0, _), do: 0\n  def pct(done, total), do: done / total\nend\n"
+      assert {:error, message} = Clause.replace_body(two, "pct/2", "", "1")
+      assert message =~ "`0, _`"
+      assert message =~ "`done, total`"
+    end
   end
 
   describe "insert_at — a new function, with no sibling clause to anchor to" do

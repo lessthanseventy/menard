@@ -81,7 +81,8 @@ What the verbs guarantee, where it is not obvious from the name:
 
 - **ExUnit `test` and `describe` are macros, not definitions.** The clause verbs cannot address
   them; `block` can, by macro name with `--label`.
-- **A zero-arity clause has no head.** `bg`, `bg()`, `def bg` and `""` all address it.
+- **A zero-arity clause has no head.** `bg`, `bg()`, `def bg` and `""` all address it. Nor does a
+  function's only clause: `""` is that one, and among several it is refused with their heads.
 - **A head answers without its defaults.** `source, opts` finds `def f(source, opts \\ [])`.
 - **An ambiguous head is refused, not guessed at.** `--nth 1..N` says which. Acting on "the first"
   silently is how a delete eats the clause that was just written.

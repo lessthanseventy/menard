@@ -395,6 +395,8 @@ defmodule Menard.Clause do
       want = wanted_head(head, name, arity)
 
       case Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)])) do
+        # no head, and only one clause: nothing to tell apart
+        [] when want == "" and length(clauses) == 1 -> {:ok, hd(clauses)}
         [] -> {:error, "no clause #{name}/#{arity} with head `#{head}` — have: #{heads(clauses)}"}
         [one] -> {:ok, one}
         many -> pick_nth(many, name, arity, head, opts[:nth])
