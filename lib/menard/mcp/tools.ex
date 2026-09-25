@@ -650,6 +650,12 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(params, frame) do
+      # in a test file, a block added with no name is a test: what an agent leaving `name` out means
+      params =
+        if params.verb == "add" and params[:name] in [nil, ""] and String.ends_with?(params.file, "_test.exs"),
+          do: Map.put(params, :name, "test"),
+          else: params
+
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(params, File.read!(file)),
            {:ok, reply} <-
