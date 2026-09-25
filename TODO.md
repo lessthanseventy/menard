@@ -12,3 +12,21 @@ commit lands.
 - [ ] `clause replace` keeps the comment above the old body's first statement; a new BODY that
       starts with that same comment leaves it in the file twice (plugin 0.3.0, seen on
       ex_compact's `lib/ex_compact/client.ex`). Unreproduced here.
+- [ ] Reported by the cleanup agents (plugin 0.3.0), 2026-09-25:
+  - [ ] `run test`'s failure JSON cuts a MatchError at "no match of right hand side value:" and
+        drops the value (ex_cortex).
+  - [ ] `run format` answered `{"ok":true,"changed":[]}` while `mix format --check-formatted`
+        failed and plain `mix format` changed the file (tlon/console).
+  - [ ] `stmt` MATCH must be the statement's whole text; a leading fragment (`elixir_files =`)
+        misses, though the skill says "by what is WRITTEN".
+  - [ ] `stmt` cannot reach the steps of a `with` that has an `else`: `list` shows the whole `with`
+        (Console.Staffing.spawn_center/2).
+  - [ ] `block replace` doubles a leading comment the new body repeats; a second replace does not
+        clear it.
+  - [ ] `attr set` put a new attribute between a function's `@doc` and its `def` (console's
+        router, route/1); `clause doc` then could not delete that `@doc`, and adding made two.
+  - [ ] `find` on a directory crashes with a raw File.Error instead of a usage error.
+  - [ ] `find` on a file that does not exist prints nothing and exits 0.
+  - [ ] `find defs` prints "def def NAME".
+  - [ ] `clause replace` with an empty head on a one-clause function with args: the refusal could
+        say to pass the head.
