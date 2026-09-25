@@ -186,4 +186,18 @@ defmodule Menard.StmtTest do
     out = Stmt.insert_after(src, "go/0", "", "text = \"\"\"\nhi\n\"\"\"", "IO.puts(text)")
     assert out =~ "  \"\"\"\n\n    IO.puts(text)\n    text\n"
   end
+
+  test "replacing an arm that ends in a literal keeps the line break after it" do
+    src = """
+    defmodule A do
+      def y(a) do
+        case a do
+          nil -> false
+        end
+      end
+    end
+    """
+
+    assert Stmt.replace(src, "y/1", "a", "nil -> false", "nil -> true") =~ "nil -> true\n    end"
+  end
 end

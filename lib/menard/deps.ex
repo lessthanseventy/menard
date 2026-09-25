@@ -13,6 +13,7 @@ defmodule Menard.Deps do
   with entries cannot, and the source module has to keep (and probably publicise) it.
   """
 
+  import Menard.Source, only: [parse: 1]
   alias Menard.Clause
   alias Sourceror.Zipper
 
@@ -138,13 +139,6 @@ defmodule Menard.Deps do
       {:ok, {String.to_atom(fun), arity}}
     else
       _ -> {:error, "expected name/arity, got #{inspect(name_arity)}"}
-    end
-  end
-
-  defp parse(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} -> {:ok, ast}
-      {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
     end
   end
 end

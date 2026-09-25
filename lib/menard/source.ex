@@ -38,4 +38,66 @@ defmodule Menard.Source do
 
     text |> String.split("\n") |> Enum.map_join("\n", &String.slice(&1, pad..-1//1))
   end
+
+  @doc """
+  `range` with its end corrected on its last line. Sourceror ends a node that closes a line — a
+  heredoc, a bare literal like `false` — a column past the line's end, and a patch over that eats
+  the newline; it ends an INTERPOLATED heredoc inside its closing quotes, and a patch over that
+  leaves quotes behind.
+  """
+  def clamp(%{end: [line: b, column: c]} = range, source) do
+    line = source |> String.split("\n") |> Enum.at(b - 1, "")
+
+    c =
+      case Regex.run(~r/^\s*("""|''')/, line) do
+        [closing, _delimiter] -> max(c, String.length(closing) + 1)
+        nil -> c
+      end
+
+    %{range | end: [line: b, column: min(c, String.length(line) + 1)]}
+  end
+
+  @doc """
+  `code` placed at `indent`: its first line bare (a patch starts at the column), every later line
+  at `indent` — after dropping the indent those lines already share, so code sliced from a file
+  (first line bare, the rest still indented) is not indented twice. Blank lines stay blank.
+  """
+  def reindent(code, indent) do
+    case code |> String.trim() |> String.split("\n") do
+      [one] ->
+        one
+
+      [first | rest] ->
+        rest =
+          rest
+          |> Enum.join("\n")
+          |> dedent()
+          |> String.split("\n")
+          |> Enum.map(&if(String.trim(&1) == "", do: "", else: indent <> &1))
+
+        Enum.join([first | rest], "\n")
+    end
+  end
+
+  @doc """
+  `source` parsed by Sourceror, or `{:error, "not parseable — …"}`. The last result is kept in the
+  process dictionary: one verb finds a clause, then a statement in it, then patches — all over the
+  same bytes — and the parse was most of each call's cost.
+  """
+  def parse(source) do
+    case Process.get(__MODULE__) do
+      {^source, result} ->
+        result
+
+      _ ->
+        result =
+          case Sourceror.parse_string(source) do
+            {:ok, ast} -> {:ok, ast}
+            {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
+          end
+
+        Process.put(__MODULE__, {source, result})
+        result
+    end
+  end
 end
