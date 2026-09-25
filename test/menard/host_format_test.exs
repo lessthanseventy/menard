@@ -19,6 +19,32 @@ defmodule Menard.HostFormatTest do
     file
   end
 
+  # A plugin compiled into `root`'s _build, as a host's last build would hold it. `body` is its
+  # format/2, with `contents` and `opts` bound.
+  defp plug(root, name, body) do
+    plugin = :"Elixir.MenardTest#{name}#{System.unique_integer([:positive])}"
+    ebin = Path.join(root, "_build/dev/lib/plug/ebin")
+    File.mkdir_p!(ebin)
+
+    [{^plugin, beam}] =
+      Code.compile_string("""
+      defmodule #{inspect(plugin)} do
+        @behaviour Mix.Tasks.Format
+        def features(_opts), do: [extensions: [".ex"]]
+
+        def format(contents, opts) do
+          _ = opts
+          #{body}
+        end
+      end
+      """)
+
+    :code.purge(plugin)
+    :code.delete(plugin)
+    File.write!(Path.join(ebin, "#{plugin}.beam"), beam)
+    plugin
+  end
+
   test "a plugin built by a newer OTP is passed over without the VM's load error", %{tmp_dir: dir} do
     installs = Path.expand("~/.local/share/mise/installs")
     elixirc = Path.join(installs, "elixir/1.20.4-otp-29/bin/elixirc")
@@ -167,5 +193,48 @@ defmodule Menard.HostFormatTest do
            ] = reply.stages
 
     assert name == inspect(plugin)
+  end
+
+  test "a plugin runs in the host's directory, where it looks for its config", %{tmp_dir: dir} do
+    # Quokka reads the host's .credo.exs from File.cwd!(): run from menard's directory it found none,
+    # and rewrapped every file at its default line length
+    plugin = plug(dir, "Cwd", ~S[contents <> "# cwd: #{File.cwd!()}\n"])
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "b.ex", "defmodule B do\nend\n")
+
+    assert Menard.format(file, cache: Path.join(dir, "cache")) == :ok
+    assert File.read!(file) =~ "# cwd: #{dir}\n"
+  end
+
+  test "a plugin's cached config is the host's, not the last host's", %{tmp_dir: dir} do
+    # Quokka and Styler keep their config in :persistent_term and read it only when it is unset, so a
+    # long-running menard (the MCP server) formatted every host with the first host's config
+    # Quokka and Styler keep their config in :persistent_term and read it only when it is unset, so a
+    # long-running menard (the MCP server) formatted every host with the first host's config
+    # Quokka and Styler keep their config in :persistent_term and read it only when it is unset, so a
+    # long-running menard (the MCP server) formatted every host with the first host's config
+    plugin =
+      plug(Path.join(dir, "one"), "Cached", ~S"""
+      seen =
+        try do
+          :persistent_term.get(__MODULE__.Config)
+        rescue
+          ArgumentError -> :persistent_term.put(__MODULE__.Config, opts[:seen]) && opts[:seen]
+        end
+
+      contents <> "# seen: #{seen}\n"
+      """)
+
+    for name <- ["one", "two"] do
+      root = Path.join(dir, name)
+      # the second host has the same plugin in its own last build
+      File.mkdir_p!(root)
+      if name == "two", do: File.cp_r!(Path.join(dir, "one/_build"), Path.join(root, "_build"))
+      host(root, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}], seen: #{inspect(name)}]")
+      file = write(root, "b.ex", "defmodule B do\nend\n")
+
+      assert Menard.format(file, cache: Path.join(dir, "cache")) == :ok
+      assert File.read!(file) =~ "# seen: #{name}\n"
+    end
   end
 end

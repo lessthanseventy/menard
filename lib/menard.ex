@@ -101,16 +101,20 @@ defmodule Menard do
     with {:ok, deps_paths} <-
            import_deps(dot_opts[:import_deps] || [], project, opts[:cache] || cache_dir(project)),
          :ok <- plugins_here(plugins, project) do
-      {formatter, formatter_opts} =
-        Mix.Tasks.Format.formatter_for_file(file,
-          root: root,
-          dot_formatter: dot,
-          deps_paths: deps_paths,
-          plugin_loader: & &1
-        )
+      forget_plugin_state(plugins)
 
-      split = if plugins != [], do: split(content, formatter_opts, file, plugins)
-      {:ok, formatter.(content), split}
+      in_host_dir(plugins, project, fn ->
+        {formatter, formatter_opts} =
+          Mix.Tasks.Format.formatter_for_file(file,
+            root: root,
+            dot_formatter: dot,
+            deps_paths: deps_paths,
+            plugin_loader: & &1
+          )
+
+        split = if plugins != [], do: split(content, formatter_opts, file, plugins)
+        {:ok, formatter.(content), split}
+      end)
     end
   rescue
     e -> {:fallback, Exception.message(e)}
@@ -293,6 +297,27 @@ defmodule Menard do
     Path.join([:filename.basedir(:user_cache, "menard"), "versions", hex])
   end
 
+  # Quokka and Styler keep their config in :persistent_term under their own modules and read it only
+  # when it is unset, which in one VM is once: the MCP server formatted every host with the first
+  # host's config. What a host's plugins cached is forgotten before each format.
+  defp forget_plugin_state(plugins) do
+    prefixes = Enum.map(plugins, &(inspect(&1) <> "."))
+
+    for {key, _value} <- :persistent_term.get(),
+        is_atom(key),
+        name = inspect(key),
+        Enum.any?(prefixes, &String.starts_with?(name, &1)),
+        do: :persistent_term.erase(key)
+  end
+
+  # From the host's directory, as its own `mix format` runs: Quokka reads .credo.exs from the cwd,
+  # and from menard's it found none and rewrapped whole files at its default line length. Only a
+  # plugin reads the cwd, so only then; and the cwd is the whole VM's, so one format at a time.
+  defp in_host_dir([], _project, fun), do: fun.()
+
+  defp in_host_dir(_plugins, project, fun),
+    do: :global.trans({{__MODULE__, :cwd}, self()}, fn -> File.cd!(project, fun) end, [node()], :infinity)
+
   @doc """
   Write `content` to `file` through the staged pipeline: parse-check, format in-memory, diff each
   stage, write the result. Returns `{:ok, reply}` where reply is `%{did, file, version, stages}` —
@@ -347,9 +372,39 @@ defmodule Menard do
   def host_mix(dir, args, opts \\ []) do
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
 
-    case System.find_executable("mise") do
-      nil -> System.cmd("mix", args, opts)
-      mise -> System.cmd(mise, ["exec", "-C", dir, "--", "mix" | args], opts)
+    case host_toolchain(dir) do
+      {:mise, mise} ->
+        System.cmd(mise, ["exec", "-C", dir, "--", "mix" | args], opts)
+
+      {:path, nil} ->
+        System.cmd("mix", args, opts)
+
+      {:path, why} ->
+        {out, status} = System.cmd("mix", args, opts)
+        {"menard: #{why}\n" <> out, status}
+    end
+  end
+
+  # `mise exec` installs a pinned tool that is missing, and for Erlang that is a source build: minutes
+  # of kerl, which fail on a machine without its build deps, before the verb answered ok:false with no
+  # reason. MISE_EXEC_AUTO_INSTALL=false did not stop it (mise 2026.8). So ask first: a host that pins
+  # a toolchain that is not installed gets the mix on PATH, and is told why.
+  defp host_toolchain(dir) do
+    with mise when is_binary(mise) <- System.find_executable("mise"),
+         {out, 0} <- System.cmd(mise, ["ls", "--current", "--missing", "-C", dir], stderr_to_stdout: true) do
+      missing =
+        for line <- String.split(out, "\n"),
+            [tool, version | _] <- [String.split(line)],
+            tool in ["erlang", "elixir"],
+            do: "#{tool} #{version}"
+
+      if missing == [],
+        do: {:mise, mise},
+        else: {:path, "#{Enum.join(missing, ", ")} pinned here is not installed, so this ran the mix on PATH"}
+    else
+      nil -> {:path, nil}
+      # mise could not say: let `exec` decide, as before
+      _ -> {:mise, System.find_executable("mise")}
     end
   end
 
