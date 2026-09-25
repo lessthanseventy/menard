@@ -602,6 +602,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:args, :string)
       field(:in, :string)
       field(:module, :string)
+      field(:tag, :string)
     end
 
     def call(%{verb: "list"} = params, frame) do
@@ -638,7 +639,8 @@ if Code.ensure_loaded?(Anubis.Server) do
         Block.add(source, p[:name] || "", p[:label], p[:code] || "",
           in: p[:in],
           module: p[:module],
-          args: p[:args]
+          args: p[:args],
+          tag: p[:tag]
         )
 
     defp edit(%{verb: "relabel"} = p, source),

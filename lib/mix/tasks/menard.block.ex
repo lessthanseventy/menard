@@ -22,6 +22,7 @@ defmodule Mix.Tasks.Menard.Block do
           label: :string,
           in: :string,
           args: :string,
+          tag: :keep,
           version: :string,
           force: :boolean
         ]
@@ -49,7 +50,12 @@ defmodule Mix.Tasks.Menard.Block do
           file,
           did,
           opts,
-          &Block.add(&1, name, opts[:label], code, in: opts[:in], module: opts[:module], args: opts[:args])
+          &Block.add(&1, name, opts[:label], code,
+            in: opts[:in],
+            module: opts[:module],
+            args: opts[:args],
+            tag: Keyword.get_values(opts, :tag)
+          )
         )
 
       ["delete", file, name] ->

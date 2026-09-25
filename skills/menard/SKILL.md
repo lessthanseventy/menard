@@ -66,8 +66,8 @@ What the verbs guarantee, where it is not obvious from the name:
 - `directive add` places in Elixir's conventional order (use → import → alias → require →
   doctest, alphabetised), so the next format pass does not move it. `directive replace` changes a
   directive's options in place.
-- `block add FILE test CODE --label L [--args '%{conn: conn}'] [--in "describe label"]` writes a new
-  test, with its context if it takes one.
+- `block add FILE test CODE --label L [--args '%{conn: conn}'] [--in "describe label"] [--tag
+  :tmp_dir]…` writes a new test, with its context if it takes one and an `@tag` line per `--tag`.
 - `attr` refuses a name that repeats per clause (`@doc`, `@impl`, `@spec`); the clause verbs
   already carry those.
 - `find calls|defs|aliases` is grep that knows the code: strings and comments never match.
