@@ -446,4 +446,25 @@ defmodule Menard.ClauseTest do
            end
            """
   end
+
+  test "a module name scopes to that module, not the modules nested in it" do
+    src = """
+    defmodule Outer do
+      def foo(x), do: x
+
+      defmodule Inner do
+        def foo(x), do: x + 1
+      end
+    end
+    """
+
+    assert Clause.replace_body(src, "Outer.foo/1", "x", ":outer") =~
+             "def foo(x), do: :outer\n\n  defmodule Inner do\n    def foo(x), do: x + 1"
+
+    assert Clause.replace_body(src, "Outer.Inner.foo/1", "x", ":inner") =~
+             "def foo(x), do: x\n\n  defmodule Inner do\n    def foo(x), do: :inner"
+
+    assert {:error, message} = Clause.replace_body(src, "foo/1", "x", ":any")
+    assert message =~ "Outer, Outer.Inner"
+  end
 end
