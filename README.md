@@ -82,7 +82,7 @@ module  replace FILE Mod.Name CODE              one whole module, in a file of s
 directive add|replace|remove|list FILE KIND MOD [OPTS]
 rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE
-run     [--in DIR] check|test|format|compile     test takes mix test's flags; answers with seed and runs
+run     [--in DIR] check|test|format|compile     one JSON line; test takes mix test's flags, answers with seed and runs
 mcp                                            the same verbs over MCP
 version                                        which menard, on which Elixir and OTP
 ```
@@ -91,6 +91,18 @@ menard complements Igniter, it does not compete with it. Igniter runs the instal
 package ships for its users; menard is the edit an agent makes by hand. They meet at `deps
 upgrade`, which goes through the host's `mix igniter.upgrade` when its lock has Igniter, so each
 package's upgraders run.
+
+`run` answers what you look for: green, `{"ok":true,"tests":621,"failed":0,"failures":[]}`; red,
+the failures and the seed that reproduces them. It answers every verb's failures in one shape, `{kind, message, at}`: `kind` is `test`,
+`error`, `warning` or `format`, `message` says why, `at` is `file:line`. A test failure adds its
+`name`, `module`, `source` and, for an assertion, `code`, `left`, `right`. `check` (format,
+warnings-as-errors, tests) reports all three kinds the same way, with `test`'s counts.
+
+stdout is the answer and stderr is only a refusal or an error: menard compiling itself after an
+update is silent unless that build fails.
+
+`replace` takes a body, and `rewrite` a whole clause; handed the whole clause (or `block`'s whole
+`test "…" do … end`) of the very thing it names, `replace` takes it as meant rather than refusing.
 
 Every writing verb answers with the file's `version`; pass it back with `--version SHA` and an
 edit against a file that has changed since is refused, with the diff (`--force` writes anyway).
@@ -105,25 +117,32 @@ finishing its own change.
 
 ## pi adapter
 
-`pi/extension.ts` is a pi extension menard ships from its own repo. Two hooks, one tool
-(`bin/menard`, self-located relative to the extension):
+`pi/extension.ts` is a pi extension menard ships from its own repo (`bin/menard` and `hooks/`
+self-located from `import.meta.url`: pi loads an extension as a `data:` URL, where
+`import.meta.dir` is not a directory):
 
 - **`tool_call` — the guard.** A raw `edit`/`write` on an `.ex`/`.exs` holding a `defmodule` is
-  blocked — use the verbs instead. `menard guard FILE` decides; the extension only reads
-  `input.path` and calls the verb. Fail open: a missing menard never blocks an edit.
+  blocked — use the verbs instead. `menard guard FILE --edit INPUT` decides, so an edit that only
+  changes text inside a string passes. Fail open: a missing menard never blocks an edit.
 - **`tool_result` — format-on-save.** `menard run format FILE` on what was just written, so the
   file on disk is always formatter-compliant. Best-effort and invisible.
+- **`tool_result` — advice.** `hooks/shell-edits.sh` and `hooks/read-hint.sh`, the scripts Claude
+  Code runs, fed its payload shape; what they say is appended to the tool's result.
 
 `mise run install:pi` wires the extension, the MCP server, and the skill into `~/.pi/agent/`.
 Idempotent — re-running updates paths without duplicating. No ficciones, no Nix required.
 
 ## Claude Code plugin
 
-`.claude-plugin/plugin.json` and `hooks/hooks.json` make this directory a plugin. Two hooks:
+`.claude-plugin/plugin.json` and `hooks/hooks.json` make this directory a plugin. Its MCP tools
+load up front (`alwaysLoad`), so an agent's first edit costs no ToolSearch round trip; the price
+is their schemas, ~3.7k tokens, in every turn. The hooks:
 
 - **`menard-only.sh`** (`PreToolUse`) blocks `Edit`/`Write` on any `.ex`/`.exs` holding a
   `defmodule`. It passes new files, `_build/`, `deps/`, `config/*.exs` and `.formatter.exs` —
-  menard has no verbs for a bare keyword list, so those are edited directly. It does not watch
+  menard has no verbs for a bare keyword list, so those are edited directly — and an edit that
+  only changes text inside a string or sigil (a heredoc, a `~H` template), which no verb reaches
+  into: the file it would leave must parse to the same tree, strings aside. It does not watch
   `Bash`: a shell command has no structured target, and matching the command text blocks anything
   that merely quotes the pattern. Precision over coverage — a guard that fires on innocent
   commands gets switched off.
@@ -132,6 +151,12 @@ Idempotent — re-running updates paths without duplicating. No ficciones, no Ni
 - **`prefer-menard-run.sh`** (`PostToolUse`) points a bare `mix test`/`compile`/`format` at
   `menard run`, which answers in one structured line. Advisory — the command has already run, and
   that is what lets the match stay loose.
+- **`shell-edits.sh`** (`PreToolUse` and `PostToolUse` on `Bash`) names any module a shell
+  command changed (a `sed -i`, a script), and points at `run check`: it marks the time before, and
+  lists the modules newer than the mark after. It judges what changed on disk, never the command
+  text. Advisory.
+- **`read-hint.sh`** (`PostToolUse` on `Read`) points a whole-file read of a module over 300 lines
+  at `outline` and a ranged read. Advisory.
 
 The guard exists because the rule "use menard for Elixir" was written down and then broken inside
 the hour. A rule an agent has to remember is a rule it breaks.

@@ -22,6 +22,9 @@ A thin wrapper over one mix task adds surface and nothing else. That's why `insp
   worse from fifty MCP tools than from twelve; grow actions, not tools.
 - **One reply for every verb**: what changed, what ran, what it found (`docs/live.md`). That's what
   makes thirty verbs one tool instead of a bag of scripts.
+- **Similar things look similar.** Every `run` verb answers `failures` in one shape (`kind`,
+  `message`, `at`), whether a test failed, the compiler warned or a file isn't formatted; a reader
+  never learns which verb it asked to find out why.
 - **Portable across Elixir repos.** A repo's own glue stays in its mise tasks; menard is what
   travels (the ficciones cutover drew that line).
 

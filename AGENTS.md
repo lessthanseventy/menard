@@ -11,6 +11,10 @@ with the plugin as a skill, and it is the one copy of that reference.
   without `--frozen` the tool locks itself out of finishing its own change.
 - The gate is `bin/menard run check`: format, warnings-as-errors, and the tests, including the
   identity corpus (`test/menard/identity_test.exs` over this repo and `test/fixtures/weird.ex`).
+- A verb's stdout is its answer (for `run`, one JSON line: `ok` and the counts when green, the
+  `failures` when red) and stderr is only a refusal or a real error; menard building itself is
+  silent unless the build fails. Read the reply as it comes: if you find yourself filtering it,
+  the reply is wrong, so fix menard.
 - Found a bug and can't fix it now? It goes in `TODO.md`, not a chat message.
 - Design direction: `docs/scope.md` (what earns a verb), `docs/live.md` (the reply every verb
   should give), `docs/adapters.md` (one core, a thin adapter per harness).

@@ -1,7 +1,7 @@
 // The Claude Code hook scripts that only advise, run for pi: hooks/shell-edits.sh (a module a bash
 // command changed) and hooks/read-hint.sh (a big module read whole), fed Claude Code's payload
-// shape. A file of its own because pi's loader inlines each file as a data: URL, and past ~5 KB
-// Bun refuses the name (NameTooLong), so extension.ts alone could not carry this.
+// shape. A file of its own because pi's loader inlines each file as a data: URL: extension.ts at 7 KB
+// failed to load (NameTooLong) where 4.5 KB loaded.
 
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
