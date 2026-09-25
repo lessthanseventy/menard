@@ -80,6 +80,14 @@ defmodule Menard.Block do
         {:error,
          "add a module with `menard.module add`, not `block add defmodule` (a --label would become a string module name)"}
 
+      wholes = several(name, label, body) ->
+        Enum.reduce_while(wholes, source, fn whole, source ->
+          case add(source, name, nil, whole, opts) do
+            {:error, _} = error -> {:halt, error}
+            out -> {:cont, out}
+          end
+        end)
+
       true ->
         with {:ok, label, body, opts} <- unwrapped(name, label, body, opts),
              :ok <- body_only(name, body),
@@ -366,10 +374,33 @@ defmodule Menard.Block do
   # itself — so only the reader would notice
   defp body_only(name, code) do
     if Regex.match?(~r/\A\s*#{Regex.escape(to_string(name))}[\s(].*\bdo\b/s, code) do
-      {:error,
-       "CODE is the block's BODY here, and this looks like a whole `#{name}` block — pass what goes inside it"}
+      case Code.string_to_quoted(code) do
+        # a whole block with a typo reads as one here: the parse error is the answer
+        {:error, {meta, message, token}} ->
+          message =
+            if is_tuple(message), do: elem(message, 0) <> token <> elem(message, 1), else: message <> token
+
+          {:error, "CODE does not parse (line #{meta[:line]}): #{message}"}
+
+        _ ->
+          {:error,
+           "CODE is the block's BODY here, and this looks like a whole `#{name}` block — pass what goes inside it"}
+      end
     else
       :ok
+    end
+  end
+
+  # Several whole blocks of the macro named, the first labelled as asked (or no label asked): each is
+  # added in turn, as its own whole block. The texts as written, or nil.
+  defp several(name, label, code) do
+    with {:ok, {:__block__, _, [_, _ | _] = nodes}} <- Sourceror.parse_string(code),
+         true <- Enum.all?(nodes, &match?({call, _, [_ | _]} when is_atom(call), &1)),
+         true <- Enum.all?(nodes, &(elem(&1, 0) == to_atom(name))),
+         true <- label in [nil, label(hd(nodes))] do
+      Enum.map(nodes, &Menard.Source.slice(code, Sourceror.get_range(&1)))
+    else
+      _ -> nil
     end
   end
 end

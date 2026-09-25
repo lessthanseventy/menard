@@ -305,4 +305,19 @@ defmodule Menard.BlockTest do
       assert out =~ ~r/test "c", %\{tmp_dir: dir\} do\n\s+# why\n\s+assert dir\n\s+# after\n\s+end/
     end
   end
+
+  test "add handed several whole tests adds each, and a block that does not parse says so" do
+    # bench1 new-component.B.haiku gave two whole tests in one add and was told to pass a body;
+    # and a whole test with a stray paren was told the same, not that it did not parse
+    code = "test \"x\", %{a: a} do\n  assert a\nend\n\ntest \"y\" do\n  assert 2\nend"
+
+    for label <- ["x", nil] do
+      out = Block.add(@src, "test", label, code)
+      assert out =~ ~r/test "x", %\{a: a\} do\n\s+assert a\n\s+end/
+      assert out =~ ~r/test "y" do\n\s+assert 2\n\s+end/
+    end
+
+    assert {:error, message} = Block.add(@src, "test", nil, "test \"z\" do\n  assert f(1))\nend")
+    assert message =~ "does not parse"
+  end
 end
