@@ -63,3 +63,10 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   dropped and redone; runner restarted 13:52. Also: the bug cases now accept a new test anywhere
   under `test/`, which is what the prompt asks.
 - 13:58 REPORT.md gained a "menard adoption" table (MCP vs CLI-through-Bash vs shell edits).
+- 14:07 menard fixes from the pilot's gaps, gate green (596 tests): `block add` with no name is
+  refused by name, and `block replace` fills an empty body instead of crashing (566f0d8); MCP
+  `rename` takes globs (dac5afb); `attr` replies "@receipt", not "@@receipt" (9b2cec1). The
+  structural gaps (Skill + ToolSearch round trips, the guard teaching the CLI, whole-file Reads)
+  are in TODO.md (b928455). The eval runs from pinned plugin copies, so round 1 still measures
+  the pre-fix 0.5.0.
+- 14:07 round 1 at 24/204; expected to finish pass 1 around 17:00–17:30.
