@@ -22,8 +22,8 @@ defmodule Menard.WriteReplyTest do
       assert reply.did == "replace go/1 `:a` in a.ex"
       assert reply.file == file
       assert String.starts_with?(reply.version, "sha256:")
-      assert is_list(reply.stages)
-      assert length(reply.stages) == 2
+      # a third, :plugins, when the file's formatter has plugins, as menard's own does
+      assert [:patch, :formatter | _] = Enum.map(reply.stages, & &1.stage)
       assert hd(reply.stages).stage == :patch
 
       assert hd(reply.stages).hunks == [
