@@ -4,17 +4,14 @@ Window: started 2026-09-25 13:26 MDT, stop by ~18:15 MDT.
 
 ## Now
 
-Round 2 running since 14:16, on menard at 6f3382d (the fixes below). Arms: A no menard, B menard,
-L = B with its MCP tools always loaded (`alwaysLoad`, no ToolSearch turn), C menard without hooks.
-15 cases (explore-config and doctest-line dropped: trivial for every arm) × 4 models, runs
-outermost; first pass is 240 runs, ~55 s each, due ~17:55; no run starts after 18:10.
-Progress: `eval/results/round2/PROGRESS.txt`; `eval/REPORT.md` regenerates every 5 min.
+Skill loop, iteration 1 (since 14:24): the current skill (arm B) vs `eval/skills/mcp-first.md`
+(`S-mcp-first`: 476 words, MCP calls first, outline before Read) vs no skill (`S-none`), on
+new-fn-large, bug-receipt-total, test-tmpdir, attrs, rename-across, change-signature × haiku and
+sonnet, 1 run each: 36 runs. Progress: `eval/results/skill1/log.txt`. Then revise the variant,
+rerun, add `alwaysLoad` (`SL-` arms), and only then the full measurement round.
 
-Round 1 was stopped at 26 runs (haiku only) to fix what the pilot showed; its rows are kept in
-`eval/results/r0-050-partial/` as a 0.5.0 reference.
-
-Next, after round 2: the skill, tested the way writing-skills would (baseline vs variants on the
-cases where it matters): the current CLI-first skill vs an MCP-first slim one vs none.
+Round 2 was stopped at 7 runs (Andrew: loop the skill before measuring); rows parked in
+`eval/results/r2-aborted/`.
 
 ## Step 1 findings: `claude plugin eval` does not fit, so the fallback runner
 
@@ -61,3 +58,4 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   (6f3382d); earlier ones 566f0d8, dac5afb, 9b2cec1. Bench: `alwaysLoad: true` in plugin.json
   works in the CLI, drops the ToolSearch call and a turn, costs ~3.7k tokens of schemas per turn.
 - 14:16 round 2 started.
+- 14:23 round 2 stopped; skill loop iteration 1 started 14:24.
