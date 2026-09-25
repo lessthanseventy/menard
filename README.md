@@ -53,8 +53,6 @@ directive add|remove|list FILE KIND MOD
 rename  OLD NEW [--atoms] [--comments] FILES
 write   FILE CODE
 run     [--in DIR] check|test|format|compile
-inspect [--in DIR] callers|exports|deps
-diagnostics [--in DIR]
 mcp                                            the same verbs over MCP
 ```
 

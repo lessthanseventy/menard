@@ -20,7 +20,7 @@ if [[ ! -d deps/sourceror ]]; then
   mix compile >&2
 fi
 
-verbs="write|rename|clause|outline|find|diagnostics|inspect|run|mcp"
+verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|mcp"
 frozen=0
 [[ "${1:-}" == "--frozen" ]] && { frozen=1; shift; }
 
