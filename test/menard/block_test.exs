@@ -294,4 +294,15 @@ defmodule Menard.BlockTest do
     assert {:error, message} = Block.add(@src, "describe", "four", code)
     assert message =~ "BODY"
   end
+
+  test "add handed a whole test keeps its context and every comment in its body" do
+    # the CLI passes `args: nil` when --args is not given, and that dropped the context; the body was
+    # sliced from its first expression, and that dropped a comment above it
+    code = "test \"c\", %{tmp_dir: dir} do\n  # why\n  assert dir\n  # after\nend"
+
+    for opts <- [[], [args: nil]] do
+      out = Block.add(@src, "test", nil, code, opts)
+      assert out =~ ~r/test "c", %\{tmp_dir: dir\} do\n\s+# why\n\s+assert dir\n\s+# after\n\s+end/
+    end
+  end
 end

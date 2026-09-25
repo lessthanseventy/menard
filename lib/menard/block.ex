@@ -321,7 +321,7 @@ defmodule Menard.Block do
   # A whole `name "label", ARGS do … end` where its body was asked for — the eval's agents wrote it
   # that way more often than not. `{:whole, label, args, body}` with the texts as written, or `:body`.
   defp unwrap(name, code) do
-    with {:ok, {call, _meta, [_ | _] = args} = node} <- Sourceror.parse_string(code),
+    with {:ok, {call, meta, [_ | _] = args} = node} <- Sourceror.parse_string(code),
          true <- call == to_atom(name),
          %{} = range <- body_range(node) do
       ctx =
@@ -330,12 +330,23 @@ defmodule Menard.Block do
           _ -> nil
         end
 
-      # from the start of the body's first line, so every line keeps the indent `dedent` removes
-      %{start: [line: first, column: _]} = range = Menard.Source.clamp(range, code)
-      body = code |> Menard.Source.slice(%{range | start: [line: first, column: 1]}) |> Menard.Source.dedent()
-      {:whole, label(node), ctx, body}
+      {:whole, label(node), ctx, body_text(code, meta, range)}
     else
       _ -> :body
+    end
+  end
+
+  # Every line between the `do` and the `end`: the body's range starts at its first expression, and a
+  # comment above that is not in it
+  defp body_text(code, meta, range) do
+    case {meta[:do], meta[:end]} do
+      {[line: d, column: _], [line: e, column: _]} when e > d ->
+        code |> String.split("\n") |> Enum.slice(d..(e - 2)//1) |> Enum.join("\n") |> Menard.Source.dedent()
+
+      _keyword_do ->
+        # from the start of the body's first line, so every line keeps the indent `dedent` removes
+        %{start: [line: first, column: _]} = range = Menard.Source.clamp(range, code)
+        code |> Menard.Source.slice(%{range | start: [line: first, column: 1]}) |> Menard.Source.dedent()
     end
   end
 
@@ -344,7 +355,7 @@ defmodule Menard.Block do
   defp unwrapped(name, label, code, opts) do
     case unwrap(name, code) do
       {:whole, whole_label, ctx, body} when label in [nil, whole_label] ->
-        {:ok, whole_label, body, Keyword.put_new(opts, :args, ctx)}
+        {:ok, whole_label, body, Keyword.put(opts, :args, opts[:args] || ctx)}
 
       _ ->
         {:ok, label, code, opts}
