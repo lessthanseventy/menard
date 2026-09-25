@@ -372,4 +372,32 @@ defmodule Menard.MCPTest do
 
     assert out =~ ~s("id":1)
   end
+
+  test "attr set names the attribute once, whether or not it was given with its @", %{root: root} do
+    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
+
+    for name <- ["t", "@t"] do
+      text =
+        call(Menard.MCP.Attr, %{verb: "set", file: "lib/a.ex", name: name, value: "2"}).content
+        |> hd()
+        |> Map.fetch!("text")
+
+      assert text =~ "set @t in a.ex"
+      refute text =~ "@@"
+    end
+  end
+
+  test "rename takes globs in files, and a glob that matches nothing is refused by name", %{root: root} do
+    File.mkdir_p!(Path.join(root, "lib/sub"))
+    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def old, do: 1\nend\n")
+    File.write!(Path.join(root, "lib/sub/b.ex"), "defmodule B do\n  def go, do: A.old()\nend\n")
+
+    refute call(Menard.MCP.Rename, %{old: "old", new: "fresh", files: ["lib/**/*.ex"]}).isError
+    assert File.read!(Path.join(root, "lib/a.ex")) =~ "def fresh"
+    assert File.read!(Path.join(root, "lib/sub/b.ex")) =~ "A.fresh()"
+
+    response = call(Menard.MCP.Rename, %{old: "fresh", new: "x", files: ["lib/**/*.exs"]})
+    assert response.isError
+    assert response.content |> hd() |> Map.fetch!("text") =~ "no file matches lib/**/*.exs"
+  end
 end
