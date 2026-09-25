@@ -423,4 +423,27 @@ defmodule Menard.ClauseTest do
     assert {:error, message} = Clause.move("defmodule A do\nend\n", "defmodule B do\nend\n", "nope/1")
     assert message =~ "nope/1"
   end
+
+  test "replace keeps the clause's rescue, and only the body moves" do
+    src = """
+    defmodule A do
+      def go(x) do
+        risky(x)
+      rescue
+        _ -> :error
+      end
+    end
+    """
+
+    assert Clause.replace_body(src, "go/1", "x", "safer(x)\nlog(x)") == """
+           defmodule A do
+             def go(x) do
+               safer(x)
+               log(x)
+             rescue
+               _ -> :error
+             end
+           end
+           """
+  end
 end

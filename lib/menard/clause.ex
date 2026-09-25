@@ -25,12 +25,29 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def replace_body(source, name_arity, head, code, opts \\ []) do
     with :ok <- body_only(code),
-         {:ok, clause} <- find(source, name_arity, head, opts) do
-      Sourceror.patch_string(source, [
-        %{range: clause.range, change: clause_text(clause, code), preserve_indentation: false}
-      ])
+         {:ok, clause} <- find(source, name_arity, head, opts),
+         {:ok, patch} <- body_patch(clause, code) do
+      Sourceror.patch_string(source, [patch])
     end
   end
+
+  # A clause with `rescue`/`catch`/`after`/`else` beside its `do` keeps them: rebuilding it from the
+  # head and the new body would drop them, and the result still parses. So only the do-body moves.
+  defp body_patch(%{node: {_kind, meta, [_head, [{_do, body}, _ | _]]}} = clause, code) do
+    if meta[:do] do
+      {:ok,
+       %{
+         range: Sourceror.get_range(body),
+         change: reindent(code, clause.indent <> "  "),
+         preserve_indentation: false
+       }}
+    else
+      {:error, "this clause has rescue/catch/after/else in keyword form — use `rewrite`"}
+    end
+  end
+
+  defp body_patch(clause, code),
+    do: {:ok, %{range: clause.range, change: clause_text(clause, code), preserve_indentation: false}}
 
   @doc """
   Replace the WHOLE clause — head included — with `code`, a complete `def …`. The verb for the
@@ -489,7 +506,8 @@ defmodule Menard.Clause do
       guard: guard,
       head_text: if(guard, do: args <> " when " <> guard, else: args),
       range: range,
-      indent: String.duplicate(" ", col - 1)
+      indent: String.duplicate(" ", col - 1),
+      node: node
     }
   end
 
