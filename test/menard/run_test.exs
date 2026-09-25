@@ -5,6 +5,8 @@ defmodule Menard.RunTest do
 
   alias Menard.Run
 
+  @moduletag :tmp_dir
+
   @out """
   18:53:59.922 [debug] QUERY OK source="event" db=0.2ms idle=0.0ms
   DELETE FROM "event" AS e0 []
@@ -49,7 +51,7 @@ defmodule Menard.RunTest do
              %{
                name: "deleting rehomes",
                at: "test/server/channels_test.exs:50",
-               error: "(Exqlite.Error) FOREIGN KEY constraint failed"
+               error: "(Exqlite.Error) FOREIGN KEY constraint failed\nDELETE FROM \"workspace\" AS w0"
              }
            ] = Enum.map(r.failures, &Map.take(&1, [:name, :module, :at, :code, :left, :right, :error]))
 
@@ -201,5 +203,108 @@ defmodule Menard.RunTest do
     assert is_integer(answer["seed"])
     assert [%{"name" => "sometimes"}] = answer["failures"]
     assert answer["failed"] == 1
+  end
+
+  test "a MatchError keeps the value it could not match" do
+    # a MatchError's value is on the lines after its `**` line, and it is the whole point of the error
+    out = """
+    Running ExUnit with seed: 1, max_cases: 40
+
+      1) test reads the config (App.ConfigTest)
+         test/app/config_test.exs:7
+         ** (MatchError) no match of right hand side value:
+
+             {:error, :enoent}
+
+         code: {:ok, config} = App.Config.read()
+         stacktrace:
+           test/app/config_test.exs:8: (test)
+
+    Finished in 0.01 seconds
+    1 test, 1 failure
+    """
+
+    assert [%{error: error}] = Run.parse_test(out, 2).failures
+    assert error =~ "(MatchError) no match of right hand side value:"
+    assert error =~ "{:error, :enoent}"
+    refute error =~ "code:"
+  end
+
+  test "format with no files formats the project's formatter inputs", %{tmp_dir: dir} do
+    # with no files named, what the project's own `mix format` would format: its inputs
+    File.write!(Path.join(dir, "mix.exs"), "defmodule Broken do\n  this does not parse (\n")
+    File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
+    File.mkdir_p!(Path.join(dir, "lib/deep"))
+    messy = Path.join(dir, "lib/deep/messy.ex")
+    File.write!(messy, "defmodule M do\n  def   go, do: 1\nend\n")
+
+    assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
+  end
+
+  test "check with no precommit alias runs format, warnings-as-errors and tests itself", %{tmp_dir: dir} do
+    # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
+    # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Plain.MixProject do
+      use Mix.Project
+      def project, do: [app: :plain, version: "0.1.0"]
+    end
+    """)
+
+    File.write!(
+      Path.join(dir, ".formatter.exs"),
+      "[inputs: [\"{mix,.formatter}.exs\", \"{lib,test}/**/*.{ex,exs}\"]]\n"
+    )
+
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "lib/plain.ex"), "defmodule Plain do\n  def go, do: 1\nend\n")
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/plain_test.exs"),
+      "defmodule PlainTest do\n  use ExUnit.Case\n  test \"go\", do: assert(Plain.go() == 1)\nend\n"
+    )
+
+    result = Menard.Run.result(dir, "check", [])
+    assert result.ok, result.tail
+    assert result.ran =~ "no precommit alias"
+    assert result.tail =~ "1 test, 0 failures"
+  end
+
+  test "a run behind its mix.lock fetches, runs again, and says what it fetched", %{tmp_dir: dir} do
+    # a pull that moved mix.lock leaves deps/ behind it: `run` fetches, runs again, and says so
+    dep = Path.join(dir, "dep")
+    File.mkdir_p!(Path.join(dep, "lib"))
+
+    File.write!(
+      Path.join(dep, "mix.exs"),
+      "defmodule Dep.MixProject do\n  use Mix.Project\n  def project, do: [app: :dep, version: \"0.1.0\"]\nend\n"
+    )
+
+    File.write!(Path.join(dep, "lib/dep.ex"), "defmodule Dep do\n  def one, do: 1\nend\n")
+    git = &System.cmd("git", &1, cd: dep, stderr_to_stdout: true)
+    git.(["init", "-q"])
+    git.(["add", "."])
+    git.(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "dep"])
+
+    host = Path.join(dir, "host")
+    File.mkdir_p!(Path.join(host, "lib"))
+
+    File.write!(Path.join(host, "mix.exs"), """
+    defmodule Host.MixProject do
+      use Mix.Project
+      def project, do: [app: :host, version: "0.1.0", deps: [{:dep, git: #{inspect(dep)}}]]
+    end
+    """)
+
+    File.write!(Path.join(host, "lib/host.ex"), "defmodule Host do\n  def two, do: Dep.one() + 1\nend\n")
+    System.cmd("mix", ["deps.get"], cd: host, stderr_to_stdout: true, env: [{"MIX_ENV", nil}])
+    # the checkout falls behind its lock
+    File.rm_rf!(Path.join(host, "deps"))
+
+    result = Menard.Run.result(host, "compile", [])
+    assert result.ok, result.tail
+    assert result.fetched == ["dep"]
   end
 end

@@ -29,6 +29,13 @@
   says so. It went through `mise exec`, which built Erlang from source and failed.
 - `clause comment` on a clause whose comment sits between its `@doc` and the `def` replaces that
   comment, instead of adding a second above the `@doc`.
+- `run test` kept only the first line of an error: a MatchError lost the value it could not match.
+- `run format` with no files formatted nothing and answered ok; it takes the project's formatter
+  inputs now, as its own `mix format` does.
+- `run check` in a project with no `precommit` alias runs format, warnings-as-errors and tests
+  itself, and says so (`ran`).
+- A `run` whose deps are behind mix.lock (after a pull) fetches them, runs again, and names what it
+  fetched (`fetched`), instead of failing on "dependency not available".
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
