@@ -62,6 +62,9 @@
 - A multi-line value whose lines already sit at or past the target column keeps them there: a
   sigil's words or a heredoc's lines were pulled left when every line, the closing too, sat
   deeper than the base.
+- A format out of time says which formatter it was waiting on (menard's VM, or the host's own
+  `mix format` and why), and the budget is 60s: under load the host's `mix format` through mise
+  took past 30s while a warm one took 3s.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
