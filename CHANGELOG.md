@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+From an eval of agents editing a Phoenix fixture with and without menard (`eval/`): what the
+agents tripped on, fixed, and what they reached for first, made to work.
+
+**Changed**
+- Every `run` verb answers `failures` in one shape: `{kind, message, at}`, `kind` one of `test`,
+  `error`, `warning`, `format`. A test failure keeps `name`, `module`, `source`, `code`, `left`,
+  `right`; its `error` is now its `message`, and an assertion's message is ExUnit's reason
+  ("Assertion with == failed"), which it had none of. `run compile`'s `diagnostics` and `run
+  format`'s `errors` are `failures`; `run check` reports all of them, where it had only a tail.
+  `deps add`'s `compile` carries `failures` too.
+- `run` answers what a reader looks for: green, `ok` and the counts; red, the failures and the
+  seed. `exit`, `fetched`, a single run's `runs` and a tail that repeats the counts are gone from
+  the printed reply (`Menard.Run.result/3` still returns them). `check` reports `tests` and
+  `failed` like `test`, and its tail is ExUnit's summary, not the last lines of the log.
+- menard compiling itself is silent unless the build fails: stderr carries only a verb's refusal
+  or a real error, so it never has to be thrown away to read stdout.
+- The skill leads with the MCP calls and their fields; the CLI is the fallback where there is no
+  MCP. A CLI-first skill sent agents to menard through their shell.
+- The Claude Code plugin loads its MCP tools up front (`alwaysLoad`): no ToolSearch round trip
+  before the first edit, for ~3.7k tokens of schemas in every turn.
+- `clause`'s tool description says what a head is: the clause's current one, as `outline` prints it.
+
+**New**
+- The guard passes an edit that only changes text inside a string or sigil (a heredoc, a `~H`
+  template), where no verb reaches: `menard guard FILE --edit INPUT`, from both adapters.
+- `clause replace` handed the whole clause of the function it names does that rewrite; `block
+  replace` and `block add` handed a whole block of the macro (and label) named take its body,
+  label and args. Both were refused, and `block add` nested the block inside another.
+- `hooks/shell-edits.sh`: a module a shell command changed is named, with `run check` to confirm it.
+  `hooks/read-hint.sh`: a whole-file read of a module over 300 lines is pointed at `outline`. Both
+  advisory, in Claude Code and pi.
+
+**Fixed**
+- pi's guard never ran: pi loads an extension as a `data:` URL, where `import.meta.dir` is not a
+  directory, so `bin/menard` was never found and the guard failed open.
+- A parse error that carries a hint (a stray `end`) crashed the write with `String.Chars`, instead
+  of refusing with the parser's message.
+- `clause` named after a test (`total includes tax/0`) answered "have: none"; it now names the
+  `block` call that reaches it.
+- `clause rewrite` with a leading comment put it between the clause's `@impl` and its `def`.
+- A `stmt` miss on text inside a template says to `Edit` it.
+- An MCP `files` glob that matches nothing beside ones that do is dropped, not refused.
+
 ## 0.5.0
 
 The identity corpus over 22 pinned hex packages (`mise run bench:identity`): every clause, attribute,

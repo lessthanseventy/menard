@@ -51,7 +51,8 @@ SHAPE of the change, not its size:
 **`head` is an address: the clause's CURRENT head, copied from `outline`** (`head:
 "%__MODULE__{items: items}"`), not what it will become. What the clause BECOMES goes in `code`:
 
-- `replace`: `code` is the new body alone.
+- `replace`: `code` is the new body alone. The whole clause of the function named is taken as the
+  rewrite it means; `block replace` takes a whole `test "…" do … end` the same way.
 - `rewrite`: `code` is the whole new clause, new head included. Changing `total(cart)` into
   `total(cart, rate)` is `{verb: "rewrite", name_arity: "total/1", head: "cart", code: "def
   total(cart, rate) do … end"}`: the arity is the old one.
@@ -69,7 +70,8 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 - **`clause move` carries the function, not its call sites or aliases**: fix those after, with
   `find calls`.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
-  whole statement or its unique start (`total =`). A miss lists what is there.
+  whole statement or its unique start (`total =`). A miss lists what is there. A line of a `~H`
+  template or a heredoc is text, not a statement: `Edit` it.
 - `attr` refuses `@doc`/`@impl`/`@spec`, which repeat per clause: the clause verbs carry those.
 
 ## The reply
@@ -83,7 +85,8 @@ since, the edit is refused with the diff: re-read and redo it.
 
 ## Done
 
-`run {verb: "check"}` is format, warnings-as-errors and the tests in one JSON line, each failure
-with its source. `run {verb: "test", args: [FILE, "--repeat-until-failure", "50"]}` hunts a flake
+`run {verb: "check"}` is format, warnings-as-errors and the tests in one JSON line: green, `ok`
+and the counts; red, the failures. Every `run` verb answers `failures` in one shape: `kind` (`test`, `error`, `warning`, `format`), `message`
+(why) and `at` (`file:line`); a test failure adds its `source` and the assertion's `left`/`right`. `run {verb: "test", args: [FILE, "--repeat-until-failure", "50"]}` hunts a flake
 and answers with the failing run's `seed`. A parse-checked write is a floor, not a proof: finish on
 a green check.

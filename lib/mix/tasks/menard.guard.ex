@@ -1,12 +1,16 @@
 defmodule Mix.Tasks.Menard.Guard do
   @shortdoc "Should a text edit of FILE be refused? Exit 2 with the reason for an Elixir module, 0 otherwise"
   @moduledoc """
-  `mix menard.guard FILE` — the enforcement every harness adapter calls from its pre-edit hook
-  (docs/adapters.md). An existing `.ex`/`.exs` holding a `defmodule` is edited with menard's verbs,
-  so a text edit of it exits 2 with the reason and the verbs to use on stderr. Everything else exits
-  0: other languages, a file that does not exist yet (creation), a script with no module, and the
-  bare-data or generated paths menard has no verbs for (`config/*.exs`, `.formatter.exs`,
-  `mix.lock`, `deps/`, `_build/`).
+  `mix menard.guard FILE [--mcp PREFIX] [--edit JSON]` — the enforcement every harness adapter
+  calls from its pre-edit hook (docs/adapters.md). An existing `.ex`/`.exs` holding a `defmodule` is
+  edited with menard's verbs, so a text edit of it exits 2 with the reason and the verbs to use on
+  stderr. Everything else exits 0: other languages, a file that does not exist yet (creation), a
+  script with no module, and the bare-data or generated paths menard has no verbs for
+  (`config/*.exs`, `.formatter.exs`, `mix.lock`, `deps/`, `_build/`).
+
+  `--edit` is the harness's edit (Claude Code's `tool_input`, or pi's): one that only changes text
+  inside a string or sigil — a heredoc, a `~H` template, where no verb reaches — exits 0. `--mcp`
+  names the harness's MCP tools in the refusal instead of CLI lines.
   """
   use Mix.Task
 
