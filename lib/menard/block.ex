@@ -214,8 +214,7 @@ defmodule Menard.Block do
 
   @doc """
   Rename a block's label — `test "old"` to `test "new"`, or a `describe`. The label is a string
-  literal, so no other verb reaches it: renaming a test used to mean editing the file as text.
-  Only the label moves; the body is untouched.
+  literal, so no other verb reaches it. Only the label moves; the body is untouched.
   """
   @spec relabel(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
@@ -251,8 +250,8 @@ defmodule Menard.Block do
         {:error, "#{length(many)} blocks labelled #{inspect(parent)} — cannot tell which"}
 
       [] ->
-        # A parent can be a MODULE as well as a labelled block — appending into a defmodule is the
-        # obvious reading of `--in Console.KeymapTest`, and it used to just say "no block labelled".
+        # A parent can be a MODULE as well as a labelled block: appending into a defmodule is the obvious
+        # reading of `--in Console.KeymapTest`.
         case Clause.module_scope(ast, parent) do
           {:ok, node} -> {:ok, :inside, node}
           _error -> {:error, "no block or module #{inspect(parent)} here"}

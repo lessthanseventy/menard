@@ -147,7 +147,7 @@ defmodule Menard.ClauseDocTest do
 end
 
 defmodule Menard.BlockRelabelTest do
-  # Renaming a test used to mean editing the file as text.
+  # A test's label is a string literal, so `relabel` is the only verb that reaches it.
   use ExUnit.Case, async: true
 
   alias Menard.Block
@@ -211,7 +211,7 @@ defmodule Menard.BlockModuleParentTest do
 end
 
 defmodule Menard.ClauseCommentBlockTest do
-  # The `why` above a def: prose, so no AST verb reached it and changing one meant editing text.
+  # The why above a def: prose, not AST, so `comment` is the only verb that reaches it.
   use ExUnit.Case, async: true
 
   alias Menard.Clause

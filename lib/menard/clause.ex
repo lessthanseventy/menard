@@ -813,8 +813,8 @@ defmodule Menard.Clause do
 
   @doc """
   Set (or replace) the `@doc` attached to a clause. A docstring is a string literal on an
-  attribute, so no other verb reaches it — editing one meant editing the file as text. `text` is
-  the prose, not the `@doc` line: it is wrapped in a heredoc here. `nil` deletes the attribute.
+  attribute, so no other verb reaches it. `text` is the prose, not the `@doc` line: it is wrapped in
+  a heredoc here. `nil` deletes the attribute.
   """
   @spec doc(String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
           String.t() | {:error, String.t()}
@@ -857,8 +857,7 @@ defmodule Menard.Clause do
   end
 
   # When the replacement carries its own leading comment, the range grows upward to swallow the
-  # comment already glued above the clause — otherwise the old why and the new one both survive,
-  # which is worse than the two-step edit this was meant to replace.
+  # comment already glued above the clause — otherwise the old why and the new one both survive.
   defp with_comments_above(source, range, code) do
     case split_leading_comments(code) do
       {"", _body} ->

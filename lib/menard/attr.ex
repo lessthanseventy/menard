@@ -43,8 +43,7 @@ defmodule Menard.Attr do
 
   @doc """
   The `#` comment above `@name`: prose in, `#` added; no `text` removes it. The attribute twin of
-  `Menard.Clause.comment/5` — a comment above a table had no verb, so explaining one meant editing
-  the file as text, which is the thing these verbs exist to replace.
+  `Menard.Clause.comment/5`.
   """
   @spec comment(String.t(), String.t() | atom(), String.t() | nil, keyword()) ::
           String.t() | {:error, String.t()}
