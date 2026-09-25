@@ -71,4 +71,24 @@ defmodule Menard.RenameTest do
              "# live_workspaces feeds the ring; author_workspaces_extra is another thing\n" <>
                "def live_workspaces, do: \"author_workspaces\"\n"
   end
+
+  test "renames a remote call and a remote capture, not a field access" do
+    src = """
+    defmodule A do
+      def go, do: B.old(1)
+      def f, do: &B.old/1
+      def g, do: __MODULE__.old()
+      def h(map), do: map.old
+    end
+    """
+
+    assert Rename.run(src, "old", "new") == """
+           defmodule A do
+             def go, do: B.new(1)
+             def f, do: &B.new/1
+             def g, do: __MODULE__.new()
+             def h(map), do: map.old
+           end
+           """
+  end
 end

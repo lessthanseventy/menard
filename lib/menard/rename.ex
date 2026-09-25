@@ -92,7 +92,28 @@ defmodule Menard.Rename do
     end
   end
 
+  # A remote call or capture on a module (`B.old(1)`, `&B.old/1`, `__MODULE__.old()`): the call's own
+  # meta points at the name. On a variable (`map.old`) it is a field access, and stays.
+  defp patch_for({{:., _dot, [receiver, from]}, meta, _args}, from, new, _atoms?) do
+    if module_ref?(receiver) and meta[:line] do
+      len = String.length(Atom.to_string(from))
+
+      %{
+        range: %{
+          start: [line: meta[:line], column: meta[:column]],
+          end: [line: meta[:line], column: meta[:column] + len]
+        },
+        change: new
+      }
+    end
+  end
+
   defp patch_for(_node, _from, _new, _atoms?), do: nil
+
+  defp module_ref?({:__aliases__, _meta, _parts}), do: true
+  defp module_ref?({:__MODULE__, _meta, _ctx}), do: true
+  defp module_ref?({:__block__, _meta, [mod]}) when is_atom(mod), do: true
+  defp module_ref?(_receiver), do: false
 
   defp ident_patch(node, from, new) do
     case Sourceror.get_range(node) do
