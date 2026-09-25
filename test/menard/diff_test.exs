@@ -36,15 +36,12 @@ defmodule Menard.DiffTest do
                ]
     end
 
-    test "a whole block replaced with no common lines is a delete then an insert" do
+    test "a whole block replaced with no common lines is one hunk" do
       before = "def go do\n  :a\n  :b\nend"
       after_ = "def go do\n  :c\n  :d\n  :e\nend"
 
       assert Diff.hunks(before, after_) ==
-               [
-                 %{start: 2, removed: ["  :a", "  :b"], added: []},
-                 %{start: 4, removed: [], added: ["  :c", "  :d", "  :e"]}
-               ]
+               [%{start: 2, removed: ["  :a", "  :b"], added: ["  :c", "  :d", "  :e"]}]
     end
 
     test "an empty before (a new file) is one insert hunk" do
@@ -61,6 +58,16 @@ defmodule Menard.DiffTest do
     test "a trailing newline added shows as an inserted empty line" do
       assert Diff.hunks("a\nb", "a\nb\n") ==
                [%{start: 3, removed: [], added: [""]}]
+    end
+
+    test "a 2000-line file diffs in well under a second" do
+      # the vendored LCS table this replaced took 12s on a 1000-line file; a verb diffs twice
+      before = Enum.map_join(1..2000, "\n", &"line #{&1}")
+      after_ = String.replace(before, "line 1000\n", "line 1000!\n")
+      {us, hunks} = :timer.tc(fn -> Diff.hunks(before, after_) end)
+
+      assert hunks == [%{start: 1000, removed: ["line 1000"], added: ["line 1000!"]}]
+      assert us < 1_000_000
     end
   end
 end
