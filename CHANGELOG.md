@@ -51,6 +51,7 @@
   remove it).
 - A write the format could not finish says so in its reply (`unformatted`, and the reason on the
   `formatter` stage), not on stderr only, where neither the agent nor its check saw it.
+- `menard --frozen mcp` died at start (app.start outside a mix project); it serves now.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.

@@ -342,4 +342,34 @@ defmodule Menard.MCPTest do
     assert text.(stale) =~ "stale"
     assert File.read!(file) =~ "def old, do: 2"
   end
+
+  test "the door answers under --frozen too", %{root: root} do
+    # `--frozen` runs the last build with no mix project, and app.start in the mcp task died there
+    input = Path.join(root, "in.jsonl")
+
+    File.write!(
+      input,
+      JSON.encode!(%{
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+      }) <> "\n"
+    )
+
+    System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
+
+    {out, _} =
+      System.cmd("sh", ["-c", ~S[(cat "$IN"; sleep 3) | "$BIN" --frozen mcp 2>/dev/null]],
+        cd: @root,
+        env: [
+          {"MENARD_ROOT", root},
+          {"MIX_ENV", "dev"},
+          {"IN", input},
+          {"BIN", Path.join(@root, "bin/menard")}
+        ]
+      )
+
+    assert out =~ ~s("id":1)
+  end
 end

@@ -19,7 +19,8 @@ defmodule Mix.Tasks.Menard.Mcp do
           "then `mix deps.compile menard --force` if menard was built without it"
       )
 
-    Mix.Task.run("app.start", ["--no-compile"])
+    # `--frozen` runs outside any mix project, where app.start dies; the line below starts menard
+    if Mix.Project.get(), do: Mix.Task.run("app.start", ["--no-compile"])
     # a host takes menard `runtime: false`, and app.start leaves it (and anubis) stopped
     {:ok, _} = Application.ensure_all_started(:menard)
 
