@@ -121,6 +121,10 @@ defmodule Mix.Tasks.Menard.Guard do
     end
   end
 
+  # pi's edit: `edits: [%{oldText, newText}]`, each matched once
+  defp applied(old, %{"oldText" => from, "newText" => to}),
+    do: applied(old, %{"old_string" => from, "new_string" => to})
+
   defp applied(_old, _input), do: :error
 
   defp unstrung(ast) do
