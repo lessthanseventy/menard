@@ -78,7 +78,7 @@ defmodule Mix.Tasks.Menard.Clause do
         )
 
       ["move", file, na] ->
-        move(file, flags[:to], na, flags[:as], flags[:module])
+        move(file, flags[:to], na, flags)
 
       ["comment", file, na, head, text] ->
         write(
@@ -143,11 +143,16 @@ defmodule Mix.Tasks.Menard.Clause do
 
   # Two files change at once, so neither is written until BOTH edits succeed — a move that half
   # lands is worse than one that does not.
-  defp move(file, dest, na, as, module) do
+  defp move(file, dest, na, flags) do
     file = Menard.resolve(file)
     dest = Menard.resolve(dest)
 
-    case Menard.Move.run(file, dest, na, as: as, module: module) do
+    # `--version` is the source file's: the one the agent's edit came from
+    if flags[:version] && !flags[:force] do
+      with {:error, message} <- Menard.check_versions([{file, flags[:version]}]), do: Mix.raise(message)
+    end
+
+    case Menard.Move.run(file, dest, na, as: flags[:as], module: flags[:module]) do
       {:ok, created} ->
         if created, do: Mix.shell().info("menard.clause: created #{dest} as defmodule #{created}")
         Mix.shell().info("menard.clause: #{na} moved to #{dest}")

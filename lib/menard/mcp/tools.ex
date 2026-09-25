@@ -61,13 +61,17 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:old, :string, required: true)
       field(:new, :string, required: true)
       field(:files, {:list, :string}, required: true)
+      # `FILE=SHA` per file, from each one's last reply; all checked before any file is written
+      field(:versions, {:list, :string})
+      field(:force, :boolean)
       field(:only, :enum, values: ["functions", "variables"])
       field(:atoms, :boolean)
       field(:comments, :boolean)
     end
 
     def call(params, frame) do
-      with {:ok, files} <- Menard.MCP.resolve_all(params.files) do
+      with {:ok, files} <- Menard.MCP.resolve_all(params.files),
+           :ok <- versions(params) do
         opts = [
           atoms: params[:atoms] == true,
           comments: params[:comments] == true,
@@ -96,6 +100,21 @@ if Code.ensure_loaded?(Anubis.Server) do
       else
         {:error, message} -> fail(frame, message)
       end
+    end
+
+    defp versions(%{force: true}), do: :ok
+
+    defp versions(params) do
+      pairs =
+        for spec <- params[:versions] || [] do
+          [file, version] = String.split(spec, "=", parts: 2)
+          {:ok, abs} = Menard.MCP.resolve(file)
+          {abs, version}
+        end
+
+      Menard.check_versions(pairs)
+    rescue
+      MatchError -> {:error, "versions are FILE=SHA, each FILE under the root"}
     end
   end
 
@@ -172,6 +191,12 @@ if Code.ensure_loaded?(Anubis.Server) do
     def call(%{verb: "move"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            {:ok, dest} <- Menard.MCP.resolve(params[:to] || ""),
+           # `version` is the source file's: the one the agent's edit came from
+           :ok <-
+             if(params[:version] && params[:force] != true,
+               do: Menard.check_versions([{file, params.version}]),
+               else: :ok
+             ),
            {:ok, created} <-
              Menard.Move.run(file, dest, params.name_arity, as: params[:as], module: params[:module]) do
         ok(frame, %{

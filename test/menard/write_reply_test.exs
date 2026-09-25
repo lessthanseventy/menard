@@ -136,5 +136,47 @@ defmodule Menard.WriteReplyTest do
       assert message =~ "re-read"
       assert File.read!(file) =~ ":a"
     end
+
+    test "rename and move check every version before writing any file", %{tmp_dir: dir} do
+      # rename and move write several files: every version is checked before any file is written
+      a = write_file(dir, "ra.ex", "defmodule RA do\n  def old, do: 1\nend\n")
+      b = write_file(dir, "rb.ex", "defmodule RB do\n  def go, do: RA.old()\nend\n")
+      {:ok, %{version: va}} = Menard.write(a, File.read!(a))
+      {:ok, %{version: vb}} = Menard.write(b, File.read!(b))
+      assert Menard.check_versions([{a, va}, {b, vb}]) == :ok
+
+      # another session edits b; a rename across both is refused, and neither file is touched
+      File.write!(b, "defmodule RB do\n  def go, do: RA.old() + 1\nend\n")
+
+      assert_raise Mix.Error, ~r/stale: .*rb\.ex/, fn ->
+        ExUnit.CaptureIO.capture_io(fn ->
+          Mix.Tasks.Menard.Rename.run([
+            "old",
+            "new",
+            a,
+            b,
+            "--version",
+            "#{a}=#{va}",
+            "--version",
+            "#{b}=#{vb}"
+          ])
+        end)
+      end
+
+      assert File.read!(a) =~ "def old"
+      assert File.read!(b) =~ "RA.old() + 1"
+
+      # a move checks the file it takes the function from
+      File.write!(a, "defmodule RA do\n  def old, do: 2\nend\n")
+      dest = Path.join(dir, "rc.ex")
+
+      assert_raise Mix.Error, ~r/stale/, fn ->
+        ExUnit.CaptureIO.capture_io(fn ->
+          Mix.Tasks.Menard.Clause.run(["move", a, "old/0", "--to", dest, "--as", "RC", "--version", va])
+        end)
+      end
+
+      refute File.exists?(dest)
+    end
   end
 end

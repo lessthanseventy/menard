@@ -321,4 +321,25 @@ defmodule Menard.MCPTest do
       assert function_exported?(tool, :call, 2), "#{inspect(tool)} answers without a deadline"
     end
   end
+
+  test "rename through the door checks each file's version first", %{root: root} do
+    file = Path.join(root, "lib/r.ex")
+    File.write!(file, "defmodule R do\n  def old, do: 1\nend\n")
+    text = fn response -> response.content |> hd() |> Map.fetch!("text") end
+
+    version = JSON.decode!(text.(call(Menard.MCP.Outline, %{file: "lib/r.ex"})))["version"]
+    File.write!(file, "defmodule R do\n  def old, do: 2\nend\n")
+
+    stale =
+      call(Menard.MCP.Rename, %{
+        old: "old",
+        new: "new",
+        files: ["lib/r.ex"],
+        versions: ["lib/r.ex=#{version}"]
+      })
+
+    assert stale.isError
+    assert text.(stale) =~ "stale"
+    assert File.read!(file) =~ "def old, do: 2"
+  end
 end

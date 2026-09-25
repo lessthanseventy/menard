@@ -109,6 +109,7 @@ and says why (a project plugin that will not load here): run the project's own `
 
 **Pass the reply's `version` back** (or `outline`'s, for the first edit) on your next edit to that file (`--version SHA`, or MCP
 `version`). If another session changed the file since, the edit is refused with the diff since
-your version: re-read what changed and redo the edit. `--force` writes anyway. `rename` and
-`clause move` touch several files and take no version. A parse-checked write catches **malformed** output, not **wrong** output: it
+your version: re-read what changed and redo the edit. `--force` writes anyway. `rename` takes one per file,
+`--version FILE=SHA` (repeat it), all checked before any file is written; `clause move` checks the
+file it moves from. A parse-checked write catches **malformed** output, not **wrong** output: it
 is a floor, not a proof. Run the check.

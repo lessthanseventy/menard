@@ -430,4 +430,20 @@ defmodule Menard do
   def jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
   def jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
   def jsonable(other), do: other
+
+  @doc """
+  Every `{file, version}` still current, or the stale refusal for the first that is not: for the
+  verbs that write several files (`rename`, `clause move`), checked before any of them is written.
+  """
+  @spec check_versions([{String.t(), String.t()}]) :: :ok | {:error, String.t()}
+  def check_versions(versions) do
+    Enum.reduce_while(versions, :ok, fn {file, version}, :ok ->
+      original = if File.regular?(file), do: File.read!(file), else: ""
+
+      case fresh(file, original, version: version) do
+        :ok -> {:cont, :ok}
+        stale -> {:halt, stale}
+      end
+    end)
+  end
 end
