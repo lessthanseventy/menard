@@ -176,10 +176,12 @@ defmodule Menard.Clause do
   @spec insert_after(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
   def insert_after(source, name_arity, head, code, opts \\ []) do
-    with {:ok, %{range: %{end: [line: b, column: c]}, indent: indent}} <- find(source, name_arity, head, opts) do
+    with {:ok, found} <- find(source, name_arity, head, opts) do
+      {clause, gap} = edge(source, name_arity, found, code, &List.last/1)
+      %{range: %{end: [line: b, column: c]}, indent: indent} = clause
       body = code |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
       at = %{start: [line: b, column: c], end: [line: b, column: c]}
-      Sourceror.patch_string(source, [%{range: at, change: "\n" <> body, preserve_indentation: false}])
+      Sourceror.patch_string(source, [%{range: at, change: gap <> body, preserve_indentation: false}])
     end
   end
 
@@ -188,7 +190,8 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def insert_before(source, name_arity, head, code, opts \\ []) do
     with {:ok, ast} <- parse(source),
-         {:ok, %{range: range, indent: indent}} <- find(source, name_arity, head, opts) do
+         {:ok, found} <- find(source, name_arity, head, opts) do
+      {%{range: range, indent: indent}, gap} = edge(source, name_arity, found, code, &hd/1)
       lines = String.split(source, "\n")
       # Above the clause's @doc/@spec too, the block `delete/4` takes: a @doc attaches to whatever
       # definition FOLLOWS it, so landing between the two hands the doc to the new code.
@@ -196,9 +199,35 @@ defmodule Menard.Clause do
       a = a - comment_lines_above(lines, a - 1)
       body = code |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
       at = %{start: [line: a, column: 1], end: [line: a, column: 1]}
-      Sourceror.patch_string(source, [%{range: at, change: body <> "\n", preserve_indentation: false}])
+      Sourceror.patch_string(source, [%{range: at, change: body <> gap, preserve_indentation: false}])
     end
   end
+
+  # A new clause of the SAME function goes beside the one named. A DIFFERENT function goes around
+  # the whole of this one — after its last clause, before its first — and a blank line apart: landing
+  # between two clauses splits the function, and a split function fails --warnings-as-errors.
+  defp edge(source, name_arity, clause, code, pick) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         defined when defined not in [nil, {name, arity}] <- defines(code),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity),
+         [_ | _] = all <- clauses(scope, name, arity) do
+      {pick.(all), "\n\n"}
+    else
+      _ -> {clause, "\n"}
+    end
+  end
+
+  defp defines(code) do
+    case Sourceror.parse_string(code) do
+      {:ok, {:__block__, _, [_ | _] = nodes}} -> nodes |> List.last() |> defined()
+      {:ok, node} -> defined(node)
+      _ -> nil
+    end
+  end
+
+  defp defined({kind, _meta, [head | _]}) when kind in @kinds, do: name_arity(head)
+  defp defined(_node), do: nil
 
   @doc """
   Insert `code` where there is NO sibling clause to anchor to — a whole new function, which
