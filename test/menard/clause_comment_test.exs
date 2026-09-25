@@ -1,0 +1,26 @@
+defmodule Menard.ClauseCommentTest do
+  # A clause and the comment glued above it are one unit to a reader, so `rewrite` takes both.
+  use ExUnit.Case, async: true
+
+  alias Menard.Clause
+
+  @src """
+  defmodule C do
+    # the old why
+    def go(x), do: x
+  end
+  """
+
+  test "rewrite accepts a leading comment and carries it in" do
+    out = Clause.rewrite(@src, "go/1", "x", "# the new why\ndef go(x), do: x * 2")
+
+    assert out =~ "# the new why"
+    assert out =~ "def go(x), do: x * 2"
+    refute out =~ "the old why"
+  end
+
+  test "a bare expression is still refused — the check reads past the comment" do
+    assert {:error, message} = Clause.rewrite(@src, "go/1", "x", "# just a comment\n:not_a_clause")
+    assert message =~ "needs a whole clause"
+  end
+end
