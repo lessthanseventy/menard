@@ -323,6 +323,41 @@ defmodule Menard.BlockTest do
 
     assert Block.replace(src, "test", "assert true", label: "t") =~ "test \"t\" do\n    assert true\n  end\n"
   end
+
+  test "get returns the body alone, dedented — for do: and do…end alike" do
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+      test "one", do: assert(1 == 1)
+
+      test "two" do
+        x = 2
+        assert x == 2
+      end
+    end
+    """
+
+    assert Block.get(src, "test", label: "one") == "assert(1 == 1)"
+    assert Block.get(src, "test", label: "two") == "x = 2\nassert x == 2"
+  end
+
+  test "control flow inside a function is not a block — that is stmt's" do
+    src = """
+    defmodule A do
+      schema "t" do
+        field :a
+      end
+
+      def go(x) do
+        if x do
+          :y
+        end
+      end
+    end
+    """
+
+    assert Block.list(src) == [{:schema, "t", 2}]
+  end
 end
 
 defmodule Menard.ModuleTest do
