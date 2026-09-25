@@ -412,7 +412,13 @@ defmodule Menard.Clause do
       else: squash(head)
   end
 
-  defp wanted_head(head, _name, _arity), do: squash(head)
+  # `def go(x)` and `go(x)` are what people copy off the def line; drop the name and what is left,
+  # `(x)`, is the paren wrapper already tolerated. A call is not a pattern, so no head starts `go(`.
+  defp wanted_head(head, name, _arity) do
+    head
+    |> String.replace(~r/\A\s*(?:(?:defp?|defmacrop?)\s+)?#{Regex.escape(to_string(name))}(?=\s*\()/, "")
+    |> squash()
+  end
 
   # Acting on "the first" silently is how a delete eats the clause that was just written, so an
   # ambiguous head is refused and `--nth` is the way to mean one of them.
