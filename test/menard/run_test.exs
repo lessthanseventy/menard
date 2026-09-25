@@ -107,4 +107,22 @@ defmodule Menard.RunTest do
     assert r.tail =~ "rail_test.exs:79:19"
     refute r.tail =~ "parallel_compiler"
   end
+
+  @tag :tmp_dir
+  test "compile reports a warning left by an earlier compile", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Warm.MixProject do
+      use Mix.Project
+      def project, do: [app: :warm, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/warm.ex"), "defmodule Warm do\n  def go(x), do: 1\nend\n")
+    System.cmd("mix", ["compile"], cd: dir, stderr_to_stdout: true, env: [{"MIX_ENV", nil}])
+
+    result = Menard.Run.result(dir, "compile", [])
+    refute result.ok
+    assert [%{severity: "warning", file: "lib/warm.ex", line: 2}] = result.diagnostics
+  end
 end
