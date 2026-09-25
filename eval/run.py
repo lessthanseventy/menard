@@ -82,13 +82,14 @@ def prepare(case_dir, ws):
 
 
 def build_skill_arm(arm, force=False):
-    """`S-<variant>`: arm B with its skill swapped for eval/skills/<variant>.md, or none (`S-none`)."""
+    """`S-<variant>`: arm B with its skill swapped for eval/skills/<variant>.md, or none (`S-none`).
+    `SL-<variant>`: the same on arm L, the tools always loaded."""
     dest = PLUGINS / arm
     if dest.exists() and not force:
         return
     shutil.rmtree(dest, ignore_errors=True)
-    shutil.copytree(PLUGINS / "B", dest, symlinks=True)
-    variant = arm[2:]
+    base, variant = arm.split("-", 1)
+    shutil.copytree(PLUGINS / ("L" if base == "SL" else "B"), dest, symlinks=True)
     if variant == "none":
         shutil.rmtree(dest / "skills")
     else:
@@ -271,7 +272,7 @@ def main():
     build_template(a.rebuild)
     build_plugins(a.rebuild)
     for arm in a.arms.split(","):
-        if arm.startswith("S-"):
+        if arm.startswith(("S-", "SL-")):
             build_skill_arm(arm, a.rebuild)
     cases = sorted(p.parent for p in (EVAL / "cases").glob("*/prompt.md"))
     if a.cases:
