@@ -498,13 +498,7 @@ defmodule Menard.Clause do
   end
 
   defp scope(ast, mod, _name, _arity) do
-    case List.keyfind(modules(ast), mod, 0) do
-      {^mod, node} ->
-        {:ok, node}
-
-      nil ->
-        {:error, "no module #{mod} in this file — have: #{Enum.map_join(modules(ast), ", ", &elem(&1, 0))}"}
-    end
+    module_scope(ast, mod)
   end
 
   # Every `defmodule` in the file as `{"Full.Name", node}` — a nested one by the name Elixir gives it
@@ -539,13 +533,21 @@ defmodule Menard.Clause do
   end
 
   def module_scope(ast, module) do
-    case List.keyfind(modules(ast), module, 0) do
-      {^module, node} ->
+    case for {^module, node} <- modules(ast), do: node do
+      [node] ->
         {:ok, node}
 
-      nil ->
+      [] ->
         {:error,
          "no module #{module} in this file — have: #{Enum.map_join(modules(ast), ", ", &elem(&1, 0))}"}
+
+      # `if Code.ensure_loaded?(X) do defmodule M … else defmodule M … end`: an edit went to the first
+      # whichever was meant
+      many ->
+        lines = Enum.map_join(many, ", ", &"line #{start_line(&1)}")
+
+        {:error,
+         "#{module} is defined #{length(many)} times here (#{lines}), which no verb can tell apart — `write` the file whole"}
     end
   end
 

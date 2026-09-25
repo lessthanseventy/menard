@@ -57,6 +57,8 @@
   `__MODULE__.A.f()` after `__MODULE__`, so a replace left those bytes behind (and `stmt` could
   not reach the statement); a literal before `end` ended on the space, and `fn -> nil end` became
   `nilend`.
+- A module defined twice in a file (`if Code.ensure_loaded?(X) do defmodule M … else … end`) is
+  refused by name, naming its lines. Every verb edited the first, whichever was meant.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
