@@ -50,9 +50,24 @@ defmodule Mix.Tasks.Menard.Module do
             end
         end
 
+      ["replace", file, name, code] ->
+        file = Menard.resolve(file)
+
+        case Menard.Module.replace(File.read!(file), name, code) do
+          {:error, message} ->
+            Mix.raise(message)
+
+          out ->
+            case Menard.checked_write(file, out) do
+              :ok -> Mix.shell().info("menard.module: #{file} written")
+              {:error, message} -> Mix.raise(message)
+            end
+        end
+
       _ ->
         Mix.raise(
           "usage: mix menard.module add FILE CODE  (CODE of `-` reads stdin) | list FILE\n" <>
+            "       mix menard.module replace FILE Mod.Name CODE          one whole module, of several\n" <>
             "       mix menard.module comment FILE (Mod.Name|-) [TEXT]   (no TEXT removes it)"
         )
     end

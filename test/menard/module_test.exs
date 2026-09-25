@@ -45,4 +45,31 @@ defmodule Menard.ModuleTest do
     assert out =~ "defmodule ATest do\n  # what these tests are about\n  use ExUnit.Case"
     refute out =~ "old header"
   end
+
+  test "replace swaps one whole module in a file of several, and only its bytes" do
+    src = """
+    defmodule A do
+      def a, do: 1
+    end
+
+    # about B
+    defmodule B do
+      def b, do: 2
+    end
+
+    defmodule C do
+      def c, do: 3
+    end
+    """
+
+    assert Menard.Module.replace(src, "B", "defmodule B do\n  def b, do: :two\nend") ==
+             String.replace(src, "def b, do: 2", "def b, do: :two")
+  end
+
+  test "replace refuses code that is not that module" do
+    src = "defmodule A do\nend\n\ndefmodule B do\nend\n"
+    assert {:error, message} = Menard.Module.replace(src, "B", "defmodule Z do\nend")
+    assert message =~ "B"
+    assert {:error, _} = Menard.Module.replace(src, "Nope", "defmodule Nope do\nend")
+  end
 end

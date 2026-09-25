@@ -50,6 +50,35 @@ defmodule Menard.Module do
     end
   end
 
+  @doc """
+  Replace the module `name` with `code`, a complete `defmodule` of the same name — one module of a
+  file that holds several, where `write` would take them all. Only that module's bytes change; the
+  comment above it and its neighbours stay as written.
+  """
+  @spec replace(String.t(), String.t(), String.t()) :: String.t() | {:error, String.t()}
+  def replace(source, name, code) do
+    with {:ok, ^name} <- module_name(code),
+         {:ok, ast} <- parse(source) do
+      case List.keyfind(Clause.modules(ast), name, 0) do
+        {^name, node} ->
+          range = node |> Sourceror.get_range() |> Menard.Source.clamp(source)
+
+          Sourceror.patch_string(source, [
+            %{range: range, change: String.trim(code), preserve_indentation: false}
+          ])
+
+        nil ->
+          {:error, "no module #{name} in this file — have: #{Enum.join(names(ast), ", ")}"}
+      end
+    else
+      {:ok, other} ->
+        {:error, "the code defines #{other}, not #{name}: rename with `rename`, or add it with `module add`"}
+
+      error ->
+        error
+    end
+  end
+
   defp append(source, code) do
     trimmed = String.trim_trailing(source, "\n")
     trimmed <> "\n\n" <> String.trim(code) <> "\n"
