@@ -64,10 +64,11 @@ defmodule Mix.Tasks.Menard.Block do
       _ ->
         Mix.raise(
           "usage: mix menard.block (get|replace) FILE NAME [CODE] [--label X]\n" <>
-            "       mix menard.block add FILE NAME CODE [--label X] [--args CONTEXT] [--in PARENT_LABEL]\n" <>
+            "       mix menard.block add FILE NAME CODE [--label X] [--args CONTEXT] [--in PARENT_LABEL] [--tag T]\n" <>
             "       mix menard.block delete FILE NAME [--label X]\n" <>
             "       mix menard.block relabel FILE NAME OLD_LABEL NEW_LABEL\n" <>
-            "       mix menard.block list FILE [--module Mod]"
+            "       mix menard.block list FILE\n" <>
+            "       any of them: --module Mod, when the file holds several modules"
         )
     end
   end
