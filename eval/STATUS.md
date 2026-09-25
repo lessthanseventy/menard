@@ -4,14 +4,21 @@ Window: started 2026-09-25 13:26 MDT, stop by ~18:15 MDT.
 
 ## Now
 
-Skill loop, iteration 1 (since 14:24): the current skill (arm B) vs `eval/skills/mcp-first.md`
-(`S-mcp-first`: 476 words, MCP calls first, outline before Read) vs no skill (`S-none`), on
+Skill loop, iteration 2 (since 15:08), on menard 00cd8e1: arms A (no menard), B (current skill),
+S-mcp-first (the draft), S-none (no skill), SL-mcp-first (the draft, MCP tools always loaded) ×
 new-fn-large, bug-receipt-total, test-tmpdir, attrs, rename-across, change-signature × haiku and
-sonnet, 1 run each: 36 runs. Progress: `eval/results/skill1/log.txt`. Then revise the variant,
-rerun, add `alwaysLoad` (`SL-` arms), and only then the full measurement round.
+sonnet, 1 run: 60 runs, ~55 min. One line per finished run: `eval/results/live.log`.
 
-Round 2 was stopped at 7 runs (Andrew: loop the skill before measuring); rows parked in
-`eval/results/r2-aborted/`.
+Iteration 1 (19 runs, haiku, pre-fix builds) was stopped once its lessons were in; rows in
+`eval/results/skill1-prefix/`. What it taught, all acted on:
+- the CLI-first skill sends haiku to menard through Bash (30 Bash calls, 9 failures in one run);
+  the MCP-first draft stays on MCP; the guard's MCP refusal alone gets a no-skill agent onto MCP.
+- menard bugs: a new attribute that reads another landed above it (fixed ddede5f).
+- head confusion: nothing printed the head to copy. `outline` now prints each clause's head
+  (4b3200c); heads are found the way agents guess them: with the def line's `do`, without the
+  guard, and any head for a one-clause function (bff38a7); `block add` in a test file defaults
+  to `test` (c477d42); the guard's refusal says finish on `run check` (00cd8e1).
+- rule adopted (Andrew): the agent's first guess is the spec: make the tool meet it.
 
 ## Step 1 findings: `claude plugin eval` does not fit, so the fallback runner
 
@@ -59,3 +66,4 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   works in the CLI, drops the ToolSearch call and a turn, costs ~3.7k tokens of schemas per turn.
 - 14:16 round 2 started.
 - 14:23 round 2 stopped; skill loop iteration 1 started 14:24.
+- 14:55 skill1 stopped; menard fixes above; 15:08 skill loop iteration 2 started.

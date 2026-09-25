@@ -296,9 +296,13 @@ def main():
                         print(f"stop-at {a.stop_at} reached", flush=True)
                         return
                     row = run_one(case, arm, model, n, out_dir)
-                    print(f"{time.strftime('%H:%M')} {rid}: {'PASS' if row['pass'] else 'FAIL'}"
-                          f"{'' if row['clean'] or not row['pass'] else ' (noisy)'} turns={row['turns']}"
-                          f" cost={row['cost_usd']} wall={row['wall_s']}s tools={row['tools']}", flush=True)
+                    line = (f"{time.strftime('%H:%M')} {a.round} {rid}: {'PASS' if row['pass'] else 'FAIL'}"
+                            f"{'' if row['clean'] or not row['pass'] else ' (noisy)'} turns={row['turns']}"
+                            f" cost={row['cost_usd']:.3f} wall={row['wall_s']}s failed_calls={row['failed_calls']}")
+                    print(line, f"tools={row['tools']}", flush=True)
+                    # one file across rounds, one line per run: what a watcher tails
+                    with open(EVAL / "results" / "live.log", "a") as f:
+                        f.write(line + "\n")
 
 
 if __name__ == "__main__":
