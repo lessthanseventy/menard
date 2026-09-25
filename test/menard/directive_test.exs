@@ -168,4 +168,23 @@ defmodule Menard.DirectiveTest do
     assert {:error, message} = Directive.replace(src, :alias, "Nope", args: nil)
     assert message =~ "no alias Nope"
   end
+
+  test "doctest is a directive: added after use and the aliases, listed, removed" do
+    # a test module's `doctest Mod` is a directive in all but name: added after `use` and the aliases
+    src = """
+    defmodule FooTest do
+      use ExUnit.Case, async: true
+
+      alias Foo.Bar
+
+      test "a", do: assert(true)
+    end
+    """
+
+    out = Directive.add(src, :doctest, "Foo")
+    assert out =~ "  alias Foo.Bar\n  doctest Foo\n"
+    assert {:doctest, "Foo"} in Directive.list(out)
+    assert Directive.add(out, :doctest, "Foo") == out
+    assert Directive.remove(out, :doctest, "Foo") =~ "  alias Foo.Bar\n\n  test"
+  end
 end

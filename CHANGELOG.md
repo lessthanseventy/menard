@@ -12,6 +12,8 @@
 
 - `clause spec FILE name/arity [SPEC]` (MCP clause verb `spec`): a function's `@spec`, set,
   replaced or removed. No verb reached it: `attr` refuses it and the clause verbs carry it.
+- `directive add|remove|replace|list` take `doctest`: a test module's `doctest Mod` line, placed
+  after `use` and the aliases.
 - `module comment --above` (MCP `above`): the comment over `defmodule`, where a license header or
   a file's reason goes, not the one at the top of its body.
 

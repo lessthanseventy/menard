@@ -14,7 +14,8 @@ defmodule Menard.Directive do
   """
 
   import Menard.Source, only: [parse: 1]
-  @kinds [:use, :import, :alias, :require]
+  # in the order they are written; a test module's doctest line comes last, as Quokka places it
+  @kinds [:use, :import, :alias, :require, :doctest]
 
   @doc """
   Add `alias Mod` (or `import`/`require`/`use`) to the module. `opts` is the rest of the directive
