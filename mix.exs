@@ -30,7 +30,9 @@ defmodule Menard.MixProject do
         {:anubis_mcp, "~> 2.0", optional: true},
         # its own env: in :dev it was 29s of a fresh install's 42s first start (makeup's lexers alone
         # take 10s each), which the MCP server has to finish before it can answer
-        {:ex_doc, "~> 0.34", only: :docs, runtime: false}
+        {:ex_doc, "~> 0.34", only: :docs, runtime: false},
+        # formats the iex> examples in @doc, which `mix format` alone leaves as prose
+        {:doctest_formatter, "~> 0.4", only: [:dev, :test], runtime: false}
       ],
       # test/fixtures holds source the tests READ (the identity corpus), not tests to run
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
