@@ -106,14 +106,28 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def rewrite(source, name_arity, head, code, opts \\ []) do
     with {:ok, clause} <- find(source, name_arity, head, opts),
-         {:ok, _node} <- parse_clause(code) do
-      Sourceror.patch_string(source, [
-        %{
-          range: with_comments_above(source, clause.range, code),
-          change: reindent(code, clause.indent),
-          preserve_indentation: false
-        }
-      ])
+         {:ok, _node} <- parse_clause(code),
+         {:ok, ast} <- parse(source) do
+      {lead, body} = split_leading_comments(code)
+      %{start: [line: def_line, column: _]} = clause.range
+      above_attrs = attrs_start(ast, clause.range)
+
+      # A comment over a clause with @impl/@doc/@spec goes above THOSE, as `comment/5` puts it: written
+      # at the `def`, it would sit between the attributes and what they describe
+      if String.trim(lead) != "" and above_attrs < def_line and
+           comment_lines_above(String.split(source, "\n"), def_line - 1) == 0 do
+        source
+        |> patch(clause.range, reindent(body, clause.indent))
+        |> comment_at(above_attrs, clause.indent, String.trim(lead))
+      else
+        Sourceror.patch_string(source, [
+          %{
+            range: with_comments_above(source, clause.range, code),
+            change: reindent(code, clause.indent),
+            preserve_indentation: false
+          }
+        ])
+      end
     end
   end
 
