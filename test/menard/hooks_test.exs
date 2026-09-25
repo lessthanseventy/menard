@@ -82,7 +82,8 @@ defmodule Menard.HooksTest do
     end
 
     assert {out, 2} = run.(module)
-    assert out =~ "#{@root}/bin/menard clause replace"
+    # the plugin's MCP tools by name: CLI lines sent blocked agents to Bash
+    assert out =~ "mcp__plugin_menard_menard__clause"
     assert {_, 0} = run.(notes)
   end
 end
