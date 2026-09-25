@@ -1,8 +1,7 @@
 defmodule Menard.Write do
   @moduledoc """
   Write a WHOLE file — the verb the clause verbs cannot be: a new module has no clause to address
-  and no file to patch, so creating one used to mean dropping out of Menard entirely and writing
-  raw bytes with no parse check.
+  and no file to patch.
 
   `run/2` refuses anything that does not parse as Elixir, so a syntax error is caught before it
   reaches disk instead of at the next compile. It reports whether the file was created or

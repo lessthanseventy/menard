@@ -2,8 +2,7 @@ defmodule Menard.Module do
   @moduledoc """
   Whole modules inside a file. `Menard.Clause.insert_at/4` puts a function INTO a module;
   `Menard.Write` replaces a whole file; neither adds a second `defmodule` to a file that already
-  has one — which is how the MCP tool components live (six modules in `mcp/tools.ex`), so adding
-  one meant appending bytes by hand.
+  has one, the way the MCP tool components live (a dozen modules in `mcp/tools.ex`).
   """
 
   import Menard.Source, only: [parse: 1]

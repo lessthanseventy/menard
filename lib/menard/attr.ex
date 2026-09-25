@@ -3,9 +3,6 @@ defmodule Menard.Attr do
   Module attributes — `@hints`, `@colors`, `@panes`, `@kinds`. The tables a module keeps at the
   top, which every clause verb walks straight past because an attribute is not a clause.
 
-  This was the most-hit gap in Menard's first week of real use: editing `@hints` in a status bar,
-  a `@type`, a `@colors` map, all fell back to text patching precisely because there was no verb.
-
   Addressed by NAME. A name several attributes share is refused with their lines rather than
   guessed at — `@doc`, `@impl` and `@spec` repeat per clause by design, and those belong to the
   clause verbs (`Menard.Clause.delete/4` takes them with the clause; `visibility/3` drops a `@doc`

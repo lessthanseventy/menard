@@ -1,8 +1,7 @@
 defmodule Menard.Block do
   @moduledoc """
   The body of a macro's `do` block — `schema do … end`, `describe "…" do`, `test "…" do`,
-  `setup do`. Not a clause, so no clause verb reaches one; the MCP tools' `schema` blocks were
-  edited by hand for exactly this reason.
+  `setup do`. Not a clause, so no clause verb reaches one.
 
   Addressed by the macro's NAME, and by its `label` when the macro takes a string first — which is
   what makes `describe "the retired leader"` and `test "…"` addressable at all. Several blocks

@@ -1,7 +1,6 @@
 defmodule Menard.Stmt do
   @moduledoc """
-  ONE statement inside a clause body — the last thing that had no verb, so adding a line to a
-  function meant editing the file as text.
+  ONE statement inside a clause body.
 
   Addressed the way a clause is: you name the clause (`name_arity` + `head`), then the statement
   by what is WRITTEN (`Bus.subscribe_habits()`), whitespace-insensitive. A miss lists the
