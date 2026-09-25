@@ -408,10 +408,26 @@ defmodule Menard.Clause do
         {[], [_ | _] = many} -> pick_nth(many, name, arity, head, opts[:nth])
         # one clause has nothing to tell apart: any head, even the one it is about to get, means it
         {[], []} when length(clauses) == 1 -> {:ok, hd(clauses)}
-        {[], []} -> {:error, "no clause #{name}/#{arity} with head `#{head}` — have: #{heads(clauses)}"}
+        {[], []} -> {:error, no_clause(source, name, arity, head, clauses)}
       end
     end
   end
+
+  # An agent reaches for a test by its label, as a name or as a head: say which call does reach it
+  defp no_clause(source, name, arity, head, []) do
+    guesses = [to_string(name), head |> String.trim() |> String.trim(~s("))]
+
+    with [_ | _] = blocks <- Menard.Block.list(source),
+         {macro, label, _line} <- Enum.find(blocks, fn {_macro, label, _line} -> label in guesses end) do
+      "no function #{name}/#{arity}: `#{macro} \"#{label}\"` is a macro call, not a function — " <>
+        "reach it with `block replace FILE #{macro} --label \"#{label}\"` (or get, delete)"
+    else
+      _ -> "no clause #{name}/#{arity} with head `#{head}` — have: none"
+    end
+  end
+
+  defp no_clause(_source, name, arity, head, clauses),
+    do: "no clause #{name}/#{arity} with head `#{head}` — have: #{heads(clauses)}"
 
   # `def go(x) do` and `def go(x), do:` are the def line as it stands: the `do` is not the head
   defp strip_do(head), do: String.replace(head, ~r/,?\s*\bdo:?\s*\z/, "")

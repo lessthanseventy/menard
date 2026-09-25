@@ -170,6 +170,17 @@ defmodule Menard.ClauseTest do
 
       assert Clause.replace_body(one, "total/1", "whatever", ":ok") =~ "def total(%{} = cart), do: :ok"
     end
+
+    test "a test named as a function is refused with the block call that reaches it" do
+      src =
+        ~s|defmodule CartTest do\n  use ExUnit.Case\n\n  test "total includes tax" do\n    assert 1\n  end\nend\n|
+
+      # as the eval's agents guessed it: the label as the name, or as the head
+      for {name_arity, head} <- [{"total includes tax/0", ""}, {"total/0", ~s|"total includes tax"|}] do
+        assert {:error, message} = Clause.replace_body(src, name_arity, head, ":ok")
+        assert message =~ ~s|block replace FILE test --label "total includes tax"|
+      end
+    end
   end
 
   describe "insert_at — a new function, with no sibling clause to anchor to" do
