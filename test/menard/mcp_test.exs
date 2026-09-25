@@ -18,9 +18,67 @@ defmodule Menard.MCPTest do
     {:ok, root: root}
   end
 
+  @root Path.expand("../..", __DIR__)
+
   defp call(tool, params) do
     {:reply, response, _frame} = tool.execute(params, Frame.new())
     response
+  end
+
+  @tag :tmp_dir
+  test "the plugin's MCP server, started from the plugin root, works in the project MENARD_ROOT names", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
+
+    [server] =
+      Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])
+
+    assert server["command"] == "${CLAUDE_PLUGIN_ROOT}/bin/menard"
+    assert server["env"]["MENARD_ROOT"] == "${CLAUDE_PROJECT_DIR}"
+    assert server["args"] == ["mcp"]
+
+    messages =
+      [
+        %{
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+        },
+        %{jsonrpc: "2.0", method: "notifications/initialized"},
+        %{
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: %{name: "outline", arguments: %{file: "lib/a.ex"}}
+        }
+      ]
+      |> Enum.map_join("\n", &JSON.encode!/1)
+
+    input = Path.join(dir, "in.jsonl")
+    File.write!(input, messages <> "\n")
+
+    # built first, so the server answers inside the window below instead of compiling through it
+    System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
+
+    # as Claude Code starts it: cwd the plugin root, the project in MENARD_ROOT, stdin held open briefly
+    {out, _} =
+      System.cmd("sh", ["-c", ~S[(cat "$IN"; sleep 5) | "$BIN" mcp]],
+        cd: @root,
+        env: [
+          {"MENARD_ROOT", dir},
+          {"MIX_ENV", "dev"},
+          {"IN", input},
+          {"BIN", Path.join(@root, "bin/menard")}
+        ],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("id":2)
+    refute out =~ "error"
+    assert out =~ "go"
   end
 
   test "block add takes a test's context, and block delete removes one", %{root: root} do
