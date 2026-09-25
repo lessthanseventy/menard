@@ -440,4 +440,43 @@ defmodule Menard.RunTest do
     Process.sleep(max(24_000 - (System.monotonic_time(:millisecond) - started), 0))
     refute File.exists?(marker)
   end
+
+  test "a green run still answers with the warnings its compile printed" do
+    # the eval's agent finished on `run test`, ok with no failures, over an unused alias the
+    # project's warnings-as-errors gate then failed on
+    out = """
+    Compiling 1 file (.ex)
+        warning: unused alias Money
+        │
+      5 │   alias Shop.Money
+        │   ~
+        │
+        └─ lib/shop/cart.ex:5:3
+
+    Generated shop app
+    Running ExUnit with seed: 1, max_cases: 8
+
+    ....
+    Finished in 0.1 seconds (0.1s async, 0.0s sync)
+    4 tests, 0 failures
+    """
+
+    r = Run.parse_test(out, 0)
+    assert r.ok
+    assert r.failures == [%{kind: "warning", message: "unused alias Money", at: "lib/shop/cart.ex:5"}]
+  end
+
+  test "mix refusing its arguments answers with why, not the tail of its usage" do
+    # the eval's agent passed `--doctest` and got back the last lines of the option list
+    options = Enum.map_join(1..30, "\n", &"  --option-#{&1}, --no-option-#{&1}")
+
+    out =
+      "** (Mix) Could not invoke task \"test\": 1 error found!\n--doctest : Unknown option\n\nSupported options:\n#{options}\n"
+
+    r = Run.parse_test(out, 1)
+    refute r.ok
+    assert [%{kind: "error", message: message}] = r.failures
+    assert message =~ "--doctest : Unknown option"
+    refute message =~ "option-30"
+  end
 end

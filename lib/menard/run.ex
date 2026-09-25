@@ -156,19 +156,39 @@ defmodule Menard.Run do
     runs = out |> String.split(~r/Running ExUnit with seed: /)
     last = List.last(runs)
     {tests, failed} = counts(last)
-    # no run at all: a test file that does not compile, and its errors are the failures
-    compile = if last =~ "Finished in", do: [], else: diagnostics(last)
+    # the compile before the first run: its warnings, which a green run went on to hide, or, with no
+    # run at all, a test file's errors
+    compile = diagnostics(hd(runs))
+    failures = failures(last) ++ compile
 
     %{
       ok: status == 0,
       exit: status,
       tests: tests,
       failed: failed,
-      failures: failures(last) ++ compile,
+      failures: if(failures == [] and status != 0, do: refusal(out), else: failures),
       tail: summary(last),
       runs: length(runs) - 1,
       seed: seed(last)
     }
+  end
+
+  # mix refusing to run at all (an unknown option, a task it cannot find): its `** (Mix)` line and
+  # what follows up to the first blank line, before the usage it lists after
+  defp refusal(out) do
+    case out |> String.split("\n") |> Enum.drop_while(&(not String.starts_with?(&1, "** ("))) do
+      [] ->
+        []
+
+      lines ->
+        message =
+          lines
+          |> Enum.take_while(&(String.trim(&1) != ""))
+          |> Enum.join("\n")
+          |> String.replace_prefix("** ", "")
+
+        [%{kind: "error", message: message}]
+    end
   end
 
   @doc """
