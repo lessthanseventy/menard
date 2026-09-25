@@ -25,6 +25,49 @@ defmodule Menard.MCPTest do
     response
   end
 
+  test "module replace swaps one module of several; an unknown verb is refused, not treated as add", %{
+    root: root
+  } do
+    file = Path.join(root, "lib/two.ex")
+    File.write!(file, "defmodule One do\n  def a, do: 1\nend\n\ndefmodule Two do\n  def b, do: 2\nend\n")
+
+    refute call(Menard.MCP.Module, %{
+             verb: "replace",
+             file: "lib/two.ex",
+             module: "Two",
+             code: "defmodule Two do\n  def b, do: :two\nend"
+           }).isError
+
+    assert File.read!(file) =~ "def a, do: 1"
+    assert File.read!(file) =~ "def b, do: :two"
+
+    assert call(Menard.MCP.Module, %{verb: "nope", file: "lib/two.ex"}).isError
+  end
+
+  test "deps add writes, fetches and compiles a dependency, answering with the lock diff", %{root: root} do
+    File.write!(Path.join(root, "mix.exs"), """
+    defmodule Host.MixProject do
+      use Mix.Project
+      def project, do: [app: :host, version: "0.1.0", deps: []]
+    end
+    """)
+
+    dep = Path.join(root, "dep")
+    File.mkdir_p!(Path.join(dep, "lib"))
+
+    File.write!(
+      Path.join(dep, "mix.exs"),
+      "defmodule Dep.MixProject do\n  use Mix.Project\n  def project, do: [app: :dep, version: \"0.1.0\"]\nend\n"
+    )
+
+    File.write!(Path.join(dep, "lib/dep.ex"), "defmodule Dep do\nend\n")
+
+    response = call(Menard.MCP.Deps, %{verb: "add", spec: ~s({:dep, path: "dep"})})
+
+    refute response.isError
+    assert File.read!(Path.join(root, "mix.exs")) =~ ~s({:dep, path: "dep"})
+  end
+
   test "the plugin's MCP server waits out a first start: deps fetch and compile, on a slow network" do
     [server] =
       Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])

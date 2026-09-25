@@ -41,6 +41,7 @@ compiles its deps for you.
 outline FILE                                   what is in the file
 find PATTERN FILES                             where a thing is
 deps FILE name/arity                           what a function calls
+deps    add [--in DIR] SPEC|NAME · upgrade [APPS] [--to REQ]   a project dependency, fetched and compiled
 attr    get|set|delete|list  FILE NAME [VALUE]
 attr    comment FILE NAME [TEXT]                the # comment above a table
 clause  replace|rewrite|delete|insert-after|insert-before  FILE name/arity HEAD [CODE] [--nth N]
@@ -52,6 +53,7 @@ stmt    insert-after|insert-before|replace|delete|comment|list  FILE name/arity 
 block   get|replace|add|delete|relabel|list  FILE NAME [CODE] [--label L] [--args CONTEXT]
 module  add|list FILE [CODE]
 module  comment FILE (Mod|-) [TEXT]              the # comment heading a module
+module  replace FILE Mod.Name CODE              one whole module, in a file of several
 directive add|replace|remove|list FILE KIND MOD [OPTS]
 rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE

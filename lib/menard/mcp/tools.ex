@@ -566,43 +566,77 @@ end
 
 defmodule Menard.MCP.Deps do
   @moduledoc """
-  What one function references — the read before a move. Returns the local calls it makes (each
-  with `shared_with`: the OTHER functions here that also call it, so a helper with an empty list can
-  travel and one with entries cannot), the remote calls, the modules whose aliases must travel, and
-  the attributes it reads — which do not.
+  Dependencies, both kinds. `verb` is:
+
+  - `refs` (the default): what one function references — the read before a move. Give `file` and
+    `name_arity`. Returns the local calls it makes (each with `shared_with`: the OTHER functions
+    here that also call it, so a helper with an empty list can travel and one with entries cannot),
+    the remote calls, the modules whose aliases must travel, and the attributes it reads.
+  - `add`: a project dependency, `spec` as written in mix.exs (`{:req, "~> 0.5"}`) or a bare name
+    looked up on Hex. Written into the deps list, fetched and compiled; the answer carries the lock
+    diff and the compile. A fetch that fails puts mix.exs back.
+  - `upgrade`: `apps` updated (all when none are named), through the host's own
+    `mix igniter.upgrade` when it has Igniter. `to` rewrites one app's requirement first.
+
+  `dir` is the mix project, under the root (default: the root).
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
 
   schema do
-    field(:file, :string, required: true)
-    field(:name_arity, :string, required: true)
+    field(:verb, :enum, values: ["refs", "add", "upgrade"])
+    field(:file, :string)
+    field(:name_arity, :string)
     field(:module, :string)
+    field(:spec, :string)
+    field(:apps, {:list, :string})
+    field(:to, :string)
+    field(:dir, :string)
   end
 
   @impl true
+  def execute(%{verb: "add"} = params, frame) do
+    with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
+      answer(frame, Menard.MixDeps.add_in(dir, params[:spec] || ""))
+    else
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  def execute(%{verb: "upgrade"} = params, frame) do
+    with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
+      answer(frame, Menard.MixDeps.upgrade_in(dir, params[:apps] || [], params[:to]))
+    else
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
   def execute(params, frame) do
-    with {:ok, file} <- Menard.MCP.resolve(params.file),
-         %{} = report <- Menard.Deps.of(File.read!(file), params.name_arity, module: params[:module]) do
+    with {:ok, file} <- Menard.MCP.resolve(params[:file] || ""),
+         %{} = report <- Menard.Deps.of(File.read!(file), params[:name_arity] || "", module: params[:module]) do
       ok(frame, report)
     else
       {:error, message} -> fail(frame, message)
     end
   end
+
+  defp answer(frame, %{ok: true} = result), do: ok(frame, result)
+  defp answer(frame, result), do: fail(frame, JSON.encode!(result))
 end
 
 defmodule Menard.MCP.Module do
   @moduledoc """
-  Whole modules inside a file. `add` appends a complete `defmodule` after the last one (a name the
-  file already defines is refused); `list` names them;
-  `comment` sets the `#` comment at the top of a module's body (`module`, or the file's one). `clause insert_at` puts a function INTO a
-  module and `write` replaces a whole file — neither adds a second module to a file that has one.
+  Whole modules inside a file. `verb` is `add` (a complete `defmodule` appended after the last
+  one; a name the file already defines is refused), `replace` (the module named `module` swapped
+  for `code`, a complete `defmodule` of that name; its neighbours untouched), `list`, or `comment`
+  (the `#` comment at the top of a module's body; `module`, or the file's one). `clause insert_at`
+  puts a function INTO a module, and `write` replaces the whole file.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
 
   schema do
-    field(:verb, :enum, values: ["add", "list", "comment"], required: true)
+    field(:verb, :enum, values: ["add", "replace", "list", "comment"], required: true)
     field(:file, :string, required: true)
     field(:code, :string)
     field(:module, :string)
@@ -619,12 +653,12 @@ defmodule Menard.MCP.Module do
     end
   end
 
-  def execute(%{verb: "comment"} = params, frame) do
+  def execute(%{verb: verb} = params, frame) when verb in ["add", "replace", "comment"] do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
-         out when is_binary(out) <- Menard.Module.comment(File.read!(file), params[:module], params[:text]),
+         out when is_binary(out) <- edit(verb, File.read!(file), params),
          :ok <- Menard.checked_write(file, out) do
       ok(frame, %{
-        "did" => "comment #{params[:module] || "the module"} in #{Path.basename(file)}",
+        "did" => "#{verb} #{params[:module] || "a module"} in #{Path.basename(file)}",
         "file" => file
       })
     else
@@ -632,13 +666,9 @@ defmodule Menard.MCP.Module do
     end
   end
 
-  def execute(params, frame) do
-    with {:ok, file} <- Menard.MCP.resolve(params.file),
-         out when is_binary(out) <- Menard.Module.add(File.read!(file), params[:code] || ""),
-         :ok <- Menard.checked_write(file, out) do
-      ok(frame, %{"did" => "add a module to #{Path.basename(file)}", "file" => file})
-    else
-      {:error, message} -> fail(frame, message)
-    end
-  end
+  def execute(%{verb: verb}, frame), do: fail(frame, "module has no verb #{inspect(verb)}")
+
+  defp edit("add", source, p), do: Menard.Module.add(source, p[:code] || "")
+  defp edit("replace", source, p), do: Menard.Module.replace(source, p[:module] || "", p[:code] || "")
+  defp edit("comment", source, p), do: Menard.Module.comment(source, p[:module], p[:text])
 end

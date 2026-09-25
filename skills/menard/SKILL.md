@@ -41,6 +41,8 @@ SHAPE of what you are changing, not the size of the change:
 | an alias/import/require/use | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
 | a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
 | a whole new file | `write FILE CODE` (`-` or `--stdin` reads it from stdin) |
+| one whole module, in a file of several | `module replace FILE Mod.Name CODE` |
+| a project dependency | `deps add [--in DIR] '{:req, "~> 0.5"}'` (or a bare name) · `deps upgrade [APPS] [--to REQ]` |
 
 `replace` takes the **body**; `rewrite` takes the **whole clause**. Passing a `def` to `replace` is
 refused, because `def bg, do: def(bg, do: X)` is valid Elixir and only the compiler would object.
@@ -62,6 +64,9 @@ What the verbs guarantee, where it is not obvious from the name:
 - `attr` refuses a name that repeats per clause (`@doc`, `@impl`, `@spec`); the clause verbs
   already carry those.
 - `find calls|defs|aliases` is grep that knows the code: strings and comments never match.
+- `deps add` writes the dependency into the deps list, fetches and compiles, and answers with the
+  lock diff and the compile; a fetch that fails puts mix.exs back. `deps upgrade` goes through the
+  host's own `mix igniter.upgrade` when it has Igniter, so each package's upgraders run.
 - `clause move` carries the function's `@doc`, `@spec` and the comment above it, and takes EVERY
   clause. It does NOT touch aliases or call sites: that is the judgement, and `deps FILE
   name/arity` (what a function references, who else calls its helpers) is how you make it.
