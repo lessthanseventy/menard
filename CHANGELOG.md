@@ -10,7 +10,14 @@
   the file no longer has is refused, with the diff since that version. `--force` writes anyway.
   `outline` reports the version too, for the first edit.
 
+- `module comment --above` (MCP `above`): the comment over `defmodule`, where a license header or
+  a file's reason goes, not the one at the top of its body.
+
 **Fixed**
+- A new attribute lands above the first node that reads it: a `@moduledoc` interpolating it, or a
+  `use Foo, from: @it`. It went above the first table, below both, where the read is nil.
+- The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
+  minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
 - The CLI's `attr` reply did not name the verb.
 - `outline --json` crashed on every file (a tuple in its answer, fixed for MCP in 0.3.0).

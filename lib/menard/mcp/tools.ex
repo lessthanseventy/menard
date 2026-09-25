@@ -7,6 +7,37 @@ if Code.ensure_loaded?(Anubis.Server) do
     def ok(frame, payload), do: {:reply, Response.json(Response.tool(), Menard.jsonable(payload)), frame}
     def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
 
+    # Every tool's body is its call/2, and execute/2 only puts a deadline on it: over stdio a call
+    # that never returns is a server gone silent, and one went past Claude Code's 120s. An edit
+    # takes seconds; `run` and `deps` wait on a host's test suite or a fetch, so they get longer.
+    def deadline(tool) when tool in [Menard.MCP.Run, Menard.MCP.Deps], do: 600_000
+    def deadline(_tool), do: 90_000
+
+    def bounded(tool, params, frame, ms \\ nil) do
+      ms = ms || deadline(tool)
+
+      # a raise is an answer too, not a crash of the server's process
+      task =
+        Task.async(fn ->
+          try do
+            tool.call(params, frame)
+          rescue
+            e -> fail(frame, Exception.message(e))
+          end
+        end)
+
+      case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
+        {:ok, reply} ->
+          reply
+
+        _timeout ->
+          fail(
+            frame,
+            "#{inspect(tool)} did not finish in #{ms / 1000}s. It may have written its file: read it before retrying"
+          )
+      end
+    end
+
     # `version` (from the last reply) is checked before the edit, and `force` writes over a stale
     # one: docs/live.md, phase 3
     def staged_write(file, content, params, opts),
@@ -23,6 +54,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     schema do
       field(:old, :string, required: true)
       field(:new, :string, required: true)
@@ -32,8 +66,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:comments, :boolean)
     end
 
-    @impl true
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, files} <- Menard.MCP.resolve_all(params.files) do
         opts = [
           atoms: params[:atoms] == true,
@@ -97,6 +130,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
     alias Menard.Clause
 
     schema do
@@ -132,8 +168,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:as, :string)
     end
 
-    @impl true
-    def execute(%{verb: "move"} = params, frame) do
+    def call(%{verb: "move"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            {:ok, dest} <- Menard.MCP.resolve(params[:to] || ""),
            {:ok, created} <-
@@ -148,8 +183,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    @impl true
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            source <- File.read!(file),
            out when is_binary(out) <- edit(params, source),
@@ -203,6 +237,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
     alias Menard.Stmt
 
     schema do
@@ -223,8 +260,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:nth, :integer)
     end
 
-    @impl true
-    def execute(%{verb: "list"} = params, frame) do
+    def call(%{verb: "list"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            statements when is_list(statements) <- Stmt.list(File.read!(file), params.name_arity, params.head) do
         ok(frame, %{"statements" => statements, "file" => file})
@@ -233,7 +269,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(params, File.read!(file)),
            {:ok, reply} <-
@@ -266,12 +302,14 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     schema do
       field(:file, :string, required: true)
     end
 
-    @impl true
-    def execute(%{file: file}, frame) do
+    def call(%{file: file}, frame) do
       with {:ok, abs} <- Menard.MCP.resolve(file),
            content = File.read!(abs),
            {:ok, modules} <- Menard.Outline.run(content) do
@@ -292,14 +330,16 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     schema do
       field(:kind, :enum, values: ["calls", "defs", "aliases"], required: true)
       field(:target, :string, required: true)
       field(:files, {:list, :string}, required: true)
     end
 
-    @impl true
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, patterns} <- Menard.MCP.resolve_all(params.files) do
         finder =
           case params.kind do
@@ -331,14 +371,16 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     schema do
       field(:verb, :enum, values: ["check", "test", "format", "compile"], required: true)
       field(:args, {:list, :string})
       field(:dir, :string)
     end
 
-    @impl true
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
         ok(frame, Menard.Run.result(dir, params.verb, params[:args] || []))
       else
@@ -358,6 +400,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     schema do
       field(:version, :string)
       field(:force, :boolean)
@@ -365,8 +410,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:code, :string, required: true)
     end
 
-    @impl true
-    def execute(%{file: file, code: code} = params, frame) do
+    def call(%{file: file, code: code} = params, frame) do
       with {:ok, abs} <- Menard.MCP.resolve(file) do
         if File.exists?(abs) and File.read!(abs) == String.trim_trailing(code, "\n") <> "\n" do
           ok(frame, %{did: "write #{Path.basename(abs)}", file: abs, unchanged: true})
@@ -397,6 +441,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     alias Menard.Directive
 
     schema do
@@ -410,8 +457,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
     end
 
-    @impl true
-    def execute(%{verb: "list"} = params, frame) do
+    def call(%{verb: "list"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            found when is_list(found) <- Directive.list(File.read!(file), module: params[:module]) do
         ok(frame, %{"directives" => Enum.map(found, fn {kind, target} -> "#{kind} #{target}" end)})
@@ -420,7 +466,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            {:ok, kind} <- kind(params[:kind]),
            {:ok, target} <- target(params[:target]),
@@ -463,6 +509,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     alias Menard.Attr
 
     schema do
@@ -476,8 +525,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
     end
 
-    @impl true
-    def execute(%{verb: verb} = params, frame) when verb in ["get", "list"] do
+    def call(%{verb: verb} = params, frame) when verb in ["get", "list"] do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            source <- File.read!(file),
            result <- read(verb, source, params) do
@@ -499,7 +547,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- write(params.verb, File.read!(file), params),
            {:ok, reply} <-
@@ -533,6 +581,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     alias Menard.Block
 
     schema do
@@ -549,8 +600,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
     end
 
-    @impl true
-    def execute(%{verb: "list"} = params, frame) do
+    def call(%{verb: "list"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            found when is_list(found) <- Block.list(File.read!(file), module: params[:module]) do
         ok(frame, %{"blocks" => Enum.map(found, fn {n, l, line} -> "#{n} #{inspect(l)} (line #{line})" end)})
@@ -559,7 +609,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(%{verb: "get"} = params, frame) do
+    def call(%{verb: "get"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            text when is_binary(text) <- Block.get(File.read!(file), params[:name] || "", where(params)) do
         ok(frame, %{"body" => text})
@@ -568,7 +618,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(params, File.read!(file)),
            {:ok, reply} <-
@@ -618,6 +668,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
     schema do
       field(:verb, :enum, values: ["refs", "add", "upgrade"])
       field(:file, :string)
@@ -629,8 +682,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:dir, :string)
     end
 
-    @impl true
-    def execute(%{verb: "add"} = params, frame) do
+    def call(%{verb: "add"} = params, frame) do
       with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
         answer(frame, Menard.MixDeps.add_in(dir, params[:spec] || ""))
       else
@@ -638,7 +690,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(%{verb: "upgrade"} = params, frame) do
+    def call(%{verb: "upgrade"} = params, frame) do
       with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
         answer(frame, Menard.MixDeps.upgrade_in(dir, params[:apps] || [], params[:to]))
       else
@@ -646,7 +698,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(params, frame) do
+    def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params[:file] || ""),
            %{} = report <-
              Menard.Deps.of(File.read!(file), params[:name_arity] || "", module: params[:module]) do
@@ -665,11 +717,15 @@ if Code.ensure_loaded?(Anubis.Server) do
     Whole modules inside a file. `verb` is `add` (a complete `defmodule` appended after the last
     one; a name the file already defines is refused), `replace` (the module named `module` swapped
     for `code`, a complete `defmodule` of that name; its neighbours untouched), `list`, or `comment`
-    (the `#` comment at the top of a module's body; `module`, or the file's one). `clause insert_at`
+    (the `#` comment at the top of a module's body, or with `above` the one over its `defmodule`;
+    `module`, or the file's one). `clause insert_at`
     puts a function INTO a module, and `write` replaces the whole file.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
 
     schema do
       field(:version, :string)
@@ -679,10 +735,10 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:code, :string)
       field(:module, :string)
       field(:text, :string)
+      field(:above, :boolean)
     end
 
-    @impl true
-    def execute(%{verb: "list"} = params, frame) do
+    def call(%{verb: "list"} = params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            names when is_list(names) <- Menard.Module.list(File.read!(file)) do
         ok(frame, %{"modules" => names})
@@ -691,7 +747,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(%{verb: verb} = params, frame) when verb in ["add", "replace", "comment"] do
+    def call(%{verb: verb} = params, frame) when verb in ["add", "replace", "comment"] do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(verb, File.read!(file), params),
            {:ok, reply} <-
@@ -704,10 +760,12 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def execute(%{verb: verb}, frame), do: fail(frame, "module has no verb #{inspect(verb)}")
+    def call(%{verb: verb}, frame), do: fail(frame, "module has no verb #{inspect(verb)}")
 
     defp edit("add", source, p), do: Menard.Module.add(source, p[:code] || "")
     defp edit("replace", source, p), do: Menard.Module.replace(source, p[:module] || "", p[:code] || "")
-    defp edit("comment", source, p), do: Menard.Module.comment(source, p[:module], p[:text])
+
+    defp edit("comment", source, p),
+      do: Menard.Module.comment(source, p[:module], p[:text], above: p[:above] == true)
   end
 end
