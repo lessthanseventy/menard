@@ -347,8 +347,18 @@ defmodule Menard do
       if format_error, do: Mix.shell().error("menard: " <> format_error)
 
       version = remember(formatted)
-      {:ok, %{did: did, file: file, version: version, stages: stages(original, patched, formatted, split)}}
+      reply = %{did: did, file: file, version: version, stages: stages(original, patched, formatted, split)}
+      {:ok, unformatted(reply, format_error)}
     end
+  end
+
+  # Written but not formatted is an answer the agent has to see: on stderr alone, the reply looked
+  # clean and neither the agent nor its check noticed (a host plugin that would not load here).
+  defp unformatted(reply, nil), do: reply
+
+  defp unformatted(reply, reason) do
+    stages = Enum.map(reply.stages, &if(&1.stage == :formatter, do: Map.put(&1, :error, reason), else: &1))
+    Map.merge(reply, %{unformatted: reason, stages: stages})
   end
 
   @doc """
