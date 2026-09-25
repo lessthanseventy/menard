@@ -22,7 +22,8 @@ case "$tool" in
     # for the rest. The real decision is the verb's.
     case "$file" in *.ex | *.exs) ;; *) exit 0 ;; esac
     [[ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/menard" ]] || exit 0
-    "$CLAUDE_PLUGIN_ROOT/bin/menard" guard "$file" </dev/null
+    # --mcp: name the plugin's MCP tools in the refusal; CLI lines sent blocked agents to Bash
+    "$CLAUDE_PLUGIN_ROOT/bin/menard" guard "$file" --mcp mcp__plugin_menard_menard__ </dev/null
     status=$?
     # 2 is the refusal; anything else (menard failing to start) must never block an edit
     ((status == 2)) && exit 2

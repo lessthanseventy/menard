@@ -36,4 +36,20 @@ defmodule Menard.GuardTest do
       assert {_, 0} = guard(file), rel
     end
   end
+
+  test "with --mcp the refusal names the MCP tools and their fields, not CLI lines a blocked agent then runs through Bash",
+       %{tmp_dir: dir} do
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\nend\n")
+
+    {out, 2} =
+      System.cmd(@bin, ["guard", file, "--mcp", "mcp__plugin_menard_menard__"],
+        stderr_to_stdout: true,
+        env: [{"MIX_ENV", "dev"}]
+      )
+
+    assert out =~ "mcp__plugin_menard_menard__clause"
+    assert out =~ "name_arity"
+    refute out =~ "bin/menard"
+  end
 end
