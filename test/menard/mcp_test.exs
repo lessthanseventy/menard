@@ -128,7 +128,9 @@ defmodule Menard.MCPTest do
       )
 
     assert out =~ ~s("id":2)
-    refute out =~ "error"
+    # no failed call and no crash; the word "error" alone is in the server's own instructions
+    refute out =~ ~s("isError":true)
+    refute out =~ "** ("
     assert out =~ "go"
   end
 
@@ -416,5 +418,13 @@ defmodule Menard.MCPTest do
     refute call(Menard.MCP.Block, %{verb: "add", file: "lib/a_test.exs", label: "two", code: "assert 2"}).isError
 
     assert File.read!(Path.join(root, "lib/a_test.exs")) =~ "test \"two\" do\n    assert 2\n  end"
+  end
+
+  test "the server tells an agent up front that modules are edited here, starting from outline" do
+    # in the smoke runs 4 of 6 agents tried Edit first and learned it only from the guard's refusal
+    text = Menard.MCP.server_instructions()
+    assert text =~ "defmodule"
+    assert text =~ "outline"
+    assert text =~ "run"
   end
 end
