@@ -343,7 +343,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(params, frame) do
-      with {:ok, patterns} <- Menard.MCP.resolve_all(params.files) do
+      with {:ok, patterns} <- Menard.MCP.resolve_all(params.files),
+           {:ok, files} <- Menard.Find.files(patterns) do
         finder =
           case params.kind do
             "calls" -> &Menard.Find.calls(&1, params.target)
@@ -352,9 +353,7 @@ if Code.ensure_loaded?(Anubis.Server) do
           end
 
         hits =
-          patterns
-          |> Enum.flat_map(&Path.wildcard/1)
-          |> Enum.flat_map(fn file ->
+          Enum.flat_map(files, fn file ->
             file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
           end)
 

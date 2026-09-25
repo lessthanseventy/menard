@@ -80,6 +80,20 @@ defmodule Menard.Find do
     end)
   end
 
+  @doc """
+  The files `paths` name, for either door: a directory is its Elixir files, a glob its matches. A
+  path that matches nothing is an error, not an empty answer that reads as "no references".
+  """
+  @spec files([String.t()]) :: {:ok, [String.t()]} | {:error, String.t()}
+  def files(paths) do
+    Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, acc} ->
+      found =
+        if File.dir?(path), do: Path.wildcard(Path.join(path, "**/*.{ex,exs}")), else: Path.wildcard(path)
+
+      if found == [], do: {:halt, {:error, "#{path} matches no file"}}, else: {:cont, {:ok, acc ++ found}}
+    end)
+  end
+
   # -- walking ---------------------------------------------------------------
 
   # Walk every node with the aliases seen so far (a flat, file-wide map — good enough for a

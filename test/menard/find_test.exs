@@ -47,4 +47,22 @@ defmodule Menard.FindTest do
 
     assert [%{line: 3}] = Find.calls(src, "A.Inner.x")
   end
+
+  test "the CLI: the kind once, a directory searched, a path that matches nothing named" do
+    dir = Path.join(System.tmp_dir!(), "menard-find-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(dir, "lib/deep"))
+    on_exit(fn -> File.rm_rf!(dir) end)
+    File.write!(Path.join(dir, "lib/deep/a.ex"), "defmodule A do\n  def go(x), do: x\nend\n")
+    find = fn args -> ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Menard.Find.run(args) end) end
+
+    # the kind once: `def go(x)`, not `def def go(x)`
+    assert find.(["defs", "go", Path.join(dir, "lib/deep/a.ex")]) =~ ~r/:2:3 def go\(x\)\n\z/
+
+    # a directory is searched, not a File.Error
+    assert find.(["defs", "go", Path.join(dir, "lib")]) =~ "a.ex:2:3 def go(x)"
+
+    # a path that matches nothing is named, not an empty answer that reads as "no references"
+    missing = Path.join(dir, "lib/nope.ex")
+    assert_raise Mix.Error, ~r/nope\.ex matches no file/, fn -> find.(["defs", "go", missing]) end
+  end
 end
