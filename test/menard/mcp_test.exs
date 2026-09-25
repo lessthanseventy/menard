@@ -427,4 +427,27 @@ defmodule Menard.MCPTest do
     assert text =~ "outline"
     assert text =~ "run"
   end
+
+  test "a clause verb with no head takes a function's only clause, and among several names their heads", %{
+    root: root
+  } do
+    # the eval's haiku left `head` out of a `doc` on a one-clause function and got a KeyError back
+    File.write!(
+      Path.join(root, "lib/a.ex"),
+      "defmodule A do\n  def one(x), do: x\n\n  def two(1), do: 1\n  def two(n), do: n\nend\n"
+    )
+
+    refute call(Menard.MCP.Clause, %{verb: "doc", file: "lib/a.ex", name_arity: "one/1", text: "The one."}).isError
+
+    assert File.read!(Path.join(root, "lib/a.ex")) =~ "@doc \"\"\"\n  The one.\n  \"\"\"\n  def one(x)"
+
+    response = call(Menard.MCP.Clause, %{verb: "replace", file: "lib/a.ex", name_arity: "two/1", code: "0"})
+    assert response.isError
+    assert response.content |> hd() |> Map.fetch!("text") =~ "n"
+    refute response.content |> hd() |> Map.fetch!("text") =~ "KeyError"
+
+    response = call(Menard.MCP.Clause, %{verb: "replace", file: "lib/a.ex", head: "x", code: "0"})
+    assert response.isError
+    assert response.content |> hd() |> Map.fetch!("text") =~ "name_arity"
+  end
 end
