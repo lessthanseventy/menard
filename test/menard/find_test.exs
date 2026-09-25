@@ -65,4 +65,30 @@ defmodule Menard.FindTest do
     missing = Path.join(dir, "lib/nope.ex")
     assert_raise Mix.Error, ~r/nope\.ex matches no file/, fn -> find.(["defs", "go", missing]) end
   end
+
+  test "calls: a call inside a ~H template, aliased or local, not text around it" do
+    # bench1 explore-callers.B.haiku: find answered two callers of four, the two in templates missing
+    src = ~S'''
+    defmodule Card do
+      alias Shop.Catalog
+
+      def card(assigns) do
+        ~H"""
+        <.price cents={Catalog.price_with_tax(@product)} />
+        <p :if={
+          Catalog.price_with_tax(@p) > 0 and local(@p)
+        }>Catalog.price_with_tax(1) in text</p>
+        """
+      end
+
+      defp local(x), do: x
+    end
+    '''
+
+    assert [%{line: 6, column: 20, kind: :call}, %{line: 8, column: 7}] =
+             Find.calls(src, "Shop.Catalog.price_with_tax")
+
+    assert hd(Find.calls(src, "Shop.Catalog.price_with_tax")).text =~ "Catalog.price_with_tax(@product)"
+    assert [%{line: 8}] = Find.calls(src, "local")
+  end
 end

@@ -34,7 +34,74 @@ defmodule Menard.Find do
       end
     end)
     |> Enum.reject(&MapSet.member?(heads, {&1.line, &1.column}))
+    |> Kernel.++(heex_calls(source, mod, fun))
+    |> Enum.sort_by(&{&1.line, &1.column})
   end
+
+  # ~H is a string to the AST, so a call in its `{…}` or `<%= … %>` was never found: explore-callers
+  # answered two callers of four. Those are Elixir, matched as written (`Alias.fun(` or `fun(`);
+  # the markup around them is not.
+  defp heex_calls(source, mod, fun) do
+    case Sourceror.parse_string(source) do
+      {:ok, ast} ->
+        aliases = collect_aliases(ast)
+        lines = String.split(source, "\n")
+        name = Regex.escape(to_string(fun))
+
+        call =
+          if mod,
+            do: ~r/(?<![\w.@:])((?:[A-Z]\w*\.)+)#{name}\(/,
+            else: ~r/(?<![\w.@:?!])()#{name}\(/
+
+        for {:sigil_H, _meta, _args} = node <- ast |> Macro.prewalker() |> Enum.to_list(),
+            %{start: [line: a, column: ca], end: [line: b, column: _]} = Sourceror.get_range(node),
+            gs =
+              lines
+              |> Enum.slice((a - 1)..(b - 1)//1)
+              |> Enum.join("\n")
+              |> String.graphemes()
+              |> Enum.drop(ca - 1),
+            {from, to} <- regions(Enum.with_index(gs), :markup, nil, []),
+            code = gs |> Enum.slice(from, to - from) |> Enum.join(),
+            [{at, _}, {m, ml}] <- Regex.scan(call, code, return: :index),
+            is_nil(mod) or expand(module_parts(binary_part(code, m, ml)), aliases) == mod do
+          pos = from + String.length(binary_part(code, 0, at))
+          before = Enum.take(gs, pos)
+          newlines = Enum.count(before, &(&1 == "\n"))
+
+          column =
+            if newlines == 0,
+              do: ca + pos,
+              else: pos - (before |> Enum.join() |> :binary.matches("\n") |> List.last() |> elem(0))
+
+          rest = binary_part(code, at, byte_size(code) - at)
+
+          %{
+            line: a + newlines,
+            column: column,
+            kind: :call,
+            text: rest |> String.split("\n") |> hd() |> String.trim()
+          }
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  defp module_parts(prefix),
+    do: prefix |> String.trim_trailing(".") |> String.split(".") |> Enum.map(&String.to_atom/1)
+
+  # Where the Elixir is in a template, as {from, to} grapheme indexes: each `{…}`, braces counted,
+  # and each `<%… %>`
+  defp regions([], _state, _start, acc), do: Enum.reverse(acc)
+  defp regions([{"<", i}, {"%", _} | rest], :markup, _, acc), do: regions(rest, :eex, i + 2, acc)
+  defp regions([{"{", i} | rest], :markup, _, acc), do: regions(rest, {:brace, 1}, i + 1, acc)
+  defp regions([{"%", i}, {">", _} | rest], :eex, s, acc), do: regions(rest, :markup, nil, [{s, i} | acc])
+  defp regions([{"{", _} | rest], {:brace, d}, s, acc), do: regions(rest, {:brace, d + 1}, s, acc)
+  defp regions([{"}", i} | rest], {:brace, 1}, s, acc), do: regions(rest, :markup, nil, [{s, i} | acc])
+  defp regions([{"}", _} | rest], {:brace, d}, s, acc), do: regions(rest, {:brace, d - 1}, s, acc)
+  defp regions([_ | rest], state, s, acc), do: regions(rest, state, s, acc)
 
   defp def_head({kind, _meta, [head | _]}, _aliases) when kind in @def_kinds, do: {:head, strip_guard(head)}
   defp def_head(_node, _aliases), do: nil
