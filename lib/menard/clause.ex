@@ -411,7 +411,10 @@ defmodule Menard.Clause do
         {:error,
          "#{name}/#{arity} is defined in #{Enum.map_join(many, ", ", &elem(&1, 0))} — qualify it as Mod.#{name}/#{arity}"}
 
-      _ ->
+      [{_mod, node}] ->
+        {:ok, node}
+
+      [] ->
         {:ok, ast}
     end
   end
@@ -426,21 +429,25 @@ defmodule Menard.Clause do
     end
   end
 
-  # Every `defmodule` in the file as `{"Full.Name", node}` (nested modules by their written name).
-  def modules(ast) do
-    ast
-    |> Zipper.zip()
-    |> Zipper.traverse([], fn z, acc ->
-      case Zipper.node(z) do
-        {:defmodule, _, [{:__aliases__, _, parts} | _]} = node ->
-          {z, acc ++ [{Menard.Source.alias_name(parts), node}]}
+  # Every `defmodule` in the file as `{"Full.Name", node}` — a nested one by the name Elixir gives it
+  # (`Outer.Inner`), the name `outline` shows.
+  def modules(ast), do: modules_in(ast, nil)
 
-        _ ->
-          {z, acc}
+  defp modules_in({:defmodule, _, [{:__aliases__, _, parts} | _] = args} = node, parent) do
+    name =
+      case {parts, parent} do
+        {[{:__MODULE__, _, _} | _], _} -> Menard.Source.alias_name(parts, parent)
+        {_, nil} -> Menard.Source.alias_name(parts)
+        _ -> parent <> "." <> Menard.Source.alias_name(parts)
       end
-    end)
-    |> elem(1)
+
+    [{name, node} | modules_in(args, name)]
   end
+
+  defp modules_in({form, _meta, args}, parent), do: modules_in(form, parent) ++ modules_in(args, parent)
+  defp modules_in({a, b}, parent), do: modules_in(a, parent) ++ modules_in(b, parent)
+  defp modules_in(list, parent) when is_list(list), do: Enum.flat_map(list, &modules_in(&1, parent))
+  defp modules_in(_leaf, _parent), do: []
 
   # The module to act in: named, or — unnamed — the file's one module. Several unnamed is refused,
   # the same discipline as an unqualified name/arity two modules define.
@@ -486,9 +493,15 @@ defmodule Menard.Clause do
   end
 
   defp clauses(ast, name, arity) do
+    # A nested `defmodule` is its own scope: `Outer.foo/1` must not reach `Outer.Inner.foo/1`.
     ast
     |> Zipper.zip()
-    |> Zipper.traverse([], fn z, acc -> {z, acc ++ matching(Zipper.node(z), name, arity)} end)
+    |> Zipper.traverse_while([], fn z, acc ->
+      case Zipper.node(z) do
+        {:defmodule, _, _} = node when node != ast -> {:skip, z, acc}
+        node -> {:cont, z, acc ++ matching(node, name, arity)}
+      end
+    end)
     |> elem(1)
   end
 
