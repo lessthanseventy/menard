@@ -81,11 +81,25 @@ def prepare(case_dir, ws):
         sh(cmd, ws)
 
 
+def build_skill_arm(arm, force=False):
+    """`S-<variant>`: arm B with its skill swapped for eval/skills/<variant>.md, or none (`S-none`)."""
+    dest = PLUGINS / arm
+    if dest.exists() and not force:
+        return
+    shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(PLUGINS / "B", dest, symlinks=True)
+    variant = arm[2:]
+    if variant == "none":
+        shutil.rmtree(dest / "skills")
+    else:
+        shutil.copy(EVAL / "skills" / f"{variant}.md", dest / "skills" / "menard" / "SKILL.md")
+
+
 def claude_cmd(prompt, model, arm):
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--setting-sources", "project", "--permission-mode", "bypassPermissions",
            "--no-session-persistence", "--max-turns", str(MAX_TURNS)]
-    if arm in ("B", "C", "L"):
+    if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
     return cmd
 
@@ -256,6 +270,9 @@ def main():
 
     build_template(a.rebuild)
     build_plugins(a.rebuild)
+    for arm in a.arms.split(","):
+        if arm.startswith("S-"):
+            build_skill_arm(arm, a.rebuild)
     cases = sorted(p.parent for p in (EVAL / "cases").glob("*/prompt.md"))
     if a.cases:
         want = a.cases.split(",")
