@@ -8,16 +8,23 @@ set -euo pipefail
 export MENARD_CWD="${MENARD_CWD:-${MISE_ORIGINAL_CWD:-$PWD}}"
 cd -- "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# menard runs on ITS toolchain (.tool-versions), not whatever the caller's PATH puts first: a host's
+# newer Elixir rebuilt menard from scratch on every switch, and an older one cannot run it at all.
+run=()
+command -v mise >/dev/null 2>&1 && run=(mise exec -C "$PWD" --)
+
 # A fresh install has no deps/ and no _build — git carries neither, and nothing runs `mix deps.get`
 # for a cloned Claude Code plugin. Without this, every verb dies on "some dependencies are missing"
 # the first time anyone uses it. mix.lock is tracked, so this resolves to the tested versions.
 # Output goes to STDERR: `mcp`'s stdout is the JSON-RPC channel and a fetch log there is fatal.
+# Every mix that is not the verb itself reads /dev/null: a VM left on the caller's stdin swallows
+# what was piped to the verb (`write FILE -` wrote an empty file) or the MCP client's first message.
 if [[ ! -d deps/sourceror ]]; then
   echo "menard: first run — fetching deps" >&2
-  mix deps.get >&2
+  "${run[@]}" mix deps.get >&2 </dev/null
   # Compile here too, with the log on stderr. A cold build is ~200 lines that mix writes to
   # STDOUT, and stdout is the answer: one JSON line from `run`, the protocol for `mcp`.
-  mix compile >&2
+  "${run[@]}" mix compile >&2 </dev/null
 fi
 
 verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|mcp"
@@ -25,8 +32,16 @@ frozen=0
 [[ "${1:-}" == "--frozen" ]] && { frozen=1; shift; }
 
 verb="${1:-}"
-[[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… ($verbs)" >&2; exit 2; }
+[[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
 shift
+
+# `--stdin`: the LAST argument comes from stdin — multi-line CODE full of quotes and backslashes,
+# which no shell quoting carries intact. Read here, before any mix could take stdin first.
+args=()
+from_stdin=0
+for a in "$@"; do if [[ "$a" == "--stdin" ]]; then from_stdin=1; else args+=("$a"); fi; done
+((from_stdin)) && args+=("$(cat)")
+set -- ${args[@]+"${args[@]}"}
 
 # --frozen runs the LAST BUILT menard straight off _build, with no compile step. The escape hatch
 # for editing menard WITH menard: a half-applied edit (a clause calling a helper the next call is
@@ -40,7 +55,7 @@ if ((frozen)); then
   # Mix.raise is how every task reports a miss ("no clause go/1 with head … — have: …"), and only
   # the `mix` CLI turns that into a message; raised here it would print as a bare stack trace and
   # lose the one line that tells you what to fix.
-  exec elixir "${pa[@]}" -e '
+  exec "${run[@]}" elixir "${pa[@]}" -e '
     Mix.start()
     [v | rest] = System.argv()
     try do
@@ -58,10 +73,13 @@ fi
 manifest="_build/${MIX_ENV:-dev}/lib/menard/.mix/compile.elixir"
 if [[ "$verb" != "mcp" ]] &&
   { [[ ! -f "$manifest" ]] || [[ -n "$(find lib mix.exs mix.lock -newer "$manifest" -print -quit 2>/dev/null)" ]]; }; then
-  if ! mix compile >&2; then
+  if ! "${run[@]}" mix compile >&2 </dev/null; then
     echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
     exit 1
   fi
+  # mix recompiles by content, this check goes by mtime: a file touched but unchanged leaves the
+  # manifest old, and without this every later call would pay a compile it does not need
+  touch "$manifest"
 fi
 
 # `mcp` is a long-running stdio SERVER: its stdout IS the JSON-RPC channel. Two rules follow.
@@ -70,8 +88,8 @@ fi
 # lines straight into the protocol. Compile first with that output on stderr, so the server starts
 # with a clean channel.
 if [[ "$verb" == "mcp" ]]; then
-  mix compile >&2 || exit $?
-  exec mix "menard.$verb" "$@"
+  "${run[@]}" mix compile >&2 </dev/null || exit $?
+  exec "${run[@]}" mix "menard.$verb" "$@"
 fi
 
 # A compile error here is usually menard's OWN source mid-edit, not the caller's target — say so,
@@ -83,7 +101,7 @@ err=$(mktemp)
 trap 'rm -f "$err"' EXIT
 # `&& status=0 || status=$?` keeps the call in a condition: under `set -e` a failing mix would abort
 # the script before the line below prints the error, the one that says what to fix.
-mix "menard.$verb" "$@" 2>"$err" && status=0 || status=$?
+"${run[@]}" mix "menard.$verb" "$@" 2>"$err" && status=0 || status=$?
 cat "$err" >&2
 if ((status != 0)) && grep -qE "cannot compile module|CompileError" "$err"; then
   echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
