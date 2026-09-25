@@ -16,52 +16,65 @@ defmodule Mix.Tasks.Menard.Clause do
   @impl true
   def run(argv) do
     {flags, argv, _} =
-      OptionParser.parse(argv, strict: [nth: :integer, to: :string, as: :string, module: :string])
+      OptionParser.parse(argv,
+        strict: [nth: :integer, to: :string, as: :string, module: :string, version: :string, force: :boolean]
+      )
 
     case normalize(argv) do
       ["replace", file, na, head, code] ->
         write(
           file,
           &Clause.replace_body(&1, na, head, code, nth: flags[:nth]),
-          "replace #{na} in #{Path.basename(file)}"
+          "replace #{na} in #{Path.basename(file)}",
+          flags
         )
 
       ["rewrite", file, na, head, code] ->
         write(
           file,
           &Clause.rewrite(&1, na, head, code, nth: flags[:nth]),
-          "rewrite #{na} in #{Path.basename(file)}"
+          "rewrite #{na} in #{Path.basename(file)}",
+          flags
         )
 
       ["delete", file, na, head] ->
-        write(file, &Clause.delete(&1, na, head, nth: flags[:nth]), "delete #{na} in #{Path.basename(file)}")
+        write(
+          file,
+          &Clause.delete(&1, na, head, nth: flags[:nth]),
+          "delete #{na} in #{Path.basename(file)}",
+          flags
+        )
 
       ["insert_after", file, na, head, code] ->
         write(
           file,
           &Clause.insert_after(&1, na, head, code, nth: flags[:nth]),
-          "insert-after #{na} in #{Path.basename(file)}"
+          "insert-after #{na} in #{Path.basename(file)}",
+          flags
         )
 
       ["insert_before", file, na, head, code] ->
         write(
           file,
           &Clause.insert_before(&1, na, head, code, nth: flags[:nth]),
-          "insert-before #{na} in #{Path.basename(file)}"
+          "insert-before #{na} in #{Path.basename(file)}",
+          flags
         )
 
       ["insert_at", file, module, code] ->
         write(
           file,
           &Clause.insert_at(&1, module(module), nil, code),
-          "insert-at #{module || "-"} in #{Path.basename(file)}"
+          "insert-at #{module || "-"} in #{Path.basename(file)}",
+          flags
         )
 
       ["insert_at", file, module, where, code] when where in ["top", "bottom"] ->
         write(
           file,
           &Clause.insert_at(&1, module(module), where, code),
-          "insert-at #{module || "-"} #{where} in #{Path.basename(file)}"
+          "insert-at #{module || "-"} #{where} in #{Path.basename(file)}",
+          flags
         )
 
       ["move", file, na] ->
@@ -71,27 +84,40 @@ defmodule Mix.Tasks.Menard.Clause do
         write(
           file,
           &Clause.comment(&1, na, head, text, nth: flags[:nth]),
-          "comment #{na} in #{Path.basename(file)}"
+          "comment #{na} in #{Path.basename(file)}",
+          flags
         )
 
       ["comment", file, na, head] ->
         write(
           file,
           &Clause.comment(&1, na, head, nil, nth: flags[:nth]),
-          "comment #{na} in #{Path.basename(file)}"
+          "comment #{na} in #{Path.basename(file)}",
+          flags
         )
 
       ["doc", file, na, head, text] ->
-        write(file, &Clause.doc(&1, na, head, text, nth: flags[:nth]), "doc #{na} in #{Path.basename(file)}")
+        write(
+          file,
+          &Clause.doc(&1, na, head, text, nth: flags[:nth]),
+          "doc #{na} in #{Path.basename(file)}",
+          flags
+        )
 
       ["doc", file, na, head] ->
-        write(file, &Clause.doc(&1, na, head, nil, nth: flags[:nth]), "doc #{na} in #{Path.basename(file)}")
+        write(
+          file,
+          &Clause.doc(&1, na, head, nil, nth: flags[:nth]),
+          "doc #{na} in #{Path.basename(file)}",
+          flags
+        )
 
       ["visibility", file, na, want] ->
         write(
           file,
           &Clause.visibility(&1, na, visibility(want)),
-          "visibility #{na} #{want} in #{Path.basename(file)}"
+          "visibility #{na} #{want} in #{Path.basename(file)}",
+          flags
         )
 
       _ ->
@@ -135,7 +161,7 @@ defmodule Mix.Tasks.Menard.Clause do
   defp visibility("private"), do: :private
   defp visibility(other), do: Mix.raise("visibility must be public or private, got #{other}")
 
-  defp write(file, edit, did) do
+  defp write(file, edit, did, flags) do
     file = Menard.resolve(file)
 
     case edit.(File.read!(file)) do
@@ -143,7 +169,7 @@ defmodule Mix.Tasks.Menard.Clause do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: did) do
+        case Menard.write(file, out, [did: did] ++ Keyword.take(flags, [:version, :force])) do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
