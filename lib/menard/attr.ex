@@ -111,9 +111,10 @@ defmodule Menard.Attr do
     with {:ok, ast} <- parse(source),
          {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
       body = Clause.module_body(module)
+      atom = to_atom(name)
 
-      case Enum.find(body, &anchor?/1) do
-        nil -> {:error, "nothing to place @#{to_atom(name)} above — the module has no definitions"}
+      case Enum.find(body, &(anchor?(&1) or reads?(&1, atom))) do
+        nil -> {:error, "nothing to place @#{atom} above — the module has no definitions"}
         first -> insert_before(source, first, name, value)
       end
     end
@@ -152,6 +153,12 @@ defmodule Menard.Attr do
 
   defp definition?(_node), do: false
   defp anchor?(node), do: definition?(node) or table?(node)
+
+  # `@name` read anywhere under the node: a `use Foo, from: @name`, a moduledoc interpolating it. A
+  # read above its definition is nil, so a new attribute goes above its first reader, too.
+  defp reads?(node, name) do
+    node |> Macro.prewalker() |> Enum.any?(&match?({:@, _, [{^name, _, ctx}]} when ctx in [nil, []], &1))
+  end
 
   # An attribute holding a value the module reads. Not @moduledoc and friends: above those is also
   # above the `alias` the value depends on.

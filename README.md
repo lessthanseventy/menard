@@ -74,7 +74,7 @@ clause  visibility FILE name/arity public|private
 stmt    insert-after|insert-before|replace|delete|comment|list  FILE name/arity HEAD MATCH [CODE]
 block   get|replace|add|delete|relabel|list  FILE NAME [CODE] [--label L] [--args CONTEXT]
 module  add|list FILE [CODE]
-module  comment FILE (Mod|-) [TEXT]              the # comment heading a module
+module  comment FILE (Mod|-) [TEXT] [--above]    the # comment heading a module, or above its defmodule
 module  replace FILE Mod.Name CODE              one whole module, in a file of several
 directive add|replace|remove|list FILE KIND MOD [OPTS]
 rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES

@@ -41,6 +41,7 @@ SHAPE of what you are changing, not the size of the change:
 | the comment above one | `attr comment FILE @name [TEXT]`; no TEXT removes it |
 | the comment above a statement, inside a body | `stmt comment FILE name/arity HEAD MATCH [TEXT]` |
 | the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
+| the comment above `defmodule` (a license header) | `module comment FILE (Mod\|-) [TEXT] --above` |
 | an ExUnit `test`, a `describe`, a `schema` | `block get\|replace\|add\|delete\|relabel FILE test --label "…"` |
 | an alias/import/require/use | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
 | a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |

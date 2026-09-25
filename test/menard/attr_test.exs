@@ -193,4 +193,25 @@ defmodule Menard.AttrTest do
 
     assert_raise Mix.Error, ~r/no @nope/, fn -> Mix.Tasks.Menard.Attr.run(["get", file, "nope"]) end
   end
+
+  test "a NEW attribute lands above the first node that reads it, a moduledoc or a use included" do
+    # the @moduledoc and the `use` already read @dir; placed by the usual rule (above the first
+    # table), @dir would land below both, and a read above a definition is nil
+    src = """
+    defmodule A do
+      @moduledoc "templates in \#{@dir}"
+      use Some.Templates, from: @dir
+
+      @other 1
+
+      def go, do: @other
+    end
+    """
+
+    lines = src |> Menard.Attr.set("dir", ~s("priv/t")) |> String.split("\n")
+    at = fn text -> Enum.find_index(lines, &String.contains?(&1, text)) end
+
+    assert at.(~s(@dir "priv/t")) < at.("@moduledoc")
+    assert at.(~s(@dir "priv/t")) < at.("use Some.Templates")
+  end
 end
