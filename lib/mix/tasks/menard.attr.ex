@@ -21,22 +21,22 @@ defmodule Mix.Tasks.Menard.Attr do
 
     case args do
       ["get", file, name] ->
-        report(Attr.get(File.read!(Menard.resolve(file)), name, where))
+        report(Attr.get(File.read!(Menard.resolve(file)), name, where), name)
 
       ["list", file] ->
-        report(list(Attr.list(File.read!(Menard.resolve(file)), where)))
+        report(list(Attr.list(File.read!(Menard.resolve(file)), where)), nil)
 
       ["set", file, name, value] ->
-        edit(file, &Attr.set(&1, name, value, where))
+        edit(file, name, &Attr.set(&1, name, value, where))
 
       ["delete", file, name] ->
-        edit(file, &Attr.delete(&1, name, where))
+        edit(file, name, &Attr.delete(&1, name, where))
 
       ["comment", file, name] ->
-        edit(file, &Attr.comment(&1, name, nil, where))
+        edit(file, name, &Attr.comment(&1, name, nil, where))
 
       ["comment", file, name, text] ->
-        edit(file, &Attr.comment(&1, name, text, where))
+        edit(file, name, &Attr.comment(&1, name, text, where))
 
       _ ->
         Mix.raise(
@@ -50,16 +50,12 @@ defmodule Mix.Tasks.Menard.Attr do
 
   defp list(other), do: other
 
-  defp report({:error, message}), do: Mix.raise(message)
-  defp report(:missing), do: Mix.raise("no such attribute")
-  defp report(text), do: Mix.shell().info(text)
-
-  defp edit(file, change) do
+  defp edit(file, name, change) do
     file = Menard.resolve(file)
 
     case change.(File.read!(file)) do
       {:error, :missing} ->
-        Mix.raise("no such attribute")
+        Mix.raise(missing(name))
 
       {:error, message} ->
         Mix.raise(message)
@@ -73,4 +69,11 @@ defmodule Mix.Tasks.Menard.Attr do
 
     Mix.shell().info("menard.attr: #{file} written")
   end
+
+  # `:missing` before the general error: matched as `message`, the atom crashed Mix.raise/1.
+  defp report({:error, :missing}, name), do: Mix.raise(missing(name))
+  defp report({:error, message}, _name), do: Mix.raise(message)
+  defp report(text, _name), do: Mix.shell().info(text)
+
+  defp missing(name), do: "no @#{String.trim_leading(name, "@")} in this module"
 end

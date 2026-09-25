@@ -185,6 +185,14 @@ defmodule Menard.AttrTest do
            end
            """
   end
+
+  @tag :tmp_dir
+  test "the CLI says an attribute is missing instead of crashing", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\n  def go, do: 1\nend\n")
+
+    assert_raise Mix.Error, ~r/no @nope/, fn -> Mix.Tasks.Menard.Attr.run(["get", file, "nope"]) end
+  end
 end
 
 defmodule Menard.BlockTest do
