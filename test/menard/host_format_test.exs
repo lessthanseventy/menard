@@ -19,6 +19,9 @@ defmodule Menard.HostFormatTest do
     file
   end
 
+  # The VM's cwd as a format sees it: read under the lock a format holds while it is in the host's dir
+  defp cwd, do: :global.trans({{Menard, :cwd}, self()}, &File.cwd!/0, [node()], :infinity)
+
   # A plugin compiled into `root`'s _build, as a host's last build would hold it. `body` is its
   # format/2, with `contents` and `opts` bound.
   defp plug(root, name, body) do
@@ -264,11 +267,15 @@ defmodule Menard.HostFormatTest do
     plugin = plug(dir, "Slow", "Process.sleep(2_000)\ncontents")
     host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
     file = write(dir, "s.ex", "defmodule S do\nend\n")
+    home = cwd()
 
     assert {:error, message} =
              Menard.format_content(file, File.read!(file), cache: Path.join(dir, "cache"), timeout: 300)
 
     assert message =~ "did not finish in 0.3s"
     assert message =~ "in menard's VM"
+    # the format killed inside the host's dir left the VM there, and every tmp_dir made after it
+    # nested under this one, until a path past 255 chars failed its neighbours (system_limit)
+    assert cwd() == home
   end
 end

@@ -329,8 +329,50 @@ defmodule Menard do
   # plugin reads the cwd, so only then; and the cwd is the whole VM's, so one format at a time.
   defp in_host_dir([], _project, fun), do: fun.()
 
-  defp in_host_dir(_plugins, project, fun),
-    do: :global.trans({{__MODULE__, :cwd}, self()}, fn -> File.cd!(project, fun) end, [node()], :infinity)
+  # The cwd is a guard's, not the caller's: the caller is a format task killed when its time runs out,
+  # and killed inside a File.cd!/2 it never cd'd back. The guard holds the lock, cds back when the
+  # caller is done or dead, and only then lets the next format in.
+  defp in_host_dir(_plugins, project, fun) do
+    caller = self()
+
+    {guard, ref} =
+      spawn_monitor(fn ->
+        watch = Process.monitor(caller)
+
+        :global.trans(
+          {{__MODULE__, :cwd}, self()},
+          fn ->
+            home = File.cwd!()
+            File.cd!(project)
+            send(caller, {__MODULE__, :in_host_dir, self()})
+
+            receive do
+              {__MODULE__, :done} -> :ok
+              {:DOWN, ^watch, _, _, _} -> :ok
+            end
+
+            File.cd!(home)
+          end,
+          [node()],
+          :infinity
+        )
+      end)
+
+    receive do
+      {__MODULE__, :in_host_dir, ^guard} -> :ok
+      {:DOWN, ^ref, _, _, why} -> raise "could not work in #{project}: #{inspect(why)}"
+    end
+
+    try do
+      fun.()
+    after
+      send(guard, {__MODULE__, :done})
+
+      receive do
+        {:DOWN, ^ref, _, _, _} -> :ok
+      end
+    end
+  end
 
   @doc """
   Write `content` to `file` through the staged pipeline: parse-check, format in-memory, diff each
