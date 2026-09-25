@@ -644,4 +644,13 @@ defmodule Menard.ClauseTest do
     assert {:error, message} = Clause.replace_body(src, "total/1", "cart", "def other(x), do: x")
     assert message =~ "rewrite"
   end
+
+  test "replace handed a whole clause under a comment takes it as the rewrite, comment and all" do
+    # a comment above the def hid that it was a whole clause, and it was nested in the old one:
+    # it parsed, and did not compile (found fixing bench1's bugs)
+    src = "defmodule A do\n  def f(x), do: x\nend\n"
+    out = Clause.replace_body(src, "f/1", "x", "# why\ndef f(x) do\n  x + 1\nend")
+    assert out =~ ~r/  # why\n  def f\(x\) do\n    x \+ 1\n  end/
+    refute out =~ ~r/def f\(x\) do\n\s+# why\n\s+def f/
+  end
 end
