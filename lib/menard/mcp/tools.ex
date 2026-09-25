@@ -8,9 +8,10 @@ end
 
 defmodule Menard.MCP.Rename do
   @moduledoc """
-  Rename an identifier across files, AST-aware: every def head, call, capture and variable named
-  `old` becomes `new`; strings stay; `atoms` also renames `:old`/`old:`, `comments` the whole-word
-  mentions in `#` comments. Only the identifier's bytes move. Paths are under the launch root.
+  Rename an identifier across files, AST-aware: every def head, call (local or remote), capture and
+  variable named `old` becomes `new`; strings stay. `only` narrows it to `functions` or `variables`;
+  `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
+  identifier's bytes move. Paths are under the launch root.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
@@ -19,6 +20,7 @@ defmodule Menard.MCP.Rename do
     field(:old, :string, required: true)
     field(:new, :string, required: true)
     field(:files, {:list, :string}, required: true)
+    field(:only, :enum, values: ["functions", "variables"])
     field(:atoms, :boolean)
     field(:comments, :boolean)
   end
@@ -26,7 +28,11 @@ defmodule Menard.MCP.Rename do
   @impl true
   def execute(params, frame) do
     with {:ok, files} <- Menard.MCP.resolve_all(params.files) do
-      opts = [atoms: params[:atoms] == true, comments: params[:comments] == true]
+      opts = [
+        atoms: params[:atoms] == true,
+        comments: params[:comments] == true,
+        only: params[:only] && String.to_existing_atom(params[:only])
+      ]
 
       {changed, unchanged} =
         Enum.split_with(files, fn file ->

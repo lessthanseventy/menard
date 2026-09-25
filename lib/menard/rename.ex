@@ -15,16 +15,56 @@ defmodule Menard.Rename do
   def run(source, old, new, opts \\ []) when is_binary(source) do
     case Sourceror.parse_string(source) do
       {:ok, ast} ->
-        patches =
-          patches(ast, String.to_atom(old), new, Keyword.get(opts, :atoms, false)) ++
-            comment_patches(source, old, new, Keyword.get(opts, :comments, false))
+        from = String.to_atom(old)
+        functions = function_positions(ast, from)
 
-        apply_patches(source, patches)
+        patches =
+          ast
+          |> patches(from, new, Keyword.get(opts, :atoms, false))
+          |> Enum.filter(&wanted?(&1, opts[:only], functions))
+          |> Enum.map(&elem(&1, 1))
+
+        apply_patches(
+          source,
+          patches ++ comment_patches(source, old, new, Keyword.get(opts, :comments, false))
+        )
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # `only:` narrows by what a name IS. A call with args, a remote call and a def head with args are
+  # functions; a bare name is a variable unless it sits where only a function can — a zero-arity def
+  # head, or `&name/arity`. A zero-arity call written without parens stays ambiguous, read as a variable.
+  defp wanted?({:atom, _patch}, _only, _functions), do: true
+  defp wanted?(_tagged, nil, _functions), do: true
+  defp wanted?({:function, _patch}, only, _functions), do: only == :functions
+  defp wanted?({{:bare, at}, _patch}, only, functions), do: at in functions == (only == :functions)
+
+  defp function_positions(ast, from) do
+    ast
+    |> Zipper.zip()
+    |> Zipper.traverse([], fn z, acc ->
+      case Zipper.node(z) do
+        {kind, _, [head | _]} when kind in [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp] ->
+          {z, bare_start(strip_when(head), from) ++ acc}
+
+        {:&, _, [{:/, _, [name, _arity]}]} ->
+          {z, bare_start(name, from) ++ acc}
+
+        _ ->
+          {z, acc}
+      end
+    end)
+    |> elem(1)
+  end
+
+  defp strip_when({:when, _, [head | _]}), do: head
+  defp strip_when(head), do: head
+
+  defp bare_start({from, _meta, ctx} = node, from) when is_atom(ctx), do: [Sourceror.get_range(node).start]
+  defp bare_start(_node, _from), do: []
 
   # Comments are not AST: a whole-word mention (`\bold\b`) inside a `#` comment is patched by its
   # own range. The word boundary keeps `old_extra` and the like alone; strings never match here
@@ -80,15 +120,17 @@ defmodule Menard.Rename do
 
   # A local call / def head / variable: `{name, meta, args_or_context}` — the identifier is the
   # first `String.length(old)` bytes of the node's range.
-  defp patch_for({from, _meta, args} = node, from, new, _atoms?) when is_list(args) or is_atom(args),
-    do: ident_patch(node, from, new)
+  defp patch_for({from, _meta, args} = node, from, new, _atoms?) when is_list(args) or is_atom(args) do
+    with %{} = patch <- ident_patch(node, from, new),
+         do: {if(is_list(args), do: :function, else: {:bare, patch.range.start}), patch}
+  end
 
   # A bare atom or a keyword key is a literal Sourceror wraps: `{:__block__, meta, [:old]}`.
   # `:old` → `:new`; the key form `old:` → `new:` (Sourceror marks it `format: :keyword`).
   defp patch_for({:__block__, meta, [from]} = node, from, new, true) do
     case Sourceror.get_range(node) do
       nil -> nil
-      range -> %{range: range, change: if(meta[:format] == :keyword, do: "#{new}:", else: ":#{new}")}
+      range -> {:atom, %{range: range, change: if(meta[:format] == :keyword, do: "#{new}:", else: ":#{new}")}}
     end
   end
 
@@ -98,13 +140,14 @@ defmodule Menard.Rename do
     if module_ref?(receiver) and meta[:line] do
       len = String.length(Atom.to_string(from))
 
-      %{
-        range: %{
-          start: [line: meta[:line], column: meta[:column]],
-          end: [line: meta[:line], column: meta[:column] + len]
-        },
-        change: new
-      }
+      {:function,
+       %{
+         range: %{
+           start: [line: meta[:line], column: meta[:column]],
+           end: [line: meta[:line], column: meta[:column] + len]
+         },
+         change: new
+       }}
     end
   end
 
