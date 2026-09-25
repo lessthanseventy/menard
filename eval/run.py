@@ -35,12 +35,12 @@ def sh(cmd, cwd, timeout=600, env=None):
     return p.returncode, p.stdout + p.stderr
 
 
-def build_template(force=False):
+def build_template(suite, force=False):
     """The fixture, deps fetched and compiled in dev and test, so a run starts warm."""
     if TEMPLATE.exists() and not force:
         return
     shutil.rmtree(TEMPLATE, ignore_errors=True)
-    shutil.copytree(EVAL / "fixture", TEMPLATE)
+    shutil.copytree(suite / "fixture", TEMPLATE)
     for cmd in ["mix deps.get", "mix compile", "MIX_ENV=test mix compile", "mix test"]:
         code, out = sh(cmd, TEMPLATE, timeout=1200)
         if code != 0:
@@ -96,10 +96,13 @@ def build_skill_arm(arm, force=False):
         shutil.copy(EVAL / "skills" / f"{variant}.md", dest / "skills" / "menard" / "SKILL.md")
 
 
-def claude_cmd(prompt, model, arm):
+def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--setting-sources", "project", "--permission-mode", "bypassPermissions",
-           "--no-session-persistence", "--max-turns", str(MAX_TURNS)]
+           "--max-turns", str(MAX_TURNS)]
+    # a session of steps resumes the one before, so its session has to be kept
+    cmd += ["--resume", resume] if resume else []
+    cmd += [] if persist else ["--no-session-persistence"]
     if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
     return cmd
@@ -146,13 +149,17 @@ def norm(p, ws):
 
 
 def trace_metrics(trace_path, ws):
-    calls, results, final = [], {}, {}
+    calls, results, final, ctx = [], {}, {}, {}
     for line in open(trace_path):
         try:
             o = json.loads(line)
         except json.JSONDecodeError:
             continue
         if o.get("type") == "assistant" and not o.get("parent_tool_use_id"):
+            # the context each model call read, once per message (a message spans several lines)
+            u = o["message"].get("usage", {})
+            ctx[o["message"].get("id")] = (u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0)
+                                           + u.get("cache_creation_input_tokens", 0))
             for c in o["message"].get("content", []):
                 if c.get("type") == "tool_use":
                     calls.append({"id": c["id"], "name": c["name"], "input": c.get("input", {})})
@@ -207,6 +214,9 @@ def trace_metrics(trace_path, ws):
             "cache_read": usage.get("cache_read_input_tokens", 0),
             "cache_write": usage.get("cache_creation_input_tokens", 0),
         },
+        "peak_ctx": max(ctx.values(), default=0),
+        "ctx_curve": list(ctx.values()),
+        "session_id": final.get("session_id"),
         "tool_calls": len(calls),
         "tools": by_name,
         "failed_calls": len(failures),
@@ -217,13 +227,56 @@ def trace_metrics(trace_path, ws):
     }
 
 
+def check(check_dir, ws):
+    """check.sh in check_dir, run in ws after its hidden/ files are copied in."""
+    hidden = check_dir / "hidden"
+    if hidden.exists():
+        shutil.copytree(hidden, ws, dirs_exist_ok=True)
+    code, out = sh(["bash", str(check_dir / "check.sh")], ws, timeout=600,
+                   env=dict(os.environ, CASE_DIR=str(check_dir), EVAL_COMMON=str(EVAL / "cases" / "common.sh"),
+                            MIX_ENV="test"))
+    return code, out
+
+
+def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
+    """A long case: steps/NN/prompt.md, each resuming the session the step before left, each with
+    its own check.sh, run on a copy of the workspace so its hidden files never reach the agent."""
+    steps, sid, spent = [], None, 0.0
+    for step in sorted(p for p in (case_dir / "steps").iterdir() if (p / "prompt.md").exists()):
+        trace = out_dir / "traces" / f"{rid}.{step.name}.jsonl"
+        t0, timed_out = time.time(), False
+        with open(trace, "w") as f:
+            try:
+                subprocess.run(claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid, persist=True),
+                               cwd=ws, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
+                               timeout=TIMEOUT)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+        m = trace_metrics(trace, ws)
+        sid = m["session_id"] or sid
+        # a resumed session's total_cost_usd is the whole session's so far; turns and tokens are this call's
+        if m["cost_usd"] is not None:
+            m["cost_usd"], spent = m["cost_usd"] - spent, m["cost_usd"]
+        snap = ws.parent / f"{ws.name}.check"
+        shutil.rmtree(snap, ignore_errors=True)
+        subprocess.run(["cp", "-a", "--reflink=auto", str(ws), str(snap)], check=True)
+        code, out = check(step, snap)
+        shutil.rmtree(snap, ignore_errors=True)
+        steps.append({"step": step.name, "pass": code == 0, "check": out.strip()[-400:],
+                      "formatted": "NOTE: unformatted" not in out, "wall_s": round(time.time() - t0, 1),
+                      "timed_out": timed_out, **m})
+        if timed_out or not sid:
+            break
+    # the session files a kept session left under ~/.claude/projects
+    shutil.rmtree(Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(ws)), ignore_errors=True)
+    return steps
+
+
 def run_one(case_dir, arm, model, n, out_dir):
     rid = f"{case_dir.name}.{arm}.{model}.{n}"
     ws = WORK / "runs" / out_dir.name / rid
     prepare(case_dir, ws)
-    prompt = (case_dir / "prompt.md").read_text().strip()
-    trace = out_dir / "traces" / f"{rid}.jsonl"
-    trace.parent.mkdir(parents=True, exist_ok=True)
+    (out_dir / "traces").mkdir(parents=True, exist_ok=True)
     env = dict(os.environ, CLAUDE_CODE_DISABLE_CLAUDE_MDS="1", ENABLE_CLAUDEAI_MCP_SERVERS="false")
     env.pop("CLAUDECODE", None)
     # A runner started from a Claude Code shell inherits its plugins' bin/ dirs, and an installed
@@ -231,6 +284,10 @@ def run_one(case_dir, arm, model, n, out_dir):
     # --plugin-dir is the only menard a run may see.
     env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
                                   if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
+    if (case_dir / "steps").exists():
+        return run_long(case_dir, arm, model, n, rid, ws, out_dir, env)
+    prompt = (case_dir / "prompt.md").read_text().strip()
+    trace = out_dir / "traces" / f"{rid}.jsonl"
     t0 = time.time()
     timed_out = False
     with open(trace, "w") as f:
@@ -245,17 +302,48 @@ def run_one(case_dir, arm, model, n, out_dir):
         if (case_dir / "allowed").exists() else []
     diff, patch = diff_metrics(ws, allowed)
     (out_dir / "traces" / f"{rid}.diff").write_text(patch)
-    hidden = case_dir / "hidden"
-    if hidden.exists():
-        shutil.copytree(hidden, ws, dirs_exist_ok=True)
-    code, check_out = sh(["bash", str(case_dir / "check.sh")], ws, timeout=600,
-                         env=dict(os.environ, CASE_DIR=str(case_dir), MIX_ENV="test"))
+    code, check_out = check(case_dir, ws)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
         "arm": arm, "model": model, "n": n, "wall_s": wall, "timed_out": timed_out,
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
         "clean": code == 0 and not diff["noise_files"] and "NOTE: unformatted" not in check_out, **diff, **trace_metrics(trace, ws),
+    }
+    with open(out_dir / "runs.jsonl", "a") as f:
+        f.write(json.dumps(row) + "\n")
+    shutil.rmtree(ws, ignore_errors=True)
+    return row
+
+
+def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
+    """One row for a whole session: its steps' sums, and each step under `steps`."""
+    t0 = time.time()
+    steps = run_steps(case_dir, arm, model, rid, ws, out_dir, env)
+    allowed = [g.strip() for g in (case_dir / "allowed").read_text().splitlines() if g.strip()] \
+        if (case_dir / "allowed").exists() else []
+    diff, patch = diff_metrics(ws, allowed)
+    (out_dir / "traces" / f"{rid}.diff").write_text(patch)
+    total = lambda k: sum(s[k] or 0 for s in steps)
+    tokens = {k: sum(s["tokens"][k] for s in steps) for k in ("input", "output", "cache_read", "cache_write")}
+    last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
+    row = {
+        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "n": n,
+        "wall_s": round(time.time() - t0, 1), "timed_out": any(s["timed_out"] for s in steps),
+        "pass": last_ok, "steps_passed": sum(s["pass"] for s in steps), "steps_total": len(steps),
+        "check": steps[-1]["check"] if steps else "no step ran", "formatted": bool(steps) and steps[-1]["formatted"],
+        "clean": last_ok and not diff["noise_files"] and steps[-1]["formatted"], **diff,
+        "turns": total("turns"), "cost_usd": total("cost_usd"), "duration_ms": total("duration_ms"),
+        "is_error": any(s["is_error"] for s in steps), "stop": steps[-1]["stop"] if steps else None,
+        "tokens": tokens, "peak_ctx": max((s["peak_ctx"] for s in steps), default=0),
+        "ctx_curve": [c for s in steps for c in s["ctx_curve"]],
+        "tool_calls": total("tool_calls"), "failed_calls": total("failed_calls"),
+        "tools": {k: sum(s["tools"].get(k, 0) for s in steps) for s in steps for k in s["tools"]},
+        "failures": [dict(f, step=s["step"]) for s in steps for f in s["failures"]][:40],
+        "rereads": total("rereads"), "retries": total("retries"),
+        "gaps": [dict(g, step=s["step"]) for s in steps for g in s["gaps"]],
+        "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "cost_usd", "peak_ctx",
+                                      "failed_calls", "wall_s", "timed_out")} for s in steps],
     }
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
@@ -271,15 +359,17 @@ def main():
     ap.add_argument("--models", default="claude-sonnet-5")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--suite", default=str(EVAL), help="a dir holding fixture/ and cases/")
     ap.add_argument("--stop-at", default="", help="HH:MM local; start no run after it")
     a = ap.parse_args()
 
-    build_template(a.rebuild)
+    suite = Path(a.suite).resolve()
+    build_template(suite, a.rebuild)
     build_plugins(a.rebuild)
     for arm in a.arms.split(","):
         if arm.startswith(("S-", "SL-")):
             build_skill_arm(arm, a.rebuild)
-    cases = sorted(p.parent for p in (EVAL / "cases").glob("*/prompt.md"))
+    cases = sorted(p.parent for p in [*(suite / "cases").glob("*/prompt.md"), *(suite / "cases").glob("*/steps")])
     if a.cases:
         want = a.cases.split(",")
         cases = [c for c in cases if any(fnmatch.fnmatch(c.name, w) for w in want)]
