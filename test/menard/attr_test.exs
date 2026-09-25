@@ -280,4 +280,25 @@ defmodule Menard.AttrTest do
     # a sigil's lines are its value, written from column 0 or not: they stay as given
     assert Menard.Attr.set(src, "words", "~w(\n  four\n)a") =~ "  @words ~w(\n  four\n)a\n"
   end
+
+  test "a NEW attribute that reads others lands below them, and above the next table" do
+    src = """
+    defmodule A do
+      @statuses [:a, :b, :c]
+
+      @transitions %{a: [:b]}
+
+      def open?(s), do: s in [:a, :b]
+    end
+    """
+
+    out = Menard.Attr.set(src, "open", "@statuses -- [:c]")
+    lines = String.split(out, "\n")
+    at = fn text -> Enum.find_index(lines, &String.contains?(&1, text)) end
+
+    # above @statuses it would read nil, which the eval's agents then spent a dozen turns undoing
+    assert at.("@open @statuses") > at.("@statuses [")
+    assert at.("@open @statuses") < at.("@transitions")
+    assert at.("@open @statuses") < at.("def open?")
+  end
 end

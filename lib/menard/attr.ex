@@ -121,10 +121,22 @@ defmodule Menard.Attr do
          {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
       body = Clause.module_body(module)
       atom = to_atom(name)
+      # below every attribute the value reads (`@open @statuses -- […]`), which is nil above its set
+      deps = reads_in(value)
 
-      case Enum.find_index(body, &(anchor?(&1) or reads?(&1, atom))) do
+      last_dep =
+        body
+        |> Enum.with_index()
+        |> Enum.reduce(-1, &if(attr_name(elem(&1, 0)) in deps, do: elem(&1, 1), else: &2))
+
+      found =
+        body
+        |> Enum.with_index()
+        |> Enum.find(fn {n, i} -> i > last_dep and (anchor?(n) or reads?(n, atom)) end)
+
+      case found do
         nil -> {:error, "nothing to place @#{atom} above — the module has no definitions"}
-        i -> insert_before(source, owner_start(body, i), name, value)
+        {_node, i} -> insert_before(source, owner_start(body, i), name, value)
       end
     end
   end
@@ -188,6 +200,21 @@ defmodule Menard.Attr do
   # read above its definition is nil, so a new attribute goes above its first reader, too.
   defp reads?(node, name) do
     node |> Macro.prewalker() |> Enum.any?(&match?({:@, _, [{^name, _, ctx}]} when ctx in [nil, []], &1))
+  end
+
+  # the attributes a value (as written) reads; a value that doesn't parse reads none, and the write's
+  # own parse check says so
+  defp reads_in(value) do
+    case Sourceror.parse_string(value) do
+      {:ok, ast} ->
+        for {:@, _, [{n, _, ctx}]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+            ctx in [nil, []],
+            uniq: true,
+            do: n
+
+      {:error, _} ->
+        []
+    end
   end
 
   # An attribute holding a value the module reads. Not @moduledoc and friends: above those is also
