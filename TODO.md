@@ -9,8 +9,6 @@ commit lands.
       failure; the gate's log showed "Waiting for lock on the build directory" from tests calling
       `bin/menard` while the suite compiles. Unconfirmed: that a lock wait or a concurrent
       self-compile failed the hook's format.
-- [ ] `host_format_test`: two tests ("a plugin that will not load…", "a write the format could not
-      finish…") failed once under the full gate (2026-09-25) with `{:EXIT, {:system_limit,
-      [{:erlang, :list_to_atom, [PATH]}]}}`, PATH being the "a format out of time…" test's tmp dir;
-      never alone (3 runs). One test's leftovers (its timed-out format, or a code path it added)
-      reach its neighbours, and something makes an atom of a path over 255 chars. Not found where.
+      Ruled out (2026-09-25, not reproduced by any): the VM cwd a timed-out format left behind
+      (fixed; the hook still formats at a 231-char host path and run from the leaked cwd), and a
+      stale dev build (hooks_test green with lib touched).

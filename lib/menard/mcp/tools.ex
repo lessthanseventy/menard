@@ -235,22 +235,30 @@ if Code.ensure_loaded?(Anubis.Server) do
 
       # `nth` disambiguates a head two clauses share; without it that is refused, not guessed.
       opts = if n = p[:nth], do: [nth: n], else: []
+      # no head is a function's only clause, as `head: ""` is; among several, that is refused with theirs
+      p = Map.put(p, :head, p[:head] || "")
 
-      case verb do
-        "replace" -> Clause.replace_body(source, p.name_arity, p.head, code, opts)
-        "rewrite" -> Clause.rewrite(source, p.name_arity, p.head, code, opts)
-        "delete" -> Clause.delete(source, p.name_arity, p.head, opts)
-        "insert_after" -> Clause.insert_after(source, p.name_arity, p.head, code, opts)
-        "insert_before" -> Clause.insert_before(source, p.name_arity, p.head, code, opts)
-        "insert_at" -> Clause.insert_at(source, p[:module], p[:at], code)
-        # `text` absent means DELETE for both — the prose is the whole payload, so nothing to give
-        # is the only way to say "remove it".
-        "doc" -> Clause.doc(source, p.name_arity, p.head, p[:text], opts)
-        "comment" -> Clause.comment(source, p.name_arity, p.head, p[:text], opts)
-        # every clause of the function at once — a half-flipped one does not compile
-        "visibility" -> Clause.visibility(source, p.name_arity, want(p[:visibility]))
-        # the function's, not a clause's: no head. `code` is the signature, absent deletes it
-        "spec" -> Clause.spec(source, p.name_arity, p[:code])
+      cond do
+        verb != "insert_at" and is_nil(p[:name_arity]) ->
+          {:error, "clause #{verb} needs name_arity: the function's name/arity, as outline lists it"}
+
+        true ->
+          case verb do
+            "replace" -> Clause.replace_body(source, p.name_arity, p.head, code, opts)
+            "rewrite" -> Clause.rewrite(source, p.name_arity, p.head, code, opts)
+            "delete" -> Clause.delete(source, p.name_arity, p.head, opts)
+            "insert_after" -> Clause.insert_after(source, p.name_arity, p.head, code, opts)
+            "insert_before" -> Clause.insert_before(source, p.name_arity, p.head, code, opts)
+            "insert_at" -> Clause.insert_at(source, p[:module], p[:at], code)
+            # `text` absent means DELETE for both — the prose is the whole payload, so nothing to give
+            # is the only way to say "remove it".
+            "doc" -> Clause.doc(source, p.name_arity, p.head, p[:text], opts)
+            "comment" -> Clause.comment(source, p.name_arity, p.head, p[:text], opts)
+            # every clause of the function at once — a half-flipped one does not compile
+            "visibility" -> Clause.visibility(source, p.name_arity, want(p[:visibility]))
+            # the function's, not a clause's: no head. `code` is the signature, absent deletes it
+            "spec" -> Clause.spec(source, p.name_arity, p[:code])
+          end
       end
     end
   end
