@@ -14,5 +14,3 @@ commit lands.
       blank: deleting one set between a `@doc` and a `@spec` left them a blank line apart.
 - [ ] `block add` cannot put a `@tag` above the test it adds (a `@tag :tmp_dir` test needs
       `@moduletag` instead, or a hand edit).
-- [ ] No verb for a test module's `doctest Mod` line: `directive add FILE doctest Mod`, placed
-      after `use` and the aliases, where Quokka puts it.

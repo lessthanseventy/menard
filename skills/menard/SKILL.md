@@ -44,7 +44,7 @@ SHAPE of what you are changing, not the size of the change:
 | the comment above `defmodule` (a license header) | `module comment FILE (Mod\|-) [TEXT] --above` |
 | an ExUnit `test`, a `describe`, a `schema` | `block get\|replace\|add\|delete\|relabel FILE test --label "…"` |
 | a function's `@spec` | `clause spec FILE name/arity [SPEC]`; no SPEC removes it |
-| an alias/import/require/use | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
+| an alias/import/require/use, or a test's `doctest Mod` | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
 | a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
 | a whole new file | `write FILE CODE` (`-` or `--stdin` reads it from stdin) |
 | one whole module, in a file of several | `module replace FILE Mod.Name CODE` |
@@ -63,8 +63,8 @@ What the verbs guarantee, where it is not obvious from the name:
   to `insert-after` goes after the whole function, never between its clauses.
 - `clause replace` keeps a clause's form (`do … end` or `do:`) and its `rescue`/`after`.
 - `clause visibility` flips EVERY clause at once: a half-flipped function does not compile.
-- `directive add` places in Elixir's conventional order (use → import → alias → require,
-  alphabetised), so the next format pass does not move it. `directive replace` changes a
+- `directive add` places in Elixir's conventional order (use → import → alias → require →
+  doctest, alphabetised), so the next format pass does not move it. `directive replace` changes a
   directive's options in place.
 - `block add FILE test CODE --label L [--args '%{conn: conn}'] [--in "describe label"]` writes a new
   test, with its context if it takes one.

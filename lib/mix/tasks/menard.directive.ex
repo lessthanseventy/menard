@@ -50,16 +50,16 @@ defmodule Mix.Tasks.Menard.Directive do
 
       _ ->
         Mix.raise(
-          "usage: mix menard.directive add FILE (alias|import|require|use) MOD [OPTS] [--module Mod]\n" <>
-            "       mix menard.directive replace FILE (alias|import|require|use) MOD [OPTS] [--module Mod]\n" <>
-            "       mix menard.directive remove FILE (alias|import|require|use) MOD [--module Mod]\n" <>
+          "usage: mix menard.directive add FILE (alias|import|require|use|doctest) MOD [OPTS] [--module Mod]\n" <>
+            "       mix menard.directive replace FILE (alias|import|require|use|doctest) MOD [OPTS] [--module Mod]\n" <>
+            "       mix menard.directive remove FILE (alias|import|require|use|doctest) MOD [--module Mod]\n" <>
             "       mix menard.directive list FILE [--module Mod]"
         )
     end
   end
 
-  defp atom(kind) when kind in ~w(alias import require use), do: String.to_existing_atom(kind)
-  defp atom(kind), do: Mix.raise("unknown directive #{kind} — one of alias, import, require, use")
+  defp atom(kind) when kind in ~w(alias import require use doctest), do: String.to_existing_atom(kind)
+  defp atom(kind), do: Mix.raise("unknown directive #{kind} — one of alias, import, require, use, doctest")
 
   defp edit(file, did, opts, change) do
     file = Menard.resolve(file)

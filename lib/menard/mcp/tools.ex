@@ -453,7 +453,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:force, :boolean)
       field(:verb, :enum, values: ["add", "replace", "remove", "list"], required: true)
       field(:file, :string, required: true)
-      field(:kind, :enum, values: ["alias", "import", "require", "use"])
+      field(:kind, :enum, values: ["alias", "import", "require", "use", "doctest"])
       field(:target, :string)
       field(:args, :string)
       field(:module, :string)
@@ -492,7 +492,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp edit("remove", source, kind, target, params),
       do: Directive.remove(source, kind, target, module: params[:module])
 
-    defp kind(k) when k in ["alias", "import", "require", "use"], do: {:ok, String.to_existing_atom(k)}
+    defp kind(k) when k in ["alias", "import", "require", "use", "doctest"],
+      do: {:ok, String.to_existing_atom(k)}
+
     defp kind(_k), do: {:error, "kind is required: alias, import, require or use"}
 
     defp target(t) when is_binary(t) and t != "", do: {:ok, t}
