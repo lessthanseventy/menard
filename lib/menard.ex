@@ -479,16 +479,27 @@ defmodule Menard do
   # a toolchain that is not installed gets the mix on PATH, and is told why.
   defp host_toolchain(dir) do
     with mise when is_binary(mise) <- System.find_executable("mise"),
-         {out, 0} <- System.cmd(mise, ["ls", "--current", "--missing", "-C", dir], stderr_to_stdout: true) do
-      missing =
-        for line <- String.split(out, "\n"),
-            [tool, version | _] <- [String.split(line)],
-            tool in ["erlang", "elixir"],
-            do: "#{tool} #{version}"
+         {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
+         {:ok, %{} = tools} <- JSON.decode(out) do
+      # pinned by the host: a config in its dir or above it. mise's global default is not the host's,
+      # and the mix on PATH is the one the agent's own `mix` runs: two toolchains in one _build
+      # rebuild every dep the other built, each time either runs.
+      pinned =
+        for tool <- ["erlang", "elixir"],
+            %{"source" => %{"path" => path}} = v <- tools[tool] || [],
+            String.starts_with?(Path.expand(dir) <> "/", Path.dirname(path) <> "/"),
+            do: {tool, v}
 
-      if missing == [],
-        do: {:mise, mise},
-        else: {:path, "#{Enum.join(missing, ", ")} pinned here is not installed, so this ran the mix on PATH"}
+      case for({tool, %{"installed" => false} = v} <- pinned, do: "#{tool} #{v["version"]}") do
+        _ when pinned == [] ->
+          {:path, nil}
+
+        [] ->
+          {:mise, mise}
+
+        missing ->
+          {:path, "#{Enum.join(missing, ", ")} pinned here is not installed, so this ran the mix on PATH"}
+      end
     else
       nil -> {:path, nil}
       # mise could not say: let `exec` decide, as before
