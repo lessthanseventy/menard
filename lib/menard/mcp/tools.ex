@@ -4,16 +4,13 @@ if Code.ensure_loaded?(Anubis.Server) do
     @moduledoc false
     alias Anubis.Server.Response
 
-    def ok(frame, payload), do: {:reply, Response.json(Response.tool(), jsonable(payload)), frame}
+    def ok(frame, payload), do: {:reply, Response.json(Response.tool(), Menard.jsonable(payload)), frame}
     def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
 
-    # JSON has no tuple: the library answers with them (`lines: {3, 9}`), and encoding one crashed
-    # the tool call. Every answer passes through here on its way out.
-    defp jsonable(%{__struct__: _} = struct), do: struct
-    defp jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
-    defp jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
-    defp jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
-    defp jsonable(other), do: other
+    # `version` (from the last reply) is checked before the edit, and `force` writes over a stale
+    # one: docs/live.md, phase 3
+    def staged_write(file, content, params, opts),
+      do: Menard.write(file, content, opts ++ [version: params[:version], force: params[:force] == true])
   end
 
   defmodule Menard.MCP.Rename do
@@ -103,6 +100,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Menard.Clause
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
+
       field(:verb, :enum,
         values: [
           "replace",
@@ -154,7 +154,7 @@ if Code.ensure_loaded?(Anubis.Server) do
            source <- File.read!(file),
            out when is_binary(out) <- edit(params, source),
            {:ok, reply} <-
-             Menard.write(file, out,
+             staged_write(file, out, params,
                did:
                  "#{params.verb} #{params[:name_arity] || params[:module] || "-"} `#{params[:head] || params[:at]}` in #{Path.basename(file)}"
              ) do
@@ -206,6 +206,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Menard.Stmt
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
+
       field(:verb, :enum,
         values: ["insert_after", "insert_before", "replace", "delete", "comment", "list"],
         required: true
@@ -234,7 +237,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(params, File.read!(file)),
            {:ok, reply} <-
-             Menard.write(file, out,
+             staged_write(file, out, params,
                did: "#{params.verb} `#{params[:match]}` in #{params.name_arity} of #{Path.basename(file)}"
              ) do
         ok(frame, reply)
@@ -270,8 +273,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     @impl true
     def execute(%{file: file}, frame) do
       with {:ok, abs} <- Menard.MCP.resolve(file),
-           {:ok, modules} <- Menard.Outline.run(File.read!(abs)) do
-        ok(frame, %{"file" => abs, "modules" => modules})
+           content = File.read!(abs),
+           {:ok, modules} <- Menard.Outline.run(content) do
+        ok(frame, %{"file" => abs, "version" => Menard.remember(content), "modules" => modules})
       else
         {:error, message} when is_binary(message) -> fail(frame, message)
         {:error, reason} -> fail(frame, "not parseable — #{inspect(reason)}")
@@ -355,16 +359,25 @@ if Code.ensure_loaded?(Anubis.Server) do
     import Menard.MCP.Reply
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
       field(:file, :string, required: true)
       field(:code, :string, required: true)
     end
 
     @impl true
-    def execute(%{file: file, code: code}, frame) do
-      with {:ok, abs} <- Menard.MCP.resolve(file),
-           {:ok, what} <- Menard.Write.run(abs, code) do
-        if what != :unchanged, do: Menard.format(abs)
-        ok(frame, %{"did" => "#{what} #{Path.basename(abs)}", "file" => abs})
+    def execute(%{file: file, code: code} = params, frame) do
+      with {:ok, abs} <- Menard.MCP.resolve(file) do
+        if File.exists?(abs) and File.read!(abs) == String.trim_trailing(code, "\n") <> "\n" do
+          ok(frame, %{did: "write #{Path.basename(abs)}", file: abs, unchanged: true})
+        else
+          File.mkdir_p!(Path.dirname(abs))
+
+          case staged_write(abs, code, params, did: "write #{Path.basename(abs)}") do
+            {:ok, reply} -> ok(frame, reply)
+            {:error, message} -> fail(frame, message)
+          end
+        end
       else
         {:error, message} -> fail(frame, message)
       end
@@ -387,6 +400,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Menard.Directive
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
       field(:verb, :enum, values: ["add", "replace", "remove", "list"], required: true)
       field(:file, :string, required: true)
       field(:kind, :enum, values: ["alias", "import", "require", "use"])
@@ -411,7 +426,9 @@ if Code.ensure_loaded?(Anubis.Server) do
            {:ok, target} <- target(params[:target]),
            out when is_binary(out) <- edit(params.verb, File.read!(file), kind, target, params),
            {:ok, reply} <-
-             Menard.write(file, out, did: "#{params.verb} #{kind} #{target} in #{Path.basename(file)}") do
+             staged_write(file, out, params,
+               did: "#{params.verb} #{kind} #{target} in #{Path.basename(file)}"
+             ) do
         ok(frame, reply)
       else
         {:error, message} -> fail(frame, message)
@@ -449,6 +466,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Menard.Attr
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
       field(:verb, :enum, values: ["get", "set", "delete", "list", "comment"], required: true)
       field(:file, :string, required: true)
       field(:name, :string)
@@ -484,7 +503,9 @@ if Code.ensure_loaded?(Anubis.Server) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- write(params.verb, File.read!(file), params),
            {:ok, reply} <-
-             Menard.write(file, out, did: "#{params.verb} @#{params[:name]} in #{Path.basename(file)}") do
+             staged_write(file, out, params,
+               did: "#{params.verb} @#{params[:name]} in #{Path.basename(file)}"
+             ) do
         ok(frame, reply)
       else
         {:error, :missing} -> fail(frame, "no @#{params[:name]} in this module")
@@ -515,6 +536,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Menard.Block
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
       field(:verb, :enum, values: ["get", "replace", "add", "delete", "list", "relabel"], required: true)
       field(:file, :string, required: true)
       field(:name, :string)
@@ -549,7 +572,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(params, File.read!(file)),
            {:ok, reply} <-
-             Menard.write(file, out, did: "#{params.verb} #{params[:name]} in #{Path.basename(file)}") do
+             staged_write(file, out, params, did: "#{params.verb} #{params[:name]} in #{Path.basename(file)}") do
         ok(frame, reply)
       else
         {:error, message} -> fail(frame, message)
@@ -649,6 +672,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     import Menard.MCP.Reply
 
     schema do
+      field(:version, :string)
+      field(:force, :boolean)
       field(:verb, :enum, values: ["add", "replace", "list", "comment"], required: true)
       field(:file, :string, required: true)
       field(:code, :string)
@@ -670,7 +695,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(verb, File.read!(file), params),
            {:ok, reply} <-
-             Menard.write(file, out,
+             staged_write(file, out, params,
                did: "#{verb} #{params[:module] || "a module"} in #{Path.basename(file)}"
              ) do
         ok(frame, reply)

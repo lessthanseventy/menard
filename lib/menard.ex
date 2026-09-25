@@ -237,6 +237,62 @@ defmodule Menard do
     ]
   end
 
+  defp checked(file, content) do
+    case Menard.Write.checked(file, content) do
+      {:ok, patched} -> {:ok, patched}
+      {:error, reason} -> {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
+    end
+  end
+
+  # An edit computed against a version the file no longer has would overwrite whatever changed it
+  # since, so a version given is a version checked (docs/live.md, phase 3). The refusal carries
+  # what changed, when menard still has the version it handed out, so the agent can re-sync.
+  defp fresh(file, original, opts) do
+    expected = opts[:version]
+    current = version_of(original)
+
+    if is_nil(expected) or opts[:force] == true or expected == current do
+      :ok
+    else
+      since =
+        case File.read(version_path(expected)) do
+          {:ok, old} -> "changed since: " <> JSON.encode!(Menard.Diff.hunks(old, original))
+          {:error, _} -> "menard has no copy of #{expected} to diff against"
+        end
+
+      {:error,
+       "stale: #{Path.relative_to_cwd(file)} is no longer #{expected} but #{current}; #{since}. " <>
+         "Re-read it and redo the edit, or pass force to write anyway"}
+    end
+  end
+
+  defp version_of(content), do: "sha256:" <> Base.encode16(:crypto.hash(:sha256, content), case: :lower)
+
+  # Every version handed out is kept, so a stale edit can be answered with the diff since it. A
+  # week is longer than any session holds a version; older copies go when the next one is kept.
+  @doc """
+  The version of `content` (`sha256:` + hex), with a copy kept, so a stale edit made against it
+  can be answered with the diff since. What every writing verb and `outline` hand out.
+  """
+  def remember(content) do
+    version = version_of(content)
+    path = version_path(version)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, content)
+    week_ago = System.os_time(:second) - 7 * 24 * 3600
+
+    for old <- Path.wildcard(Path.join(Path.dirname(path), "*")),
+        File.stat!(old, time: :posix).mtime < week_ago,
+        do: File.rm(old)
+
+    version
+  end
+
+  defp version_path(version) do
+    hex = version |> String.replace_prefix("sha256:", "") |> Path.basename()
+    Path.join([:filename.basedir(:user_cache, "menard"), "versions", hex])
+  end
+
   @doc """
   Write `content` to `file` through the staged pipeline: parse-check, format in-memory, diff each
   stage, write the result. Returns `{:ok, reply}` where reply is `%{did, file, version, stages}` —
@@ -253,25 +309,20 @@ defmodule Menard do
     did = opts[:did] || "edit #{Path.relative_to_cwd(file)}"
     original = if File.regular?(file), do: File.read!(file), else: ""
 
-    case Menard.Write.checked(file, content) do
-      {:ok, patched} ->
-        {formatted, split, format_error} =
-          case format_staged(file, patched) do
-            {:ok, f, split} -> {f, split, nil}
-            {:error, reason} -> {patched, nil, reason}
-          end
+    with :ok <- fresh(file, original, opts),
+         {:ok, patched} <- checked(file, content) do
+      {formatted, split, format_error} =
+        case format_staged(file, patched) do
+          {:ok, f, split} -> {f, split, nil}
+          {:error, reason} -> {patched, nil, reason}
+        end
 
-        File.write!(file, formatted)
+      File.write!(file, formatted)
 
-        if format_error, do: Mix.shell().error("menard: " <> format_error)
+      if format_error, do: Mix.shell().error("menard: " <> format_error)
 
-        version =
-          "sha256:" <> Base.encode16(:crypto.hash(:sha256, formatted), case: :lower)
-
-        {:ok, %{did: did, file: file, version: version, stages: stages(original, patched, formatted, split)}}
-
-      {:error, reason} ->
-        {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
+      version = remember(formatted)
+      {:ok, %{did: did, file: file, version: version, stages: stages(original, patched, formatted, split)}}
     end
   end
 
@@ -301,4 +352,14 @@ defmodule Menard do
       mise -> System.cmd(mise, ["exec", "-C", dir, "--", "mix" | args], opts)
     end
   end
+
+  @doc """
+  `term` as JSON can carry it. JSON has no tuple, and the library answers with them (`lines: {3, 9}`):
+  encoding one crashed the MCP tool call and `outline --json` alike.
+  """
+  def jsonable(%{__struct__: _} = struct), do: struct
+  def jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
+  def jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
+  def jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
+  def jsonable(other), do: other
 end

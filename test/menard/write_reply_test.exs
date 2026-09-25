@@ -84,4 +84,57 @@ defmodule Menard.WriteReplyTest do
       assert File.read!(file) == patched
     end
   end
+
+  describe "Menard.write/3 — a version given is a version checked" do
+    test "the version from the last reply lets the next edit through", %{tmp_dir: dir} do
+      file = write_file(dir, "v1.ex", "defmodule V do\n  def go, do: :a\nend\n")
+      {:ok, first} = Menard.write(file, "defmodule V do\n  def go, do: :b\nend\n")
+
+      assert {:ok, _} = Menard.write(file, "defmodule V do\n  def go, do: :c\nend\n", version: first.version)
+      assert File.read!(file) =~ ":c"
+    end
+
+    test "an edit against a version the file no longer has is refused, with what changed since", %{
+      tmp_dir: dir
+    } do
+      file = write_file(dir, "v2.ex", "defmodule V do\n  def go, do: :a\n  def other, do: 1\nend\n")
+      {:ok, mine} = Menard.write(file, "defmodule V do\n  def go, do: :b\n  def other, do: 1\nend\n")
+
+      # another session edits the file after my last reply
+      theirs = "defmodule V do\n  def go, do: :b\n  def other, do: 2\nend\n"
+      File.write!(file, theirs)
+
+      assert {:error, message} =
+               Menard.write(file, "defmodule V do\n  def go, do: :c\n  def other, do: 1\nend\n",
+                 version: mine.version
+               )
+
+      assert message =~ "stale"
+      assert message =~ "def other, do: 2"
+      assert File.read!(file) == theirs
+    end
+
+    test "force writes over a stale version", %{tmp_dir: dir} do
+      file = write_file(dir, "v3.ex", "defmodule V do\n  def go, do: :a\nend\n")
+      File.write!(file, "defmodule V do\n  def go, do: :z\nend\n")
+
+      assert {:ok, _} =
+               Menard.write(file, "defmodule V do\n  def go, do: :c\nend\n",
+                 version: "sha256:0000",
+                 force: true
+               )
+
+      assert File.read!(file) =~ ":c"
+    end
+
+    test "a version menard never handed out is still refused, and says to re-read", %{tmp_dir: dir} do
+      file = write_file(dir, "v4.ex", "defmodule V do\n  def go, do: :a\nend\n")
+
+      assert {:error, message} =
+               Menard.write(file, "defmodule V do\n  def go, do: :c\nend\n", version: "sha256:0000")
+
+      assert message =~ "re-read"
+      assert File.read!(file) =~ ":a"
+    end
+  end
 end

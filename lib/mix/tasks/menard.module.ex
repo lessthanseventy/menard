@@ -11,6 +11,9 @@ defmodule Mix.Tasks.Menard.Module do
 
   @impl true
   def run(argv) do
+    {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean])
+    stale = Keyword.take(flags, [:version, :force])
+
     case argv do
       ["list", file] ->
         case Menard.Module.list(File.read!(Menard.resolve(file))) do
@@ -27,7 +30,7 @@ defmodule Mix.Tasks.Menard.Module do
             Mix.raise(message)
 
           out ->
-            case Menard.write(file, out, did: "module add in #{Path.basename(file)}") do
+            case Menard.write(file, out, [did: "module add in #{Path.basename(file)}"] ++ stale) do
               {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
               {:error, message} -> Mix.raise(message)
             end
@@ -42,7 +45,7 @@ defmodule Mix.Tasks.Menard.Module do
             Mix.raise(message)
 
           out ->
-            case Menard.write(file, out, did: "module comment in #{Path.basename(file)}") do
+            case Menard.write(file, out, [did: "module comment in #{Path.basename(file)}"] ++ stale) do
               {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
               {:error, message} -> Mix.raise(message)
             end
@@ -56,7 +59,7 @@ defmodule Mix.Tasks.Menard.Module do
             Mix.raise(message)
 
           out ->
-            case Menard.write(file, out, did: "module replace #{name} in #{Path.basename(file)}") do
+            case Menard.write(file, out, [did: "module replace #{name} in #{Path.basename(file)}"] ++ stale) do
               {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
               {:error, message} -> Mix.raise(message)
             end

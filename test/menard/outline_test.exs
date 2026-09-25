@@ -50,4 +50,19 @@ defmodule Menard.OutlineTest do
   test "an unparseable source is an error" do
     assert {:error, _} = Outline.run("defmodule (")
   end
+
+  test "outline --json answers with the version, and line spans JSON can carry" do
+    dir = Path.join(System.tmp_dir!(), "menard-outline-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\n  def go, do: 1\nend\n")
+
+    out = ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Menard.Outline.run(["--json", file]) end)
+    reply = JSON.decode!(out)
+
+    # the version an agent passes back on its first edit, and line spans as lists: JSON has no tuple
+    assert "sha256:" <> _ = reply["version"]
+    assert [%{"lines" => [1, 3]}] = reply["modules"]
+  end
 end

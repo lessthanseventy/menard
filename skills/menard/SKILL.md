@@ -100,5 +100,10 @@ The verbs format after every edit with the project's own formatter, so what you 
 the formatter wrote. The reply says what each step did: `patch` is what you wrote, `formatter` what
 `mix format` changed, and `plugins` what the project's plugins (Styler) rewrote after that:
 sorted aliases, a collapsed pipe, an added `@moduledoc false`. Read `plugins` before you go
-looking for your edit and find it moved. A parse-checked write catches **malformed** output, not **wrong** output: it
+looking for your edit and find it moved.
+
+**Pass the reply's `version` back** (or `outline`'s, for the first edit) on your next edit to that file (`--version SHA`, or MCP
+`version`). If another session changed the file since, the edit is refused with the diff since
+your version: re-read what changed and redo the edit. `--force` writes anyway. `rename` and
+`clause move` touch several files and take no version. A parse-checked write catches **malformed** output, not **wrong** output: it
 is a floor, not a proof. Run the check.

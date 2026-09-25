@@ -16,8 +16,9 @@ defmodule Mix.Tasks.Menard.Attr do
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string])
+    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
     where = [module: opts[:module]]
+    did = did(args)
 
     case args do
       ["get", file, name] ->
@@ -27,16 +28,16 @@ defmodule Mix.Tasks.Menard.Attr do
         report(list(Attr.list(File.read!(Menard.resolve(file)), where)), nil)
 
       ["set", file, name, value] ->
-        edit(file, name, &Attr.set(&1, name, value, where))
+        edit(file, name, did, opts, &Attr.set(&1, name, value, where))
 
       ["delete", file, name] ->
-        edit(file, name, &Attr.delete(&1, name, where))
+        edit(file, name, did, opts, &Attr.delete(&1, name, where))
 
       ["comment", file, name] ->
-        edit(file, name, &Attr.comment(&1, name, nil, where))
+        edit(file, name, did, opts, &Attr.comment(&1, name, nil, where))
 
       ["comment", file, name, text] ->
-        edit(file, name, &Attr.comment(&1, name, text, where))
+        edit(file, name, did, opts, &Attr.comment(&1, name, text, where))
 
       _ ->
         Mix.raise(
@@ -50,9 +51,9 @@ defmodule Mix.Tasks.Menard.Attr do
 
   defp list(other), do: other
 
-  defp edit(file, name, change) do
+  defp edit(file, name, did, opts, change) do
     file = Menard.resolve(file)
-    did = "#{name} in #{Path.basename(file)}"
+    did = "#{did} in #{Path.basename(file)}"
 
     case change.(File.read!(file)) do
       {:error, :missing} ->
@@ -62,7 +63,7 @@ defmodule Mix.Tasks.Menard.Attr do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: did) do
+        case Menard.write(file, out, [did: did] ++ Keyword.take(opts, [:version, :force])) do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end
@@ -75,4 +76,8 @@ defmodule Mix.Tasks.Menard.Attr do
   defp report(text, _name), do: Mix.shell().info(text)
 
   defp missing(name), do: "no @#{String.trim_leading(name, "@")} in this module"
+
+  # what the reply's `did` names: `set @colors`
+  defp did([verb, _file, name | _]), do: "#{verb} @#{String.trim_leading(name, "@")}"
+  defp did(_), do: nil
 end

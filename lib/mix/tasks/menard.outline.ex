@@ -15,17 +15,21 @@ defmodule Mix.Tasks.Menard.Outline do
     if files == [], do: Mix.raise("usage: mix menard.outline [--json] FILE...")
 
     for file <- Enum.map(files, &Menard.resolve/1) do
-      case Outline.run(File.read!(file)) do
-        {:ok, modules} -> print(file, modules, opts[:json] == true)
+      content = File.read!(file)
+
+      case Outline.run(content) do
+        {:ok, modules} -> print(file, Menard.remember(content), modules, opts[:json] == true)
         {:error, reason} -> Mix.shell().error("#{file}: not parseable — #{inspect(reason)}")
       end
     end
   end
 
-  defp print(file, modules, true), do: Mix.shell().info(JSON.encode!(%{file: file, modules: modules}))
+  defp print(file, version, modules, true),
+    do: Mix.shell().info(JSON.encode!(Menard.jsonable(%{file: file, version: version, modules: modules})))
 
-  defp print(file, modules, false) do
-    Mix.shell().info(file)
+  # the version rides the file line: pass it back with --version on the first edit
+  defp print(file, version, modules, false) do
+    Mix.shell().info("#{file}  #{version}")
     Enum.each(modules, &print_module(&1, "  "))
   end
 

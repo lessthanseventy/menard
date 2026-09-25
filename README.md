@@ -87,6 +87,9 @@ package ships for its users; menard is the edit an agent makes by hand. They mee
 upgrade`, which goes through the host's `mix igniter.upgrade` when its lock has Igniter, so each
 package's upgraders run.
 
+Every writing verb answers with the file's `version`; pass it back with `--version SHA` and an
+edit against a file that has changed since is refused, with the diff (`--force` writes anyway).
+
 `--stdin` reads a verb's last argument from stdin, for CODE that shell quoting would mangle.
 menard runs on its own toolchain (`.tool-versions`, through mise when it is installed), never
 the caller's.

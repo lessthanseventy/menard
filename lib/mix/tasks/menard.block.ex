@@ -16,7 +16,16 @@ defmodule Mix.Tasks.Menard.Block do
   @impl true
   def run(argv) do
     {opts, args, _} =
-      OptionParser.parse(argv, strict: [module: :string, label: :string, in: :string, args: :string])
+      OptionParser.parse(argv,
+        strict: [
+          module: :string,
+          label: :string,
+          in: :string,
+          args: :string,
+          version: :string,
+          force: :boolean
+        ]
+      )
 
     where = [module: opts[:module], label: opts[:label]]
 
@@ -27,23 +36,24 @@ defmodule Mix.Tasks.Menard.Block do
         report(Block.get(File.read!(Menard.resolve(file)), name, where))
 
       ["relabel", file, name, label, new_label] ->
-        edit(file, did, &Block.relabel(&1, name, label, new_label, module: opts[:module]))
+        edit(file, did, opts, &Block.relabel(&1, name, label, new_label, module: opts[:module]))
 
       ["list", file] ->
         report(list(Block.list(File.read!(Menard.resolve(file)), where)))
 
       ["replace", file, name, code] ->
-        edit(file, did, &Block.replace(&1, name, code, where))
+        edit(file, did, opts, &Block.replace(&1, name, code, where))
 
       ["add", file, name, code] ->
         edit(
           file,
           did,
+          opts,
           &Block.add(&1, name, opts[:label], code, in: opts[:in], module: opts[:module], args: opts[:args])
         )
 
       ["delete", file, name] ->
-        edit(file, did, &Block.delete(&1, name, where))
+        edit(file, did, opts, &Block.delete(&1, name, where))
 
       _ ->
         Mix.raise(
@@ -68,7 +78,7 @@ defmodule Mix.Tasks.Menard.Block do
   defp report({:error, message}), do: Mix.raise(message)
   defp report(text), do: Mix.shell().info(text)
 
-  defp edit(file, did, change) do
+  defp edit(file, did, opts, change) do
     file = Menard.resolve(file)
 
     case change.(File.read!(file)) do
@@ -76,7 +86,11 @@ defmodule Mix.Tasks.Menard.Block do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: "#{did} in #{Path.basename(file)}") do
+        case Menard.write(
+               file,
+               out,
+               [did: "#{did} in #{Path.basename(file)}"] ++ Keyword.take(opts, [:version, :force])
+             ) do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end

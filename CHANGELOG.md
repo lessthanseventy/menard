@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**New**
+- A project's formatter plugins (Styler) are their own stage in every reply: `formatter` is what
+  Elixir's formatter changed, `plugins` what the plugins rewrote after it, and which ran. What is
+  written is still the project's full formatter output.
+- `--version SHA` (MCP `version`) on every single-file writing verb: an edit against a version
+  the file no longer has is refused, with the diff since that version. `--force` writes anyway.
+  `outline` reports the version too, for the first edit.
+
+**Fixed**
+- The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
+- The CLI's `attr` reply did not name the verb.
+- `outline --json` crashed on every file (a tuple in its answer, fixed for MCP in 0.3.0).
+
 ## 0.4.0
 
 On hex, and every writing verb says what it changed.

@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Menard.Directive do
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string])
+    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
 
     did = did(args)
 
@@ -30,15 +30,21 @@ defmodule Mix.Tasks.Menard.Directive do
         end
 
       ["add", file, kind, target | rest] ->
-        edit(file, did, &Directive.add(&1, atom(kind), target, module: opts[:module], args: List.first(rest)))
+        edit(
+          file,
+          did,
+          opts,
+          &Directive.add(&1, atom(kind), target, module: opts[:module], args: List.first(rest))
+        )
 
       ["remove", file, kind, target] ->
-        edit(file, did, &Directive.remove(&1, atom(kind), target, module: opts[:module]))
+        edit(file, did, opts, &Directive.remove(&1, atom(kind), target, module: opts[:module]))
 
       ["replace", file, kind, target | rest] ->
         edit(
           file,
           did,
+          opts,
           &Directive.replace(&1, atom(kind), target, module: opts[:module], args: List.first(rest))
         )
 
@@ -55,7 +61,7 @@ defmodule Mix.Tasks.Menard.Directive do
   defp atom(kind) when kind in ~w(alias import require use), do: String.to_existing_atom(kind)
   defp atom(kind), do: Mix.raise("unknown directive #{kind} — one of alias, import, require, use")
 
-  defp edit(file, did, change) do
+  defp edit(file, did, opts, change) do
     file = Menard.resolve(file)
 
     case change.(File.read!(file)) do
@@ -63,7 +69,11 @@ defmodule Mix.Tasks.Menard.Directive do
         Mix.raise(message)
 
       out ->
-        case Menard.write(file, out, did: "#{did} in #{Path.basename(file)}") do
+        case Menard.write(
+               file,
+               out,
+               [did: "#{did} in #{Path.basename(file)}"] ++ Keyword.take(opts, [:version, :force])
+             ) do
           {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
           {:error, message} -> Mix.raise(message)
         end

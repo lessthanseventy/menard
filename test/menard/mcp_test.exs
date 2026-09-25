@@ -256,4 +256,45 @@ defmodule Menard.MCPTest do
     # and the logs did happen, where they belong
     assert File.read!(Path.join(root, "err.log")) =~ "[debug]"
   end
+
+  test "a stale version is refused through the door, and force writes anyway", %{root: root} do
+    file = Path.join(root, "lib/v.ex")
+    text = fn response -> response.content |> hd() |> Map.fetch!("text") end
+
+    # `write` answers with the staged reply like every other writing tool, version included
+    first = call(Menard.MCP.Write, %{file: "lib/v.ex", code: "defmodule V do\n  def go, do: 1\nend\n"})
+    refute first.isError
+    version = JSON.decode!(text.(first))["version"]
+    assert "sha256:" <> _ = version
+
+    File.write!(file, "defmodule V do\n  def go, do: 2\nend\n")
+
+    stale =
+      call(Menard.MCP.Clause, %{
+        verb: "replace",
+        file: "lib/v.ex",
+        name_arity: "go/0",
+        head: "",
+        code: "3",
+        version: version
+      })
+
+    assert stale.isError
+    assert text.(stale) =~ "stale"
+    assert File.read!(file) =~ "do: 2"
+
+    forced =
+      call(Menard.MCP.Clause, %{
+        verb: "replace",
+        file: "lib/v.ex",
+        name_arity: "go/0",
+        head: "",
+        code: "3",
+        version: version,
+        force: true
+      })
+
+    refute forced.isError
+    assert File.read!(file) =~ "do: 3"
+  end
 end

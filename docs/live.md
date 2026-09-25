@@ -82,7 +82,7 @@ file another session had just rewritten would land somewhere wrong or not at all
    diffed separately. No new dependencies.
 2. **Styler as a stage.** The host's plugins run as their own `:plugins` stage, apart from the
    formatter (built; see above).
-3. **Versions.** `version` in, `version` out, stale edits refused.
+3. **Versions.** `version` in, `version` out, stale edits refused (built).
 4. **Diagnostics on touched lines.** Credo, and compile warnings, filtered to the lines this edit
    changed.
 
