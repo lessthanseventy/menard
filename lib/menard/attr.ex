@@ -103,19 +103,9 @@ defmodule Menard.Attr do
   # -- editing -------------------------------------------------------------
 
   defp replace(source, node, name, value) do
-    %{start: [line: a, column: col], end: [line: b, column: _]} = Sourceror.get_range(node)
-    indent = String.duplicate(" ", col - 1)
-    written = indent <> "@#{to_atom(name)} " <> reindent(value, indent)
-
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.flat_map(fn
-      {_text, ^a} -> [written]
-      {_text, line} when line > a and line <= b -> []
-      {text, _line} -> [text]
-    end)
-    |> Enum.join("\n")
+    %{start: [line: _, column: col]} = range = Sourceror.get_range(node)
+    written = "@#{to_atom(name)} " <> reindent(value, String.duplicate(" ", col - 1))
+    Sourceror.patch_string(source, [%{range: range, change: written, preserve_indentation: false}])
   end
 
   # Above the first TABLE or definition, whichever comes first — not merely above the first def:

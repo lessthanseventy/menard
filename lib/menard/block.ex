@@ -16,20 +16,38 @@ defmodule Menard.Block do
   @spec replace(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, name, code, opts \\ []) do
     with {:ok, node} <- one(source, name, opts) do
+      {_name, meta, args} = node
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
-      %{start: [line: a, column: _], end: [line: b, column: _]} = body_range(node)
       indent = String.duplicate(" ", col + 1)
-      written = code |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
+      range = body_range(node)
 
-      source
-      |> String.split("\n")
-      |> Enum.with_index(1)
-      |> Enum.flat_map(fn
-        {_text, ^a} -> [written]
-        {_text, line} when line > a and line <= b -> []
-        {text, _line} -> [text]
-      end)
-      |> Enum.join("\n")
+      cond do
+        meta[:do] -> patch(source, range, reindent(code, indent))
+        not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
+        true -> to_do_block(source, args, range, code, col)
+      end
+    end
+  end
+
+  # Several lines cannot sit in a `do:` keyword, so the block becomes `do … end`: from the end of
+  # the argument before `, do:` to the end of the body.
+  defp to_do_block(source, args, range, code, col) do
+    case Enum.drop(args, -1) do
+      [] ->
+        {:error, "this block is written `do:` with no argument before it — give one expression"}
+
+      before ->
+        %{end: from} = Sourceror.get_range(List.last(before))
+        indent = String.duplicate(" ", col + 1)
+        text = " do\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1) <> "end"
+        patch(source, %{start: from, end: range.end}, text)
+    end
+  end
+
+  defp reindent(code, indent) do
+    case code |> String.trim() |> String.split("\n") do
+      [one] -> one
+      [first | rest] -> Enum.join([first | Enum.map(rest, &(indent <> &1))], "\n")
     end
   end
 
