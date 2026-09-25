@@ -72,6 +72,22 @@ defmodule Menard.Directive do
     end
   end
 
+  @doc """
+  Replace `alias Mod` (or import/require/use) with the same directive and new `args` — `use X,
+  opts` changed in one step, in place, where a remove and an add would leave the module broken in
+  between and the block reshuffled.
+  """
+  @spec replace(String.t(), atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
+  def replace(source, kind, target, opts) do
+    with {:ok, ast} <- parse(source),
+         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
+      case Enum.find(Menard.Clause.module_body(node), &match(&1, kind, target)) do
+        nil -> {:error, "no #{kind} #{target} in this module"}
+        found -> patch(source, Sourceror.get_range(found), directive_line(kind, target, opts[:args]))
+      end
+    end
+  end
+
   # -- placement ------------------------------------------------------------
 
   # In its own block, alphabetically. With no block of this kind yet, after the last directive that

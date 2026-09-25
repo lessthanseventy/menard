@@ -25,7 +25,7 @@ SHAPE of what you are changing, not the size of the change:
 | the comment above a statement, inside a body | `stmt comment FILE name/arity HEAD MATCH [TEXT]` |
 | the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
 | a `do` block by its label — an ExUnit `test`, a `describe` | `block get\|replace\|add\|relabel FILE test --label "…"` |
-| an alias/import/require/use | `directive add\|remove\|list FILE KIND MOD` |
+| an alias/import/require/use | `directive add\|replace\|remove\|list FILE KIND MOD [OPTS]` |
 | a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
 
 `replace` takes the **body**; `rewrite` takes the **whole clause**. Passing a `def` to `replace` is

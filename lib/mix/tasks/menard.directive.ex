@@ -33,9 +33,13 @@ defmodule Mix.Tasks.Menard.Directive do
       ["remove", file, kind, target] ->
         edit(file, &Directive.remove(&1, atom(kind), target, module: opts[:module]))
 
+      ["replace", file, kind, target | rest] ->
+        edit(file, &Directive.replace(&1, atom(kind), target, module: opts[:module], args: List.first(rest)))
+
       _ ->
         Mix.raise(
           "usage: mix menard.directive add FILE (alias|import|require|use) MOD [OPTS] [--module Mod]\n" <>
+            "       mix menard.directive replace FILE (alias|import|require|use) MOD [OPTS] [--module Mod]\n" <>
             "       mix menard.directive remove FILE (alias|import|require|use) MOD [--module Mod]\n" <>
             "       mix menard.directive list FILE [--module Mod]"
         )
