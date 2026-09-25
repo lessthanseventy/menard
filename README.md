@@ -10,7 +10,9 @@ it writes — so a half-applied edit is impossible, and only the bytes a verb na
 Parsing is not preservation, though: 0.2.0 fixed edits that parsed and still lost code (a
 `rescue` dropped by `clause replace`). What guards that is the identity corpus: every `do … end`
 clause, attribute, block and statement in this repo and a fixture of odd syntax is replaced with
-itself, and the file must come back byte for byte (`test/menard/identity_test.exs`).
+itself, and the file must come back unchanged: byte for byte, or at least formatting the same
+(`test/menard/identity_test.exs`). `mise run bench:identity` runs the same edits over 22 pinned
+hex packages and counts each outcome.
 
 It runs as a project of its own, which means `menard` keeps working on a codebase that does not
 currently compile — the case where you most need it.

@@ -1,0 +1,123 @@
+defmodule Menard.Test.Identity do
+  @moduledoc false
+  # The identity oracle: an edit that writes back what is already there must leave the file as it
+  # was. Shared by the identity test (this repo, every run) and the hex corpus benchmark (real
+  # packages, on demand). It shares no code with what it checks: its own slice, its own heads.
+
+  alias Menard.{Attr, Block, Clause, Stmt}
+
+  @kinds [:def, :defp, :defmacro, :defmacrop]
+  @checks [:clause, :attr, :block, :stmt]
+
+  def checks, do: @checks
+
+  @doc """
+  Every identity edit of `check` on `source`, as `{label, outcome}`: `:same` (byte for byte),
+  `:formatted` (different bytes that format the same), `:changed` (a miss) or `:refused`.
+  """
+  def run(source, :clause) do
+    for {mod, node} <- modules(source),
+        {kind, meta, [head, [{_do, body} | _]]} <- Clause.module_body(node),
+        kind in @kinds and meta[:do] != nil,
+        text = slice(source, body),
+        is_binary(text) do
+      {name, arity, args} = head_of(head)
+      out = Clause.replace_body(source, "#{mod}.#{name}/#{arity}", args, text)
+      {"#{mod}.#{name}/#{arity} `#{args}`", outcome(out, source)}
+    end
+  end
+
+  def run(source, :attr) do
+    for {mod, node} <- modules(source),
+        # a name set more than once is refused by `set` — the clause verbs own those
+        {name, 1} <- source |> Attr.list(module: mod) |> Enum.frequencies_by(&elem(&1, 0)),
+        {:@, _, [{^name, _, [value]}]} <- Clause.module_body(node),
+        text = slice(source, value),
+        is_binary(text) do
+      {"#{mod} @#{name}", outcome(Attr.set(source, name, text, module: mod), source)}
+    end
+  end
+
+  def run(source, :block) do
+    for {mod, _node} <- modules(source),
+        {name, label, _line} <- Block.list(source, module: mod),
+        body = Block.get(source, name, module: mod, label: label),
+        is_binary(body) do
+      out = Block.replace(source, name, body, module: mod, label: label)
+      {"#{mod} #{name} #{inspect(label)}", outcome(out, source)}
+    end
+  end
+
+  def run(source, :stmt) do
+    for {mod, node} <- modules(source),
+        {kind, _meta, [head | _]} <- Clause.module_body(node),
+        kind in @kinds,
+        {name, arity, args} = head_of(head),
+        na = "#{mod}.#{name}/#{arity}",
+        statements = Stmt.list(source, na, args),
+        is_list(statements),
+        text <- Enum.uniq(statements) do
+      {"#{na} `#{String.slice(text, 0, 50)}`", outcome(Stmt.replace(source, na, args, text, text), source)}
+    end
+  end
+
+  @doc "The edits of `check` that changed the file."
+  def misses(source, check), do: for({label, :changed} <- run(source, check), do: label)
+
+  # A refusal is not a miss (an ambiguous head, a name two modules share); a changed file is.
+  # Bytes first — formatting both sides is the slow part, and most writes are byte-identical.
+  defp outcome(out, _source) when not is_binary(out), do: :refused
+  defp outcome(source, source), do: :same
+  defp outcome(out, source), do: if(fmt(out) == fmt(source), do: :formatted, else: :changed)
+
+  defp fmt(source) do
+    source |> Code.format_string!(line_length: 110) |> IO.iodata_to_binary()
+  rescue
+    _unparseable -> :unparseable
+  end
+
+  defp modules(source) do
+    {:ok, ast} = Sourceror.parse_string(source)
+    Clause.modules(ast)
+  end
+
+  # nil where Sourceror has no range for the node (seen in credo): the oracle cannot say what is
+  # there, so it makes no edit, rather than a crash that hides every other edit in the file
+  defp slice(source, node) do
+    case Sourceror.get_range(node) do
+      %{start: [line: a, column: ca], end: [line: b, column: cb]} -> slice(source, a, ca, b, cb)
+      nil -> nil
+    end
+  end
+
+  defp slice(source, a, ca, b, cb) do
+    last_line = source |> String.split("\n") |> Enum.at(b - 1, "")
+
+    # Sourceror's end is off on a line-closing node: past the line after a literal, inside the
+    # quotes of an interpolated heredoc
+    cb =
+      case Regex.run(~r/^\s*"""/, last_line) do
+        [closing] -> String.length(closing) + 1
+        nil -> min(cb, String.length(last_line) + 1)
+      end
+
+    case source |> String.split("\n") |> Enum.slice((a - 1)..(b - 1)) do
+      [one] ->
+        String.slice(one, ca - 1, cb - ca)
+
+      [first | rest] ->
+        {mid, [last]} = Enum.split(rest, -1)
+        Enum.join([String.slice(first, (ca - 1)..-1//1) | mid] ++ [String.slice(last, 0, cb - 1)], "\n")
+    end
+  end
+
+  defp head_of({:when, _, [call, guard]}) do
+    {name, arity, args} = head_of(call)
+    {name, arity, args <> " when " <> Sourceror.to_string(guard)}
+  end
+
+  defp head_of({name, _, args}) when is_list(args),
+    do: {name, length(args), Enum.map_join(args, ", ", &Sourceror.to_string/1)}
+
+  defp head_of({name, _, _}), do: {name, 0, ""}
+end
