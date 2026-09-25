@@ -125,4 +125,47 @@ defmodule Menard.HostFormatTest do
     assert message =~ "dsl"
     assert File.read!(file) == code
   end
+
+  test "a plugin's rewrites are their own stage, apart from the formatter's", %{tmp_dir: dir} do
+    # a Styler-like plugin: it formats AND rewrites, so its rewrite must not be billed to the formatter
+    plugin = :"Elixir.MenardTestStyle#{System.unique_integer([:positive])}"
+    ebin = Path.join(dir, "_build/dev/lib/style/ebin")
+    File.mkdir_p!(ebin)
+
+    [{^plugin, beam}] =
+      Code.compile_string("""
+      defmodule #{inspect(plugin)} do
+        @behaviour Mix.Tasks.Format
+        def features(_opts), do: [extensions: [".ex"]]
+
+        def format(contents, opts),
+          do: IO.iodata_to_binary([Code.format_string!(String.replace(contents, ":old", ":new"), opts), ?\\n])
+      end
+      """)
+
+    :code.purge(plugin)
+    :code.delete(plugin)
+    File.write!(Path.join(ebin, "#{plugin}.beam"), beam)
+
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "b.ex", "")
+
+    assert {:ok, reply} = Menard.write(file, "defmodule B do\n  def go,    do: :old\nend\n")
+    assert File.read!(file) == "defmodule B do\n  def go, do: :new\nend\n"
+
+    assert [
+             %{stage: :patch},
+             %{
+               stage: :formatter,
+               hunks: [%{removed: ["  def go,    do: :old"], added: ["  def go, do: :old"]}]
+             },
+             %{
+               stage: :plugins,
+               plugins: [name],
+               hunks: [%{removed: ["  def go, do: :old"], added: ["  def go, do: :new"]}]
+             }
+           ] = reply.stages
+
+    assert name == inspect(plugin)
+  end
 end
