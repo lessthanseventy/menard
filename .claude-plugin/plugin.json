@@ -1,6 +1,6 @@
 {
   "name": "menard",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "AST-aware editing for Elixir. Verbs that parse the file, change the tree and parse-check the result, plus the hooks that stop an agent reaching for sed on a module instead.",
   "author": { "name": "Andrew Moore" },
   "license": "MIT",

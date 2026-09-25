@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0
+
+On hex, and every writing verb says what it changed.
+
+**Install**
+- Published to hex: `{:menard, "~> 0.4", only: :dev, runtime: false}` gives the library and the
+  `mix menard.*` tasks inside your project. `anubis_mcp` is optional, so a library host brings
+  only Sourceror; `mix menard.mcp` asks for it when it is missing.
+- The pi adapter ships from this repo (`pi/extension.ts`): the guard and format-on-save.
+  `mise run install:pi` and `mise run install:claude` wire either harness.
+
+**New**
+- The staged reply (`docs/live.md`, phase 1): every writing verb answers with `did`, the file's
+  `version`, and per-stage hunks, what the verb wrote (`patch`) and what the formatter changed
+  after it (`formatter`), so the file needs no re-read.
+- `deps add [--in DIR] SPEC|NAME` and `deps upgrade [APPS] [--to REQ]`: a dependency written into
+  `mix.exs`, fetched and compiled, answered with the lock diff. `mix.exs` goes back as it was when
+  the fetch fails. Upgrades run through Igniter when the host has it.
+- `module replace FILE Mod.Name CODE`: one whole module, in a file of several.
+- A clause head copied off the def line (`def go(x)`, `go(x)`) finds its clause.
+
+**Fixed**
+- `block replace` with a whole block as the body nested the block inside itself. It is refused.
+- A first MCP start took 42s and missed Claude Code's startup wait; it takes 13s, and the plugin
+  declares a 180s timeout for a slow fetch.
+- A formatter plugin built by a newer OTP logged a load error on every format before being passed
+  over.
+
 ## 0.3.0
 
 One install, any directory, any harness: the plugin carries the MCP server and the reference.

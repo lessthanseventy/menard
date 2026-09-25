@@ -15,14 +15,16 @@ currently compile — the case where you most need it.
 Two things ship, and they install differently.
 
 **The library** — `Menard.Rename`, `Menard.Outline`, `Menard.Clause` and the rest as plain
-functions, for a tool of your own:
+functions, for a tool of your own, plus every verb as `mix menard.*` inside your project:
 
 ```elixir
-{:menard, github: "lessthanseventy/menard", ref: "<a commit>"}
+{:menard, "~> 0.4", only: :dev, runtime: false}
 ```
 
-Pinned by ref. Menard is not on hex: its mix tasks would run inside the host project, which is the
-one thing the tool avoids, and `anubis_mcp` would become every user's runtime dependency.
+`only: :dev, runtime: false` is for the tasks; a tool that calls the library at runtime drops both.
+As a dep the tasks run inside your project, so they need it to resolve its deps: for a codebase
+that does not compile, use the verbs below. The MCP door (`mix menard.mcp`) also needs the
+optional `{:anubis_mcp, "~> 2.0"}`; without it, menard brings only Sourceror.
 
 **The verbs** — the CLI, the MCP door and the harness adapters — run from *this* project, with
 its own deps, which is what lets them work on a codebase that does not compile:
