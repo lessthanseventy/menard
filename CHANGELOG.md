@@ -5,7 +5,7 @@
 On hex, and every writing verb says what it changed.
 
 **Install**
-- Published to hex: `{:menard, "~> 0.4", only: :dev, runtime: false}` gives the library and the
+- The first release on hex (0.1 to 0.3 installed from git): `{:menard, "~> 0.4", only: :dev, runtime: false}` gives the library and the
   `mix menard.*` tasks inside your project. `anubis_mcp` is optional, so a library host brings
   only Sourceror; `mix menard.mcp` asks for it when it is missing.
 - The pi adapter ships from this repo (`pi/extension.ts`): the guard and format-on-save.
