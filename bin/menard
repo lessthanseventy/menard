@@ -52,6 +52,18 @@ if ((frozen)); then
     end' -- "$verb" "$@"
 fi
 
+# stdout is the verb's ANSWER — a value from `attr get`, one JSON line from `run` — and mix prints
+# "Compiling N files" to stdout, glued onto the front of it. So when anything is newer than the last
+# build, compile first with the log on stderr; the verb's own mix then has nothing to compile.
+manifest="_build/${MIX_ENV:-dev}/lib/menard/.mix/compile.elixir"
+if [[ "$verb" != "mcp" ]] &&
+  { [[ ! -f "$manifest" ]] || [[ -n "$(find lib mix.exs mix.lock -newer "$manifest" -print -quit 2>/dev/null)" ]]; }; then
+  if ! mix compile >&2; then
+    echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
+    exit 1
+  fi
+fi
+
 # `mcp` is a long-running stdio SERVER: its stdout IS the JSON-RPC channel. Two rules follow.
 # One: nothing may buffer it, so no capture and no wrapper — exec. Two: nothing else may write
 # there, and mix's own "Compiling N files" goes to stdout, which on a cold start is dozens of
