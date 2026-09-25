@@ -257,4 +257,17 @@ defmodule Menard.HostFormatTest do
     assert %{error: _} = Enum.find(reply.stages, &(&1.stage == :formatter))
     assert File.read!(file) =~ "def   f"
   end
+
+  test "a format out of time says which formatter it was waiting on", %{tmp_dir: dir} do
+    # out of time, the reply says where the time went: menard's VM, or the host's own `mix format`
+    plugin = plug(dir, "Slow", "Process.sleep(2_000)\ncontents")
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "s.ex", "defmodule S do\nend\n")
+
+    assert {:error, message} =
+             Menard.format_content(file, File.read!(file), cache: Path.join(dir, "cache"), timeout: 300)
+
+    assert message =~ "did not finish in 0.3s"
+    assert message =~ "in menard's VM"
+  end
 end

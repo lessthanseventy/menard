@@ -9,9 +9,10 @@ defmodule Menard do
   against the caller's directory (`MENARD_CWD`, else the cwd), and the run verbs act in
   `--in DIR` (default: the caller's directory).
   """
-  @doc "The directory the caller stood in."
-  @format_timeout 30_000
+  # Under load a host's own `mix format` through mise (its plugins will not load here) took past 30s; 60s still leaves the MCP door's 90s deadline room
+  @format_timeout 60_000
 
+  @doc "The directory the caller stood in."
   def caller_dir, do: System.get_env("MENARD_CWD") || File.cwd!()
 
   @doc "A path as the caller meant it: absolute stays, relative joins the caller's directory."
@@ -61,6 +62,9 @@ defmodule Menard do
   which runs both in one pass.
   """
   def format_staged(file, content, opts \\ []) do
+    parent = self()
+    ms = opts[:timeout] || @format_timeout
+
     work = fn ->
       in_vm? =
         Code.ensure_loaded?(Mix.Tasks.Format) and
@@ -71,6 +75,7 @@ defmodule Menard do
           {:ok, formatted, split}
 
         {:fallback, why} ->
+          send(parent, {__MODULE__, :waiting_on, "the host's own `mix format` (#{why})"})
           File.write!(file, content)
 
           case shell_format(file) do
@@ -82,12 +87,21 @@ defmodule Menard do
 
     task = Task.async(work)
 
-    case Task.yield(task, @format_timeout) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} ->
         result
 
+      # Which formatter ran out the time is the thing to know: under load, a host's plugins that do
+      # not load here send it to its own `mix format` through mise, a whole VM of its own.
       _timeout ->
-        {:error, "format did not finish in #{div(@format_timeout, 1000)}s — file written UNFORMATTED"}
+        waiting_on =
+          receive do
+            {__MODULE__, :waiting_on, what} -> what
+          after
+            0 -> "the formatter in menard's VM"
+          end
+
+        {:error, "format did not finish in #{ms / 1000}s, in #{waiting_on} — file written UNFORMATTED"}
     end
   end
 
