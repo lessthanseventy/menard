@@ -1,6 +1,5 @@
 defmodule Menard.StmtTest do
-  # A statement inside a body was the last thing with no verb — adding a line to a function meant
-  # editing the file as text. Case arms come with it: an arm is a statement of its `case`.
+  # One statement inside a body. Case arms come with it: an arm is a statement of its `case`.
   use ExUnit.Case, async: true
 
   alias Menard.Stmt

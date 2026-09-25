@@ -81,9 +81,8 @@ fi
 # that streams.
 err=$(mktemp)
 trap 'rm -f "$err"' EXIT
-# `&& status=0 || status=$?` puts the call in a condition, so `set -e` does not abort the script
-# the instant mix fails — which it did, before the line below could print the error, so every
-# failure read as a bare "ERROR task failed" with the message that says what to fix thrown away.
+# `&& status=0 || status=$?` keeps the call in a condition: under `set -e` a failing mix would abort
+# the script before the line below prints the error, the one that says what to fix.
 mix "menard.$verb" "$@" 2>"$err" && status=0 || status=$?
 cat "$err" >&2
 if ((status != 0)) && grep -qE "cannot compile module|CompileError" "$err"; then
