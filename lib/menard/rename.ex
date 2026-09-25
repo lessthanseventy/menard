@@ -26,7 +26,9 @@ defmodule Menard.Rename do
 
         apply_patches(
           source,
-          patches ++ comment_patches(source, old, new, Keyword.get(opts, :comments, false))
+          patches ++
+            comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
+            heex_patches(ast, source, old, new, opts[:only])
         )
 
       {:error, reason} ->
@@ -167,5 +169,32 @@ defmodule Menard.Rename do
       _ ->
         nil
     end
+  end
+
+  # ~H is a string to the AST, so the calls in its `{…}` and `<%= %>` kept the old name: the rename
+  # said the file was done, and the project stopped compiling. A call written there, `old(` alone or
+  # after a module's dot, is patched too; an assign `@old` or an atom `:old` is not a call.
+  defp heex_patches(_ast, _source, _old, _new, :variables), do: []
+
+  defp heex_patches(ast, source, old, new, _only) do
+    call = ~r/(?<![A-Za-z0-9_@:?!])#{Regex.escape(old)}(?=\()/
+    lines = String.split(source, "\n")
+
+    ast
+    |> Macro.prewalker()
+    |> Enum.flat_map(fn
+      {:sigil_H, _meta, _args} = node ->
+        %{start: [line: a, column: ca], end: [line: b, column: cb]} = Sourceror.get_range(node)
+
+        Enum.flat_map(a..b, fn no ->
+          line = Enum.at(lines, no - 1, "")
+          from = if no == a, do: ca, else: 1
+          to = if no == b, do: cb, else: String.length(line) + 1
+          line |> String.slice(from - 1, to - from) |> mention_patches(no, from - 1, call, new)
+        end)
+
+      _node ->
+        []
+    end)
   end
 end

@@ -67,6 +67,8 @@
   took past 30s while a warm one took 3s.
 - A line inside a multi-line string, sigil or heredoc is part of its value, and no verb moves it
   any more: re-placing a value or a statement shifted such lines, which changed the string.
+- `rename` reaches a call inside `~H` (`:if={old(@x)}`, `<%= Mod.old(@y) %>`); it renamed around
+  it and reported the file done, and the project stopped compiling.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.

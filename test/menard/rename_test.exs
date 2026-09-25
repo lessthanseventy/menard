@@ -117,4 +117,30 @@ defmodule Menard.RenameTest do
            end
            """
   end
+
+  test "a call inside ~H is renamed with the rest" do
+    # a call inside ~H is a string to the AST: `rename` left it, said the file was done, and the
+    # project stopped compiling (hhaa: `:if={… is_editable?(@background_check)}`)
+    src = """
+    defmodule L do
+      def is_editable?(x), do: x
+
+      def render(assigns) do
+        ~H\"\"\"
+        <div :if={is_editable?(@x)}><%= L.is_editable?(@y) %> @is_editable? is_editable_x</div>
+        \"\"\"
+      end
+    end
+    """
+
+    out = Rename.run(src, "is_editable?", "editable?", only: :functions)
+    assert out =~ "def editable?(x)"
+    assert out =~ ":if={editable?(@x)}"
+    assert out =~ "<%= L.editable?(@y) %>"
+    # an assign and a longer name are not the call
+    assert out =~ "@is_editable? is_editable_x"
+
+    # renaming variables leaves ~H alone
+    assert Rename.run(src, "is_editable?", "editable?", only: :variables) =~ ":if={is_editable?(@x)}"
+  end
 end
