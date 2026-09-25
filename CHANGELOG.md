@@ -15,6 +15,9 @@
 - `module comment --above` (MCP `above`): the comment over `defmodule`, where a license header or
   a file's reason goes, not the one at the top of its body.
 
+- menard's own examples are doctests (`Menard.Diff.hunks/2`, `Menard.jsonable/1`), kept
+  formatted by `doctest_formatter`, a dev dependency.
+
 **Fixed**
 - A new attribute lands above the first node that reads it: a `@moduledoc` interpolating it, or a
   `use Foo, from: @it`. It went above the first table, below both, where the read is nil.
