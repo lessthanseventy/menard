@@ -55,7 +55,9 @@ compiles its deps for you.
 
 menard ships one adapter per harness, all from this repo — no host repo required. `mise run
 install:pi` and `mise run install:claude` write the right config into `~/.pi/agent/` or register
-the Claude Code plugin. See `docs/adapters.md`.
+the Claude Code plugin. The plugin installs per project: run `mise -C ~/path/to/menard run
+install:claude` from the Elixir repo, and its tools load there and nowhere else (`--user` for
+every project). See `docs/adapters.md`.
 
 ## Verbs
 
