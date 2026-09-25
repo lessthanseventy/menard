@@ -119,7 +119,7 @@ defmodule Menard.ClauseTest do
     end
 
     test "parens that are not a wrapper stay put — and the miss names the real head" do
-      src = "defmodule D do\n  def pair(a, b), do: {a, b}\nend\n"
+      src = "defmodule D do\n  def pair(a, b), do: {a, b}\n  def pair(nil, b), do: b\nend\n"
       assert {:error, message} = Clause.replace_body(src, "pair/2", "(a), (b)", ":ok")
       assert message =~ "have: `a, b`"
     end
@@ -144,6 +144,31 @@ defmodule Menard.ClauseTest do
       assert {:error, message} = Clause.replace_body(two, "pct/2", "", "1")
       assert message =~ "`0, _`"
       assert message =~ "`done, total`"
+    end
+
+    test "the def line copied with its do finds the clause" do
+      assert Clause.replace_body(@src, "go/1", "def go(:b) do", "20") =~ "def go(:b) do\n    20\n  end"
+      assert Clause.replace_body(@src, "go/1", "def go(:a), do:", "10") =~ "def go(:a), do: 10"
+    end
+
+    test "the guard may be left off when it is not what tells the clauses apart" do
+      src = "defmodule D do\n  def only(x) when is_integer(x), do: x\n  def only(y), do: y\nend\n"
+      assert Clause.replace_body(src, "only/1", "x", ":int") =~ "def only(x) when is_integer(x), do: :int"
+
+      # the guard is what tells these two apart: left off, the exact head wins, and a tie is refused
+      tie = "defmodule D do\n  def f(x) when is_integer(x), do: x\n  def f(x) when is_atom(x), do: x\nend\n"
+      assert {:error, message} = Clause.replace_body(tie, "f/1", "x", ":no")
+      assert message =~ "is_integer" and message =~ "is_atom"
+    end
+
+    test "a function with one clause answers to any head" do
+      # one clause has nothing to tell apart, so a head that misses (the NEW one, on a rewrite) still means it
+      one = "defmodule D do\n  def total(%{} = cart), do: cart\nend\n"
+
+      assert Clause.rewrite(one, "total/1", "cart, rate", "def total(cart, rate), do: {cart, rate}") =~
+               "def total(cart, rate)"
+
+      assert Clause.replace_body(one, "total/1", "whatever", ":ok") =~ "def total(%{} = cart), do: :ok"
     end
   end
 

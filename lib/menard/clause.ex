@@ -396,21 +396,31 @@ defmodule Menard.Clause do
          {:ok, scope} <- scope(ast, mod, name, arity) do
       clauses = clauses(scope, name, arity)
       want = wanted_head(head, name, arity)
+      exact = Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)]))
+      # the guard left off still names a clause, when it isn't what tells the clauses apart
+      unguarded =
+        Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.node |> elem(2) |> hd() |> bare_args())]))
 
-      case Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)])) do
-        # no head, and only one clause: nothing to tell apart
-        [] when want == "" and length(clauses) == 1 -> {:ok, hd(clauses)}
-        [] -> {:error, "no clause #{name}/#{arity} with head `#{head}` — have: #{heads(clauses)}"}
-        [one] -> {:ok, one}
-        many -> pick_nth(many, name, arity, head, opts[:nth])
+      case {exact, unguarded} do
+        {[one], _} -> {:ok, one}
+        {[_ | _] = many, _} -> pick_nth(many, name, arity, head, opts[:nth])
+        {[], [one]} -> {:ok, one}
+        {[], [_ | _] = many} -> pick_nth(many, name, arity, head, opts[:nth])
+        # one clause has nothing to tell apart: any head, even the one it is about to get, means it
+        {[], []} when length(clauses) == 1 -> {:ok, hd(clauses)}
+        {[], []} -> {:error, "no clause #{name}/#{arity} with head `#{head}` — have: #{heads(clauses)}"}
       end
     end
   end
+
+  # `def go(x) do` and `def go(x), do:` are the def line as it stands: the `do` is not the head
+  defp strip_do(head), do: String.replace(head, ~r/,?\s*\bdo:?\s*\z/, "")
 
   # A zero-arity clause has no head, so the name is what a caller would write. Arity 0 only: at
   # arity 1 `style` is an ARGUMENT.
   defp wanted_head(head, name, 0) do
     n = to_string(name)
+    head = strip_do(head)
 
     if squash(head) in ["", squash(n), squash("#{n}()"), squash("def #{n}"), squash("def #{n}()")],
       do: "",
@@ -421,6 +431,7 @@ defmodule Menard.Clause do
   # `(x)`, is the paren wrapper already tolerated. A call is not a pattern, so no head starts `go(`.
   defp wanted_head(head, name, _arity) do
     head
+    |> strip_do()
     |> String.replace(~r/\A\s*(?:(?:defp?|defmacrop?)\s+)?#{Regex.escape(to_string(name))}(?=\s*\()/, "")
     |> squash()
   end
@@ -428,7 +439,7 @@ defmodule Menard.Clause do
   # Acting on "the first" silently is how a delete eats the clause that was just written, so an
   # ambiguous head is refused and `--nth` is the way to mean one of them.
   defp pick_nth(many, name, arity, head, nil) do
-    lines = Enum.map_join(many, ", ", fn c -> "line #{start_line_of(c)}" end)
+    lines = Enum.map_join(many, ", ", fn c -> "line #{start_line_of(c)}: `#{c.head_text}`" end)
 
     {:error,
      "#{length(many)} clauses of #{name}/#{arity} share the head `#{head}` (#{lines}) — " <>
