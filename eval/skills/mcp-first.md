@@ -12,9 +12,9 @@ relative to the project. New files, `config/*.exs`, `.formatter.exs` and `mix.lo
 
 ## Which tool
 
-Start with `outline {file}`: every module, clause (`name/arity`, its line, its head) and doc, in
-far fewer tokens than reading the file. `Read` only the lines you need after it. Then match the
-SHAPE of the change:
+Start with `outline {file}`: every module, and every clause's `name/arity`, `head`, lines and doc,
+in far fewer tokens than reading the file. `Read` only the lines you need after it. Then match
+the SHAPE of the change:
 
 | changing | call |
 |---|---|
@@ -30,9 +30,16 @@ SHAPE of the change:
 | who calls what | `find {kind: "calls", target: "Mod.fun", files}`: strings and comments never match |
 | a whole new file | `write {file, code}` |
 
-`head` is the clause's arguments as written, without defaults: `source, opts` finds
-`def f(source, opts \\ [])`; a zero-arity or only clause takes `""`. `replace` takes the BODY,
-`rewrite` the whole clause. A function name repeated across modules is `Mod.Name.fun/2`.
+**`head` is an address: the clause's CURRENT head, copied from `outline`** (`head:
+"%__MODULE__{items: items}"`), not what it will become. A wrong head is refused with the heads
+that are there: copy one. What the clause BECOMES goes in `code`:
+
+- `replace`: `code` is the new body alone.
+- `rewrite`: `code` is the whole new clause, new head included. Changing `total(cart)` into
+  `total(cart, rate)` is `{verb: "rewrite", name_arity: "total/1", head: "cart", code: "def total(cart, rate) do … end"}`;
+  the arity in `name_arity` is the old one.
+
+A function name repeated across modules is `Mod.Name.fun/2`.
 
 ## Traps
 
