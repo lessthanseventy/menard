@@ -29,6 +29,17 @@ if [[ ! -d deps/sourceror ]]; then
 fi
 
 verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|mcp"
+
+# menard building ITSELF (a first fetch, a compile after an update) is menard's business, not the
+# caller's: its log goes nowhere unless it fails. stderr then carries only the verb's own refusals
+# and real errors, so a caller never has to throw it away to read the answer.
+quietly() {
+  local log
+  log=$("$@" 2>&1 </dev/null) && return 0
+  local status=$?
+  printf '%s\n' "$log" >&2
+  return $status
+}
 frozen=0
 [[ "${1:-}" == "--frozen" ]] && { frozen=1; shift; }
 
@@ -74,7 +85,7 @@ fi
 manifest="_build/${MIX_ENV:-dev}/lib/menard/.mix/compile.elixir"
 if [[ "$verb" != "mcp" ]] &&
   { [[ ! -f "$manifest" ]] || [[ -n "$(find lib mix.exs mix.lock -newer "$manifest" -print -quit 2>/dev/null)" ]]; }; then
-  if ! "${run[@]}" mix compile >&2 </dev/null; then
+  if ! quietly "${run[@]}" mix compile; then
     echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
     exit 1
   fi
@@ -89,7 +100,7 @@ fi
 # lines straight into the protocol. Compile first with that output on stderr, so the server starts
 # with a clean channel.
 if [[ "$verb" == "mcp" ]]; then
-  "${run[@]}" mix compile >&2 </dev/null || exit $?
+  quietly "${run[@]}" mix compile || exit $?
   exec "${run[@]}" mix "menard.$verb" "$@"
 fi
 
