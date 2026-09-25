@@ -34,7 +34,7 @@ its picture of the file is the file, with no re-read needed.
   stages: [
     %{stage: :patch,     hunks: [...]},                     # exactly what the verb wrote
     %{stage: :formatter, hunks: [...]},                     # what `mix format` changed after it
-    %{stage: :styler,    hunks: [...], rewrites: [...]},    # what Styler rewrote, and which rule
+    %{stage: :plugins,   plugins: ["Styler"], hunks: [...]}, # what the host's plugins rewrote after it
     %{stage: :credo,     issues: [...]}                     # only on the lines this edit touched
   ]
 }
@@ -45,18 +45,29 @@ formatter and Styler run as one pass, so their changes can't be told apart. The 
 its one JSON line, the MCP door returns it as-is, and a hook can put a one-line summary into the
 agent's context.
 
-## Styler inside menard
+## Styler as a stage
 
-- **Why:** the host's Styler only loads in menard's VM when both were built on the same OTP (the
-  `:badfile` from 2026-09-25). If menard depends on Styler itself, its own build always loads, the
-  fallback shell-out becomes rare, and Styler can run as a separate stage whose rewrites menard can
-  name.
-- **When it applies:** only when the host's `.formatter.exs` lists `Styler`. Menard never forces a
-  style onto a project that did not choose it.
-- **Version drift:** if the host locks Styler at a different version than menard's (read from the
-  host's `mix.lock`), their output can disagree, and the host's `format --check-formatted` gate would
-  fail on menard's edits. So menard uses its own Styler only on a version match, and falls back to
-  the host's toolchain otherwise.
+Built without a Styler dependency. The first plan had menard carry its own Styler, so it would
+always load, and use it on a version match with the host's `mix.lock`. Two things argued against:
+the projects here lock Styler anywhere from 0.8 to 1.12, so a match would be rare, and menard's copy
+would sit first on the code path and shadow the host's own. Instead the split uses the host's
+plugins, whatever they are:
+
+- `:formatter` is Elixir's formatter alone, with the host's options (its `import_deps` included).
+- `:plugins` is what the host's plugins (Styler, the HEEx formatter) changed after that, and names
+  them. Named `plugins` rather than `styler`, since there can be several and their changes cannot
+  be told apart.
+- What menard writes is always the host's full formatter output, as before, so the host's
+  `format --check-formatted` agrees by construction.
+- On the shell fallback (a plugin that will not load in menard's VM), `mix format` runs everything
+  in one pass and there is one `:formatter` stage, as in phase 1.
+
+Open: which Styler *rule* made each change. Styler runs its styles through `Styler.style/3`, which is
+`@doc false`, and reaching into it would break with Styler releases.
+
+Why keep Styler in the host at all: it rewrites whole files. Taken out of the host, the files drift
+from its style, and then a one-line edit restyles the whole file. Kept there, the code stays
+styled, and the `:plugins` stage of an edit is small and local.
 
 ## Stale state and several sessions
 
@@ -69,8 +80,8 @@ file another session had just rewritten would land somewhere wrong or not at all
 
 1. **The reply.** Every verb returns the structure above, with stages `patch` and `formatter`
    diffed separately. No new dependencies.
-2. **Styler as a stage.** Menard depends on Styler, applied on a version match; its rewrites are
-   reported per rule.
+2. **Styler as a stage.** The host's plugins run as their own `:plugins` stage, apart from the
+   formatter (built; see above).
 3. **Versions.** `version` in, `version` out, stale edits refused.
 4. **Diagnostics on touched lines.** Credo, and compile warnings, filtered to the lines this edit
    changed.
@@ -88,10 +99,12 @@ file another session had just rewritten would land somewhere wrong or not at all
   reply, and that's the agent's context. The CLI prints one JSON line. A hook (Claude Code
   PostToolUse, pi tool_result) can extract `did` for a toast/status, but the model already sees
   the full structure. No separate "one-line summary" channel needed.
-- **Is `version` required (strict), or optional and advisory?** Advisory to start (phase 3).
-  The agent passes `version` if it has one; a mismatch warns and replies with the diff since
-  that version, but the edit still runs. Strict is a later opt-in (a project that wants it sets
-  it in `.menard.exs` or passes `--strict`).
+- **Is `version` required, and does a mismatch warn or refuse?** Optional, and a mismatch
+  refuses (phase 3). A warning arrives after the edit has already overwritten the other session's
+  change; a refusal costs one round trip, and carries the diff since the version the agent had.
+  `--force` writes anyway. The check is on the whole file for now; menard addresses by name, so it
+  could narrow to "refuse only when what changed overlaps what this edit touches" if unrelated
+  edits cause too many refusals.
 
 ## Implementation plan
 
@@ -123,7 +136,7 @@ formatted  formatter.(content) in in_process/2 — already computed, just not re
    - parse-check (`Menard.Write.checked`)
    - format in-memory: `in_process/2` returns `{:ok, formatted}` instead of writing the file
    - diff `original → patched` = `:patch` hunks
-   - diff `patched → formatted` = `:formatter` hunks (includes Styler today; phase 2 splits it)
+   - diff `patched → formatted` = `:formatter` hunks (Styler included; phase 2 splits it out)
    - `File.write!(file, formatted)`
    - `version: sha256(formatted)`
    - return `{:ok, %{did, version, stages: [%{stage: :patch, hunks}, %{stage: :formatter, hunks}]}}`
@@ -144,20 +157,7 @@ formatted  formatter.(content) in in_process/2 — already computed, just not re
 
 ### Phase 2: Styler as a stage
 
-1. **Add Styler as a menard dep.** menard's own build always loads it (no OTP `:badfile`).
-
-2. **Run Styler separately from the formatter.** Today `mix format` runs both. To split:
-   - `in_process/2` runs `formatter_for_file` with the plugin list MINUS Styler → `:formatter` stage
-   - then runs Styler on the result → `:styler` stage
-   - Styler's rewrites are reported per rule (Styler names the rule that fired)
-
-3. **Version match.** Read the host's `mix.lock` for Styler's version. If it matches menard's,
-   use menard's Styler (in-process, separate stage). If not, fall back to the host's `mix format`
-   (formatter + Styler as one pass, same as phase 1) — the `:styler` stage is absent and the
-   `:formatter` stage carries both. The host's `format --check-formatted` gate always agrees.
-
-4. **When it applies.** Only when the host's `.formatter.exs` lists `Styler`. menard never
-   forces a style onto a project that did not choose it.
+Built as described under "Styler as a stage" above.
 
 ### Phase 3: versions
 

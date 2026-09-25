@@ -97,5 +97,8 @@ answers with that run alone: its failures, its `seed` (rerun with `--seed N` to 
 `runs`, how many passed before it. Any other `mix test` flag passes through the same way.
 
 The verbs format after every edit with the project's own formatter, so what you read next is what
-the formatter wrote. A parse-checked write catches **malformed** output, not **wrong** output: it
+the formatter wrote. The reply says what each step did: `patch` is what you wrote, `formatter` what
+`mix format` changed, and `plugins` what the project's plugins (Styler) rewrote after that:
+sorted aliases, a collapsed pipe, an added `@moduledoc false`. Read `plugins` before you go
+looking for your edit and find it moved. A parse-checked write catches **malformed** output, not **wrong** output: it
 is a floor, not a proof. Run the check.

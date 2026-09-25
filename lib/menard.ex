@@ -50,20 +50,31 @@ defmodule Menard do
   a file path; the caller's write is then a no-op.
   """
   def format_content(file, content, opts \\ []) do
+    with {:ok, formatted, _split} <- format_staged(file, content, opts), do: {:ok, formatted}
+  end
+
+  @doc """
+  `format_content/3`, and where the host's `.formatter.exs` has plugins, what the formatter alone
+  made of `content`: `{:ok, formatted, {plain, plugins}}`, so a caller can tell a plugin's rewrites
+  (Styler's) from the formatter's. `formatted` is always the host's full formatter, so its
+  `format --check-formatted` agrees. The split is `nil` with no plugins, or on the shell fallback,
+  which runs both in one pass.
+  """
+  def format_staged(file, content, opts \\ []) do
     work = fn ->
       in_vm? =
         Code.ensure_loaded?(Mix.Tasks.Format) and
           function_exported?(Mix.Tasks.Format, :formatter_for_file, 2)
 
       case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
-        {:ok, formatted} ->
-          {:ok, formatted}
+        {:ok, formatted, split} ->
+          {:ok, formatted, split}
 
         {:fallback, why} ->
           File.write!(file, content)
 
           case shell_format(file) do
-            :ok -> {:ok, File.read!(file)}
+            :ok -> {:ok, File.read!(file), nil}
             {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
           end
       end
@@ -85,11 +96,12 @@ defmodule Menard do
     project = find_up(root, "mix.exs") || root
     dot = Path.join(root, ".formatter.exs")
     dot_opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
+    plugins = dot_opts[:plugins] || []
 
     with {:ok, deps_paths} <-
            import_deps(dot_opts[:import_deps] || [], project, opts[:cache] || cache_dir(project)),
-         :ok <- plugins_here(dot_opts[:plugins] || [], project) do
-      {formatter, _opts} =
+         :ok <- plugins_here(plugins, project) do
+      {formatter, formatter_opts} =
         Mix.Tasks.Format.formatter_for_file(file,
           root: root,
           dot_formatter: dot,
@@ -97,7 +109,8 @@ defmodule Menard do
           plugin_loader: & &1
         )
 
-      {:ok, formatter.(content)}
+      split = if plugins != [], do: split(content, formatter_opts, file, plugins)
+      {:ok, formatter.(content), split}
     end
   rescue
     e -> {:fallback, Exception.message(e)}
@@ -198,6 +211,32 @@ defmodule Menard do
     if File.exists?(Path.join(dir, name)), do: dir, else: find_up(Path.dirname(dir), name)
   end
 
+  # The formatter alone, with the host's options (import_deps' locals included), so whatever the
+  # plugins changed after it is theirs to answer for. A pass that fails loses the split, not the
+  # format: the plugins' changes are then billed to the formatter, as before.
+  defp split(content, formatter_opts, file, plugins) do
+    plain = Code.format_string!(content, Keyword.put(formatter_opts, :file, file))
+    {IO.iodata_to_binary([plain, ?\n]), Enum.map(plugins, &inspect/1)}
+  rescue
+    _ -> nil
+  end
+
+  # :formatter is what `mix format` alone changed; :plugins, when the host has any, what they
+  # (Styler) rewrote after it — so an agent can tell a rewrite it did not ask for from its own edit
+  defp stages(original, patched, formatted, nil),
+    do: [
+      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
+      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, formatted)}
+    ]
+
+  defp stages(original, patched, formatted, {plain, plugins}) do
+    [
+      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
+      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, plain)},
+      %{stage: :plugins, plugins: plugins, hunks: Menard.Diff.hunks(plain, formatted)}
+    ]
+  end
+
   @doc """
   Write `content` to `file` through the staged pipeline: parse-check, format in-memory, diff each
   stage, write the result. Returns `{:ok, reply}` where reply is `%{did, file, version, stages}` —
@@ -216,10 +255,10 @@ defmodule Menard do
 
     case Menard.Write.checked(file, content) do
       {:ok, patched} ->
-        {formatted, format_error} =
-          case format_content(file, patched) do
-            {:ok, f} -> {f, nil}
-            {:error, reason} -> {patched, reason}
+        {formatted, split, format_error} =
+          case format_staged(file, patched) do
+            {:ok, f, split} -> {f, split, nil}
+            {:error, reason} -> {patched, nil, reason}
           end
 
         File.write!(file, formatted)
@@ -229,15 +268,7 @@ defmodule Menard do
         version =
           "sha256:" <> Base.encode16(:crypto.hash(:sha256, formatted), case: :lower)
 
-        stages = [
-          %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
-          %{
-            stage: :formatter,
-            hunks: if(formatted != patched, do: Menard.Diff.hunks(patched, formatted), else: [])
-          }
-        ]
-
-        {:ok, %{did: did, file: file, version: version, stages: stages}}
+        {:ok, %{did: did, file: file, version: version, stages: stages(original, patched, formatted, split)}}
 
       {:error, reason} ->
         {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
