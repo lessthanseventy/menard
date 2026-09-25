@@ -13,10 +13,6 @@ commit lands.
       starts with that same comment leaves it in the file twice (plugin 0.3.0, seen on
       ex_compact's `lib/ex_compact/client.ex`). Unreproduced here.
 - [ ] Reported by the cleanup agents (plugin 0.3.0), 2026-09-25:
-  - [ ] `stmt` MATCH must be the statement's whole text; a leading fragment (`elixir_files =`)
-        misses, though the skill says "by what is WRITTEN".
-  - [ ] `stmt` cannot reach the steps of a `with` that has an `else`: `list` shows the whole `with`
-        (Console.Staffing.spawn_center/2).
   - [ ] `block replace` doubles a leading comment the new body repeats; a second replace does not
         clear it.
   - [ ] `attr set` put a new attribute between a function's `@doc` and its `def` (console's

@@ -36,6 +36,10 @@
   itself, and says so (`ran`).
 - A `run` whose deps are behind mix.lock (after a pull) fetches them, runs again, and names what it
   fetched (`fetched`), instead of failing on "dependency not available".
+- `stmt` reaches a `with`'s steps and every arm of its `else` (and a `try`'s `rescue`): only the
+  first block's body was reachable, and no step ever was.
+- `stmt` MATCH may be the statement's start (`elixir_files =`) when no statement matches whole;
+  several that start so are refused, each named by its first line.
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
