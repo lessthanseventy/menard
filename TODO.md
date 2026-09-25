@@ -3,8 +3,6 @@
 Found and not yet fixed. Fix it, or write it here, never just "noted". Delete a line when its
 commit lands.
 
-- [ ] `hooks/format-elixir.sh` still runs the host's bare `mix format`: wrong toolchain, fails on
-      unresolved deps. Route it through menard's formatter.
 - [ ] The installed plugin is a 2026-09-10 snapshot (`menard@ficciones` 0.1.0, hooks run under
       `sh`). The version never changed, so Claude Code never updated it. Bump the version on each
       release, and reinstall from menard's own marketplace.

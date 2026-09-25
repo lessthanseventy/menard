@@ -20,9 +20,14 @@ defmodule Menard.Run do
   def result(dir, "format", files) do
     files = Enum.map(files, &Path.expand(&1, dir))
     before = Map.new(files, &{&1, File.read!(&1)})
-    {out, status} = mix(dir, ["format" | files])
+
+    # menard's own formatter, not the host's bare `mix format`: it works while the host's deps do not
+    # resolve or its mix.exs does not parse, and never formats without a plugin the host uses
+    errors =
+      for file <- files, {:error, message} <- [Menard.format(file)], do: %{file: file, error: message}
+
     changed = Enum.filter(files, &(File.read!(&1) != before[&1]))
-    %{ok: status == 0, exit: status, changed: changed, tail: tail(out)}
+    %{ok: errors == [], changed: changed, errors: errors}
   end
 
   def result(dir, "compile", _args) do

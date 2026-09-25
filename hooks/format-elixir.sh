@@ -30,5 +30,12 @@ while [[ "$dir" != "/" && ! -f "$dir/mix.exs" ]]; do
 done
 [[ -f "$dir/mix.exs" ]] || exit 0
 
-(cd "$dir" && mix format "$file") >/dev/null 2>&1 || true
+# menard's formatter when the plugin carries it: it runs on the host's own toolchain, works while
+# the host's deps do not resolve or its mix.exs does not parse, and never formats without a plugin
+# the host uses. The bare `mix format` is the fallback for a checkout without menard.
+if [[ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/menard" ]]; then
+  "$CLAUDE_PLUGIN_ROOT/bin/menard" run format --in "$dir" "$file" >/dev/null 2>&1 || true
+else
+  (cd "$dir" && mix format "$file") >/dev/null 2>&1 || true
+fi
 exit 0

@@ -145,4 +145,17 @@ defmodule Menard.RunTest do
       assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
     end
   end
+
+  @tag :tmp_dir
+  test "format works on a host whose mix.exs does not parse, and says what changed", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "mix.exs"), "defmodule Broken do\n  this does not parse (\n")
+    File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")
+    messy = Path.join(dir, "messy.ex")
+    clean = Path.join(dir, "clean.ex")
+    File.write!(messy, "defmodule M do\n  def   go, do: 1\nend\n")
+    File.write!(clean, "defmodule C do\nend\n")
+
+    assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", ["messy.ex", "clean.ex"])
+    assert File.read!(messy) =~ "def go, do: 1"
+  end
 end
