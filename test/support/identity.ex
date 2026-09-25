@@ -43,8 +43,11 @@ defmodule Menard.Test.Identity do
 
   defp edits(source, :attr) do
     for {mod, node} <- modules(source),
+        # a module the verbs refuse (defined twice) has nothing to list
+        listed = Attr.list(source, module: mod),
+        is_list(listed),
         # a name set more than once is refused by `set` — the clause verbs own those
-        {name, 1} <- source |> Attr.list(module: mod) |> Enum.frequencies_by(&elem(&1, 0)),
+        {name, 1} <- Enum.frequencies_by(listed, &elem(&1, 0)),
         {:@, _, [{^name, _, [value]}]} <- Clause.module_body(node),
         text = slice(source, value),
         is_binary(text) do
@@ -54,7 +57,9 @@ defmodule Menard.Test.Identity do
 
   defp edits(source, :block) do
     for {mod, _node} <- modules(source),
-        {name, label, _line} <- Block.list(source, module: mod),
+        listed = Block.list(source, module: mod),
+        is_list(listed),
+        {name, label, _line} <- listed,
         body = Block.get(source, name, module: mod, label: label),
         is_binary(body) do
       out = Block.replace(source, name, body, module: mod, label: label)

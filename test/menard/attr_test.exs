@@ -277,7 +277,7 @@ defmodule Menard.AttrTest do
     value = "~w(\n      one two\n      three\n    )a"
     assert Menard.Attr.set(src, "words", value) == src
 
-    # code written from column 0 still lands at the attribute's column
-    assert Menard.Attr.set(src, "words", "~w(\n  four\n)a") =~ "  @words ~w(\n    four\n  )a\n"
+    # a sigil's lines are its value, written from column 0 or not: they stay as given
+    assert Menard.Attr.set(src, "words", "~w(\n  four\n)a") =~ "  @words ~w(\n  four\n)a\n"
   end
 end
