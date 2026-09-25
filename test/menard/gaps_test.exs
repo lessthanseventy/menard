@@ -382,4 +382,14 @@ defmodule Menard.DepsTest do
     assert {:error, message} = Deps.of(@src, "nope/9")
     assert message =~ "go/1"
   end
+
+  test "a `__MODULE__.X` reference is reported, not a crash" do
+    src = """
+    defmodule A do
+      def go, do: __MODULE__.Inner.x()
+    end
+    """
+
+    assert %{remotes: ["__MODULE__.Inner.x/0"], modules: ["__MODULE__.Inner"]} = Deps.of(src, "go/0")
+  end
 end

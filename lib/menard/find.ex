@@ -67,10 +67,10 @@ defmodule Menard.Find do
     walk(source, fn node, _aliases ->
       case node do
         {:alias, _meta, [{:__aliases__, _, parts}]} ->
-          if Enum.join(parts, ".") == mod, do: {:alias, node}, else: nil
+          if Menard.Source.alias_name(parts) == mod, do: {:alias, node}, else: nil
 
         {:alias, _meta, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} ->
-          if Enum.any?(subs, fn {:__aliases__, _, p} -> Enum.join(base ++ p, ".") == mod end),
+          if Enum.any?(subs, fn {:__aliases__, _, p} -> Menard.Source.alias_name(base ++ p) == mod end),
             do: {:alias, node},
             else: nil
 
@@ -120,18 +120,25 @@ defmodule Menard.Find do
   # `def name(args)` as text, without the body — the head is what a search shows.
   defp head_only(kind, head), do: "#{kind} " <> Sourceror.to_string(head)
 
+  # `alias __MODULE__.X` means the module it is written in, so each module's aliases are read with its name.
   defp collect_aliases(ast) do
+    ast
+    |> Menard.Clause.modules()
+    |> Enum.reduce(aliases_in(ast, nil), fn {mod, node}, acc -> Map.merge(acc, aliases_in(node, mod)) end)
+  end
+
+  defp aliases_in(ast, current) do
     ast
     |> Zipper.zip()
     |> Zipper.traverse(%{}, fn z, acc ->
       case Zipper.node(z) do
         {:alias, _, [{:__aliases__, _, parts}]} ->
-          {z, Map.put(acc, List.last(parts), Enum.join(parts, "."))}
+          {z, Map.put(acc, List.last(parts), Menard.Source.alias_name(parts, current))}
 
         {:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} ->
           {z,
            Enum.reduce(subs, acc, fn {:__aliases__, _, p}, a ->
-             Map.put(a, List.last(p), Enum.join(base ++ p, "."))
+             Map.put(a, List.last(p), Menard.Source.alias_name(base ++ p, current))
            end)}
 
         _ ->
@@ -144,8 +151,8 @@ defmodule Menard.Find do
   # A module reference's full name: the first segment may be an alias.
   defp expand([first | rest], aliases) do
     case Map.fetch(aliases, first) do
-      {:ok, full} -> Enum.join([full | Enum.map(rest, &Atom.to_string/1)], ".")
-      :error -> Enum.map_join([first | rest], ".", &Atom.to_string/1)
+      {:ok, full} -> Enum.join([full | Enum.map(rest, &to_string/1)], ".")
+      :error -> Menard.Source.alias_name([first | rest])
     end
   end
 

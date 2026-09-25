@@ -36,4 +36,15 @@ defmodule Menard.FindTest do
   test "aliases: where a module is aliased" do
     assert [%{line: 2, kind: :alias}] = Find.aliases(@src, "Server.Channels")
   end
+
+  test "calls resolves `alias __MODULE__.X` against the module it sits in" do
+    src = """
+    defmodule A do
+      alias __MODULE__.Inner
+      def go, do: Inner.x()
+    end
+    """
+
+    assert [%{line: 3}] = Find.calls(src, "A.Inner.x")
+  end
 end

@@ -432,8 +432,11 @@ defmodule Menard.Clause do
     |> Zipper.zip()
     |> Zipper.traverse([], fn z, acc ->
       case Zipper.node(z) do
-        {:defmodule, _, [{:__aliases__, _, parts} | _]} = node -> {z, acc ++ [{Enum.join(parts, "."), node}]}
-        _ -> {z, acc}
+        {:defmodule, _, [{:__aliases__, _, parts} | _]} = node ->
+          {z, acc ++ [{Menard.Source.alias_name(parts), node}]}
+
+        _ ->
+          {z, acc}
       end
     end)
     |> elem(1)

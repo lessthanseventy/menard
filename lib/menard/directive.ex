@@ -142,7 +142,7 @@ defmodule Menard.Directive do
   # -- reading directives ---------------------------------------------------
 
   defp directive({kind, _meta, [{:__aliases__, _alias_meta, parts} | _rest]}) when kind in @kinds,
-    do: {kind, Enum.join(parts, ".")}
+    do: {kind, Menard.Source.alias_name(parts)}
 
   defp directive(_statement), do: nil
 

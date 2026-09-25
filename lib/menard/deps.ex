@@ -98,15 +98,13 @@ defmodule Menard.Deps do
   # has to travel with the code.
   defp absorb({{:., _dot, [{:__aliases__, _am, parts}, fun]}, _meta, args}, acc)
        when is_atom(fun) and is_list(args) do
-    %{
-      acc
-      | remotes: [Enum.join(parts, ".") <> "." <> "#{fun}/#{length(args)}" | acc.remotes],
-        modules: [Enum.join(parts, ".") | acc.modules]
-    }
+    name = Menard.Source.alias_name(parts)
+    %{acc | remotes: ["#{name}.#{fun}/#{length(args)}" | acc.remotes], modules: [name | acc.modules]}
   end
 
   # A bare module mention (`alias`-resolved, a struct, a behaviour).
-  defp absorb({:__aliases__, _meta, parts}, acc), do: %{acc | modules: [Enum.join(parts, ".") | acc.modules]}
+  defp absorb({:__aliases__, _meta, parts}, acc),
+    do: %{acc | modules: [Menard.Source.alias_name(parts) | acc.modules]}
 
   # An attribute READ (`@kinds`), which is what does NOT travel with a moved function.
   defp absorb({:@, _meta, [{name, _inner, args}]}, acc) when is_atom(name) and not is_list(args),

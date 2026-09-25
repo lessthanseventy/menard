@@ -118,4 +118,17 @@ defmodule Menard.DirectiveTest do
     assert {:error, message} = Directive.add(@src, :bogus, "App.Cat")
     assert message =~ "alias"
   end
+
+  test "add survives an existing `alias __MODULE__.X`" do
+    src = """
+    defmodule A do
+      alias __MODULE__.Inner
+
+      def go, do: Inner.x()
+    end
+    """
+
+    assert Directive.add(src, :alias, "B") =~ "alias B"
+    assert Directive.list(src) == [{:alias, "__MODULE__.Inner"}]
+  end
 end
