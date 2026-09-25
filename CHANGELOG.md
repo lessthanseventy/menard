@@ -30,11 +30,19 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `clause replace` handed the whole clause of the function it names does that rewrite; `block
   replace` and `block add` handed a whole block of the macro (and label) named take its body,
   label and args. Both were refused, and `block add` nested the block inside another.
+- The MCP server's instructions (in the client's system prompt) say modules are edited with its
+  tools, from `outline`, finishing on `run check`: 4 of 6 smoke-run agents tried Edit first.
 - `hooks/shell-edits.sh`: a module a shell command changed is named, with `run check` to confirm it.
   `hooks/read-hint.sh`: a whole-file read of a module over 300 lines is pointed at `outline`. Both
   advisory, in Claude Code and pi.
 
 **Fixed**
+- `run` past its deadline killed the Elixir task and left the host's `mix` running, and the
+  plugin's client gave up at 180s while menard's own deadline was 600s: an agent's next `mix test`
+  then raced the orphan in the same `_build` ("corrupt atom table"). The host's mix now runs under
+  that deadline (coreutils `timeout`) and is killed at it, the reply saying what it was doing; the
+  MCP door passes it one 20s short of the tool's, and the plugin's client waits 620s.
+- The guard's MCP refusal sent agents to ToolSearch for tools `alwaysLoad` had already loaded.
 - pi's guard never ran: pi loads an extension as a `data:` URL, where `import.meta.dir` is not a
   directory, so `bin/menard` was never found and the guard failed open.
 - A parse error that carries a hint (a stray `end`) crashed the write with `String.Chars`, instead

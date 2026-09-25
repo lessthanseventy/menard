@@ -121,5 +121,23 @@ defmodule Menard.GuardTest do
       assert {_, 0} = edit(file, %{path: file, edits: [%{oldText: "{{totl}}", newText: "{{total}}"}]})
       assert {_, 2} = edit(file, %{path: file, edits: [%{oldText: "def hi(name)", newText: "def hi(first)"}]})
     end
+
+    test "the MCP refusal does not send an agent to ToolSearch for tools that are already loaded", %{
+      tmp_dir: dir
+    } do
+      # with alwaysLoad the tools are in context; the old "Not loaded yet: ToolSearch …" line cost two
+      # smoke runs a round trip each
+      file = Path.join(dir, "a.ex")
+      File.write!(file, "defmodule A do\nend\n")
+
+      {out, 2} =
+        System.cmd(@bin, ["guard", file, "--mcp", "mcp__plugin_menard_menard__"],
+          stderr_to_stdout: true,
+          env: [{"MIX_ENV", "dev"}]
+        )
+
+      # the instruction, not the word: this test's own tmp dir is named after it
+      refute out =~ ~s(ToolSearch "select:)
+    end
   end
 end

@@ -9,7 +9,19 @@ if Code.ensure_loaded?(Anubis.Server) do
 
         claude mcp add menard -- /path/to/menard/bin/menard mcp
     """
-    use Anubis.Server, name: "menard", version: Mix.Project.config()[:version], capabilities: [:tools]
+    use Anubis.Server,
+      name: "menard",
+      version: Mix.Project.config()[:version],
+      capabilities: [:tools],
+      # an agent reads this before its first call: in the eval, 4 of 6 learned it from the guard instead
+      instructions: """
+      An existing .ex/.exs holding a defmodule is edited with these tools, not Edit/Write or sed: they
+      parse the file, change the tree, format it and parse-check what they write (Edit may still change
+      text inside a string or a ~H template). Start with outline {file}: every clause's name_arity and
+      head, in far fewer tokens than reading the file; a clause is addressed by that head. A test or
+      describe is a block, by label. Finish on run {verb: "check"}: format, warnings-as-errors and the
+      tests in one JSON line.
+      """
 
     component(Menard.MCP.Write, name: "write")
     component(Menard.MCP.Rename, name: "rename")
