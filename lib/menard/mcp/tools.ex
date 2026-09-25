@@ -38,10 +38,6 @@ defmodule Menard.MCP.Rename do
           end
         end)
 
-      # The CLI formatted after an edit and this door did not, so the same verb left differently
-      # shaped code depending on which door ran it.
-      Enum.each(changed, &Menard.format/1)
-
       ok(frame, %{"changed" => changed, "unchanged" => unchanged})
     else
       {:error, message} -> fail(frame, message)
@@ -73,6 +69,10 @@ defmodule Menard.MCP.Clause do
   anchor to. Give it `module` ("Mod.Name", or omit it in a single-module file) and `code`;
   placement follows the code — a `defp` lands with the other private functions, a `def` with the
   public ones — unless `at` ("top"/"bottom") overrides it.
+
+  `move` carries EVERY clause of `name_arity`, with its `@doc`, `@spec` and comment, to the file
+  `to`. A missing file is created, its module named from the path or by `as`; `module` picks the
+  destination module in a file with several. Aliases and call sites are not touched — `deps` first.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
@@ -87,6 +87,7 @@ defmodule Menard.MCP.Clause do
         "insert_after",
         "insert_before",
         "insert_at",
+        "move",
         "visibility",
         "doc",
         "comment"
@@ -103,6 +104,24 @@ defmodule Menard.MCP.Clause do
     field(:visibility, :enum, values: ["public", "private"])
     field(:text, :string)
     field(:nth, :integer)
+    field(:to, :string)
+    field(:as, :string)
+  end
+
+  @impl true
+  def execute(%{verb: "move"} = params, frame) do
+    with {:ok, file} <- Menard.MCP.resolve(params.file),
+         {:ok, dest} <- Menard.MCP.resolve(params[:to] || ""),
+         {:ok, created} <-
+           Menard.Move.run(file, dest, params.name_arity, as: params[:as], module: params[:module]) do
+      ok(frame, %{
+        "did" => "move #{params.name_arity} to #{Path.basename(dest)}",
+        "file" => dest,
+        "created" => created
+      })
+    else
+      {:error, message} -> fail(frame, message)
+    end
   end
 
   @impl true
@@ -388,9 +407,10 @@ defmodule Menard.MCP.Attr do
   @moduledoc """
   Module attributes — the tables a module keeps at the top (`@hints`, `@colors`, `@panes`), which
   no clause verb reaches because an attribute is not a clause. `verb` is `get`, `set` (replaces the
-  value, or adds the attribute above the first definition when missing), `delete` or `list`.
-  Addressed by `name`; a name several attributes share (`@doc`/`@impl`/`@spec` repeat per clause)
-  is refused with their lines — those belong to the clause verbs.
+  value, or adds the attribute above the first definition when missing), `delete`, `list`, or
+  `comment` (the `#` comment above it — prose in `text`, no `text` deletes it). Addressed by
+  `name`; a name several attributes share (`@doc`/`@impl`/`@spec` repeat per clause) is refused
+  with their lines — those belong to the clause verbs.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
@@ -398,10 +418,11 @@ defmodule Menard.MCP.Attr do
   alias Menard.Attr
 
   schema do
-    field(:verb, :enum, values: ["get", "set", "delete", "list"], required: true)
+    field(:verb, :enum, values: ["get", "set", "delete", "list", "comment"], required: true)
     field(:file, :string, required: true)
     field(:name, :string)
     field(:value, :string)
+    field(:text, :string)
     field(:module, :string)
   end
 
@@ -444,16 +465,17 @@ defmodule Menard.MCP.Attr do
 
   defp write("set", source, p), do: Attr.set(source, p[:name] || "", p[:value] || "", module: p[:module])
   defp write("delete", source, p), do: Attr.delete(source, p[:name] || "", module: p[:module])
+  defp write("comment", source, p), do: Attr.comment(source, p[:name] || "", p[:text], module: p[:module])
 end
 
 defmodule Menard.MCP.Block do
   @moduledoc """
   The body of a macro's `do` block — `schema do`, `describe "…" do`, `test "…" do`. Not a clause,
-  so no clause verb reaches one. `verb` is `get`, `replace` (body := `code`) or `list`. `label` is
-  the macro's first string argument, which is what makes `describe`/`test` addressable; several
-  blocks of one name with no label is refused, listing them. `add` writes a NEW block — at the end
-  of the block named by `in` (a describe, by its label), else after the last sibling of that name,
-  else at the end of the module.
+  so no clause verb reaches one. `verb` is `get`, `replace` (body := `code`), `list`, or `relabel`
+  (`label` becomes `new_label`). `label` is the macro's first string argument, which is what makes
+  `describe`/`test` addressable; several blocks of one name with no label is refused, listing them.
+  `add` writes a NEW block — at the end of the block named by `in` (a describe, by its label), else
+  after the last sibling of that name, else at the end of the module.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
@@ -461,11 +483,12 @@ defmodule Menard.MCP.Block do
   alias Menard.Block
 
   schema do
-    field(:verb, :enum, values: ["get", "replace", "add", "list"], required: true)
+    field(:verb, :enum, values: ["get", "replace", "add", "list", "relabel"], required: true)
     field(:file, :string, required: true)
     field(:name, :string)
     field(:code, :string)
     field(:label, :string)
+    field(:new_label, :string)
     field(:in, :string)
     field(:module, :string)
   end
@@ -501,6 +524,9 @@ defmodule Menard.MCP.Block do
 
   defp edit(%{verb: "add"} = p, source),
     do: Block.add(source, p[:name] || "", p[:label], p[:code] || "", in: p[:in], module: p[:module])
+
+  defp edit(%{verb: "relabel"} = p, source),
+    do: Block.relabel(source, p[:name] || "", p[:label] || "", p[:new_label] || "", module: p[:module])
 
   defp edit(p, source), do: Block.replace(source, p[:name] || "", p[:code] || "", where(p))
 

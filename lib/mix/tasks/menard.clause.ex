@@ -76,65 +76,14 @@ defmodule Mix.Tasks.Menard.Clause do
     file = Menard.resolve(file)
     dest = Menard.resolve(dest)
 
-    dest_source =
-      cond do
-        File.exists?(dest) ->
-          File.read!(dest)
+    case Menard.Move.run(file, dest, na, as: as, module: module) do
+      {:ok, created} ->
+        if created, do: Mix.shell().info("menard.clause: created #{dest} as defmodule #{created}")
+        Mix.shell().info("menard.clause: #{na} moved to #{dest}")
 
-        as not in [nil, ""] ->
-          "defmodule #{as} do\nend\n"
-
-        true ->
-          case derive_module(dest) do
-            {:ok, mod} ->
-              Mix.shell().info("menard.clause: creating #{dest} as defmodule #{mod}")
-              "defmodule #{mod} do\nend\n"
-
-            :error ->
-              Mix.raise("#{dest} does not exist and is not inside a mix project — name it with --as Mod.Name")
-          end
-      end
-
-    case Clause.move(File.read!(file), dest_source, na, module: module) do
       {:error, message} ->
         Mix.raise(message)
-
-      {:ok, out_source, out_dest} ->
-        with :ok <- Menard.checked_write(dest, out_dest),
-             :ok <- Menard.checked_write(file, out_source) do
-          Mix.shell().info("menard.clause: #{na} moved to #{dest}")
-
-          Mix.shell().info(
-            "run `mix menard.deps #{file} #{na}` before this to see the aliases and callers it leaves behind"
-          )
-        else
-          {:error, message} -> Mix.raise(message)
-        end
     end
-  end
-
-  # What a generator would have called it: `lib/my_app/foo/bar.ex` is `MyApp.Foo.Bar`, relative to
-  # the nearest mix.exs, with `lib/` or `test/` dropped. Named out loud when it fires, because a
-  # derived name is a guess about intent even when the path is unambiguous — `--as` overrides.
-  defp derive_module(path) do
-    with {:ok, root} <- project_root(Path.dirname(path)) do
-      path
-      |> Path.relative_to(root)
-      |> String.replace(~r{^(lib|test)/}, "")
-      |> String.replace(~r{\.exs?$}, "")
-      |> Path.split()
-      |> Enum.map_join(".", &Macro.camelize/1)
-      |> then(&{:ok, &1})
-    end
-  end
-
-  defp project_root("/"), do: :error
-  defp project_root("."), do: :error
-
-  defp project_root(dir) do
-    if File.exists?(Path.join(dir, "mix.exs")),
-      do: {:ok, dir},
-      else: dir |> Path.dirname() |> project_root()
   end
 
   # The two doors spelled these differently — the CLI with dashes, the MCP with underscores — so a
