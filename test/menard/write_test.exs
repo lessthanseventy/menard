@@ -50,4 +50,16 @@ defmodule Menard.WriteTest do
     Write.run(path, "defmodule A do\nend")
     assert String.ends_with?(File.read!(path), "end\n")
   end
+
+  @tag :tmp_dir
+  test "an empty stdin is refused, not written over the file", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\nend\n")
+
+    assert_raise Mix.Error, ~r/stdin was empty/, fn ->
+      ExUnit.CaptureIO.capture_io("", fn -> Mix.Tasks.Menard.Write.run([file, "-"]) end)
+    end
+
+    assert File.read!(file) == "defmodule A do\nend\n"
+  end
 end

@@ -13,9 +13,18 @@ defmodule Mix.Tasks.Menard.Write do
   @impl true
   def run(argv) do
     case argv do
-      [file, "-"] -> write(file, IO.read(:stdio, :eof) |> blank_to_empty())
-      [file, code] -> write(file, code)
-      _ -> Mix.raise("usage: mix menard.write FILE CODE   (CODE of `-` reads stdin)")
+      [file, "-"] ->
+        # an empty stdin is a pipe that lost its input, not a request to empty the file
+        case IO.read(:stdio, :eof) do
+          text when is_binary(text) and text != "" -> write(file, text)
+          _empty -> Mix.raise("menard.write: stdin was empty — nothing written to #{file}")
+        end
+
+      [file, code] ->
+        write(file, code)
+
+      _ ->
+        Mix.raise("usage: mix menard.write FILE CODE   (CODE of `-` reads stdin)")
     end
   end
 
@@ -34,8 +43,4 @@ defmodule Mix.Tasks.Menard.Write do
         Mix.shell().info("menard.write: #{file} #{what}")
     end
   end
-
-  # `IO.read(:eof)` gives :eof on empty stdin, which is not a string.
-  defp blank_to_empty(:eof), do: ""
-  defp blank_to_empty(data), do: data
 end
