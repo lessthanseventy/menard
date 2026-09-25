@@ -1,0 +1,2 @@
+test/shop/mailer_test.exs
+lib/shop/mailer.ex

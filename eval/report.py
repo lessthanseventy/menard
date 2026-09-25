@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+"""Aggregate eval/results/ROUND*/runs.jsonl into eval/REPORT.md.
+
+    eval/report.py round1 [round2 …]
+"""
+
+import json
+import statistics as st
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+EVAL = Path(__file__).resolve().parent
+ARMS = ["A", "B", "C"]
+MODELS = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]
+
+
+def load(rounds):
+    rows = []
+    for r in rounds:
+        f = EVAL / "results" / r / "runs.jsonl"
+        rows += [json.loads(l) for l in open(f) if l.strip()]
+    return rows
+
+
+def ctx_tokens(r):
+    t = r["tokens"]
+    return t["input"] + t["cache_read"] + t["cache_write"]
+
+
+def mean(xs):
+    xs = [x for x in xs if x is not None]
+    return st.mean(xs) if xs else None
+
+
+def stats(rows):
+    return {
+        "n": len(rows),
+        "pass": mean([1.0 if r["pass"] else 0.0 for r in rows]),
+        "clean": mean([1.0 if r["clean"] else 0.0 for r in rows]),
+        "cost": mean([r["cost_usd"] for r in rows]),
+        "ctx": mean([ctx_tokens(r) for r in rows]),
+        "out": mean([r["tokens"]["output"] for r in rows]),
+        "turns": mean([r["turns"] for r in rows]),
+        "wall": mean([r["wall_s"] for r in rows]),
+        "failed": mean([r["failed_calls"] for r in rows]),
+        "rereads": mean([r["rereads"] for r in rows]),
+    }
+
+
+def pct(x):
+    return "–" if x is None else f"{x * 100:.0f}%"
+
+
+def num(x, fmt="{:.1f}"):
+    return "–" if x is None else fmt.format(x)
+
+
+def table(groups, key_label):
+    out = [f"| {key_label} | arm | n | pass | clean | cost $ | context tok | out tok | turns | wall s | failed calls |",
+           "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for key, by_arm in groups:
+        for arm in ARMS:
+            rows = by_arm.get(arm, [])
+            if not rows:
+                continue
+            s = stats(rows)
+            out.append(f"| {key} | {arm} | {s['n']} | {pct(s['pass'])} | {pct(s['clean'])} | {num(s['cost'], '{:.3f}')} | "
+                       f"{num(s['ctx'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} |")
+    return "\n".join(out)
+
+
+def grouped(rows, keyf):
+    g = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        g[keyf(r)][r["arm"]].append(r)
+    return sorted(g.items())
+
+
+def main():
+    rounds = sys.argv[1:] or ["round1"]
+    rows = load(rounds)
+    md = [f"# menard eval report\n\nRounds: {', '.join(rounds)}. {len(rows)} runs. Arms: A no menard, "
+          "B full menard (MCP, guard hook, skill), C menard without its hooks.\n\n"
+          "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
+          "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
+          "`context tok`: input + cache read + cache write, summed over the run.\n"]
+
+    md.append("## By arm\n\n" + table(grouped(rows, lambda r: "all"), "") + "\n")
+    md.append("## By model\n\n" + table(sorted(grouped(rows, lambda r: r["model"]), key=lambda kv: MODELS.index(kv[0]) if kv[0] in MODELS else 9), "model") + "\n")
+    md.append("## By task kind\n\n" + table(grouped(rows, lambda r: r["kind"]), "kind") + "\n")
+    md.append("## By task kind and model\n\n" + table(grouped(rows, lambda r: f"{r['kind']} · {r['model']}"), "kind · model") + "\n")
+    md.append("## By case\n\n" + table(grouped(rows, lambda r: r["case"]), "case") + "\n")
+
+    fails = [r for r in rows if not r["pass"]]
+    md.append("## Failed runs\n")
+    for r in sorted(fails, key=lambda r: r["id"]):
+        why = r["check"].strip().splitlines()[-1] if r["check"].strip() else "(no output)"
+        md.append(f"- `{r['id']}`{' (timed out)' if r['timed_out'] else ''}: {why[:200]}")
+
+    md.append("\n## Tool use by arm\n")
+    for arm in ARMS:
+        tot = defaultdict(int)
+        n = 0
+        for r in rows:
+            if r["arm"] == arm:
+                n += 1
+                for k, v in r["tools"].items():
+                    tot[k] += v
+        if n:
+            md.append(f"- **{arm}** ({n} runs): " + ", ".join(f"{k} {v / n:.1f}" for k, v in sorted(tot.items(), key=lambda kv: -kv[1])))
+
+    md.append("\n## Gap signals (B and C)\n")
+    kinds = defaultdict(list)
+    for r in rows:
+        if r["arm"] in ("B", "C"):
+            for g in r["gaps"]:
+                kinds[g["kind"]].append((r["id"], g))
+    for kind, evs in sorted(kinds.items()):
+        md.append(f"\n### {kind} ({len(evs)})\n")
+        for rid, g in evs[:40]:
+            detail = g.get("command") or g.get("text") or g.get("path")
+            md.append(f"- `{rid}`: {str(detail)[:220].replace(chr(10), ' ⏎ ')}")
+
+    md.append("\n## menard tool failures (B and C)\n")
+    for r in rows:
+        if r["arm"] in ("B", "C"):
+            for f in r["failures"]:
+                if f["tool"].startswith("menard:"):
+                    md.append(f"- `{r['id']}` {f['tool']}: {f['text'][:220].replace(chr(10), ' ⏎ ')}")
+
+    (EVAL / "REPORT.md").write_text("\n".join(md) + "\n")
+    print(f"wrote {EVAL / 'REPORT.md'} from {len(rows)} runs")
+
+
+if __name__ == "__main__":
+    main()

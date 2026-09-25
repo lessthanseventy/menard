@@ -1,0 +1,12 @@
+13:38 bug-receipt-total.A.claude-sonnet-5.1: PASS turns=8 cost=0.1941238 wall=14.7s tools={'Bash': 3, 'Read': 2, 'Edit': 2}
+13:39 bug-receipt-total.B.claude-sonnet-5.1: PASS turns=14 cost=0.12852180000000002 wall=26.0s tools={'Bash': 2, 'Read': 2, 'Edit': 2, 'Skill': 1, 'ToolSearch': 1, 'menard:attr': 1, 'menard:block': 2, 'menard:run': 1}
+13:39 new-fn-large.A.claude-sonnet-5.1: PASS turns=8 cost=0.14147579999999998 wall=16.0s tools={'Bash': 3, 'Read': 2, 'Edit': 2}
+13:39 new-fn-large.B.claude-sonnet-5.1: PASS turns=13 cost=0.18898880000000004 wall=24.4s tools={'Skill': 1, 'Bash': 4, 'Read': 1, 'ToolSearch': 1, 'menard:clause': 1, 'menard:block': 2, 'menard:run': 1}
+13:40 rename-across.A.claude-sonnet-5.1: PASS (noisy) turns=3 cost=0.040111600000000004 wall=9.4s tools={'Bash': 2}
+13:40 rename-across.B.claude-sonnet-5.1: PASS turns=9 cost=0.0760104 wall=14.6s tools={'Skill': 1, 'ToolSearch': 2, 'Bash': 2, 'menard:rename': 1, 'menard:run': 1}
+13:40 bug-receipt-total.A.claude-sonnet-5.2: PASS turns=4 cost=0.0480728 wall=9.2s tools={'Bash': 3}
+13:40 bug-receipt-total.B.claude-sonnet-5.2: PASS turns=4 cost=0.052265 wall=11.6s tools={'Bash': 3}
+13:41 new-fn-large.A.claude-sonnet-5.2: PASS turns=8 cost=0.0658168 wall=15.1s tools={'Bash': 4, 'Read': 1, 'Edit': 2}
+13:41 new-fn-large.B.claude-sonnet-5.2: PASS turns=11 cost=0.1088614 wall=22.6s tools={'Skill': 1, 'Bash': 3, 'ToolSearch': 1, 'menard:clause': 1, 'menard:block': 2, 'menard:run': 1}
+13:41 rename-across.A.claude-sonnet-5.2: PASS (noisy) turns=3 cost=0.040049600000000005 wall=10.2s tools={'Bash': 2}
+13:42 rename-across.B.claude-sonnet-5.2: PASS turns=9 cost=0.0841518 wall=17.9s tools={'Skill': 1, 'ToolSearch': 1, 'Bash': 2, 'menard:rename': 2, 'menard:run': 1}

@@ -1,0 +1,3 @@
+# traces and diffs are ~55KB a run; runs.jsonl and log.txt carry the numbers
+/results/*/traces/
+__pycache__/
