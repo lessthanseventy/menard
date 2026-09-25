@@ -11,6 +11,7 @@ defmodule Menard.Clause do
   sibling.)
   """
 
+  import Menard.Source, only: [parse: 1, reindent: 2]
   alias Sourceror.Zipper
 
   @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
@@ -41,7 +42,7 @@ defmodule Menard.Clause do
          name_arity,
          opts
        ) do
-    range = Sourceror.get_range(body)
+    range = body |> Sourceror.get_range() |> Menard.Source.clamp(source)
 
     cond do
       meta[:do] ->
@@ -394,13 +395,6 @@ defmodule Menard.Clause do
   defp start_line_of(%{range: %{start: [line: line, column: _]}}), do: line
   defp start_line_of(_clause), do: "?"
 
-  defp parse(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} -> {:ok, ast}
-      {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
-    end
-  end
-
   # `code` must BE a clause: a bare expression would silently replace a def with an expression and
   # leave the module a compile error, which is the one thing these verbs must never do.
   # A clause and the comment glued above it are one unit to a reader, so `rewrite` takes both: the
@@ -644,15 +638,6 @@ defmodule Menard.Clause do
     head = head <> if(guard, do: " when " <> guard, else: "")
     lines = code |> String.trim() |> String.split("\n") |> Enum.map(&(indent <> "  " <> &1))
     Enum.join([head <> " do" | lines] ++ [indent <> "end"], "\n")
-  end
-
-  # A rewrite patches AT the clause's own column, so the first line carries no indent of its own and
-  # every later line is shifted out to it.
-  defp reindent(code, indent) do
-    case code |> String.trim() |> String.split("\n") do
-      [one] -> one
-      [first | rest] -> Enum.join([first | Enum.map(rest, &(indent <> &1))], "\n")
-    end
   end
 
   defp comment_lines_above(lines, i) do

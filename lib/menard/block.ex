@@ -9,6 +9,7 @@ defmodule Menard.Block do
   sharing a name and no label given is refused with their labels, never guessed at.
   """
 
+  import Menard.Source, only: [parse: 1, reindent: 2]
   alias Menard.Clause
   alias Sourceror.Zipper
 
@@ -19,7 +20,7 @@ defmodule Menard.Block do
       {_name, meta, args} = node
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
       indent = String.duplicate(" ", col + 1)
-      range = body_range(node)
+      range = node |> body_range() |> Menard.Source.clamp(source)
 
       cond do
         meta[:do] -> patch(source, range, reindent(code, indent))
@@ -41,13 +42,6 @@ defmodule Menard.Block do
         indent = String.duplicate(" ", col + 1)
         text = " do\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1) <> "end"
         patch(source, %{start: from, end: range.end}, text)
-    end
-  end
-
-  defp reindent(code, indent) do
-    case code |> String.trim() |> String.split("\n") do
-      [one] -> one
-      [first | rest] -> Enum.join([first | Enum.map(rest, &(indent <> &1))], "\n")
     end
   end
 
@@ -218,13 +212,6 @@ defmodule Menard.Block do
 
   defp to_atom(name) when is_atom(name), do: name
   defp to_atom(name) when is_binary(name), do: String.to_atom(name)
-
-  defp parse(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} -> {:ok, ast}
-      {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
-    end
-  end
 
   @doc """
   Rename a block's label — `test "old"` to `test "new"`, or a `describe`. The label is a string

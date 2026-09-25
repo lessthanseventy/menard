@@ -13,6 +13,7 @@ defmodule Menard.Directive do
   never duplicates a line.
   """
 
+  import Menard.Source, only: [parse: 1]
   @kinds [:use, :import, :alias, :require]
 
   @doc """
@@ -180,13 +181,6 @@ defmodule Menard.Directive do
   defp directive_line(kind, target, nil), do: "#{kind} #{target}"
   defp directive_line(kind, target, ""), do: "#{kind} #{target}"
   defp directive_line(kind, target, args), do: "#{kind} #{target}, #{args}"
-
-  defp parse(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} -> {:ok, ast}
-      {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
-    end
-  end
 
   defp patch(source, range, change),
     do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])

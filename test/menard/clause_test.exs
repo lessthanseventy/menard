@@ -484,4 +484,16 @@ defmodule Menard.ClauseTest do
            end
            """
   end
+
+  test "replacing a do: body that is a literal keeps the blank line after it" do
+    src = """
+    defmodule A do
+      defp x?(_node), do: false
+
+      defp y, do: 1
+    end
+    """
+
+    assert Clause.replace_body(src, "x?/1", "_node", "true") =~ "do: true\n\n  defp y"
+  end
 end

@@ -12,6 +12,7 @@ defmodule Menard.Stmt do
   step in a `with`, and a `case` arm (`match -> body`) alike — the smallest node whose text
   matches wins, so naming a call does not accidentally select the block containing it.
   """
+  import Menard.Source, only: [reindent: 2]
   alias Menard.Clause
   alias Sourceror.Zipper
 
@@ -115,9 +116,8 @@ defmodule Menard.Stmt do
   # Every node inside the clause that carries a range, smallest first — so naming a call selects
   # the call, not the block around it.
   defp candidates(source, clause) do
-    {:ok, ast} = Sourceror.parse_string(source)
-
-    ast
+    # only the clause's own subtree: walking the whole file per call made stmt linear in the file
+    clause.node
     |> Zipper.zip()
     |> Zipper.traverse([], fn z, acc -> {z, statement_nodes(Zipper.node(z)) ++ acc} end)
     |> elem(1)
@@ -129,6 +129,8 @@ defmodule Menard.Stmt do
   defp describe(node, source, clause) do
     case Sourceror.get_range(node) do
       %{start: [line: a, column: col], end: [line: b, column: _]} = range ->
+        range = Menard.Source.clamp(range, source)
+
         if within?(range, clause.range) and not same_as?(range, clause.range) do
           [%{range: range, text: slice(source, range), indent: String.duplicate(" ", col - 1), span: b - a}]
         else
@@ -174,13 +176,6 @@ defmodule Menard.Stmt do
   end
 
   defp indent_block(code, indent), do: indent <> reindent(code, indent)
-
-  defp reindent(code, indent) do
-    case code |> String.trim() |> String.split("\n") do
-      [one] -> one
-      [first | rest] -> Enum.join([first | Enum.map(rest, &(indent <> &1))], "\n")
-    end
-  end
 
   defp patch(source, range, change),
     do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])

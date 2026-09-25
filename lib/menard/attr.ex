@@ -12,6 +12,7 @@ defmodule Menard.Attr do
   when it privatises).
   """
 
+  import Menard.Source, only: [parse: 1, reindent: 2]
   alias Menard.Clause
 
   @doc "The attribute's value exactly as written, or `{:error, …}` if it is missing or ambiguous."
@@ -103,11 +104,7 @@ defmodule Menard.Attr do
   # -- editing -------------------------------------------------------------
 
   defp replace(source, node, name, value) do
-    %{start: [line: _, column: col], end: [line: b, column: c]} = range = Sourceror.get_range(node)
-    # A heredoc attribute ends a column PAST its closing quotes, so the range is held to its own line —
-    # patched as given, it eats the newline and glues the next line onto the `"""`.
-    last = source |> String.split("\n") |> Enum.at(b - 1, "") |> String.length()
-    range = %{range | end: [line: b, column: min(c, last + 1)]}
+    %{start: [line: _, column: col]} = range = node |> Sourceror.get_range() |> Menard.Source.clamp(source)
     written = "@#{to_atom(name)} " <> reindent(value, String.duplicate(" ", col - 1))
     Sourceror.patch_string(source, [%{range: range, change: written, preserve_indentation: false}])
   end
@@ -174,22 +171,6 @@ defmodule Menard.Attr do
     line
   end
 
-  # A written value keeps its own shape; every line after the first is shifted to the attribute's
-  # column, so a multi-line list or map lands as a block rather than a ragged one.
-  defp reindent(value, indent) do
-    case value |> String.trim() |> String.split("\n") do
-      [one] -> one
-      [first | rest] -> Enum.join([first | Enum.map(rest, &(indent <> &1))], "\n")
-    end
-  end
-
   defp to_atom(name) when is_atom(name), do: name
   defp to_atom(name) when is_binary(name), do: String.to_atom(String.trim_leading(name, "@"))
-
-  defp parse(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} -> {:ok, ast}
-      {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
-    end
-  end
 end
