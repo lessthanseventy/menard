@@ -131,4 +131,20 @@ defmodule Menard.DirectiveTest do
     assert Directive.add(src, :alias, "B") =~ "alias B"
     assert Directive.list(src) == [{:alias, "__MODULE__.Inner"}]
   end
+
+  test "the multi form `alias Foo.{Bar, Baz}` counts as each alias it names" do
+    src = """
+    defmodule A do
+      alias Foo.{Bar, Baz}
+
+      def go, do: Bar.x()
+    end
+    """
+
+    assert Directive.add(src, :alias, "Foo.Bar") == src
+    assert Directive.list(src) == [{:alias, "Foo.Bar"}, {:alias, "Foo.Baz"}]
+    assert {:error, message} = Directive.remove(src, :alias, "Foo.Bar")
+    assert message =~ "Foo.{Bar, Baz}"
+    assert Directive.add(src, :alias, "Zed") =~ "alias Foo.{Bar, Baz}\n  alias Zed\n"
+  end
 end
