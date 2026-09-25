@@ -50,7 +50,7 @@ stmt    insert-after|insert-before|replace|delete|list  FILE name/arity HEAD MAT
 block   get|replace|add|relabel|list  FILE NAME [CODE]
 module  add|list FILE [CODE]
 directive add|remove|list FILE KIND MOD
-rename  OLD NEW [--atoms] [--comments] FILES
+rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE
 run     [--in DIR] check|test|format|compile
 mcp                                            the same verbs over MCP

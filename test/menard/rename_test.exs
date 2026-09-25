@@ -91,4 +91,30 @@ defmodule Menard.RenameTest do
            end
            """
   end
+
+  test "only: narrows a rename to functions or to variables" do
+    src = """
+    defmodule A do
+      def old(x), do: x
+      def zero, do: &old/1
+      def go(old), do: old + old(1)
+    end
+    """
+
+    assert Rename.run(src, "old", "new", only: :functions) == """
+           defmodule A do
+             def new(x), do: x
+             def zero, do: &new/1
+             def go(old), do: old + new(1)
+           end
+           """
+
+    assert Rename.run(src, "old", "new", only: :variables) == """
+           defmodule A do
+             def old(x), do: x
+             def zero, do: &old/1
+             def go(new), do: new + old(1)
+           end
+           """
+  end
 end
