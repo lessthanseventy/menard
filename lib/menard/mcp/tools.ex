@@ -395,8 +395,12 @@ if Code.ensure_loaded?(Anubis.Server) do
   defmodule Menard.MCP.Run do
     @moduledoc """
     Run a verb in a mix project under the root and get ONE structured answer: `check` (the
-    project's `mix precommit`), `test` (args: files, file:line — each failure as data plus the test's
-    source), `format` (args: files), `compile` (warnings as diagnostics). `dir` defaults to the root.
+    project's `mix precommit`: format, warnings-as-errors, tests), `test` (args: files, file:line,
+    and any `mix test` flag), `format` (args: files), `compile`. `dir` defaults to the root.
+
+    Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
+    `warning` or `format`, `message` says why, `at` is `file:line`. A test failure adds `name`,
+    `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
@@ -412,7 +416,7 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def call(params, frame) do
       with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
-        ok(frame, Menard.Run.result(dir, params.verb, params[:args] || []))
+        ok(frame, Menard.Run.lean(Menard.Run.result(dir, params.verb, params[:args] || [])))
       else
         {:error, message} -> fail(frame, message)
       end

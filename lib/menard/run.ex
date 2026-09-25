@@ -1,8 +1,9 @@
 defmodule Menard.Run do
   @moduledoc """
-  The run verbs' parsers: ExUnit's output → the counts and each failure as data (name, module,
-  where, the assertion's code/left/right or the error), and a tail that is the summary, not the
-  logs a suite prints on its way. `mix menard.run` prints what these return, as one JSON line.
+  The run verbs' parsers: mix's output → `failures` in one shape for every verb (`kind`, `message`,
+  `at`; a test failure adds its name, module, source and the assertion's code/left/right), the
+  counts, and a tail that is the summary, not the logs a suite prints on its way.
+  `mix menard.run` prints what these return, as one JSON line.
   """
 
   @doc """
@@ -15,7 +16,7 @@ defmodule Menard.Run do
 
     if status != 0 and out =~ ~s(The task "precommit" could not be found),
       do: check_steps(dir),
-      else: %{ok: status == 0, exit: status, tail: tail(out), fetched: fetched}
+      else: gate(out, status, fetched, dir)
   end
 
   def result(dir, "test", args) do
@@ -31,25 +32,20 @@ defmodule Menard.Run do
 
     # menard's own formatter, not the host's bare `mix format`: it works while the host's deps do not
     # resolve or its mix.exs does not parse, and never formats without a plugin the host uses
-    errors =
-      for file <- files, {:error, message} <- [Menard.format(file)], do: %{file: file, error: message}
+    failures =
+      for file <- files,
+          {:error, message} <- [Menard.format(file)],
+          do: %{kind: "format", message: message, at: Path.relative_to(file, Path.expand(dir))}
 
     changed = Enum.filter(files, &(File.read!(&1) != before[&1]))
-    %{ok: errors == [], changed: changed, errors: errors}
+    %{ok: failures == [], changed: changed, failures: failures}
   end
 
   def result(dir, "compile", _args) do
     # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
     {out, status, fetched} = mix_fetching(dir, ["compile", "--warnings-as-errors"])
 
-    diagnostics =
-      ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
-      |> Regex.scan(out)
-      |> Enum.map(fn [_, sev, msg, file, line] ->
-        %{severity: sev, message: msg, file: file, line: String.to_integer(line)}
-      end)
-
-    %{ok: status == 0, exit: status, diagnostics: diagnostics, tail: tail(out), fetched: fetched}
+    %{ok: status == 0, exit: status, failures: diagnostics(out), tail: tail(out), fetched: fetched}
   end
 
   # A host with no `precommit` alias: the three steps `run check` stands for, each its own mix, so
@@ -64,13 +60,31 @@ defmodule Menard.Run do
         if status == 0, do: {:cont, next}, else: {:halt, next}
       end)
 
-    %{
-      ok: status == 0,
-      exit: status,
-      tail: tail(out),
-      fetched: fetched,
-      ran: "format --check-formatted, compile --warnings-as-errors, test (no precommit alias)"
-    }
+    out
+    |> gate(status, fetched, dir)
+    |> Map.put(:ran, "format --check-formatted, compile --warnings-as-errors, test (no precommit alias)")
+  end
+
+  # Everything `check` can fail on, one shape: the files not formatted, the compiler's warnings and
+  # errors, the failing tests
+  defp problems(out, dir), do: unformatted(out, dir) ++ diagnostics(out) ++ failures(out)
+
+  # `check`'s reply, whichever way it ran: `test`'s counts and summary, and every kind of failure
+  defp gate(out, status, fetched, dir) do
+    {tests, failed} = counts(out)
+
+    with_sources(
+      %{
+        ok: status == 0,
+        exit: status,
+        tests: tests,
+        failed: failed,
+        failures: problems(out, dir),
+        tail: summary(out),
+        fetched: fetched
+      },
+      dir
+    )
   end
 
   # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
@@ -117,17 +131,42 @@ defmodule Menard.Run do
     runs = out |> String.split(~r/Running ExUnit with seed: /)
     last = List.last(runs)
     {tests, failed} = counts(last)
+    # no run at all: a test file that does not compile, and its errors are the failures
+    compile = if last =~ "Finished in", do: [], else: diagnostics(last)
 
     %{
       ok: status == 0,
       exit: status,
       tests: tests,
       failed: failed,
-      failures: failures(last),
+      failures: failures(last) ++ compile,
       tail: summary(last),
       runs: length(runs) - 1,
       seed: seed(last)
     }
+  end
+
+  @doc """
+  The reply as both doors print it: what a reader looks for, nothing it has to filter out. Green,
+  `ok` and the counts; red, the failures and the seed that reproduces them. `ok` and `failures`
+  are always there, so every reply is the same shape. A tail stays only where it is the answer: a
+  verb with no counts (`check`, `compile`), or a failure nothing parsed.
+  """
+  def lean(result) do
+    ok = result[:ok]
+
+    result
+    |> Enum.reject(fn
+      {_key, nil} -> true
+      {:fetched, []} -> true
+      {:tail, ""} -> true
+      {:exit, _} -> ok
+      {:seed, _} -> ok
+      {:runs, runs} -> runs <= 1
+      {:tail, _} -> (ok and result[:tests] != nil) or result[:failures] not in [nil, []]
+      _ -> false
+    end)
+    |> Map.new()
   end
 
   defp seed(run) do
@@ -142,7 +181,16 @@ defmodule Menard.Run do
   starting at its line and ending at the matching `end` (the first line at the test's indent).
   """
   def with_sources(%{failures: failures} = result, root) do
-    %{result | failures: Enum.map(failures, &Map.put(&1, :source, source_of(&1[:at], root)))}
+    # `at` relative to the project, however mix printed it: under a precommit alias ExUnit prints
+    # absolute paths, and the same failure must not look different by which verb found it
+    prefix = Path.expand(root) <> "/"
+
+    sourced = fn f ->
+      f = if is_binary(f[:at]), do: %{f | at: String.replace_prefix(f.at, prefix, "")}, else: f
+      if f[:kind] == "test", do: Map.put(f, :source, source_of(f[:at], root)), else: f
+    end
+
+    %{result | failures: Enum.map(failures, sourced)}
   end
 
   defp source_of(nil, _root), do: nil
@@ -197,17 +245,51 @@ defmodule Menard.Run do
     |> Regex.scan(out)
     |> Enum.map(fn [_, name, module, body] ->
       %{
+        kind: "test",
+        message: error_of(body) || headline(body),
+        at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
         name: name,
         module: module,
-        at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
         code: first(~r/^\s*code:\s+(.+)$/m, body),
         left: first(~r/^\s*left:\s+(.+)$/m, body),
-        right: first(~r/^\s*right:\s+(.+)$/m, body),
-        error: error_of(body)
+        right: first(~r/^\s*right:\s+(.+)$/m, body)
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
       |> Map.new()
     end)
+  end
+
+  # An assertion's reason: ExUnit's line under the location, "Assertion with == failed"
+  defp headline(body) do
+    body
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.find(&(&1 != "" and not Regex.match?(~r/^(\S+_test\.exs:\d+|(code|left|right|stacktrace):)/, &1)))
+  end
+
+  # Compiler warnings and errors, each the same shape as a test failure: kind, message, at
+  defp diagnostics(out) do
+    ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
+    |> Regex.scan(out)
+    |> Enum.map(fn [_, kind, message, file, line] ->
+      %{kind: kind, message: message, at: "#{file}:#{line}"}
+    end)
+  end
+
+  # `mix format --check-formatted`'s list of files, colored even when piped, each with its diff after
+  defp unformatted(out, dir) do
+    case String.split(out, "The following files are not formatted:", parts: 2) do
+      [_, rest] ->
+        root = Path.expand(dir) <> "/"
+
+        for line <- rest |> String.replace(~r/\e\[[0-9;]*m/, "") |> String.split("\n"),
+            path = String.trim(line),
+            path =~ ~r/\.(ex|exs|heex)$/,
+            do: %{kind: "format", message: "not formatted", at: String.replace_prefix(path, root, "")}
+
+      _ ->
+        []
+    end
   end
 
   # The `** (Error) message` line and what follows it up to `code:` or `stacktrace:`: a MatchError's

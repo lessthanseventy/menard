@@ -39,21 +39,25 @@ defmodule Menard.RunTest do
     r = Run.parse_test(@out, 2)
     assert r.tests == 5 and r.failed == 2 and r.ok == false
 
+    # an assertion and an exception, one shape: kind, message, at — then what only a test has
     assert [
              %{
+               kind: "test",
+               message: "Assertion with == failed",
+               at: "test/server/channels_test.exs:40",
                name: "move/2 refuses another workspace",
                module: "Server.ChannelsTest",
-               at: "test/server/channels_test.exs:40",
                code: "assert moved.channel_id == infra.id",
                left: "3",
                right: "4"
              },
              %{
-               name: "deleting rehomes",
+               kind: "test",
+               message: "(Exqlite.Error) FOREIGN KEY constraint failed\nDELETE FROM \"workspace\" AS w0",
                at: "test/server/channels_test.exs:50",
-               error: "(Exqlite.Error) FOREIGN KEY constraint failed\nDELETE FROM \"workspace\" AS w0"
+               name: "deleting rehomes"
              }
-           ] = Enum.map(r.failures, &Map.take(&1, [:name, :module, :at, :code, :left, :right, :error]))
+           ] = r.failures
 
     # the tail is the summary, not the logs
     assert r.tail == "Finished in 0.5 seconds (0.1s async, 0.4s sync)\nResult: 3/5 passed\nFailed: 2 tests"
@@ -108,6 +112,16 @@ defmodule Menard.RunTest do
     assert r.tail =~ "error: undefined function thread/1"
     assert r.tail =~ "rail_test.exs:79:19"
     refute r.tail =~ "parallel_compiler"
+
+    # and the error is a failure, the same shape as any other
+    assert [
+             %{
+               kind: "error",
+               at: "test/console/panel/rail_test.exs:79",
+               message: "undefined function thread/1" <> _
+             }
+           ] =
+             r.failures
   end
 
   @tag :tmp_dir
@@ -125,7 +139,8 @@ defmodule Menard.RunTest do
 
     result = Menard.Run.result(dir, "compile", [])
     refute result.ok
-    assert [%{severity: "warning", file: "lib/warm.ex", line: 2}] = result.diagnostics
+    assert [%{kind: "warning", at: "lib/warm.ex:2", message: message}] = result.failures
+    assert message =~ "x"
   end
 
   @tag :tmp_dir
@@ -224,10 +239,10 @@ defmodule Menard.RunTest do
     1 test, 1 failure
     """
 
-    assert [%{error: error}] = Run.parse_test(out, 2).failures
-    assert error =~ "(MatchError) no match of right hand side value:"
-    assert error =~ "{:error, :enoent}"
-    refute error =~ "code:"
+    assert [%{message: message}] = Run.parse_test(out, 2).failures
+    assert message =~ "(MatchError) no match of right hand side value:"
+    assert message =~ "{:error, :enoent}"
+    refute message =~ "code:"
   end
 
   test "format with no files formats the project's formatter inputs", %{tmp_dir: dir} do
@@ -306,5 +321,84 @@ defmodule Menard.RunTest do
     result = Menard.Run.result(host, "compile", [])
     assert result.ok, result.tail
     assert result.fetched == ["dep"]
+  end
+
+  test "check answers with its failures in the one shape: a file not formatted, a failing test", %{
+    tmp_dir: dir
+  } do
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Plain.MixProject do
+      use Mix.Project
+      def project, do: [app: :plain, version: "0.1.0"]
+    end
+    """)
+
+    File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"{lib,test}/**/*.{ex,exs}\"]]\n")
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "lib/plain.ex"), "defmodule Plain do\n  def   go, do: 1\nend\n")
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/plain_test.exs"),
+      "defmodule PlainTest do\n  use ExUnit.Case\n\n  test \"go\" do\n    assert Plain.go() == 2\n  end\nend\n"
+    )
+
+    result = Menard.Run.result(dir, "check", [])
+    refute result.ok
+    assert [%{kind: "format", at: "lib/plain.ex", message: "not formatted"}] = result.failures
+
+    File.write!(Path.join(dir, "lib/plain.ex"), "defmodule Plain do\n  def go, do: 1\nend\n")
+    result = Menard.Run.result(dir, "check", [])
+    refute result.ok
+
+    assert [%{kind: "test", at: "test/plain_test.exs:4", message: "Assertion with == failed", source: source}] =
+             result.failures
+
+    assert source =~ "assert Plain.go() == 2"
+  end
+
+  test "lean keeps what a reader looks for: ok and the counts when green, the failures and seed when red" do
+    green =
+      Run.parse_test(
+        "Running ExUnit with seed: 7, max_cases: 4\n\n..\nFinished in 0.1 seconds\n2 tests, 0 failures\n",
+        0
+      )
+
+    assert Run.lean(Map.put(green, :fetched, [])) == %{ok: true, tests: 2, failed: 0, failures: []}
+
+    red = Run.parse_test(@out, 2)
+    lean = Run.lean(red)
+    assert %{ok: false, exit: 2, tests: 5, failed: 2, seed: 1, failures: [_, _]} = lean
+    # the failures say what broke; the tail and a single run's count say nothing more
+    refute Map.has_key?(lean, :tail) or Map.has_key?(lean, :runs)
+
+    # a flake hunt keeps how many runs passed before the failure
+    assert %{runs: 3} = Run.lean(%{red | runs: 3})
+
+    # check has no counts: its tail is the summary, green or not
+    assert %{ok: true, tail: "619 tests, 0 failures", failures: []} =
+             Run.lean(%{ok: true, exit: 0, failures: [], tail: "619 tests, 0 failures", fetched: []})
+
+    # red with nothing parsed: the tail is all there is
+    assert %{tail: "boom"} = Run.lean(%{ok: false, exit: 1, failures: [], tail: "boom", fetched: []})
+  end
+
+  test "a green compile is ok and nothing else" do
+    assert Run.lean(%{ok: true, exit: 0, failures: [], tail: "", fetched: []}) == %{ok: true, failures: []}
+  end
+
+  test "at is relative to the project, whichever way mix printed it", %{tmp_dir: dir} do
+    # run under a precommit alias, ExUnit printed absolute paths; `run test` printed relative ones
+    result = %{
+      failures: [
+        %{kind: "test", at: Path.join(dir, "test/a_test.exs") <> ":4"},
+        %{kind: "warning", at: Path.join(dir, "lib/a.ex") <> ":2"},
+        %{kind: "format", at: "lib/b.ex"}
+      ]
+    }
+
+    assert ["test/a_test.exs:4", "lib/a.ex:2", "lib/b.ex"] =
+             Enum.map(Run.with_sources(result, dir).failures, & &1.at)
   end
 end

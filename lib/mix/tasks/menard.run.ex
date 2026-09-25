@@ -3,10 +3,15 @@ defmodule Mix.Tasks.Menard.Run do
   @moduledoc """
   The run-and-update verbs an agent calls instead of a shell chain with greps on the end:
 
-      mix menard.run check                # this app's gate (mix precommit): {ok, exit, tail}
-      mix menard.run test [FILE[:LINE]]   # one file / one test, or the suite: {ok, tests, failed, failures: [{name, module, at, code, left, right | error, source}], tail}
-      mix menard.run format [FILES]       # format; reports the files it changed
-      mix menard.run compile              # compile --warnings-as-errors: {ok, diagnostics}
+      mix menard.run check                # this app's gate (mix precommit): {ok, exit, failures, tail}
+      mix menard.run test [FILE[:LINE]]   # one file / one test, or the suite: {ok, tests, failed, failures, tail, seed, runs}
+      mix menard.run format [FILES]       # format; {ok, changed, failures}
+      mix menard.run compile              # compile --warnings-as-errors: {ok, failures, tail}
+
+  Every verb's `failures` is one shape: `{kind, message, at}`, where `kind` is `test`, `error`,
+  `warning` or `format`, `message` says why, and `at` is `file:line` (a file, for `format`). A test
+  failure adds `name`, `module`, `source` (its body as written) and, for an assertion, `code`,
+  `left` and `right`.
 
   Always prints ONE JSON object on the last line, and exits 1 when `ok` is false, so a caller
   reads one line and gates on the status. Human output above it is the underlying task's.
@@ -36,7 +41,7 @@ defmodule Mix.Tasks.Menard.Run do
   defp split_in([], dir, acc), do: {dir, Enum.reverse(acc)}
 
   defp finish(%{ok: ok} = result) do
-    Mix.shell().info(JSON.encode!(result))
+    Mix.shell().info(JSON.encode!(Menard.Run.lean(result)))
     if not ok, do: exit({:shutdown, 1})
   end
 end
