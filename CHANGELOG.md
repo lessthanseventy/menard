@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.0
+
+One install, any directory, any harness: the plugin carries the MCP server and the reference.
+
+**Install**
+- The plugin declares the MCP server, with the project as its root. One install gives the verbs,
+  the hooks and the MCP tools in every directory. Before, the server was registered per project.
+- The verb reference ships as the plugin's skill (`skills/menard/SKILL.md`), its one copy.
+- menard runs on its own toolchain (`.tool-versions`, through mise), never the caller's.
+  `menard version` says which menard, on what.
+- `menard guard FILE`: the enforcement any harness's pre-edit hook calls (`docs/adapters.md`).
+  The Claude Code hook is now its adapter.
+
+**Fixed**
+- `menard mcp` never exited when its client went away, so every client that died left a server
+  running.
+- MCP `outline` crashed on every call (a tuple in its answer).
+- A pre-compile swallowed the verb's stdin: `write FILE -` wrote an empty file, and before `mcp`
+  the client's first message could be lost. An mtime check that never settled made that happen on
+  every call.
+- `write FILE -` with an empty stdin is refused instead of emptying the file.
+- The MCP block tool treated an unknown verb as `replace` with empty code.
+
+**New**
+- `run test` passes every flag through to `mix test`. With `--repeat-until-failure N` it answers
+  with the failing run, its `seed` and `runs`.
+- `block delete`; `block add --args CONTEXT` for a test that takes its context.
+- A clause head answers without its defaults.
+- `--stdin`: a verb's last argument from stdin, for CODE no shell quoting carries intact.
+
 ## 0.2.0
 
 Edits that no longer lose code, a formatter that works in a broken host, and the host's own
