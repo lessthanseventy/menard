@@ -401,4 +401,43 @@ defmodule Menard.RunTest do
     assert ["test/a_test.exs:4", "lib/a.ex:2", "lib/b.ex"] =
              Enum.map(Run.with_sources(result, dir).failures, & &1.at)
   end
+
+  test "a run past its deadline kills the host's mix and says what it was doing", %{tmp_dir: dir} do
+    # an MCP client gave up on `run` while its mix kept compiling, and the agent's own `mix test` then
+    # raced it in the same _build: "corrupt atom table"
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Slow.MixProject do
+      use Mix.Project
+      def project, do: [app: :slow, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    marker = Path.join(dir, "still-running")
+
+    # the test starts once the project compiles (a few seconds), says so, and writes its marker 12s
+    # later: a mix really killed at 10s never writes it
+    File.write!(Path.join(dir, "test/slow_test.exs"), """
+    defmodule SlowTest do
+      use ExUnit.Case
+      test "slow" do
+        IO.puts("halfway there")
+        Process.sleep(12_000)
+        File.write!(#{inspect(marker)}, "x")
+      end
+    end
+    """)
+
+    started = System.monotonic_time(:millisecond)
+    result = Menard.Run.result(dir, "test", [], timeout: 10_000)
+    assert System.monotonic_time(:millisecond) - started < 17_000
+
+    refute result.ok
+    assert result.tail =~ "did not finish in 10s"
+    assert result.tail =~ "halfway there"
+
+    Process.sleep(max(24_000 - (System.monotonic_time(:millisecond) - started), 0))
+    refute File.exists?(marker)
+  end
 end

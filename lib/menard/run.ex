@@ -6,6 +6,23 @@ defmodule Menard.Run do
   `mix menard.run` prints what these return, as one JSON line.
   """
 
+  @deadline {__MODULE__, :deadline}
+
+  @doc """
+  `result/3` under a deadline: `timeout:` in ms for the whole verb, however many mix calls it
+  makes. Past it the host's mix is killed and the reply says so; the MCP door passes one under its
+  client's timeout, the CLI none.
+  """
+  def result(dir, verb, args, opts) do
+    if ms = opts[:timeout], do: Process.put(@deadline, System.monotonic_time(:millisecond) + ms)
+
+    try do
+      result(dir, verb, args)
+    after
+      Process.delete(@deadline)
+    end
+  end
+
   @doc """
   A run verb in the mix project at `dir` — `"check"` (its `mix precommit`), `"test"` (args: files,
   file:line), `"format"` (args: files; reports what changed), `"compile"` (warnings as
@@ -119,7 +136,15 @@ defmodule Menard.Run do
   # every test/support module read as "not loaded" — first under `run test`, then again under
   # `run check`. nil unsets, so menard's own MIX_ENV cannot leak into the target either, which is
   # what the pin was for.
-  defp mix(dir, args), do: Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}])
+  defp mix(dir, args) do
+    left =
+      case Process.get(@deadline) do
+        nil -> nil
+        at -> max(at - System.monotonic_time(:millisecond), 1_000)
+      end
+
+    Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}], timeout: left)
+  end
 
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
@@ -329,7 +354,13 @@ defmodule Menard.Run do
       _ ->
         case Regex.scan(~r/^\s*error: .*(?:\n(?!\s*error:).*)*?\n\s*└─ .*$/m, out) do
           [] ->
-            out |> String.split("\n") |> Enum.take(-5) |> Enum.join("\n")
+            # the last lines that say anything: a run stopped at its deadline ends in blank lines and the
+            # VM's shutdown notice, and what it was doing is just above them
+            out
+            |> String.split("\n")
+            |> Enum.reject(&(String.trim(&1) == ""))
+            |> Enum.take(-5)
+            |> Enum.join("\n")
 
           errors ->
             Enum.map_join(errors, "\n", fn [e] ->

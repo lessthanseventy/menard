@@ -394,18 +394,40 @@ defmodule Menard do
   host's toolchain built would load. With mise installed, `mise exec` picks the host's pins.
   """
   def host_mix(dir, args, opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout)
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
 
-    case host_toolchain(dir) do
-      {:mise, mise} ->
-        System.cmd(mise, ["exec", "-C", dir, "--", "mix" | args], opts)
+    {exe, argv, note} =
+      case host_toolchain(dir) do
+        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", "mix" | args], ""}
+        {:path, nil} -> {"mix", args, ""}
+        {:path, why} -> {"mix", args, "menard: #{why}\n"}
+      end
 
-      {:path, nil} ->
-        System.cmd("mix", args, opts)
+    {out, status} = bounded_cmd(exe, argv, opts, timeout, hd(args))
+    {note <> out, status}
+  end
 
-      {:path, why} ->
-        {out, status} = System.cmd("mix", args, opts)
-        {"menard: #{why}\n" <> out, status}
+  # Past its deadline the host's mix is KILLED, not abandoned: a caller that gave up while it kept
+  # compiling left it racing the next mix in the same _build ("corrupt atom table"). coreutils
+  # `timeout` signals the OS process, which a killed Elixir task never does; without it, no deadline.
+  defp bounded_cmd(exe, argv, opts, nil, _task), do: System.cmd(exe, argv, opts)
+
+  defp bounded_cmd(exe, argv, opts, ms, task) do
+    secs = max(div(ms, 1000), 1)
+
+    case System.find_executable("timeout") do
+      nil ->
+        System.cmd(exe, argv, opts)
+
+      timeout ->
+        case System.cmd(timeout, ["--kill-after=5", "#{secs}", exe | argv], opts) do
+          {out, status} when status in [124, 137] ->
+            {out <> "\nmenard: mix #{task} did not finish in #{secs}s, and was stopped", status}
+
+          done ->
+            done
+        end
     end
   end
 

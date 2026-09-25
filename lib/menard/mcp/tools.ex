@@ -416,7 +416,10 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def call(params, frame) do
       with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
-        ok(frame, Menard.Run.lean(Menard.Run.result(dir, params.verb, params[:args] || [])))
+        # the host's mix is killed short of the tool's own deadline, so the reply says what it was doing
+        # instead of the call going silent while mix keeps running
+        timeout = deadline(__MODULE__) - 20_000
+        ok(frame, Menard.Run.lean(Menard.Run.result(dir, params.verb, params[:args] || [], timeout: timeout)))
       else
         {:error, message} -> fail(frame, message)
       end
