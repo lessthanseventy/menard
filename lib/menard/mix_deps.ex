@@ -276,7 +276,7 @@ defmodule Menard.MixDeps do
       Map.merge(extra, %{
         ok: compile.ok,
         lock: lock_diff(lock_before, read_lock(dir)),
-        compile: Map.take(compile, [:ok, :diagnostics, :tail])
+        compile: Map.take(compile, [:ok, :failures, :tail])
       })
     else
       {:error, message} ->
