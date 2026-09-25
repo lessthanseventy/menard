@@ -15,7 +15,8 @@ defmodule Menard.Block do
   @doc "Replace the block's body with `code`, keeping the `name … do` line and the `end`."
   @spec replace(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, name, code, opts \\ []) do
-    with :ok <- body_only(name, code),
+    with {:ok, _label, code, _opts} <- unwrapped(name, opts[:label], code, opts),
+         :ok <- body_only(name, code),
          {:ok, node} <- one(source, name, opts) do
       {_name, meta, args} = node
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
@@ -80,7 +81,9 @@ defmodule Menard.Block do
          "add a module with `menard.module add`, not `block add defmodule` (a --label would become a string module name)"}
 
       true ->
-        with {:ok, ast} <- parse(source),
+        with {:ok, label, body, opts} <- unwrapped(name, label, body, opts),
+             :ok <- body_only(name, body),
+             {:ok, ast} <- parse(source),
              {:ok, module} <- Clause.module_scope(ast, opts[:module]),
              {:ok, all} <- blocks(source, opts),
              {:ok, where, anchor} <- placement(all, ast, module, to_atom(name), opts[:in]) do
@@ -313,6 +316,39 @@ defmodule Menard.Block do
     parts = Enum.reject([label && inspect(label), args], &(&1 in [nil, ""]))
     head = if parts == [], do: "#{name}", else: "#{name} " <> Enum.join(parts, ", ")
     head <> " do\n" <> indented(body, 3) <> "\nend"
+  end
+
+  # A whole `name "label", ARGS do … end` where its body was asked for — the eval's agents wrote it
+  # that way more often than not. `{:whole, label, args, body}` with the texts as written, or `:body`.
+  defp unwrap(name, code) do
+    with {:ok, {call, _meta, [_ | _] = args} = node} <- Sourceror.parse_string(code),
+         true <- call == to_atom(name),
+         %{} = range <- body_range(node) do
+      ctx =
+        case args do
+          [_label, ctx, _do] -> code |> Menard.Source.slice(Sourceror.get_range(ctx)) |> String.trim()
+          _ -> nil
+        end
+
+      # from the start of the body's first line, so every line keeps the indent `dedent` removes
+      %{start: [line: first, column: _]} = range = Menard.Source.clamp(range, code)
+      body = code |> Menard.Source.slice(%{range | start: [line: first, column: 1]}) |> Menard.Source.dedent()
+      {:whole, label(node), ctx, body}
+    else
+      _ -> :body
+    end
+  end
+
+  # A whole block that is the one asked for (same macro, and the label given or none) stands for its
+  # body, its label and its args; anything else is passed on as written, for `body_only` to judge
+  defp unwrapped(name, label, code, opts) do
+    case unwrap(name, code) do
+      {:whole, whole_label, ctx, body} when label in [nil, whole_label] ->
+        {:ok, whole_label, body, Keyword.put_new(opts, :args, ctx)}
+
+      _ ->
+        {:ok, label, code, opts}
+    end
   end
 
   # `describe "x" do … end` handed to `replace describe` is valid Elixir as a body — a block nested in
