@@ -21,7 +21,8 @@ command -v mise >/dev/null 2>&1 && run=(mise exec -C "$PWD" --)
 # what was piped to the verb (`write FILE -` wrote an empty file) or the MCP client's first message.
 if [[ ! -d deps/sourceror ]]; then
   echo "menard: first run — fetching deps" >&2
-  "${run[@]}" mix deps.get >&2 </dev/null
+  # only this env's: ex_doc and its lexers are the docs env's, and cost a first start seconds
+  "${run[@]}" mix deps.get --only "${MIX_ENV:-dev}" >&2 </dev/null
   # Compile here too, with the log on stderr. A cold build is ~200 lines that mix writes to
   # STDOUT, and stdout is the answer: one JSON line from `run`, the protocol for `mcp`.
   "${run[@]}" mix compile >&2 </dev/null
