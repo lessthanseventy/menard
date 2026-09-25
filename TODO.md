@@ -25,9 +25,6 @@ commit lands.
         clear it.
   - [ ] `attr set` put a new attribute between a function's `@doc` and its `def` (console's
         router, route/1); `clause doc` then could not delete that `@doc`, and adding made two.
-  - [ ] `find` on a directory crashes with a raw File.Error instead of a usage error.
-  - [ ] `find` on a file that does not exist prints nothing and exits 0.
-  - [ ] `find defs` prints "def def NAME".
   - [ ] `clause replace` with an empty head on a one-clause function with args: the refusal could
         say to pass the head.
   - [ ] `run check` in a host with no `precommit` alias fails "task precommit could not be found"

@@ -28,13 +28,23 @@ defmodule Mix.Tasks.Menard.Find do
 
     hits =
       files
-      |> Enum.flat_map(&(&1 |> Menard.resolve() |> Path.wildcard()))
+      |> Enum.map(&Menard.resolve/1)
+      |> Find.files()
+      |> case do
+        {:ok, found} -> found
+        {:error, message} -> Mix.raise(message)
+      end
       |> Enum.flat_map(fn file ->
         file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
       end)
 
     if opts[:json] == true,
       do: Mix.shell().info(JSON.encode!(hits)),
-      else: Enum.each(hits, &Mix.shell().info("#{&1.file}:#{&1.line}:#{&1.column} #{&1.kind} #{&1.text}"))
+      else: Enum.each(hits, &Mix.shell().info("#{&1.file}:#{&1.line}:#{&1.column} #{line(&1)}"))
+  end
+
+  # A def's text is its head, which already starts with its kind: `def go(x)`, not `def def go(x)`.
+  defp line(%{kind: kind, text: text}) do
+    if String.starts_with?(text, "#{kind} "), do: text, else: "#{kind} #{text}"
   end
 end
