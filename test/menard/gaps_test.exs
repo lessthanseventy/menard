@@ -402,6 +402,19 @@ defmodule Menard.ModuleTest do
   test "list names the modules in source order" do
     assert Menard.Module.list(@src) == ["A", "B"]
   end
+
+  test "comment sets the # comment at the top of a module's body" do
+    src = """
+    defmodule ATest do
+      # old header
+      use ExUnit.Case
+    end
+    """
+
+    out = Menard.Module.comment(src, nil, "what these tests are about")
+    assert out =~ "defmodule ATest do\n  # what these tests are about\n  use ExUnit.Case"
+    refute out =~ "old header"
+  end
 end
 
 defmodule Menard.DepsTest do

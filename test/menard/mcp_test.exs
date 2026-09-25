@@ -23,6 +23,28 @@ defmodule Menard.MCPTest do
     response
   end
 
+  test "stmt comment and module comment reach the comments no other verb can", %{root: root} do
+    File.write!(
+      Path.join(root, "lib/a.ex"),
+      "defmodule A do\n  use B\n\n  def go(x) do\n    step(x)\n  end\nend\n"
+    )
+
+    refute call(Menard.MCP.Stmt, %{
+             verb: "comment",
+             file: "lib/a.ex",
+             name_arity: "go/1",
+             head: "x",
+             match: "step(x)",
+             text: "why"
+           }).isError
+
+    refute call(Menard.MCP.Module, %{verb: "comment", file: "lib/a.ex", text: "what A is"}).isError
+
+    out = File.read!(Path.join(root, "lib/a.ex"))
+    assert out =~ "  # what A is\n  use B"
+    assert out =~ "    # why\n    step(x)"
+  end
+
   test "a root given with a trailing slash still admits paths under it", %{root: root} do
     System.put_env("MENARD_ROOT", root <> "/")
     assert {:ok, _} = Menard.MCP.resolve("lib/a.ex")

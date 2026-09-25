@@ -35,8 +35,26 @@ defmodule Mix.Tasks.Menard.Module do
 
         Mix.shell().info("menard.module: #{file} written")
 
+      ["comment", file, module | text] when length(text) <= 1 ->
+        file = Menard.resolve(file)
+        module = if module in ["-", ""], do: nil, else: module
+
+        case Menard.Module.comment(File.read!(file), module, List.first(text)) do
+          {:error, message} ->
+            Mix.raise(message)
+
+          out ->
+            case Menard.checked_write(file, out) do
+              :ok -> Mix.shell().info("menard.module: #{file} written")
+              {:error, message} -> Mix.raise(message)
+            end
+        end
+
       _ ->
-        Mix.raise("usage: mix menard.module add FILE CODE  (CODE of `-` reads stdin) | list FILE")
+        Mix.raise(
+          "usage: mix menard.module add FILE CODE  (CODE of `-` reads stdin) | list FILE\n" <>
+            "       mix menard.module comment FILE (Mod.Name|-) [TEXT]   (no TEXT removes it)"
+        )
     end
   end
 end

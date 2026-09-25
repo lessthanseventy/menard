@@ -46,9 +46,10 @@ clause  insert-at FILE (Mod|-) top|bottom CODE
 clause  move FILE name/arity --to DEST [--as Mod.Name]   with its doc, spec and comment
 clause  doc|comment FILE name/arity HEAD [TEXT]
 clause  visibility FILE name/arity public|private
-stmt    insert-after|insert-before|replace|delete|list  FILE name/arity HEAD MATCH [CODE]
+stmt    insert-after|insert-before|replace|delete|comment|list  FILE name/arity HEAD MATCH [CODE]
 block   get|replace|add|relabel|list  FILE NAME [CODE]
 module  add|list FILE [CODE]
+module  comment FILE (Mod|-) [TEXT]              the # comment heading a module
 directive add|remove|list FILE KIND MOD
 rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
 write   FILE CODE

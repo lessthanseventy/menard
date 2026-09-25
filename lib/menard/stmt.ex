@@ -73,6 +73,19 @@ defmodule Menard.Stmt do
     end
   end
 
+  @doc """
+  The `#` comment block above the matched statement — the why inside a body — set, replaced, or with
+  `text` nil removed. The statement twin of `Menard.Clause.comment/5`.
+  """
+  @spec comment(String.t(), String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
+          String.t() | {:error, String.t()}
+  def comment(source, name_arity, head, match, text, opts \\ []) do
+    with {:ok, stmt} <- locate(source, name_arity, head, match, opts) do
+      %{start: [line: line, column: _]} = stmt.range
+      Clause.comment_at(source, line, stmt.indent, text)
+    end
+  end
+
   # -- locating a statement -------------------------------------------------
 
   defp locate(source, name_arity, head, match, opts) do
