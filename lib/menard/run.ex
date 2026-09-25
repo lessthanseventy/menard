@@ -50,7 +50,7 @@ defmodule Menard.Run do
   # every test/support module read as "not loaded" — first under `run test`, then again under
   # `run check`. nil unsets, so menard's own MIX_ENV cannot leak into the target either, which is
   # what the pin was for.
-  defp mix(dir, args), do: System.cmd("mix", args, cd: dir, stderr_to_stdout: true, env: [{"MIX_ENV", nil}])
+  defp mix(dir, args), do: Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}])
 
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
