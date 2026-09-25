@@ -85,3 +85,61 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   empty globs (411c55a); then run's one failure shape and lean reply (5da7d20), a quiet self-build
   (ab17585).
 - 16:46 smoke2: same six cases, B, haiku, on everything above.
+- 17:12 bench1 started (17:12): all 17 cases × A, B (shipped plugin) × haiku, sonnet, 1 run
+  = 68 runs, ~2–2.5 h, pinned with --rebuild, workspaces in /tmp/menard-eval (own dir). Runs past
+  the window's 18:15 at Andrew's request.
+- 17:20 bench1 at 12/68, all pass. Two menard bugs to TODO.md from doctest-line.B.haiku
+  (clause doc without head crashes; run's tail hides mix's "Unknown option"). Drafting a long
+  suite (eval/long/: multi-step sessions via --resume on a grown fixture) alongside, at Andrew's
+  ask: bench1's 4–26-turn tasks can't show whether menard's up-front cost pays back over a session.
+- 17:50 HARNESS BUG, bench1 B rows up to now: two toolchains in one _build. The runner's
+  PATH (inherited from this repo's .tool-versions) is Elixir 1.19.4/OTP 27, and agents, check.sh
+  and the template use it; menard's host mix ran under mise, whose global default was 1.20.4/OTP
+  29, since the fixture pins nothing. Each switch rebuilt every dep (14 in dev, measured: 57 CPU-s).
+  So every B run that called menard:run paid full dep rebuilds, twice per switch, A never did.
+  B wall times are inflated, and new-component.B.haiku's 620s run timeout is this plus the CPU
+  my concurrent menard gates took. Turns/cost/pass stand; B wall_s and the run timeouts do not.
+  Fixed both ways at 17:50: mise global set to 1.19.4-otp-27/27.3.4.2 (Andrew), so the rest of
+  bench1 runs one toolchain; and menard (7ddace6) now runs the PATH mix when the host pins
+  nothing. Also my own gates ran on this machine during bench1: wall times from 17:25 on shared
+  the CPU.
+- 17:51 bench1 stopped at 25/68 (Andrew's call): haiku, add-alias..not-compiling.A; no
+  sonnet row. The sonnet half would have measured the pinned 155211b, with five of the bugs it
+  found already fixed. Next: the open bugs, then bench2 on the fixed build, one toolchain.
+
+## bench1 verdict (haiku only, 12 paired cases, 1 run each: noisy, read as direction not proof)
+
+| arm | pass | clean | turns | $/run | context tok | failed calls |
+|---|---|---|---|---|---|---|
+| A no menard | 12/12 | 8 | 9.7 | 0.066 | 239k | 1 |
+| B menard (155211b) | 10/12 | 9 | 11.6 | 0.078 | 331k | 6 |
+
+- B's two fails were menard bugs, both fixed: `explore-callers.B` (find missed calls in ~H,
+  251f2fd) and `move-function.B` (run test hid the unused-alias warning the check failed on,
+  7d4304e; the agent also finished on `run test`, not `run check`).
+- Where B helps: formatting. A left 4 runs unformatted (add-alias, change-signature, new-fn-large,
+  not-compiling), B only new-component (both arms). attrs, bug-matcherror, bug-receipt-total: B
+  took 1-3 fewer turns and 7-29% less context.
+- Where B costs: +1.9 turns, +$0.012 and +38% context per run on average. The clearest case is
+  change-signature.B (26 turns vs 17, 758k context vs 379k): whole-file Reads, then the Skill load,
+  then `outline` of the same files, one call per clause, 3 re-reads after a green check. Also
+  doctest-line (10 vs 5), new-fn-large (13 vs 7). Every failed call in B was menard's: 6 bugs, all
+  fixed (see git log 657fa7a..42bc8c7).
+- Caveat: B's wall times are void (toolchain rebuild bug, above). Sonnet never ran.
+
+## Handoff (18:00): bench2 is running
+
+- Started 17:57, detached: `run.py bench2 --rebuild --arms A,B --models claude-haiku-4-5,claude-sonnet-5
+  --runs 1`, workspaces in /tmp/menard-eval, runner output /tmp/menard-eval-bench2.out, pinned at
+  db5277a (every bench1 fix in). 68 runs, ~2-2.5 h. One toolchain now (mise global = PATH = 1.19.4).
+- Watch it: `results/bench2/runs.jsonl`, `results/live.log`. A formatter for rows that prints each
+  failed call: see how bench1 was watched (a script tailing runs.jsonl with a seen-count, plus a
+  Traceback grep on the .out and a check that the runner is alive).
+- Don't run the full menard gate while it runs: it steals CPU and skews wall times.
+- `report.py ROUND` writes REPORT.md itself; don't redirect its stdout into REPORT.md.
+- Next after bench2: the long suite (eval/long/, drafted, not run). Runner support is in (steps +
+  --resume, per-step checks on a copy, peak_ctx). The fixture is grown (4.6k lines, green). KNOWN
+  ISSUE before its first run: the fixture already defines `stock_badge/1`, which step 06 asks the
+  agent to add; change step 06 (or drop it from the fixture) and red-check every step's check.sh
+  against the untouched fixture first. Then pilot: `MENARD_EVAL_WORK=/tmp/menard-eval-long run.py
+  long1 --suite eval/long --arms A,B --models claude-haiku-4-5 --runs 1`.
