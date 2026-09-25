@@ -68,7 +68,7 @@ defmodule Menard.Module do
          {:ok, ast} <- parse(source) do
       case List.keyfind(Clause.modules(ast), name, 0) do
         {^name, node} ->
-          range = node |> Sourceror.get_range() |> Menard.Source.clamp(source)
+          range = Menard.Source.range(node, source)
 
           Sourceror.patch_string(source, [
             %{range: range, change: String.trim(code), preserve_indentation: false}

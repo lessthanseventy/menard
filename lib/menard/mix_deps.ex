@@ -40,7 +40,7 @@ defmodule Menard.MixDeps do
          dep when not is_nil(dep) <- Enum.find(elements(list), &(dep_app(&1) == app)) do
       case requirement_node(dep) do
         {:__block__, _, [current]} = node when is_binary(current) ->
-          range = node |> Sourceror.get_range() |> Menard.Source.clamp(source)
+          range = Menard.Source.range(node, source)
           patch(source, [%{range: range, change: inspect(requirement)}])
 
         _ ->
@@ -134,14 +134,14 @@ defmodule Menard.MixDeps do
   defp append(source, list, spec) do
     case elements(list) do
       [] ->
-        range = list |> Sourceror.get_range() |> Menard.Source.clamp(source)
+        range = Menard.Source.range(list, source)
         patch(source, [%{range: range, change: "[" <> spec <> "]"}])
 
       [first | _] = elems ->
         %{start: [line: _, column: col]} = Sourceror.get_range(first)
 
         %{end: [line: b, column: c]} =
-          elems |> List.last() |> Sourceror.get_range() |> Menard.Source.clamp(source)
+          elems |> List.last() |> Menard.Source.range(source)
 
         line = source |> String.split("\n") |> Enum.at(b - 1)
         rest = line |> String.slice((c - 1)..-1//1) |> String.trim_leading()

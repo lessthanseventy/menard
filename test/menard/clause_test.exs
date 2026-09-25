@@ -562,4 +562,12 @@ defmodule Menard.ClauseTest do
     assert Clause.replace_body(src, "go/2", "a, opts", ":bare") =~ "def go(a, opts \\\\ []), do: :bare"
     assert Clause.replace_body(src, "go/2", "a, opts \\\\ []", ":full") =~ "do: :full"
   end
+
+  test "a body starting with x not in y is replaced from its first byte" do
+    # Sourceror starts `name not in [...]` at `not`; the patch left `name ` in front of the new body
+    src = "defmodule B do\n  defp keep?(name) do\n    name not in [:def] and\n      ok?(name)\n  end\nend\n"
+
+    assert Clause.replace_body(src, "keep?/1", "name", "name in [:x]") =~
+             "defp keep?(name) do\n    name in [:x]\n  end"
+  end
 end
