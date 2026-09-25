@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Menard.Module do
 
   @impl true
   def run(argv) do
-    {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean])
+    {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean, above: :boolean])
     stale = Keyword.take(flags, [:version, :force])
 
     case argv do
@@ -40,7 +40,7 @@ defmodule Mix.Tasks.Menard.Module do
         file = Menard.resolve(file)
         module = if module in ["-", ""], do: nil, else: module
 
-        case Menard.Module.comment(File.read!(file), module, List.first(text)) do
+        case Menard.Module.comment(File.read!(file), module, List.first(text), above: flags[:above] == true) do
           {:error, message} ->
             Mix.raise(message)
 
@@ -69,7 +69,7 @@ defmodule Mix.Tasks.Menard.Module do
         Mix.raise(
           "usage: mix menard.module add FILE CODE  (CODE of `-` reads stdin) | list FILE\n" <>
             "       mix menard.module replace FILE Mod.Name CODE          one whole module, of several\n" <>
-            "       mix menard.module comment FILE (Mod.Name|-) [TEXT]   (no TEXT removes it)"
+            "       mix menard.module comment FILE (Mod.Name|-) [TEXT] [--above]   (no TEXT removes it; --above: over defmodule)"
         )
     end
   end

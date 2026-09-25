@@ -72,4 +72,22 @@ defmodule Menard.ModuleTest do
     assert message =~ "B"
     assert {:error, _} = Menard.Module.replace(src, "Nope", "defmodule Nope do\nend")
   end
+
+  test "comment with above: sets the # comment above defmodule, not in its body" do
+    src = """
+    # old note
+    defmodule ATest do
+      # the body's header, not this one's
+      use ExUnit.Case
+    end
+    """
+
+    out = Menard.Module.comment(src, nil, "why this module exists", above: true)
+    assert out =~ "# why this module exists\ndefmodule ATest do\n  # the body's header"
+    refute out =~ "old note"
+
+    # no text removes it, and only it
+    assert Menard.Module.comment(out, nil, nil, above: true) =~
+             ~r/\Adefmodule ATest do\n  # the body's header/
+  end
 end

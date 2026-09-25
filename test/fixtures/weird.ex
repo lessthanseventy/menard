@@ -298,3 +298,14 @@ defmodule WeirdTest do
     timestamps()
   end
 end
+
+# a comment above defmodule, and attributes read by a moduledoc, a use and each other
+defmodule Weird.Templates do
+  @dir "priv/templates"
+  @moduledoc "templates in #{@dir}"
+  use Weird.Templating, from: @dir
+
+  @other @dir <> "/other"
+
+  def go, do: @other
+end
