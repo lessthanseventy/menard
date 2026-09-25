@@ -13,3 +13,7 @@ commit lands.
       run inside the host project, and `anubis_mcp` becomes everyone's runtime dependency.
 - [ ] CHANGELOG `Unreleased` covers only the verb cut; add this session's fixes.
 - [ ] docs/live.md, phase 1: every verb replies with per-stage hunks.
+- [ ] ficciones' `mise run menard` runs the LIVE ~/projects/menard checkout, so editing menard
+      breaks other sessions' verbs mid-edit (seen 2026-09-25: they held its build lock). Run a
+      pinned copy instead: a worktree at the ref the server's mix.lock pins, so the CLI and the
+      library are one version, and it stays independent of the host's deps.

@@ -22,9 +22,11 @@ SHAPE of what you are changing, not the size of the change:
 | which FILE a function lives in | `clause move FILE name/arity --to DEST [--as Mod.Name]` |
 | a module attribute (`@colors`, `@hints`) | `attr get\|set\|delete\|list FILE @name` |
 | the comment above one | `attr comment FILE @name [TEXT]` — no TEXT removes it |
+| the comment above a statement, inside a body | `stmt comment FILE name/arity HEAD MATCH [TEXT]` |
+| the comment at the top of a module (a test file's header) | `module comment FILE (Mod\|-) [TEXT]` |
 | a `do` block by its label — an ExUnit `test`, a `describe` | `block get\|replace\|add\|relabel FILE test --label "…"` |
 | an alias/import/require/use | `directive add\|remove\|list FILE KIND MOD` |
-| a name, everywhere | `rename OLD NEW [--atoms] [--comments] FILES` |
+| a name, everywhere | `rename OLD NEW [--only functions\|variables] [--atoms] [--comments] FILES` |
 
 `replace` takes the **body**; `rewrite` takes the **whole clause**. Passing a `def` to `replace` is
 refused, because `def bg, do: def(bg, do: X)` is valid Elixir and only the compiler would object.

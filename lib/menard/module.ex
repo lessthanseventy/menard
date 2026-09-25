@@ -31,6 +31,25 @@ defmodule Menard.Module do
     with {:ok, ast} <- parse(source), do: names(ast)
   end
 
+  @doc """
+  The `#` comment block at the top of a module's body — what a test module, say, is about — set,
+  replaced, or with `text` nil removed. `module` is `"Mod.Name"`, or nil in a one-module file.
+  """
+  @spec comment(String.t(), String.t() | nil, String.t() | nil) :: String.t() | {:error, String.t()}
+  def comment(source, module, text) do
+    with {:ok, ast} <- parse(source),
+         {:ok, node} <- Clause.module_scope(ast, module) do
+      case Clause.module_body(node) do
+        [first | _] ->
+          %{start: [line: line, column: col]} = Sourceror.get_range(first)
+          Clause.comment_at(source, line, col - 1, text)
+
+        [] ->
+          {:error, "the module is empty — nothing to put a comment above"}
+      end
+    end
+  end
+
   defp append(source, code) do
     trimmed = String.trim_trailing(source, "\n")
     trimmed <> "\n\n" <> String.trim(code) <> "\n"

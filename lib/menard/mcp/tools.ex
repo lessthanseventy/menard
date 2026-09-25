@@ -178,7 +178,8 @@ defmodule Menard.MCP.Stmt do
   ONE statement inside a clause body — a line in a `do` block, a step in a `with`, a `case` arm.
   Name the clause (`name_arity` + `head`), then the statement by what is WRITTEN (`match`),
   whitespace-insensitive. `verb` is `insert_after`, `insert_before`, `replace`, `delete` or
-  `list`; `code` is the new statement.
+  `list`; `code` is the new statement. `comment` sets the `#` comment above it — prose in
+  `text`, no `text` removes it.
 
   A miss lists the statements that are there. An ambiguous match is refused with line numbers
   rather than guessed at; `nth` says which one.
@@ -189,7 +190,7 @@ defmodule Menard.MCP.Stmt do
 
   schema do
     field(:verb, :enum,
-      values: ["insert_after", "insert_before", "replace", "delete", "list"],
+      values: ["insert_after", "insert_before", "replace", "delete", "comment", "list"],
       required: true
     )
 
@@ -198,6 +199,7 @@ defmodule Menard.MCP.Stmt do
     field(:head, :string, required: true)
     field(:match, :string)
     field(:code, :string)
+    field(:text, :string)
     field(:nth, :integer)
   end
 
@@ -234,6 +236,7 @@ defmodule Menard.MCP.Stmt do
       "insert_before" -> apply(Stmt, :insert_before, args ++ [code, opts])
       "replace" -> apply(Stmt, :replace, args ++ [code, opts])
       "delete" -> apply(Stmt, :delete, args ++ [opts])
+      "comment" -> apply(Stmt, :comment, args ++ [p[:text], opts])
     end
   end
 end
@@ -569,16 +572,19 @@ end
 defmodule Menard.MCP.Module do
   @moduledoc """
   Whole modules inside a file. `add` appends a complete `defmodule` after the last one (a name the
-  file already defines is refused); `list` names them. `clause insert_at` puts a function INTO a
+  file already defines is refused); `list` names them;
+  `comment` sets the `#` comment at the top of a module's body (`module`, or the file's one). `clause insert_at` puts a function INTO a
   module and `write` replaces a whole file — neither adds a second module to a file that has one.
   """
   use Anubis.Server.Component, type: :tool
   import Menard.MCP.Reply
 
   schema do
-    field(:verb, :enum, values: ["add", "list"], required: true)
+    field(:verb, :enum, values: ["add", "list", "comment"], required: true)
     field(:file, :string, required: true)
     field(:code, :string)
+    field(:module, :string)
+    field(:text, :string)
   end
 
   @impl true
@@ -586,6 +592,19 @@ defmodule Menard.MCP.Module do
     with {:ok, file} <- Menard.MCP.resolve(params.file),
          names when is_list(names) <- Menard.Module.list(File.read!(file)) do
       ok(frame, %{"modules" => names})
+    else
+      {:error, message} -> fail(frame, message)
+    end
+  end
+
+  def execute(%{verb: "comment"} = params, frame) do
+    with {:ok, file} <- Menard.MCP.resolve(params.file),
+         out when is_binary(out) <- Menard.Module.comment(File.read!(file), params[:module], params[:text]),
+         :ok <- Menard.checked_write(file, out) do
+      ok(frame, %{
+        "did" => "comment #{params[:module] || "the module"} in #{Path.basename(file)}",
+        "file" => file
+      })
     else
       {:error, message} -> fail(frame, message)
     end
