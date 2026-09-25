@@ -19,3 +19,8 @@ commit lands.
         router, route/1); `clause doc` then could not delete that `@doc`, and adding made two.
 - [ ] `block add` cannot put a `@tag` above the test it adds (a `@tag :tmp_dir` test needs
       `@moduletag` instead, or a hand edit).
+- [ ] A write whose format failed ("not formatted — [Quokka, DoctestFormatter] will not load from
+      …/_build in this VM") says so on stderr only; the reply looks clean, so neither the agent
+      nor a check notices the file was left unformatted (tlon/server).
+- [ ] No verb for a test module's `doctest Mod` line: `directive add FILE doctest Mod`, placed
+      after `use` and the aliases, where Quokka puts it.
