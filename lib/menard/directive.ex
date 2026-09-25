@@ -48,9 +48,16 @@ defmodule Menard.Directive do
          {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
       body = Menard.Clause.module_body(node)
 
-      case Enum.find(body, &match(&1, kind, target)) do
-        nil -> source
-        found -> drop_lines(source, Sourceror.get_range(found))
+      cond do
+        found = Enum.find(body, &match(&1, kind, target)) ->
+          drop_lines(source, Sourceror.get_range(found))
+
+        # dropping the line would take its siblings with it
+        multi = Enum.find(body, &({kind, target} in directives(&1))) ->
+          {:error, "#{kind} #{target} is part of `#{Sourceror.to_string(multi)}` — rewrite that line"}
+
+        true ->
+          source
       end
     end
   end
@@ -60,14 +67,7 @@ defmodule Menard.Directive do
   def list(source, opts \\ []) do
     with {:ok, ast} <- parse(source),
          {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      node
-      |> Menard.Clause.module_body()
-      |> Enum.flat_map(fn statement ->
-        case directive(statement) do
-          nil -> []
-          {kind, target} -> [{kind, target}]
-        end
-      end)
+      node |> Menard.Clause.module_body() |> Enum.flat_map(&directives/1)
     end
   end
 
@@ -146,22 +146,29 @@ defmodule Menard.Directive do
 
   defp directive(_statement), do: nil
 
+  # Every {kind, target} a statement names — `alias Foo.{Bar, Baz}` names two.
+  defp directives({kind, _meta, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs} | _rest]})
+       when kind in @kinds,
+       do: for({:__aliases__, _, p} <- subs, do: {kind, Menard.Source.alias_name(base ++ p)})
+
+  defp directives(statement), do: List.wrap(directive(statement))
+
   defp kind_of(statement) do
-    case directive(statement) do
-      {kind, _target} -> kind
-      nil -> nil
+    case directives(statement) do
+      [{kind, _target} | _] -> kind
+      [] -> nil
     end
   end
 
   defp target_of(statement) do
-    case directive(statement) do
-      {_kind, target} -> target
-      nil -> ""
+    case directives(statement) do
+      [{_kind, target} | _] -> target
+      [] -> ""
     end
   end
 
   defp match(statement, kind, target), do: directive(statement) == {kind, target}
-  defp exists?(body, kind, target), do: Enum.any?(body, &match(&1, kind, target))
+  defp exists?(body, kind, target), do: Enum.any?(body, &({kind, target} in directives(&1)))
 
   defp moduledoc?({:@, _meta, [{:moduledoc, _inner, _args}]}), do: true
   defp moduledoc?(_statement), do: false
