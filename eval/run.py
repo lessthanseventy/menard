@@ -48,8 +48,9 @@ def build_template(force=False):
 
 
 def build_plugins(force=False):
-    """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks."""
-    for arm in ["B", "C"]:
+    """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
+    loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
+    for arm in ["B", "C", "L"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -58,6 +59,11 @@ def build_plugins(force=False):
         shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
         if arm == "C":
             (dest / "hooks" / "hooks.json").write_text('{"hooks": {}}\n')
+        if arm == "L":
+            manifest = dest / ".claude-plugin" / "plugin.json"
+            d = json.loads(manifest.read_text())
+            d["mcpServers"]["menard"]["alwaysLoad"] = True
+            manifest.write_text(json.dumps(d, indent=2) + "\n")
 
 
 def prepare(case_dir, ws):
@@ -79,7 +85,7 @@ def claude_cmd(prompt, model, arm):
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
            "--setting-sources", "project", "--permission-mode", "bypassPermissions",
            "--no-session-persistence", "--max-turns", str(MAX_TURNS)]
-    if arm in ("B", "C"):
+    if arm in ("B", "C", "L"):
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
     return cmd
 

@@ -4,31 +4,17 @@ Window: started 2026-09-25 13:26 MDT, stop by ~18:15 MDT.
 
 ## Now
 
-Round 1 running since 13:43: all 17 cases × arms A, B, C × haiku, sonnet, opus, fable, up to 3
-runs per cell (run 1 of every cell before any run 2). It starts no run after 17:50. Progress:
-`eval/results/round1/log.txt`, one line per run. `mise run eval:report round1` rebuilds
-`eval/REPORT.md` from whatever has finished; a background loop does that every 5 min, and
-`eval/results/round1/PROGRESS.txt` has the count and the last run.
+Round 2 running since 14:16, on menard at 6f3382d (the fixes below). Arms: A no menard, B menard,
+L = B with its MCP tools always loaded (`alwaysLoad`, no ToolSearch turn), C menard without hooks.
+15 cases (explore-config and doctest-line dropped: trivial for every arm) × 4 models, runs
+outermost; first pass is 240 runs, ~55 s each, due ~17:55; no run starts after 18:10.
+Progress: `eval/results/round2/PROGRESS.txt`; `eval/REPORT.md` regenerates every 5 min.
 
-Pilot (13:38–13:42, 12 runs, sonnet, A vs B on 3 cases): all passed; the harness records what the
-plan asks. First signals: A's rename used `sed` and left `cart_live.ex` unformatted (2/2); B formats
-clean but takes ~1.7× the turns and context (Skill + ToolSearch + menard:run on top of the edit);
-one B run edited `mailer.ex` with `sed -i` straight past the guard (Bash isn't guarded, by design).
+Round 1 was stopped at 26 runs (haiku only) to fix what the pilot showed; its rows are kept in
+`eval/results/r0-050-partial/` as a 0.5.0 reference.
 
-Built: `eval/fixture/` (Shop: catalog, cart, a 1,016-line `Shop.Orders`, a mailer with a heredoc,
-a `~H` component and LiveView; 18 tests, styler as a dep), `eval/run.py` (the runner),
-`eval/report.py`, `eval/cases/*` (prompt, `check.sh`, hidden tests, an `allowed` list for the noise
-metric, `setup.sh` for the broken/styler variants). Every check was run red on the untouched
-fixture, and the grep-based ones green on a hand-made solution.
-
-Cases (kind): new-module, new-fn-large, new-component (new-work); explore-callers,
-explore-config (reading); rename-across, change-signature, move-function, add-alias (refactor);
-bug-receipt-total, bug-matcherror (bugfix); test-tmpdir, doctest-line (tests); not-compiling,
-styler, attrs (hard); oneline (overhead).
-
-Plan vs. what fits: 17 × 3 × 4 × 3 = 612 runs at ~20–40 s each is more than the window holds, so
-runs loop outermost: every cell gets 1 run, then 2, then 3, until 17:50. The "more runs for wide
-cells, up to 8" phase won't fit this window.
+Next, after round 2: the skill, tested the way writing-skills would (baseline vs variants on the
+cases where it matters): the current CLI-first skill vs an MCP-first slim one vs none.
 
 ## Step 1 findings: `claude plugin eval` does not fit, so the fallback runner
 
@@ -70,3 +56,8 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   are in TODO.md (b928455). The eval runs from pinned plugin copies, so round 1 still measures
   the pre-fix 0.5.0.
 - 14:07 round 1 at 24/204; expected to finish pass 1 around 17:00–17:30.
+- 14:10 stopped round 1 (26/204 runs) at Andrew's call, to fix and rerun.
+- 14:15 fixed: guard names the MCP tools under Claude Code (`--mcp`, 67b834a), block usage
+  (6f3382d); earlier ones 566f0d8, dac5afb, 9b2cec1. Bench: `alwaysLoad: true` in plugin.json
+  works in the CLI, drops the ToolSearch call and a turn, costs ~3.7k tokens of schemas per turn.
+- 14:16 round 2 started.

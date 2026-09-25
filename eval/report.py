@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "C"]
+ARMS = ["A", "B", "L", "C"]
 MODELS = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]
 
 
@@ -108,7 +108,7 @@ def main():
     rounds = sys.argv[1:] or ["round1"]
     rows = load(rounds)
     md = [f"# menard eval report\n\nRounds: {', '.join(rounds)}. {len(rows)} runs. Arms: A no menard, "
-          "B full menard (MCP, guard hook, skill), C menard without its hooks.\n\n"
+          "B full menard (MCP, guard hook, skill), L = B with its MCP tools always loaded, C menard without its hooks.\n\n"
           "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
           "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
           "`context tok`: input + cache read + cache write, summed over the run.\n"]
@@ -151,10 +151,10 @@ def main():
         share = lambda k: pct(mean([1.0 if x[k] else 0.0 for x in u]))
         md.append(f"| {arm} · {model} | {len(rs)} | {share('mcp')} | {share('cli')} | {share('skill')} | {share('shell_edit')} | {share('guard')} | {share('edit_ex')} |")
 
-    md.append("\n## Gap signals (B and C)\n")
+    md.append("\n## Gap signals (menard arms)\n")
     kinds = defaultdict(list)
     for r in rows:
-        if r["arm"] in ("B", "C"):
+        if r["arm"] != "A":
             for g in r["gaps"]:
                 kinds[g["kind"]].append((r["id"], g))
     for kind, evs in sorted(kinds.items()):
@@ -163,9 +163,9 @@ def main():
             detail = g.get("command") or g.get("text") or g.get("path")
             md.append(f"- `{rid}`: {str(detail)[:220].replace(chr(10), ' ⏎ ')}")
 
-    md.append("\n## menard tool failures (B and C)\n")
+    md.append("\n## menard tool failures (menard arms)\n")
     for r in rows:
-        if r["arm"] in ("B", "C"):
+        if r["arm"] != "A":
             for f in r["failures"]:
                 if f["tool"].startswith("menard:"):
                     md.append(f"- `{r['id']}` {f['tool']}: {f['text'][:220].replace(chr(10), ' ⏎ ')}")
