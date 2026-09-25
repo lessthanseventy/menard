@@ -1,0 +1,1 @@
+sed -i 's/category: :drink, stock: 20}/category: :drink, stock: 20, weight: 100}/; s/category: :kitchen, stock: 5}/category: :kitchen, stock: 5, weight: 350}/; s/category: :kitchen, stock: 2}/category: :kitchen, stock: 2, weight: 900}/' lib/shop/catalog.ex

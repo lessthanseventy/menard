@@ -1,0 +1,2 @@
+lib/shop/catalog.ex
+test/shop/catalog_test.exs

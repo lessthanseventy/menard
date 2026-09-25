@@ -1,0 +1,6 @@
+lib/shop/catalog.ex
+lib/shop/cart.ex
+lib/shop/orders.ex
+lib/shop_web/components/core_components.ex
+lib/shop_web/live/cart_live.ex
+test/shop/catalog_test.exs

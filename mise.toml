@@ -22,3 +22,11 @@ run = "mix format --check-formatted && mix compile --warnings-as-errors && mix t
 [tasks."bench:identity"]
 description = "The identity corpus over pinned hex packages: every edit that writes back what is there must leave the file as it was"
 run = "mix test --only corpus test/menard/hex_corpus_test.exs"
+
+[tasks.eval]
+description = "menard vs. no menard: run eval cases headless (eval/run.py ROUND --cases … --arms A,B,C --models … --runs N)"
+run = "python3 eval/run.py"
+
+[tasks."eval:report"]
+description = "Aggregate eval rounds into eval/REPORT.md (eval/report.py ROUND…)"
+run = "python3 eval/report.py"

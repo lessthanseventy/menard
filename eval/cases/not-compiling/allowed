@@ -1,0 +1,3 @@
+lib/shop/product.ex
+lib/shop/cart.ex
+test/shop/cart_test.exs
