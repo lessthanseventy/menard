@@ -76,15 +76,28 @@ defmodule Menard.Source do
         one
 
       [first | rest] ->
+        # Already at or past `indent`: placed for here, and left as it is. Dropping the indent they
+        # share assumed the shallowest sat at the base, and pulled a sigil's words or a heredoc's
+        # lines left when every line, the closing too, sat deeper.
         rest =
-          rest
-          |> Enum.join("\n")
-          |> dedent()
-          |> String.split("\n")
-          |> Enum.map(&if(String.trim(&1) == "", do: "", else: indent <> &1))
+          if shared_indent(rest) >= String.length(indent),
+            do: rest,
+            else:
+              rest
+              |> Enum.join("\n")
+              |> dedent()
+              |> String.split("\n")
+              |> Enum.map(&if(String.trim(&1) == "", do: "", else: indent <> &1))
 
         Enum.join([first | rest], "\n")
     end
+  end
+
+  defp shared_indent(lines) do
+    lines
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
+    |> Enum.min(fn -> 0 end)
   end
 
   @doc """

@@ -259,4 +259,25 @@ defmodule Menard.AttrTest do
     # elsewhere a blank on each side stays one blank
     assert Menard.Attr.delete(src, "plain") =~ "def add(a), do: a + 1\n\n\n  def other"
   end
+
+  test "a multi-line value already placed deeper keeps its indentation" do
+    # a multi-line value whose lines all sit deeper than the attribute, its closing included: dropping
+    # their shared indent pulled a sigil's words left (ex_doc's @void_elements, credo's ~w table)
+    src = """
+    defmodule A do
+      @words ~w(
+          one two
+          three
+        )a
+
+      def go, do: @words
+    end
+    """
+
+    value = "~w(\n      one two\n      three\n    )a"
+    assert Menard.Attr.set(src, "words", value) == src
+
+    # code written from column 0 still lands at the attribute's column
+    assert Menard.Attr.set(src, "words", "~w(\n  four\n)a") =~ "  @words ~w(\n    four\n  )a\n"
+  end
 end
