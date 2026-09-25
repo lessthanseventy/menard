@@ -126,12 +126,12 @@ defmodule Menard.Clause do
         |> patch(clause.range, reindent(body, clause.indent))
         |> comment_at(above_attrs, clause.indent, String.trim(lead))
       else
+        range = with_comments_above(source, clause.range, code)
+        # a range widened to the comments above starts at column 1, so the text brings its own indent
+        indent = if range.start[:column] == 1, do: clause.indent, else: ""
+
         Sourceror.patch_string(source, [
-          %{
-            range: with_comments_above(source, clause.range, code),
-            change: reindent(code, clause.indent),
-            preserve_indentation: false
-          }
+          %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
         ])
       end
     end
@@ -746,7 +746,10 @@ defmodule Menard.Clause do
   # CODE here is the BODY, and a whole `def` nests inside itself — `def bg, do: def(bg, do: X)`
   # parses, so only the compiler would object.
   defp body_only(code) do
-    if Regex.match?(~r/^\s*(def|defp|defmacro|defmacrop)\s/, code) do
+    # a comment above the def is part of a whole clause, not a body that starts with one
+    {_comments, body} = split_leading_comments(code)
+
+    if Regex.match?(~r/^\s*(def|defp|defmacro|defmacrop)\s/, body) do
       {:error,
        "CODE is the clause BODY here, and this looks like a whole clause — use `rewrite`, which replaces the head too"}
     else
