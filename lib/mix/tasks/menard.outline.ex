@@ -41,7 +41,7 @@ defmodule Mix.Tasks.Menard.Outline do
       {da, db} = d.lines || {0, 0}
 
       Mix.shell().info(
-        "#{indent}  #{d.kind} #{d.name}/#{d.arity}  L#{da}-#{db}#{if d.doc, do: "  — " <> d.doc, else: ""}"
+        "#{indent}  #{d.kind} #{d.name}/#{d.arity}#{if d.head != "", do: " (#{d.head})"}  L#{da}-#{db}#{if d.doc, do: "  — " <> d.doc, else: ""}"
       )
     end
 

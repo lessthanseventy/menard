@@ -326,7 +326,7 @@ if Code.ensure_loaded?(Anubis.Server) do
   end
 
   defmodule Menard.MCP.Outline do
-    @moduledoc "A file as an outline: modules, defs with arity/kind/spec/doc, line spans. Read before editing."
+    @moduledoc "A file as an outline: modules, defs with arity/kind/head/spec/doc, line spans. Read before editing: each def's `head` is the address `clause` and `stmt` take."
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
 

@@ -603,7 +603,7 @@ defmodule Menard.Clause do
       guard: guard,
       head_text: with_guard.(args),
       # the head without its `\\ default`s — what a caller types, since the arity already says which
-      bare_head: with_guard.(bare_args(head)),
+      bare_head: bare_head(head),
       range: range,
       indent: String.duplicate(" ", col - 1),
       node: node
@@ -621,6 +621,17 @@ defmodule Menard.Clause do
     do: {Enum.map_join(args, ", ", &Sourceror.to_string/1), nil}
 
   defp split_head(_head), do: {"", nil}
+
+  @doc """
+  A head as the clause verbs address it: the arguments without their `\\\\ default`s, the guard kept.
+  What a caller passes as HEAD, and what `outline` prints for each def.
+  """
+  def bare_head(head) do
+    case split_head(head) do
+      {_args, nil} -> bare_args(head)
+      {_args, guard} -> bare_args(head) <> " when " <> guard
+    end
+  end
 
   defp bare_args({:when, _, [call | _]}), do: bare_args(call)
 

@@ -65,4 +65,22 @@ defmodule Menard.OutlineTest do
     assert "sha256:" <> _ = reply["version"]
     assert [%{"lines" => [1, 3]}] = reply["modules"]
   end
+
+  test "each def carries its head, as the clause verbs address it: no defaults, guard kept" do
+    src = """
+    defmodule H do
+      def lines(%{items: items}), do: items
+      def f(source, opts \\\\ []) when is_binary(source), do: {source, opts}
+      def z, do: 1
+    end
+    """
+
+    assert {:ok, [h]} = Outline.run(src)
+    assert Enum.map(h.defs, & &1.head) == ["%{items: items}", "source, opts when is_binary(source)", ""]
+
+    # the address the verbs take: every printed head finds its clause
+    for d <- h.defs do
+      assert {:ok, _} = Menard.Clause.find(src, "#{d.name}/#{d.arity}", d.head, [])
+    end
+  end
 end
