@@ -12,6 +12,9 @@ defmodule Menard.Attr do
   import Menard.Source, only: [parse: 1, reindent: 2]
   alias Menard.Clause
 
+  # written above one def and belonging to it, as Menard.Clause's @attached
+  @per_definition [:doc, :spec, :impl, :deprecated, :dialyzer]
+
   @doc "The attribute's value exactly as written, or `{:error, …}` if it is missing or ambiguous."
   @spec get(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def get(source, name, opts \\ []) do
@@ -113,19 +116,40 @@ defmodule Menard.Attr do
       body = Clause.module_body(module)
       atom = to_atom(name)
 
-      case Enum.find(body, &(anchor?(&1) or reads?(&1, atom))) do
+      case Enum.find_index(body, &(anchor?(&1) or reads?(&1, atom))) do
         nil -> {:error, "nothing to place @#{atom} above — the module has no definitions"}
-        first -> insert_before(source, first, name, value)
+        i -> insert_before(source, owner_start(body, i), name, value)
       end
     end
+  end
+
+  # A definition's @doc, @spec and @impl are its own, written directly above it: a new attribute goes
+  # above that run, not between it and the def, where the @doc was left belonging to nothing.
+  defp owner_start(body, i) do
+    body
+    |> Enum.take(i)
+    |> Enum.reverse()
+    |> Enum.take_while(&(attr_name(&1) in @per_definition))
+    |> List.last(Enum.at(body, i))
   end
 
   defp insert_before(source, node, name, value) do
     %{start: [line: line, column: col]} = Sourceror.get_range(node)
     indent = String.duplicate(" ", col - 1)
     written = indent <> "@#{to_atom(name)} " <> reindent(value, indent) <> "\n\n"
+    # above the comment glued to what it goes before, too: that comment explains the node, not this
+    line = line - comment_lines_above(source, line)
     at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
     Sourceror.patch_string(source, [%{range: at, change: written, preserve_indentation: false}])
+  end
+
+  defp comment_lines_above(source, line) do
+    source
+    |> String.split("\n")
+    |> Enum.take(line - 1)
+    |> Enum.reverse()
+    |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
+    |> length()
   end
 
   defp drop_lines(source, a, b) do
@@ -161,11 +185,12 @@ defmodule Menard.Attr do
   end
 
   # An attribute holding a value the module reads. Not @moduledoc and friends: above those is also
-  # above the `alias` the value depends on.
+  # above the `alias` the value depends on. Nor a definition's own @spec or @impl: those belong to
+  # the def below them.
   defp table?(node) do
     case attr_name(node) do
       nil -> false
-      name -> name not in [:moduledoc, :doc, :shortdoc, :typedoc]
+      name -> name not in ([:moduledoc, :doc, :shortdoc, :typedoc] ++ @per_definition)
     end
   end
 

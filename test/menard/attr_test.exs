@@ -214,4 +214,26 @@ defmodule Menard.AttrTest do
     assert at.(~s(@dir "priv/t")) < at.("@moduledoc")
     assert at.(~s(@dir "priv/t")) < at.("use Some.Templates")
   end
+
+  test "a NEW attribute lands above a def's @doc, @spec and comment, never between them and the def" do
+    # landed between route/1's @doc and its def, the @doc belonged to nothing: `clause doc` could not
+    # remove it, and setting one made a second
+    src = """
+    defmodule Router do
+      use Some.Router
+
+      # the one entry point
+      @doc "routes a request"
+      @spec route(term()) :: term()
+      def route(req), do: req
+    end
+    """
+
+    lines = src |> Menard.Attr.set("timeout", "5_000") |> String.split("\n")
+    at = fn text -> Enum.find_index(lines, &String.contains?(&1, text)) end
+
+    assert at.("@timeout 5_000") < at.("# the one entry point")
+    assert at.("@doc \"routes") + 1 == at.("@spec route")
+    assert at.("@spec route") + 1 == at.("def route")
+  end
 end

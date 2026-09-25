@@ -42,6 +42,9 @@
   several that start so are refused, each named by its first line.
 - `clause replace` and `block replace` with a body that opens with the comment the old one opened
   with write it once, and clear a copy already doubled; a body with no comment leaves it alone.
+- A new attribute lands above a def's `@doc`, `@spec` and the comment over them, never between
+  them and the def, where the `@doc` was left belonging to nothing (and `clause doc` could not
+  remove it).
 - The MCP door cannot go silent: every tool answers within a deadline (90s for an edit, 10
   minutes for `run` and `deps`), and a raise inside one is an error reply, not a dead call.
 - The MCP `write` tool answered with the old `{did, file}`, not the staged reply.
