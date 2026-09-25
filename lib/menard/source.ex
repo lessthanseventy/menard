@@ -76,22 +76,66 @@ defmodule Menard.Source do
         one
 
       [first | rest] ->
+        # A line inside a multi-line string, sigil or heredoc is part of its value: moving it changes
+        # the program. Only the lines of code around them move.
+        content = code |> String.trim() |> literal_lines()
+        lines = Enum.with_index(rest, 2)
+        movable = for {line, i} <- lines, i not in content, do: line
+
         # Already at or past `indent`: placed for here, and left as it is. Dropping the indent they
-        # share assumed the shallowest sat at the base, and pulled a sigil's words or a heredoc's
-        # lines left when every line, the closing too, sat deeper.
+        # share assumed the shallowest sat at the base, and pulled lines left when every one sat deeper.
+        shift = shared_indent(movable)
+
         rest =
-          if shared_indent(rest) >= String.length(indent),
+          if shift >= String.length(indent),
             do: rest,
             else:
-              rest
-              |> Enum.join("\n")
-              |> dedent()
-              |> String.split("\n")
-              |> Enum.map(&if(String.trim(&1) == "", do: "", else: indent <> &1))
+              Enum.map(lines, fn
+                {line, i} -> if i in content, do: line, else: move(line, shift, indent)
+              end)
 
         Enum.join([first | rest], "\n")
     end
   end
+
+  defp move(line, shift, indent) do
+    if String.trim(line) == "", do: "", else: indent <> String.slice(line, shift..-1//1)
+  end
+
+  # The lines of `code` (1-based) inside a literal that spans several: after the line it opens on,
+  # through the line it closes on. A `->` arm (a statement `stmt` reaches) parses only inside a
+  # `fn`, which opens on the arm's own first line, so the numbers hold. Code that parses neither way
+  # has none found, and moves whole.
+  defp literal_lines(code) do
+    with {:error, _} <- Sourceror.parse_string(code),
+         {:error, _} <- Sourceror.parse_string("fn " <> code <> "\nend") do
+      MapSet.new()
+    else
+      {:ok, ast} ->
+        ast
+        |> Macro.prewalker()
+        |> Enum.flat_map(fn node ->
+          with true <- literal?(node),
+               %{start: [line: a, column: _], end: [line: b, column: _]} when b > a <-
+                 Sourceror.get_range(node) do
+            Enum.to_list((a + 1)..b)
+          else
+            _ -> []
+          end
+        end)
+        |> MapSet.new()
+    end
+  end
+
+  defp literal?({:__block__, meta, [value]}) when is_binary(value) or is_list(value),
+    do: meta[:delimiter] != nil
+
+  defp literal?({:<<>>, meta, _parts}), do: meta[:delimiter] != nil
+
+  defp literal?({sigil, _meta, _args}) when is_atom(sigil),
+    do: String.starts_with?(Atom.to_string(sigil), "sigil_")
+
+  defp literal?(_node), do: false
 
   defp shared_indent(lines) do
     lines
