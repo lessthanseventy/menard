@@ -26,7 +26,8 @@ defmodule Menard.Run do
   end
 
   def result(dir, "compile", _args) do
-    {out, status} = mix(dir, ["compile", "--force", "--warnings-as-errors"])
+    # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
+    {out, status} = mix(dir, ["compile", "--warnings-as-errors"])
 
     diagnostics =
       ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
