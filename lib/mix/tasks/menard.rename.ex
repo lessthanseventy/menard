@@ -15,13 +15,18 @@ defmodule Mix.Tasks.Menard.Rename do
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [atoms: :boolean, comments: :boolean, only: :string])
+    {opts, args, _} =
+      OptionParser.parse(argv,
+        strict: [atoms: :boolean, comments: :boolean, only: :string, version: :keep, force: :boolean]
+      )
 
     case args do
       [old, new | files] when files != [] ->
+        files = Enum.map(files, &Menard.resolve/1)
+        check_versions(opts)
+
         replies =
           files
-          |> Enum.map(&Menard.resolve/1)
           |> Enum.map(&rewrite(&1, old, new, opts))
           |> Enum.reject(&is_nil/1)
 
@@ -37,6 +42,20 @@ defmodule Mix.Tasks.Menard.Rename do
           "usage: mix menard.rename OLD NEW [--only functions|variables] [--atoms] [--comments] FILE..."
         )
     end
+  end
+
+  # `--version FILE=SHA` per file, from each one's last reply: all are checked before any is written,
+  # since a rename refused halfway leaves the name changed in some files and not the others
+  defp check_versions(opts) do
+    versions =
+      for spec <- Keyword.get_values(opts, :version), !opts[:force] do
+        case String.split(spec, "=", parts: 2) do
+          [file, version] -> {Menard.resolve(file), version}
+          _ -> Mix.raise("--version takes FILE=SHA for a rename, got #{spec}")
+        end
+      end
+
+    with {:error, message} <- Menard.check_versions(versions), do: Mix.raise(message)
   end
 
   defp rewrite(file, old, new, opts) do

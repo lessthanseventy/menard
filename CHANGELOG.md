@@ -8,7 +8,8 @@
   written is still the project's full formatter output.
 - `--version SHA` (MCP `version`) on every single-file writing verb: an edit against a version
   the file no longer has is refused, with the diff since that version. `--force` writes anyway.
-  `outline` reports the version too, for the first edit.
+  `outline` reports the version too, for the first edit. `rename` takes `--version FILE=SHA` per
+  file and `clause move` the source's, all checked before any file is written.
 
 - `clause spec FILE name/arity [SPEC]` (MCP clause verb `spec`): a function's `@spec`, set,
   replaced or removed. No verb reached it: `attr` refuses it and the clause verbs carry it.
