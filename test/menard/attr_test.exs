@@ -25,7 +25,16 @@ defmodule Menard.AttrTest do
 
   test "get reads the value exactly as written, single line or block" do
     assert Attr.get(@src, "kinds") == "[:a, :b]"
-    assert Attr.get(@src, :hints) =~ ~s({"x", "one"})
+    # its lines relative to the attribute, as `set` takes a value
+    assert Attr.get(@src, :hints) == ~s([\n  {"x", "one"},\n  {"y", "two"}\n])
+  end
+
+  test "get returns the value's own text, not a reprint at the default line length" do
+    # a project formatted at a longer line_length writes this on one line; a reprint broke it up
+    long = "[" <> Enum.map_join(1..14, ", ", &":name_#{&1}") <> "]"
+    src = "defmodule A do\n  @names #{long}\nend\n"
+
+    assert Attr.get(src, "names") == long
   end
 
   test "a leading @ on the name is accepted — it is how the attribute is written" do
