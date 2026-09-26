@@ -73,9 +73,15 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp resolve(path, root, real_root) do
       abs = Path.expand(path, root)
 
-      if under?(abs, root) and under?(real(abs), real_root),
+      if under?(abs, root) and under?(real_below(abs, root, real_root), real_root),
         do: {:ok, abs},
         else: {:error, "refused: #{path} is outside #{root}"}
+    end
+
+    # only the part below the root is walked, from the root's own real path: each link looked up is a
+    # call to the file server, and resolve_all makes these for every file it is given
+    defp real_below(abs, root, real_root) do
+      abs |> Path.relative_to(root) |> Path.split() |> Enum.reduce(real_root, &follow(Path.join(&2, &1), 0))
     end
 
     defp under?(path, dir), do: path == dir or String.starts_with?(path, dir <> "/")
