@@ -444,4 +444,19 @@ defmodule Menard.StmtTest do
 
     assert out =~ "  @type t :: %__MODULE__{sku: String.t(), weight: integer()}\n"
   end
+
+  test "the module fallback reaches the module's own statements, never one inside a function or test" do
+    # bench4 bug-receipt-total.B.haiku named subject/1, the function under test, in the TEST file: the
+    # fallback found the assert inside a test and put a new test inside that test
+    src =
+      "defmodule MTest do\n  use ExUnit.Case\n\n  test \"subject quotes the id\" do\n    assert M.subject(1) == 1\n  end\nend\n"
+
+    assert {:error, message} =
+             Stmt.insert_after(src, "subject/1", "order_id", "assert M.subject(1) == 1", "test \"x\" do\nend")
+
+    assert message =~ "subject/1"
+    # the module's own statements are still reached
+    assert Stmt.replace(src, "-", "", "use ExUnit.Case", "use ExUnit.Case, async: true") =~
+             "use ExUnit.Case, async: true"
+  end
 end

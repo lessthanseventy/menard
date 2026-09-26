@@ -916,7 +916,10 @@ defmodule Menard.Clause do
     end)
   end
 
-  defp module_bodies(ast), do: Enum.map(modules(ast), fn {_name, node} -> module_body(node) end)
+  @doc """
+  The top-level statements of each module in : what Menard.Stmt's module fallback may reach.
+  """
+  def module_bodies(ast), do: Enum.map(modules(ast), fn {_name, node} -> module_body(node) end)
 
   defp start_line(node) do
     case Sourceror.get_range(node) do

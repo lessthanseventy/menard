@@ -188,8 +188,19 @@ defmodule Menard.Stmt do
 
   defp module_scope(source, miss) do
     case Menard.Source.parse(source) do
-      {:ok, ast} -> {:ok, %{node: ast, range: Menard.Source.range(ast, source), miss: miss}}
-      _ -> miss
+      # the module's own statements only: reaching into a function or a test from here put a test
+      # inside a test (bench4 bug-receipt-total.B.haiku, which named the function under test)
+      {:ok, ast} ->
+        {:ok,
+         %{
+           node: ast,
+           range: Menard.Source.range(ast, source),
+           miss: miss,
+           top: List.flatten(Clause.module_bodies(ast))
+         }}
+
+      _ ->
+        miss
     end
   end
 
@@ -274,11 +285,18 @@ defmodule Menard.Stmt do
   # Every node inside the clause that carries a range, smallest first — so naming a call selects
   # the call, not the block around it.
   defp candidates(source, clause) do
-    # only the clause's own subtree: walking the whole file per call made stmt linear in the file
-    clause.node
-    |> Zipper.zip()
-    |> Zipper.traverse([], fn z, acc -> {z, statement_nodes(Zipper.node(z)) ++ acc} end)
-    |> elem(1)
+    # the module fallback: its own statements, not what they hold
+    nodes =
+      if top = clause[:top],
+        do: top,
+        else:
+          clause.node
+          # only the clause's own subtree: walking the whole file per call made stmt linear in the file
+          |> Zipper.zip()
+          |> Zipper.traverse([], fn z, acc -> {z, statement_nodes(Zipper.node(z)) ++ acc} end)
+          |> elem(1)
+
+    nodes
     |> Enum.flat_map(&describe(&1, source, clause))
     |> Enum.uniq_by(& &1.range)
     |> Enum.sort_by(&{line_of(&1), &1.span, column_of(&1)})
