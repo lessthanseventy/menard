@@ -79,10 +79,8 @@ defmodule Menard.ClauseTest do
 
   describe "rewrite — the whole clause, head included" do
     test "changes the head, which replace_body structurally cannot" do
-      out = Clause.rewrite(@src, "go/1", ":a", "def go(:a, extra), do: extra")
-      assert out =~ "def go(:a, extra), do: extra"
-      assert out =~ "# first"
-      assert out =~ "def go(other), do: other"
+      out = Clause.rewrite(@src, "go/1", ":a", "def go(:a = atom), do: atom")
+      assert out == String.replace(@src, "def go(:a), do: 1", "def go(:a = atom), do: atom")
     end
 
     test "adds a guard, keeping the rest of the file" do
@@ -94,6 +92,25 @@ defmodule Menard.ClauseTest do
     test "a multi-line clause is shifted out to the clause's own column" do
       out = Clause.rewrite(@src, "go/1", ":a", "def go(:a) do\n  1 + 1\nend")
       assert out =~ "  def go(:a) do\n    1 + 1\n  end"
+    end
+
+    test "refuses one clause of several turned into another kind, name or arity — the module stops compiling" do
+      assert Clause.rewrite(@src, "go/1", ":a", "defp go(:a), do: 1") ==
+               {:error,
+                "go/1 has other clauses, so this one stays `def go/1`, and CODE is `defp go/1` — " <>
+                  "`visibility` flips every clause; a new function goes in with `insert_at`"}
+
+      assert Clause.rewrite(@src, "go/1", ":b", "def go(:b, x), do: x") ==
+               {:error,
+                "go/1 has other clauses, so this one stays `def go/1`, and CODE is `def go/2` — " <>
+                  "`visibility` flips every clause; a new function goes in with `insert_at`"}
+    end
+
+    test "the only clause is the whole function, and may change its kind, name or arity" do
+      src = "defmodule O do\n  def go(x), do: x\nend\n"
+
+      assert Clause.rewrite(src, "go/1", "x", "defp go(x, y), do: x + y") ==
+               "defmodule O do\n  defp go(x, y), do: x + y\nend\n"
     end
 
     test "refuses a bare expression — that would leave a def replaced by an expression" do
