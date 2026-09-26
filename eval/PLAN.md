@@ -25,10 +25,20 @@ Where it records too little, read the run transcripts it keeps, or fall back to 
   when an Edit is blocked? If the runner cannot do a third arm, a copy of the plugin with
   `hooks/hooks.json` emptied, run as its own target.
 
-## Models: the full matrix
+## Models: each on the work it is for
 
-claude-fable-5-1, claude-opus-5-5, claude-sonnet-5, claude-haiku-4-5. menard may matter most for
-the smaller ones.
+Not a full matrix. The question is menard vs. no menard *within* a model (B against A), never one
+model against another, so each tier runs the work it would really be given:
+
+- **Unit rounds**: `eval/cases` (one focused task each: a rename, a new function, a bug) on
+  claude-haiku-4-5 and claude-sonnet-5.
+  `run.py ROUND --arms A,B --models claude-haiku-4-5,claude-sonnet-5`
+- **Project rounds**: the long suites (`eval/long`, `eval/tlon`, `eval/riverside`: several steps in
+  one session, a real codebase, CI to satisfy) on claude-opus-5-5 and claude-fable-5-1.
+  `run.py ROUND --suite eval/riverside --arms A,B --models claude-opus-5-5,claude-fable-5-1`
+
+A small model on a long project mostly measures the model running out, and a large one on a
+one-line change mostly measures menard's fixed cost. Both are worth a probe, not a round.
 
 ## Tasks: cover the kinds of work, each checked by a script
 
