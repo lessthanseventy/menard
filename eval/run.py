@@ -99,7 +99,7 @@ def build_plugins(force=False):
     """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
     loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
     # L (the tools always loaded) is gone: manos loads them up front, and menard has none
-    for arm in ["B", "C", "H", "M"]:
+    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -118,6 +118,26 @@ def build_plugins(force=False):
             manifest = dest / ".claude-plugin" / "plugin.json"
             d = json.loads(manifest.read_text())
             d.pop("mcpServers", None)
+            manifest.write_text(json.dumps(d, indent=2) + "\n")
+        # four ways to keep manos' reach without its ~5,600 tokens of schema on every turn (bench6):
+        # `cli` teaches the CLI in a few lines, `grep` answers a grep with each hit's function, `map`
+        # gives a map of the project at the start, `lazy-mcp` keeps the MCP tools but deferred behind
+        # ToolSearch. `hook` is B under a name that says what it is
+        extra = {"cli": ("SessionStart", None, "session-cli.sh"), "grep": ("PostToolUse", "Bash", "grep-where.sh"),
+                 "map": ("SessionStart", None, "session-map.sh")}.get(arm)
+        if extra:
+            event, matcher, script = extra
+            hooks_json = dest / "hooks" / "hooks.json"
+            d = json.loads(hooks_json.read_text())
+            entry = {"hooks": [{"type": "command", "command": f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}"'}]}
+            if matcher:
+                entry["matcher"] = matcher
+            d["hooks"].setdefault(event, []).append(entry)
+            hooks_json.write_text(json.dumps(d, indent=2) + "\n")
+        if arm == "lazy-mcp":
+            manifest = dest / "manos" / ".claude-plugin" / "plugin.json"
+            d = json.loads(manifest.read_text())
+            d["mcpServers"]["menard"].pop("alwaysLoad", None)
             manifest.write_text(json.dumps(d, indent=2) + "\n")
         if arm == "L":
             manifest = dest / ".claude-plugin" / "plugin.json"
@@ -170,7 +190,7 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
     # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`
-    if arm == "M":
+    if arm in ("M", "lazy-mcp"):
         cmd += ["--plugin-dir", str(PLUGINS / arm / "manos")]
     return cmd
 
@@ -378,6 +398,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     env.update(suite_env(case_dir, rid, ws))
     env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
                                   if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
+    env["PATH"] = str(EVAL / "stubs") + os.pathsep + env["PATH"]
     if (case_dir / "steps").exists():
         return run_long(case_dir, arm, model, n, rid, ws, out_dir, env)
     prompt = (case_dir / "prompt.md").read_text().strip()

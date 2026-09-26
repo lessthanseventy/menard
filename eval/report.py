@@ -12,13 +12,18 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "M", "H", "L", "C"]
+ARMS = ["A", "B", "hook", "cli", "grep", "map", "lazy-mcp", "M", "H", "L", "C"]
 ARM_TEXT = {
     "A": "no menard",
     # B is menard as shipped at the round's commit: through bench5 the MCP tools, the guard hook and
     # the skill; from bench6 the formatting hook alone (69059a4)
     "B": "menard as shipped (bench1-5: MCP tools, guard hook, skill; bench6 on: the formatting hook)",
     "M": "menard's hook plus manos (the MCP tools and their skill)",
+    "hook": "menard as it ships: the formatting hook (B from bench6 on)",
+    "cli": "hook, plus a few lines at session start teaching menard's CLI (rename, find, outline)",
+    "grep": "hook, plus each Elixir grep hit's enclosing function",
+    "map": "hook, plus a map of the project's modules and public functions at session start",
+    "lazy-mcp": "hook, plus manos with its tools loaded on demand (behind ToolSearch) and routing instructions",
     "H": "only the format-and-parse-check hook",
     "L": "B with its MCP tools always loaded",
     "C": "menard without its hooks",
