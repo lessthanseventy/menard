@@ -89,7 +89,7 @@ defmodule Menard.Block do
         end)
 
       true ->
-        with {:ok, label, body, opts} <- unwrapped(name, label, body, opts),
+        with {:ok, label, body, opts} <- unwrapped(name, add_label(name, label, body), body, opts),
              :ok <- body_only(name, body),
              {:ok, ast} <- parse(source),
              {:ok, module} <- Clause.module_scope(ast, opts[:module]),
@@ -100,6 +100,12 @@ defmodule Menard.Block do
           place(source, where, anchor, tags <> render(to_atom(name), label, body, opts[:args]))
         end
     end
+  end
+
+  # A whole block being added is named by its own label: there is nothing to tell it apart from, and
+  # long1 cart-refactor.B.sonnet was refused over "…no placeholders" against "…leaves no placeholders"
+  defp add_label(name, label, body) do
+    if match?({:whole, _, _, _}, unwrap(name, body)), do: nil, else: label
   end
 
   # Inside: on the line before the block's own `end`, one level in. After: below the anchor, at the
