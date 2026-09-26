@@ -578,15 +578,18 @@ defmodule Menard.Clause do
   defp parse_clause(code) do
     {_comments, body} = split_leading_comments(code)
 
-    case leading_attrs(code) || Sourceror.parse_string(body) do
-      {:ok, {kind, _meta, _args} = node} when kind in @kinds ->
-        {:ok, node}
+    case clause_form(code) do
+      {:ok, defn, _attrs?} ->
+        {:ok, defn}
 
-      {:ok, _other} ->
-        {:error, "rewrite needs a whole clause (`def …`), got: #{String.slice(String.trim(body), 0, 40)}"}
+      nil ->
+        case Sourceror.parse_string(body) do
+          {:error, reason} ->
+            {:error, "not parseable — #{inspect(reason)}"}
 
-      {:error, reason} ->
-        {:error, "not parseable — #{inspect(reason)}"}
+          _ ->
+            {:error, "rewrite needs a whole clause (`def …`), got: #{String.slice(String.trim(body), 0, 40)}"}
+        end
     end
   end
 
@@ -598,18 +601,31 @@ defmodule Menard.Clause do
     {Enum.join(lead, "\n"), Enum.join(rest, "\n")}
   end
 
+  # What a whole clause looks like as an agent writes it: a def, maybe under @doc/@spec/@impl lines,
+  # maybe followed by more of the module (a new function beside it, rewritten in the same call:
+  # long1 cart-refactor.B.sonnet). `{:ok, def, carries_attrs?}`, or nil.
+  defp clause_form(code) do
+    {_comments, body} = split_leading_comments(code)
+
+    case Sourceror.parse_string(body) do
+      {:ok, {kind, _, _} = defn} when kind in @kinds ->
+        {:ok, defn, false}
+
+      {:ok, {:__block__, _, nodes}} ->
+        case Enum.split_while(nodes, &clause_attr?/1) do
+          {attrs, [{kind, _, _} = defn | _]} when kind in @kinds -> {:ok, defn, attrs != []}
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
   # `@doc`/`@spec`/`@impl` lines and then a def, as a whole clause is written with what it carries: the
   # def, when that is the shape (long1 cart-refactor.B.haiku nested one such in the old body)
   defp leading_attrs(code) do
-    {_comments, body} = split_leading_comments(code)
-
-    with {:ok, {:__block__, _, [_, _ | _] = nodes}} <- Sourceror.parse_string(body),
-         {attrs, [{kind, _, _} = defn]} when kind in @kinds <- Enum.split(nodes, -1),
-         true <- Enum.all?(attrs, &clause_attr?/1) do
-      {:ok, defn}
-    else
-      _ -> nil
-    end
+    with {:ok, defn, true} <- clause_form(code), do: {:ok, defn}, else: (_ -> nil)
   end
 
   defp clause_attr?({:@, _, [{name, _, _}]}), do: name in [:doc, :spec, :impl, :deprecated]
@@ -839,11 +855,8 @@ defmodule Menard.Clause do
   # CODE here is the BODY, and a whole `def` nests inside itself — `def bg, do: def(bg, do: X)`
   # parses, so only the compiler would object.
   defp body_only(code) do
-    # a comment above the def is part of a whole clause, not a body that starts with one, and so are
-    # the @doc/@spec/@impl lines a whole clause carries
-    {_comments, body} = split_leading_comments(code)
-
-    if Regex.match?(~r/^\s*(def|defp|defmacro|defmacrop)\s/, body) or leading_attrs(code) do
+    # a def is a whole clause, under comments or its @doc/@spec, and with more of the module after it
+    if clause_form(code) do
       {:error,
        "CODE is the clause BODY here, and this looks like a whole clause — use `rewrite`, which replaces the head too"}
     else

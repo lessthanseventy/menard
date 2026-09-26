@@ -715,4 +715,13 @@ defmodule Menard.ClauseTest do
       assert out =~ "def g, do: 1"
     end
   end
+
+  test "rewrite takes the clause and whatever the code adds after it: a new function beside it" do
+    # long1 cart-refactor.B.sonnet rewrote product_card/1 and added availability/1 in one call, and
+    # was told it needed a whole clause
+    src = "defmodule A do\n  def card(x), do: x\nend\n"
+    code = "def card(x), do: badge(x)\n\n@doc \"The badge.\"\ndef badge(x), do: x"
+    out = Clause.rewrite(src, "card/1", "x", code)
+    assert out =~ "  def card(x), do: badge(x)\n\n  @doc \"The badge.\"\n  def badge(x), do: x\nend"
+  end
 end
