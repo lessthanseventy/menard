@@ -134,6 +134,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     function does not compile; going private also drops an attached `@doc`, which Elixir discards
     with a warning. Give it `name_arity` and `visibility`.
 
+    With no `head`, `get` answers with the whole function as written (every clause, with the
+    `@doc`/`@spec`/comments above it) and `delete` deletes it, answering with `left`: each call to it
+    still to fix. With a `head`, each takes that one clause.
+
     `doc` and `comment` set the `@doc` or the `#` comment above a clause — prose in `text`, no
     `text` deletes it. They are the only door to either: both are string literals, so the clause
     verbs cannot reach them.
@@ -173,7 +177,8 @@ if Code.ensure_loaded?(Anubis.Server) do
           "visibility",
           "spec",
           "doc",
-          "comment"
+          "comment",
+          "get"
         ],
         required: true
       )
@@ -207,6 +212,20 @@ if Code.ensure_loaded?(Anubis.Server) do
           "file" => dest,
           "created" => created
         })
+      else
+        {:error, message} -> fail(frame, message)
+      end
+    end
+
+    # reads, never writes: the function as written, and the file's version for the edit that follows
+    def call(%{verb: "get"} = params, frame) do
+      with {:ok, file} <- Menard.MCP.resolve(params.file),
+           name_arity when is_binary(name_arity) <-
+             params[:name_arity] || {:error, "clause get needs name_arity: the function's name/arity"},
+           source = File.read!(file),
+           {:ok, got} <-
+             Clause.get(source, name_arity, params[:head], if(n = params[:nth], do: [nth: n], else: [])) do
+        ok(frame, Map.merge(got, %{file: file, version: Menard.remember(source)}))
       else
         {:error, message} -> fail(frame, message)
       end

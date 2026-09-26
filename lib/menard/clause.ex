@@ -217,6 +217,40 @@ defmodule Menard.Clause do
     end
   end
 
+  @doc """
+  The function's source as written, with the @doc/@spec/comment lines above it: every clause with no
+  `head`, else the one `head` names. `%{code, lines: [first, last]}`. A function read without reading
+  its file.
+  """
+  @spec get(String.t(), String.t(), String.t() | nil, keyword()) :: {:ok, map()} | {:error, String.t()}
+  def get(source, name_arity, head, opts \\ []) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity),
+         {:ok, clauses} <- got(source, scope, name_arity, name, arity, head, opts) do
+      lines = String.split(source, "\n")
+
+      {a, b} =
+        clauses
+        |> Enum.map(&attached_span(ast, lines, &1))
+        |> merge_spans()
+        |> Enum.reduce(fn {_, b}, {a, _} -> {a, b} end)
+
+      {:ok, %{code: lines |> Enum.slice(a..b) |> Enum.join("\n") |> dedent(), lines: [a + 1, b + 1]}}
+    end
+  end
+
+  defp got(_source, scope, _name_arity, name, arity, nil, _opts) do
+    case clauses(scope, name, arity) do
+      [] -> {:error, "no function #{name}/#{arity} here"}
+      all -> {:ok, all}
+    end
+  end
+
+  defp got(source, _scope, name_arity, _name, _arity, head, opts) do
+    with {:ok, clause} <- find(source, name_arity, head, opts), do: {:ok, [clause]}
+  end
+
   @doc "Insert `code` as a new clause on the line after the addressed one, at its indent."
   @spec insert_after(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}

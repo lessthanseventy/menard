@@ -36,6 +36,25 @@ if Code.ensure_loaded?(Anubis.Server) do
     component(Menard.MCP.Find, name: "find")
     component(Menard.MCP.Run, name: "run")
 
+    # A call the schema refuses was a protocol error, "Invalid params", its why in the error's data,
+    # which Claude Code does not show: the eval's agent asked clause for verb "get" and learned nothing.
+    # The same refusal as a tool error puts the why where the agent reads.
+    @impl Anubis.Server
+    def handle_request(%{"method" => "tools/call"} = request, frame) do
+      case Anubis.Server.Handlers.handle(request, __MODULE__, frame) do
+        {:error, %Anubis.MCP.Error{reason: :invalid_params, data: %{message: why}}, frame} ->
+          tool = get_in(request, ["params", "name"])
+
+          {:reply, %{"content" => [%{"type" => "text", "text" => "#{tool}: #{why}"}], "isError" => true},
+           frame}
+
+        other ->
+          other
+      end
+    end
+
+    def handle_request(request, frame), do: Anubis.Server.Handlers.handle(request, __MODULE__, frame)
+
     @doc "The directory every path resolves under."
     def root, do: System.get_env("MENARD_ROOT") || Menard.caller_dir()
 
