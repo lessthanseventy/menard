@@ -42,6 +42,16 @@ defmodule Menard.ClauseTest do
     assert out =~ "def go(:a), do: 1\n  def go(:c), do: 3\n"
   end
 
+  test "insert_after and insert_before take code already at the clause's indent as it is, trailing newline and all" do
+    code = "  def go(:c) do\n    3\n  end\n"
+
+    assert Clause.insert_after(@src, "go/1", ":a", code) ==
+             String.replace(@src, "def go(:a), do: 1\n", "def go(:a), do: 1\n" <> code)
+
+    assert Clause.insert_before(@src, "go/1", ":a", code) ==
+             String.replace(@src, "  # first\n", code <> "  # first\n")
+  end
+
   test "insert_before goes above the clause's comment and docs, not between them and its def" do
     out = Clause.insert_before(@src, "go/1", ":a", "def go(nil), do: 0")
 
@@ -54,6 +64,20 @@ defmodule Menard.ClauseTest do
     assert {:error, msg} = Clause.replace_body(@src, "go/1", ":zzz", "1")
     assert msg =~ "go/1" and msg =~ ":a"
     assert {:error, _} = Clause.delete(@src, "nope/0", "", [])
+  end
+
+  test "find locates a clause with no opts, as the verbs address it" do
+    assert {:ok, %{kind: :def, name: "go", args: ":b", guard: nil, head_text: ":b", indent: "  "}} =
+             Clause.find(@src, "go/1", ":b")
+  end
+
+  test "a name/arity is matched as text, never made an atom: atoms are never collected" do
+    name = "never_an_atom_#{System.unique_integer([:positive])}"
+
+    assert Clause.delete(@src, "#{name}/1", "x") ==
+             {:error, "no clause #{name}/1 with head `x` — have: none"}
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
   end
 
   test "a file with several modules: Mod.name/arity scopes the edit; a bare name they share is refused" do
@@ -79,10 +103,8 @@ defmodule Menard.ClauseTest do
 
   describe "rewrite — the whole clause, head included" do
     test "changes the head, which replace_body structurally cannot" do
-      out = Clause.rewrite(@src, "go/1", ":a", "def go(:a, extra), do: extra")
-      assert out =~ "def go(:a, extra), do: extra"
-      assert out =~ "# first"
-      assert out =~ "def go(other), do: other"
+      out = Clause.rewrite(@src, "go/1", ":a", "def go(:a = atom), do: atom")
+      assert out == String.replace(@src, "def go(:a), do: 1", "def go(:a = atom), do: atom")
     end
 
     test "adds a guard, keeping the rest of the file" do
@@ -94,6 +116,25 @@ defmodule Menard.ClauseTest do
     test "a multi-line clause is shifted out to the clause's own column" do
       out = Clause.rewrite(@src, "go/1", ":a", "def go(:a) do\n  1 + 1\nend")
       assert out =~ "  def go(:a) do\n    1 + 1\n  end"
+    end
+
+    test "refuses one clause of several turned into another kind, name or arity — the module stops compiling" do
+      assert Clause.rewrite(@src, "go/1", ":a", "defp go(:a), do: 1") ==
+               {:error,
+                "go/1 has other clauses, so this one stays `def go/1`, and CODE is `defp go/1` — " <>
+                  "`visibility` flips every clause; a new function goes in with `insert_at`"}
+
+      assert Clause.rewrite(@src, "go/1", ":b", "def go(:b, x), do: x") ==
+               {:error,
+                "go/1 has other clauses, so this one stays `def go/1`, and CODE is `def go/2` — " <>
+                  "`visibility` flips every clause; a new function goes in with `insert_at`"}
+    end
+
+    test "the only clause is the whole function, and may change its kind, name or arity" do
+      src = "defmodule O do\n  def go(x), do: x\nend\n"
+
+      assert Clause.rewrite(src, "go/1", "x", "defp go(x, y), do: x + y") ==
+               "defmodule O do\n  defp go(x, y), do: x + y\nend\n"
     end
 
     test "refuses a bare expression — that would leave a def replaced by an expression" do
@@ -318,6 +359,28 @@ defmodule Menard.ClauseTest do
       refute out =~ "go(:b)"
     end
 
+    test "deleting ONE clause of several keeps the function's @doc and @spec for the clauses left" do
+      src = """
+      defmodule A do
+        @doc "documents go/1"
+        @spec go(atom()) :: integer()
+        # why :a
+        @impl true
+        def go(:a), do: 1
+
+        def go(:b), do: 2
+      end
+      """
+
+      assert Clause.delete(src, "go/1", ":a") == """
+             defmodule A do
+               @doc "documents go/1"
+               @spec go(atom()) :: integer()
+               def go(:b), do: 2
+             end
+             """
+    end
+
     test "an attribute that is NOT clause-attached is left where it is" do
       src = """
       defmodule A do
@@ -540,6 +603,15 @@ defmodule Menard.ClauseTest do
              end
            end
            """
+  end
+
+  test "a body Elixir reads back only with a warning, inline, goes in a do block" do
+    src = "defmodule A do\n  def f(x), do: x\nend\n"
+
+    for code <- ["foo 1, a: 2", "x |> foo 1"] do
+      assert Clause.replace_body(src, "f/1", "x", code) ==
+               "defmodule A do\n  def f(x) do\n    #{code}\n  end\nend\n"
+    end
   end
 
   test "replacing a do: body that is a literal keeps the blank line after it" do
