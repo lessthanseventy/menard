@@ -210,7 +210,10 @@ defmodule Menard.Stmt do
   end
 
   defp ok_block(source, label) do
-    with {:ok, _node} = found <- Menard.Block.labelled(source, label), do: found, else: (_ -> nil)
+    case Menard.Block.labelled(source, label) do
+      {:ok, _node} = found -> found
+      _ -> nil
+    end
   end
 
   defp locate(source, name_arity, head, match, opts) do
@@ -281,12 +284,14 @@ defmodule Menard.Stmt do
         text
         |> String.split("\n")
         |> Enum.with_index(1)
-        |> Enum.map_join("\n", fn {line, i} -> if at[i], do: String.slice(line, 0, at[i] - 1), else: line end)
+        |> Enum.map_join("\n", &cut_comment(&1, at))
 
       _ ->
         text
     end
   end
+
+  defp cut_comment({line, i}, at), do: if(at[i], do: String.slice(line, 0, at[i] - 1), else: line)
 
   defp nth(many, match, nil) do
     # each by its first line as written, not a line number alone: which is which is the question

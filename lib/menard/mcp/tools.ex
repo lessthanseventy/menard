@@ -82,25 +82,8 @@ if Code.ensure_loaded?(Anubis.Server) do
           only: params[:only] && String.to_existing_atom(params[:only])
         ]
 
-        {changed, unchanged} =
-          Enum.reduce(files, {[], []}, fn file, {changed, unchanged} ->
-            source = File.read!(file)
-
-            case Menard.Rename.run(source, params.old, params.new, opts) do
-              out when is_binary(out) and out != source ->
-                case Menard.write(file, out,
-                       did: "rename #{params.old} → #{params.new} in #{Path.basename(file)}"
-                     ) do
-                  {:ok, _reply} -> {[file | changed], unchanged}
-                  {:error, _} -> {changed, [file | unchanged]}
-                end
-
-              _ ->
-                {changed, [file | unchanged]}
-            end
-          end)
-
-        ok(frame, %{"changed" => Enum.reverse(changed), "unchanged" => Enum.reverse(unchanged)})
+        {changed, unchanged} = Enum.split_with(files, &renamed?(&1, params, opts))
+        ok(frame, %{"changed" => changed, "unchanged" => unchanged})
       else
         {:error, message} -> fail(frame, message)
       end
@@ -119,6 +102,21 @@ if Code.ensure_loaded?(Anubis.Server) do
       Menard.check_versions(pairs)
     rescue
       MatchError -> {:error, "versions are FILE=SHA, each FILE under the root"}
+    end
+
+    defp renamed?(file, params, opts) do
+      source = File.read!(file)
+
+      case Menard.Rename.run(source, params.old, params.new, opts) do
+        out when is_binary(out) and out != source ->
+          match?(
+            {:ok, _reply},
+            Menard.write(file, out, did: "rename #{params.old} → #{params.new} in #{Path.basename(file)}")
+          )
+
+        _ ->
+          false
+      end
     end
   end
 
@@ -272,36 +270,47 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp want(_private), do: :private
 
     defp edit(%{verb: verb} = p, source) do
-      code = p[:code] || ""
-
-      # `nth` disambiguates a head two clauses share; without it that is refused, not guessed.
-      opts = if n = p[:nth], do: [nth: n], else: []
-      # no head is a function's only clause, as `head: ""` is; among several, that is refused with theirs
-      p = Map.put(p, :head, p[:head] || "")
-
-      cond do
-        verb != "insert_at" and is_nil(p[:name_arity]) ->
-          {:error, "clause #{verb} needs name_arity: the function's name/arity, as outline lists it"}
-
-        true ->
-          case verb do
-            "replace" -> Clause.replace_body(source, p.name_arity, p.head, code, opts)
-            "rewrite" -> Clause.rewrite(source, p.name_arity, p.head, code, opts)
-            "delete" -> Clause.delete(source, p.name_arity, p.head, opts)
-            "insert_after" -> Clause.insert_after(source, p.name_arity, p.head, code, opts)
-            "insert_before" -> Clause.insert_before(source, p.name_arity, p.head, code, opts)
-            "insert_at" -> Clause.insert_at(source, p[:module], p[:at], code)
-            # `text` absent means DELETE for both — the prose is the whole payload, so nothing to give
-            # is the only way to say "remove it".
-            "doc" -> Clause.doc(source, p.name_arity, p.head, p[:text], opts)
-            "comment" -> Clause.comment(source, p.name_arity, p.head, p[:text], opts)
-            # every clause of the function at once — a half-flipped one does not compile
-            "visibility" -> Clause.visibility(source, p.name_arity, want(p[:visibility]))
-            # the function's, not a clause's: no head. `code` is the signature, absent deletes it
-            "spec" -> Clause.spec(source, p.name_arity, p[:code])
-          end
+      if verb != "insert_at" and is_nil(p[:name_arity]) do
+        {:error, "clause #{verb} needs name_arity: the function's name/arity, as outline lists it"}
+      else
+        # `nth` disambiguates a head two clauses share; without it that is refused, not guessed.
+        opts = if n = p[:nth], do: [nth: n], else: []
+        # no head is a function's only clause, as `head: ""` is; among several, that is refused with theirs
+        edit_clause(verb, Map.put(p, :head, p[:head] || ""), source, p[:code] || "", opts)
       end
     end
+
+    defp edit_clause("replace", p, source, code, opts),
+      do: Clause.replace_body(source, p.name_arity, p.head, code, opts)
+
+    defp edit_clause("rewrite", p, source, code, opts),
+      do: Clause.rewrite(source, p.name_arity, p.head, code, opts)
+
+    defp edit_clause("delete", p, source, _code, opts), do: Clause.delete(source, p.name_arity, p.head, opts)
+
+    defp edit_clause("insert_after", p, source, code, opts),
+      do: Clause.insert_after(source, p.name_arity, p.head, code, opts)
+
+    defp edit_clause("insert_before", p, source, code, opts),
+      do: Clause.insert_before(source, p.name_arity, p.head, code, opts)
+
+    defp edit_clause("insert_at", p, source, code, _opts),
+      do: Clause.insert_at(source, p[:module], p[:at], code)
+
+    # `text` absent means DELETE for both — the prose is the whole payload, so nothing to give
+    # is the only way to say "remove it".
+    defp edit_clause("doc", p, source, _code, opts),
+      do: Clause.doc(source, p.name_arity, p.head, p[:text], opts)
+
+    defp edit_clause("comment", p, source, _code, opts),
+      do: Clause.comment(source, p.name_arity, p.head, p[:text], opts)
+
+    # every clause of the function at once — a half-flipped one does not compile
+    defp edit_clause("visibility", p, source, _code, _opts),
+      do: Clause.visibility(source, p.name_arity, want(p[:visibility]))
+
+    # the function's, not a clause's: no head. `code` is the signature, absent deletes it
+    defp edit_clause("spec", p, source, _code, _opts), do: Clause.spec(source, p.name_arity, p[:code])
   end
 
   defmodule Menard.MCP.Stmt do
@@ -465,13 +474,19 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(params, frame) do
-      with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
-        # the host's mix is killed short of the tool's own deadline, so the reply says what it was doing
-        # instead of the call going silent while mix keeps running
-        timeout = deadline(__MODULE__) - 20_000
-        ok(frame, Menard.Run.lean(Menard.Run.result(dir, params.verb, params[:args] || [], timeout: timeout)))
-      else
-        {:error, message} -> fail(frame, message)
+      case Menard.MCP.resolve(params[:dir] || ".") do
+        {:ok, dir} ->
+          # the host's mix is killed short of the tool's own deadline, so the reply says what it was doing
+          # instead of the call going silent while mix keeps running
+          timeout = deadline(__MODULE__) - 20_000
+
+          ok(
+            frame,
+            Menard.Run.lean(Menard.Run.result(dir, params.verb, params[:args] || [], timeout: timeout))
+          )
+
+        {:error, message} ->
+          fail(frame, message)
       end
     end
   end
@@ -498,19 +513,22 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(%{file: file, code: code} = params, frame) do
-      with {:ok, abs} <- Menard.MCP.resolve(file) do
-        if File.exists?(abs) and File.read!(abs) == String.trim_trailing(code, "\n") <> "\n" do
-          ok(frame, %{did: "write #{Path.basename(abs)}", file: abs, unchanged: true})
-        else
-          File.mkdir_p!(Path.dirname(abs))
-
-          case staged_write(abs, code, params, did: "write #{Path.basename(abs)}") do
-            {:ok, reply} -> ok(frame, reply)
-            {:error, message} -> fail(frame, message)
-          end
-        end
-      else
+      case Menard.MCP.resolve(file) do
+        {:ok, abs} -> write_file(abs, code, params, frame)
         {:error, message} -> fail(frame, message)
+      end
+    end
+
+    defp write_file(abs, code, params, frame) do
+      if File.exists?(abs) and File.read!(abs) == String.trim_trailing(code, "\n") <> "\n" do
+        ok(frame, %{did: "write #{Path.basename(abs)}", file: abs, unchanged: true})
+      else
+        File.mkdir_p!(Path.dirname(abs))
+
+        case staged_write(abs, code, params, did: "write #{Path.basename(abs)}") do
+          {:ok, reply} -> ok(frame, reply)
+          {:error, message} -> fail(frame, message)
+        end
       end
     end
   end
@@ -721,22 +739,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(%{verb: "get"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file) do
-        source = File.read!(file)
-        name = params[:name] || ""
-
-        # no label among several: every one, not a refusal to pick (bench3 new-component.B.haiku)
-        case params[:label] || Block.get_all(source, name, where(params)) do
-          [_, _ | _] = all ->
-            ok(frame, %{"blocks" => all})
-
-          _ ->
-            case Block.get(source, name, where(params)) do
-              text when is_binary(text) -> ok(frame, %{"body" => text})
-              {:error, message} -> fail(frame, message)
-            end
-        end
-      else
+      case Menard.MCP.resolve(params.file) do
+        {:ok, file} -> get(File.read!(file), params[:name] || "", params, frame)
         {:error, message} -> fail(frame, message)
       end
     end
@@ -777,6 +781,20 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp edit(%{verb: verb}, _source), do: {:error, "block has no verb #{inspect(verb)}"}
 
     defp where(params), do: [module: params[:module], label: params[:label]]
+
+    # no label among several: every one, not a refusal to pick (bench3 new-component.B.haiku)
+    defp get(source, name, params, frame) do
+      case params[:label] || Block.get_all(source, name, where(params)) do
+        [_, _ | _] = all ->
+          ok(frame, %{"blocks" => all})
+
+        _ ->
+          case Block.get(source, name, where(params)) do
+            text when is_binary(text) -> ok(frame, %{"body" => text})
+            {:error, message} -> fail(frame, message)
+          end
+      end
+    end
   end
 
   defmodule Menard.MCP.Deps do
@@ -813,17 +831,15 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(%{verb: "add"} = params, frame) do
-      with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
-        answer(frame, Menard.MixDeps.add_in(dir, params[:spec] || ""))
-      else
+      case Menard.MCP.resolve(params[:dir] || ".") do
+        {:ok, dir} -> answer(frame, Menard.MixDeps.add_in(dir, params[:spec] || ""))
         {:error, message} -> fail(frame, message)
       end
     end
 
     def call(%{verb: "upgrade"} = params, frame) do
-      with {:ok, dir} <- Menard.MCP.resolve(params[:dir] || ".") do
-        answer(frame, Menard.MixDeps.upgrade_in(dir, params[:apps] || [], params[:to]))
-      else
+      case Menard.MCP.resolve(params[:dir] || ".") do
+        {:ok, dir} -> answer(frame, Menard.MixDeps.upgrade_in(dir, params[:apps] || [], params[:to]))
         {:error, message} -> fail(frame, message)
       end
     end

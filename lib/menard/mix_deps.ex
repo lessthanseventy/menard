@@ -83,15 +83,20 @@ defmodule Menard.MixDeps do
           {:ok, node}
 
         {name, _, args} when is_atom(name) and args in [[], nil] ->
-          with {:ok, fun} <- Clause.find(source, "#{name}/0", "", []) do
-            case body(fun.node) do
-              {:__block__, _, [list]} = node when is_list(list) -> {:ok, node}
-              _ -> {:error, "#{name}/0 does not return a literal list"}
-            end
-          end
+          returned_list(source, name)
 
         _ ->
           {:error, "no `deps:` list in project/0"}
+      end
+    end
+  end
+
+  # `deps: deps()`: the list the function returns
+  defp returned_list(source, name) do
+    with {:ok, fun} <- Clause.find(source, "#{name}/0", "", []) do
+      case body(fun.node) do
+        {:__block__, _, [list]} = node when is_list(list) -> {:ok, node}
+        _ -> {:error, "#{name}/0 does not return a literal list"}
       end
     end
   end
@@ -137,30 +142,34 @@ defmodule Menard.MixDeps do
         range = Menard.Source.range(list, source)
         patch(source, [%{range: range, change: "[" <> spec <> "]"}])
 
-      [first | _] = elems ->
-        %{start: [line: _, column: col]} = Sourceror.get_range(first)
+      elems ->
+        append_after(source, elems, spec)
+    end
+  end
 
-        %{end: [line: b, column: c]} =
-          elems |> List.last() |> Menard.Source.range(source)
+  defp append_after(source, [first | _] = elems, spec) do
+    %{start: [line: _, column: col]} = Sourceror.get_range(first)
 
-        line = source |> String.split("\n") |> Enum.at(b - 1)
-        rest = line |> String.slice((c - 1)..-1//1) |> String.trim_leading()
-        comma = if String.starts_with?(rest, ","), do: [], else: [insert(b, c, ",")]
+    %{end: [line: b, column: c]} =
+      elems |> List.last() |> Menard.Source.range(source)
 
-        # the list closes on this line (`…}]`): the new entry goes straight after the last one;
-        # otherwise at the end of its line, so a trailing `# why` stays with the entry it explains
-        if String.contains?(rest |> String.split("#") |> hd(), "]") do
-          patch(source, [insert(b, c, ", " <> spec)])
-        else
-          indent = String.duplicate(" ", col - 1)
-          eol = String.length(line) + 1
+    line = source |> String.split("\n") |> Enum.at(b - 1)
+    rest = line |> String.slice((c - 1)..-1//1) |> String.trim_leading()
+    comma = if String.starts_with?(rest, ","), do: [], else: [insert(b, c, ",")]
 
-          # at one position two insertions have no order: a comma owed at the line end is written first
-          case comma do
-            [_] when c == eol -> patch(source, [insert(b, eol, ",\n" <> indent <> spec)])
-            _ -> patch(source, comma ++ [insert(b, eol, "\n" <> indent <> spec)])
-          end
-        end
+    # the list closes on this line (`…}]`): the new entry goes straight after the last one;
+    # otherwise at the end of its line, so a trailing `# why` stays with the entry it explains
+    if String.contains?(rest |> String.split("#") |> hd(), "]") do
+      patch(source, [insert(b, c, ", " <> spec)])
+    else
+      indent = String.duplicate(" ", col - 1)
+      eol = String.length(line) + 1
+
+      # at one position two insertions have no order: a comma owed at the line end is written first
+      case comma do
+        [_] when c == eol -> patch(source, [insert(b, eol, ",\n" <> indent <> spec)])
+        _ -> patch(source, comma ++ [insert(b, eol, "\n" <> indent <> spec)])
+      end
     end
   end
 

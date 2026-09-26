@@ -34,17 +34,15 @@ defmodule Mix.Tasks.Menard.Write do
   defp write(file, code, stale) do
     file = Menard.resolve(file)
 
-    cond do
-      File.exists?(file) and File.read!(file) == String.trim_trailing(code, "\n") <> "\n" ->
-        Mix.shell().info(JSON.encode!(%{did: "write #{Path.basename(file)}", file: file, unchanged: true}))
+    if File.exists?(file) and File.read!(file) == String.trim_trailing(code, "\n") <> "\n" do
+      Mix.shell().info(JSON.encode!(%{did: "write #{Path.basename(file)}", file: file, unchanged: true}))
+    else
+      File.mkdir_p!(Path.dirname(file))
 
-      true ->
-        File.mkdir_p!(Path.dirname(file))
-
-        case Menard.write(file, code, [did: "write #{Path.basename(file)}"] ++ stale) do
-          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-          {:error, message} -> Mix.raise(message)
-        end
+      case Menard.write(file, code, [did: "write #{Path.basename(file)}"] ++ stale) do
+        {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
+        {:error, message} -> Mix.raise(message)
+      end
     end
   end
 end

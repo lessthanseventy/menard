@@ -19,42 +19,41 @@ defmodule Mix.Tasks.Menard.Stmt do
   @impl true
   def run(argv) do
     {flags, argv, _} = OptionParser.parse(argv, strict: [nth: :integer, version: :string, force: :boolean])
+    verb(normalize(argv), did(argv), flags)
+  end
 
-    did = did(argv)
+  defp verb(["insert_after", file, na, head, match, code], did, flags),
+    do: write(file, did, flags, &Stmt.insert_after(&1, na, head, match, code, flags))
 
-    case normalize(argv) do
-      ["insert_after", file, na, head, match, code] ->
-        write(file, did, flags, &Stmt.insert_after(&1, na, head, match, code, flags))
+  defp verb(["insert_before", file, na, head, match, code], did, flags),
+    do: write(file, did, flags, &Stmt.insert_before(&1, na, head, match, code, flags))
 
-      ["insert_before", file, na, head, match, code] ->
-        write(file, did, flags, &Stmt.insert_before(&1, na, head, match, code, flags))
+  defp verb(["replace", file, na, head, match, code], did, flags),
+    do: write(file, did, flags, &Stmt.replace(&1, na, head, match, code, flags))
 
-      ["replace", file, na, head, match, code] ->
-        write(file, did, flags, &Stmt.replace(&1, na, head, match, code, flags))
+  defp verb(["delete", file, na, head, match], did, flags),
+    do: write(file, did, flags, &Stmt.delete(&1, na, head, match, flags))
 
-      ["delete", file, na, head, match] ->
-        write(file, did, flags, &Stmt.delete(&1, na, head, match, flags))
+  defp verb(["comment", file, na, head, match, text], did, flags),
+    do: write(file, did, flags, &Stmt.comment(&1, na, head, match, text, flags))
 
-      ["comment", file, na, head, match, text] ->
-        write(file, did, flags, &Stmt.comment(&1, na, head, match, text, flags))
+  defp verb(["comment", file, na, head, match], did, flags),
+    do: write(file, did, flags, &Stmt.comment(&1, na, head, match, nil, flags))
 
-      ["comment", file, na, head, match] ->
-        write(file, did, flags, &Stmt.comment(&1, na, head, match, nil, flags))
-
-      ["list", file, na, head] ->
-        case Stmt.list(File.read!(Menard.resolve(file)), na, head, flags) do
-          {:error, message} -> Mix.raise(message)
-          statements -> Mix.shell().info(Enum.map_join(statements, "\n", &"- #{&1}"))
-        end
-
-      _ ->
-        Mix.raise(
-          "usage: mix menard.stmt (insert-after|insert-before|replace) FILE name/arity HEAD MATCH CODE [--nth N]\n" <>
-            "       mix menard.stmt delete FILE name/arity HEAD MATCH [--nth N]\n" <>
-            "       mix menard.stmt comment FILE name/arity HEAD MATCH [TEXT]   (no TEXT removes it)\n" <>
-            "       mix menard.stmt list FILE name/arity HEAD"
-        )
+  defp verb(["list", file, na, head], _did, flags) do
+    case Stmt.list(File.read!(Menard.resolve(file)), na, head, flags) do
+      {:error, message} -> Mix.raise(message)
+      statements -> Mix.shell().info(Enum.map_join(statements, "\n", &"- #{&1}"))
     end
+  end
+
+  defp verb(_argv, _did, _flags) do
+    Mix.raise(
+      "usage: mix menard.stmt (insert-after|insert-before|replace) FILE name/arity HEAD MATCH CODE [--nth N]\n" <>
+        "       mix menard.stmt delete FILE name/arity HEAD MATCH [--nth N]\n" <>
+        "       mix menard.stmt comment FILE name/arity HEAD MATCH [TEXT]   (no TEXT removes it)\n" <>
+        "       mix menard.stmt list FILE name/arity HEAD"
+    )
   end
 
   defp normalize([verb | rest]) when is_binary(verb), do: [String.replace(verb, "-", "_") | rest]

@@ -141,15 +141,19 @@ defmodule Menard.Clause do
           |> comment_at(above_attrs, clause.indent, String.trim(lead))
 
         true ->
-          range = with_comments_above(source, clause.range, code)
-          # a range widened to the comments above starts at column 1, so the text brings its own indent
-          indent = if range.start[:column] == 1, do: clause.indent, else: ""
-
-          Sourceror.patch_string(source, [
-            %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
-          ])
+          patch_with_comments(source, clause, code)
       end
     end
+  end
+
+  defp patch_with_comments(source, clause, code) do
+    range = with_comments_above(source, clause.range, code)
+    # a range widened to the comments above starts at column 1, so the text brings its own indent
+    indent = if range.start[:column] == 1, do: clause.indent, else: ""
+
+    Sourceror.patch_string(source, [
+      %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
+    ])
   end
 
   # The lines a clause OWNS: its `def`, the @doc/@spec/@impl written above it, and the comment above
@@ -166,6 +170,8 @@ defmodule Menard.Clause do
     |> Enum.reject(fn {_l, i} -> Enum.any?(spans, fn {a, b} -> i >= a and i <= b end) end)
     |> Enum.map_join("\n", &elem(&1, 0))
   end
+
+  defp span_text(lines, {a, b}), do: lines |> Enum.slice(a..b) |> Enum.join("\n")
 
   # Take the blank line after the span too, but only when the span was blank-separated above as
   # well — otherwise removing the last clause of a run closes a gap that was never there.
@@ -338,10 +344,14 @@ defmodule Menard.Clause do
   def insert_at(source, module, where, code) do
     with {:ok, ast} <- parse(source),
          {:ok, node} <- module_scope(ast, module) do
-      case anchor(definitions(node), normalize_where(where), code) do
-        nil -> insert_inside_empty(source, node, code)
-        {sibling, side} -> anchor_insert(source, sibling, side, code)
-      end
+      insert_into(source, node, where, code)
+    end
+  end
+
+  defp insert_into(source, module_node, where, code) do
+    case anchor(definitions(module_node), normalize_where(where), code) do
+      nil -> insert_inside_empty(source, module_node, code)
+      {sibling, side} -> anchor_insert(source, sibling, side, code)
     end
   end
 
@@ -373,16 +383,9 @@ defmodule Menard.Clause do
           lines = String.split(source, "\n")
           spans = Enum.map(found, &attached_span(ast, lines, &1))
 
-          code =
-            spans
-            |> Enum.map_join("\n", fn {a, b} -> lines |> Enum.slice(a..b) |> Enum.join("\n") end)
-            |> dedent()
+          code = spans |> Enum.map_join("\n", &span_text(lines, &1)) |> dedent()
 
-          moved =
-            case anchor(definitions(dest_module), normalize_where(nil), code) do
-              nil -> insert_inside_empty(dest, dest_module, code)
-              {sibling, side} -> anchor_insert(dest, sibling, side, code)
-            end
+          moved = insert_into(dest, dest_module, nil, code)
 
           {:ok, drop_spans(lines, spans |> merge_spans() |> Enum.map(&with_trailing_blank(lines, &1))), moved}
       end
@@ -492,30 +495,30 @@ defmodule Menard.Clause do
       unguarded =
         Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.node |> elem(2) |> hd() |> bare_args())]))
 
-      case {exact, unguarded} do
-        {[one], _} ->
+      candidates = if exact != [], do: exact, else: unguarded
+
+      case candidates do
+        [one] ->
           {:ok, one}
 
-        {[_ | _] = many, _} ->
-          pick_nth(many, name, arity, head, opts[:nth])
-
-        {[], [one]} ->
-          {:ok, one}
-
-        {[], [_ | _] = many} ->
+        [_ | _] = many ->
           pick_nth(many, name, arity, head, opts[:nth])
 
         # one clause has nothing to tell apart: any head, even the one it is about to get, means it
-        {[], []} when length(clauses) == 1 ->
+        [] when length(clauses) == 1 ->
           {:ok, hd(clauses)}
 
-        # part of exactly one head, the argument that tells the clauses apart (`"TENOFF"`): that one
-        {[], []} ->
-          case Enum.filter(clauses, &(want != "" and String.contains?(squash(&1.head_text), want))) do
-            [one] -> {:ok, one}
-            _ -> {:error, no_clause(source, name, arity, head, clauses)}
-          end
+        [] ->
+          by_part(clauses, want) || {:error, no_clause(source, name, arity, head, clauses)}
       end
+    end
+  end
+
+  # part of exactly one head, the argument that tells the clauses apart (`"TENOFF"`): that one
+  defp by_part(clauses, want) do
+    case Enum.filter(clauses, &(want != "" and String.contains?(squash(&1.head_text), want))) do
+      [one] -> {:ok, one}
+      _ -> nil
     end
   end
 
@@ -649,7 +652,10 @@ defmodule Menard.Clause do
   # `@doc`/`@spec`/`@impl` lines and then a def, as a whole clause is written with what it carries: the
   # def, when that is the shape (long1 cart-refactor.B.haiku nested one such in the old body)
   defp leading_attrs(code) do
-    with {:ok, defn, true} <- clause_form(code), do: {:ok, defn}, else: (_ -> nil)
+    case clause_form(code) do
+      {:ok, defn, true} -> {:ok, defn}
+      _ -> nil
+    end
   end
 
   defp clause_attr?({:@, _, [{name, _, _}]}), do: name in [:doc, :spec, :impl, :deprecated]
@@ -928,20 +934,21 @@ defmodule Menard.Clause do
   # above THAT clause and leaves the `@doc` written above the first one alone.
   defp attrs_start(ast, %{start: [line: line, column: _]}) do
     Enum.reduce(module_bodies(ast), line, fn statements, acc ->
-      case Enum.find_index(statements, &(start_line(&1) == line)) do
-        nil ->
-          acc
-
-        i ->
-          statements
-          |> Enum.take(i)
-          |> Enum.reverse()
-          |> Enum.take_while(&attached_attr?/1)
-          |> Enum.map(&start_line/1)
-          |> Enum.reject(&is_nil/1)
-          |> Enum.min(fn -> acc end)
-      end
+      statements
+      |> attached_above(line)
+      |> Enum.map(&start_line/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.min(fn -> acc end)
     end)
+  end
+
+  # The attributes attached above the statement that starts on `line`, nearest first: none when no
+  # statement of this module body starts there.
+  defp attached_above(statements, line) do
+    case Enum.find_index(statements, &(start_line(&1) == line)) do
+      nil -> []
+      i -> statements |> Enum.take(i) |> Enum.reverse() |> Enum.take_while(&attached_attr?/1)
+    end
   end
 
   @doc """
@@ -1015,15 +1022,11 @@ defmodule Menard.Clause do
         |> Enum.flat_map(&doc_lines(ast, &1.range))
         |> MapSet.new()
 
-      if Enum.empty?(doomed) do
-        source
-      else
-        source
-        |> String.split("\n")
-        |> Enum.with_index(1)
-        |> Enum.reject(fn {_text, line} -> MapSet.member?(doomed, line) end)
-        |> Enum.map_join("\n", &elem(&1, 0))
-      end
+      source
+      |> String.split("\n")
+      |> Enum.with_index(1)
+      |> Enum.reject(&MapSet.member?(doomed, elem(&1, 1)))
+      |> Enum.map_join("\n", &elem(&1, 0))
     else
       _ -> source
     end
@@ -1032,21 +1035,13 @@ defmodule Menard.Clause do
   # Every line of the `@doc` attached above this clause (a heredoc doc spans several).
   defp doc_lines(ast, %{start: [line: line, column: _]}) do
     Enum.flat_map(module_bodies(ast), fn statements ->
-      case Enum.find_index(statements, &(start_line(&1) == line)) do
-        nil ->
-          []
-
-        i ->
-          statements
-          |> Enum.take(i)
-          |> Enum.reverse()
-          |> Enum.take_while(&attached_attr?/1)
-          |> Enum.filter(&doc_attr?/1)
-          |> Enum.flat_map(fn node ->
-            %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
-            Enum.to_list(a..b)
-          end)
-      end
+      statements
+      |> attached_above(line)
+      |> Enum.filter(&doc_attr?/1)
+      |> Enum.flat_map(fn node ->
+        %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
+        Enum.to_list(a..b)
+      end)
     end)
   end
 
@@ -1083,22 +1078,23 @@ defmodule Menard.Clause do
          {:ok, ast} <- parse(source),
          {:ok, scope} <- scope(ast, mod, name, arity) do
       case clauses(scope, name, arity) do
-        [] ->
-          {:error, "no #{name}/#{arity} in this file"}
-
-        [first | _] ->
-          rendered =
-            spec && first.indent <> "@spec " <> (spec |> String.trim() |> String.replace_prefix("@spec ", ""))
-
-          %{start: [line: line, column: _]} = first.range
-
-          case {attached_lines(ast, first.range, :spec), rendered} do
-            {nil, nil} -> source
-            {nil, _} -> insert_at_line(source, line, rendered)
-            {{a, b}, nil} -> delete_line_range(source, a, b)
-            {{a, b}, _} -> replace_line_range(source, a, b, rendered)
-          end
+        [] -> {:error, "no #{name}/#{arity} in this file"}
+        [first | _] -> set_spec(source, ast, first, spec)
       end
+    end
+  end
+
+  defp set_spec(source, ast, first, spec) do
+    rendered =
+      spec && first.indent <> "@spec " <> (spec |> String.trim() |> String.replace_prefix("@spec ", ""))
+
+    %{start: [line: line, column: _]} = first.range
+
+    case {attached_lines(ast, first.range, :spec), rendered} do
+      {nil, nil} -> source
+      {nil, _} -> insert_at_line(source, line, rendered)
+      {{a, b}, nil} -> delete_line_range(source, a, b)
+      {{a, b}, _} -> replace_line_range(source, a, b, rendered)
     end
   end
 
@@ -1218,20 +1214,9 @@ defmodule Menard.Clause do
   # The lines of the `@name` attached above the clause at `range`, or nil.
   defp attached_lines(ast, %{start: [line: line, column: _]}, name) do
     Enum.reduce(module_bodies(ast), nil, fn statements, acc ->
-      case Enum.find_index(statements, &(start_line(&1) == line)) do
-        nil ->
-          acc
-
-        i ->
-          statements
-          |> Enum.take(i)
-          |> Enum.reverse()
-          |> Enum.take_while(&attached_attr?/1)
-          |> Enum.find(&match?({:@, _, [{^name, _, _}]}, &1))
-          |> case do
-            nil -> acc
-            node -> line_span(node)
-          end
+      case statements |> attached_above(line) |> Enum.find(&match?({:@, _, [{^name, _, _}]}, &1)) do
+        nil -> acc
+        node -> line_span(node)
       end
     end)
   end

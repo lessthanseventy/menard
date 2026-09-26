@@ -3,6 +3,7 @@ defmodule Menard.MCPTest do
   use ExUnit.Case, async: false
 
   alias Anubis.Server.Frame
+  alias Menard.MCP.Reply
 
   setup do
     root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.unique_integer([:positive])}")
@@ -310,7 +311,7 @@ defmodule Menard.MCPTest do
     end
 
     {us, {:reply, response, _frame}} =
-      :timer.tc(fn -> Menard.MCP.Reply.bounded(Stuck, %{}, Frame.new(), 200) end)
+      :timer.tc(fn -> Reply.bounded(Stuck, %{}, Frame.new(), 200) end)
 
     assert response.isError
     assert response.content |> hd() |> Map.fetch!("text") =~ "did not finish in"
