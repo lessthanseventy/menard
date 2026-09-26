@@ -508,21 +508,21 @@ defmodule Menard.ClauseTest do
     end
     """
 
+    moved = """
+      # why this one is special
+      @doc "entry"
+      @spec go(integer()) :: integer()
+      def go(0), do: :zero
+      def go(n), do: n + 1
+    """
+
     {:ok, out_src, out_dest} = Clause.move(src, dest, "go/1")
 
     # a @doc or @spec left behind re-attaches to whatever definition follows it
-    refute out_src =~ "go("
-    refute out_src =~ "@doc"
-    refute out_src =~ "@spec"
-    refute out_src =~ "# why this one"
-    assert out_src =~ "def stays"
+    assert out_src == "defmodule A do\n  def stays, do: :here\nend\n"
 
-    assert out_dest =~ "# why this one is special"
-    assert out_dest =~ ~s(@doc "entry")
-    assert out_dest =~ "@spec go(integer())"
-    assert out_dest =~ "def go(0), do: :zero"
-    assert out_dest =~ "def go(n), do: n + 1"
-    assert out_dest =~ "def existing"
+    assert out_dest ==
+             String.replace(dest, "  def existing, do: 1\n", "  def existing, do: 1\n\n" <> moved)
   end
 
   test "move closes the gap it leaves, and lands at the destination's own indent" do
@@ -538,9 +538,8 @@ defmodule Menard.ClauseTest do
 
     {:ok, out_src, out_dest} = Clause.move(src, "defmodule B do\nend\n", "go/0")
 
-    refute out_src =~ "\n\n\n"
-    assert out_src =~ "def one, do: 1\n\n  def two, do: 2"
-    assert out_dest =~ "\n  def go, do: :moved\n"
+    assert out_src == String.replace(src, "  def go, do: :moved\n\n", "")
+    assert out_dest == "defmodule B do\n  def go, do: :moved\nend\n"
   end
 
   test "move refuses a function that is not there, naming it" do
