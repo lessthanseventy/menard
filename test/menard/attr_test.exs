@@ -86,13 +86,13 @@ defmodule Menard.AttrTest do
     assert message =~ "clause verbs"
   end
 
-  test "an attribute that isn't there reads as missing" do
-    assert Attr.get(@src, "nope") == {:error, :missing}
+  test "an attribute that isn't there reads as missing, by name" do
+    assert Attr.get(@src, "nope") == {:error, "no @nope in this module"}
   end
 
   test "a name the module never sets makes no atom: the VM never collects one" do
     name = "never_set_#{System.unique_integer([:positive])}"
-    assert Attr.get(@src, name) == {:error, :missing}
+    assert Attr.get(@src, name) == {:error, "no @#{name} in this module"}
     assert {:error, _} = Attr.delete(@src, name)
     assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
   end
@@ -145,29 +145,6 @@ defmodule Menard.AttrTest do
     assert at.("alias Some.Palette") < at.("@body P.body()")
     assert at.("@moduledoc") < at.("@body P.body()")
     assert at.("@body P.body()") < at.("@ground")
-  end
-
-  test "comment writes, replaces and removes the # block above an attribute" do
-    src = """
-    defmodule A do
-      # stale
-      @colors %{a: 1}
-
-      @plain 2
-    end
-    """
-
-    written = Menard.Attr.comment(src, "colors", "what the panels resolve through")
-    assert written =~ "# what the panels resolve through\n  @colors"
-    refute written =~ "# stale"
-
-    # an attribute with no comment yet gets one at its own column
-    assert Menard.Attr.comment(src, "plain", "why 2") =~ "  # why 2\n  @plain 2"
-
-    # no text removes it, and takes the whole block
-    removed = Menard.Attr.comment(src, "colors", nil)
-    refute removed =~ "# stale"
-    assert removed =~ "@colors %{a: 1}"
   end
 
   test "set keeps a trailing comment on the attribute line" do

@@ -26,16 +26,65 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `clause move` answers `{did, created, to, from}` at both doors, `to` and `from` each file's write
   reply (its version and stages). MCP answered `{did, file, created}` and the CLI prose, with
   neither file's version.
+- One verb layer under both doors (`Menard.Verbs.<Noun>.run/1`: params in, `{:ok, reply} |
+  {:error, reason}` out). Every verb was written twice, once per door, and the two had drifted;
+  now a mix task is argv → params → verb → one JSON line, and an MCP tool is its schema → verb →
+  reply, so both give the same map and the same refusal. What that changed at a door:
+  - The CLI's read verbs print the MCP reply as one JSON line where they printed prose: `attr
+    get` (`{value}`), `attr list` (`{attributes}`), `block get` (`{body}`, or `{blocks}` among
+    several), `block list`, `directive list`, `module list`, `stmt list` (`{statements, file}`),
+    `deps FILE name/arity` (the report), and `find --json` (`{hits}`, not a bare list). `outline`,
+    `map`, `where`, `find` and `version` keep their text forms, which the hooks read.
+  - `rename` answers `{did, changed, unchanged, skipped}` at both doors, `changed` each file's
+    write reply (its version and stages, which neither door gave), `skipped` each file with why
+    (the CLI put those on stderr).
+  - A field a verb cannot do without is refused by name at both doors (`clause move needs to`),
+    where the CLI printed the usage; a file that does not parse is named at both (`lib/a.ex: not
+    parseable — …`), where MCP left the file out; `attr` names a Phoenix `attr :x` declaration
+    for what it is at both, where the CLI said only `no @x`.
+  - `deps add|upgrade` that did not work (`ok: false`) is an answer at the MCP door, as `run`'s
+    is, not a tool error whose text is the JSON.
+  - The MCP `outline` tool takes `verb: "map"` (the project's modules, `all` for every function)
+    and `verb: "where"` (`at: ["FILE:LINE", …]`, the function each sits in), the CLI's `map` and
+    `where`, which MCP had no door to. Verbs on `outline`, not tools of their own: a tool per
+    noun, and both are outlines.
+- One error rule in the core: every `{:error, _}` an edit or read function returns carries a
+  string (`Attr` answered `:missing`; `Rename` and `Outline` a raw parser term), and nothing in
+  the core prints: `Menard.write/3` said an unformatted write on stderr itself, and the CLI door
+  says it now, from the reply's `unformatted`.
+- The host's formatter runs on the host's own toolchain, as one OS process per write
+  (`Menard.Format`, `priv/format.exs`), never in menard's VM. It loaded the host's `_build` into
+  menard's code path for good, checked beam compiler versions before loading, erased Styler's and
+  Quokka's cached config, evaluated the host's `.formatter.exs` here, and changed the whole VM's
+  cwd under a global lock; a plugin it could not load sent the file to the host's `mix format`,
+  which evaluates `mix.exs` and the config first (live_beats: `config/dev.exs` wanted a GitHub
+  secret, and the file went unformatted with three stack frames as its reason). Now `elixir` runs
+  `Mix.Tasks.Format.formatter_for_file/2` in the host's project with its plugins from `_build`,
+  and a plugin built by a newer OTP simply runs. The process never writes the real file, so one
+  killed past its deadline cannot write it later. One process formats every file of one call:
+  `run format` over a 69-file Phoenix project takes 1.5s where it took 2.9s; one write pays a VM
+  start, ~0.4s, where the in-VM path took ~50ms after its first.
+- A subdirectory's own `import_deps` resolve (live_beats' `priv/repo/migrations/.formatter.exs`
+  imports `:ecto_sql`, which the root's does not): every file in the project failed on "Unknown
+  dependency :ecto_sql", since only the root's imports were looked up.
 
 **New**
 - `run check` over a precommit alias whose failing step no parser reads (a `cmd` step) answers a
   failure of kind `step`: the step, as mix ran it, and the last lines it printed. It answered
   `failures: []` and a stack trace's tail.
 - The guard passes an edit that only changes text inside a string or sigil (a heredoc, a `~H`
-  template), where no verb reaches: `menard guard FILE --edit INPUT`, from both adapters.
-- `clause replace` handed the whole clause of the function it names does that rewrite; `block
-  replace` and `block add` handed a whole block of the macro (and label) named take its body,
-  label and args. Both were refused, and `block add` nested the block inside another.
+  template) or a `#` comment, where no verb reaches: `menard guard FILE --edit INPUT`, from both
+  adapters.
+- `block replace` and `block add` handed a whole block of the macro (and label) named take its
+  body, label and args. Both were refused, and `block add` nested the block inside another.
+
+**Removed**
+- The prose verbs: `clause doc`, `clause comment`, `stmt comment`, `attr comment` and `module
+  comment` (with its `--above`). A `@doc` is a string and a comment is no node at all, so an `Edit`
+  of either is what the guard now passes; each verb was one more schema to read for an edit `Edit`
+  makes as well. `attr replace` (an alias of `set`) and `clause replace`'s fallback to `rewrite`
+  when handed a whole clause are gone with them: one name per edit, and a whole clause handed to
+  `replace` is refused toward `rewrite`, as it was in 0.5.0.
 - The MCP server's instructions (in the client's system prompt) say modules are edited with its
   tools, from `outline`, finishing on `run check`: 4 of 6 smoke-run agents tried Edit first.
 - `hooks/shell-edits.sh`: a module a shell command changed is named, with `run check` to confirm it.
@@ -43,6 +92,11 @@ agents tripped on, fixed, and what they reached for first, made to work.
   advisory, in Claude Code and pi.
 
 **Fixed**
+- A verb whose build another process changed between `bin/menard`'s own compile and the verb's
+  mix answered with mix's compile log ("Generated menard app" on stdout, ahead of the answer;
+  "Waiting for lock on the build directory" on stderr). Every verb now runs off the last build
+  the way `--frozen` did, with no mix project and no compile step, so its stdout is only its
+  answer; `bin/menard` compiles first (quietly) when a source, or a dep's build, changed since.
 - `run` past its deadline killed the Elixir task and left the host's `mix` running, and the
   plugin's client gave up at 180s while menard's own deadline was 600s: an agent's next `mix test`
   then raced the orphan in the same `_build` ("corrupt atom table"). The host's mix now runs under
