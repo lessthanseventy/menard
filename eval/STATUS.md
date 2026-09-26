@@ -403,3 +403,22 @@ model on renames across files, not for a capable one on everyday edits.
 - 23:41 tlon1 started on 65bf545: Tlön tickets 2, 3, 6, 9 × A, B, M × opus, fable (24 sessions, sequential). Smoke (t2 A haiku) passed the gate: 729 tests, 74 turns, $0.94, 17 min.
 - 00:01 tlon1 paused after t2.A.opus (runner SIGSTOPped, no agent running) and resumed: B and M re-pinned to 1fd7a91 (the format hook skips what git ignores; stmt ignores comments; block add takes a leading @tag). t2.A.opus ran with no menard, so nothing already run changed.
 - 00:03 correction: t2.B.opus had started before the pause (my check for a running agent grepped for the run id, which is not in claude's command line). It ran through the pause (its wall, 923 s, is void) and its plugin was re-copied under it: every one of its 35 hook calls exited 0 with no output, so neither hook version had anything to say to it, and its pass, turns and cost stand.
+- 00:3x tlon1 stopped by choice after 6 of 24 sessions (opus, tickets 2 and 3), to save credits
+  for the experiments that follow. Stopped cleanly: no agent left, no eval database left.
+
+### tlon1 (partial): opus on real Tlön tickets
+
+| ticket | arm | gate | clean | turns | cost | manos calls |
+|---|---|---|---|---|---|---|
+| 2 | A | pass | yes | 17 | 0.512 | |
+| 2 | B | pass | yes | 19 | 0.457 | |
+| 2 | M | pass | yes | 20 | 0.636 | 0 |
+| 3 | A | pass | yes | 14 | 0.558 | |
+| 3 | B | pass | yes | 12 | 0.514 | |
+| 3 | M | pass | yes | 16 | 0.555 | 2 (`run`) |
+
+- Every session passed Tlön's own gate, clean. Opus writes formatted code on its own here, so
+  the hook had nothing to report (every B hook call: exit 0, no output).
+- B was the cheapest arm on both tickets; M paid manos' schema on every turn and used it twice.
+- Not graded by the blind review: six passes of two tickets is too thin to rank solutions, and
+  the round was cut before fable. The diffs are in results/tlon1/traces for later.
