@@ -29,6 +29,8 @@ if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|\'[^\']*\'|[^[:space:]]
 fi
 repo=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null)
 
+err=$(mktemp "${TMPDIR:-/tmp}/menard-err.XXXXXX")
+trap 'rm -f "$err"' EXIT
 red=""
 while IFS= read -r dir; do
   [[ -n "$repo" && "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" == "$repo" ]] || continue
@@ -45,12 +47,13 @@ while IFS= read -r dir; do
   name=${name%-}
   stamp="$git_dir/menard-green-${name:-root}"
   [[ -n "$tree" && "$(cat "$stamp" 2>/dev/null)" == "$tree" ]] && continue
-  out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>&1 </dev/null)
-  [[ "$out" == *'"ok":true'* ]] && continue
-  why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$out" 2>/dev/null)
-  [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$out" 2>/dev/null | tail -12)
+  # the reply is stdout's last line; stderr is kept apart, where a line that says "ok":true is no answer
+  reply=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>"$err" </dev/null | tail -n1)
+  jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1 && continue
+  why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$reply" 2>/dev/null)
+  [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$reply" 2>/dev/null | tail -12)
   # no answer at all: menard's own refusal or error, which it writes to stderr
-  [[ -n "$why" ]] || why=$(tail -12 <<<"$out")
+  [[ -n "$why" ]] || why=$(tail -12 "$err")
   red+="${dir}:"$'\n'"${why}"$'\n'
 done < <(sort -u "$touched")
 

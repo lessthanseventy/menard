@@ -28,16 +28,19 @@ if ((count >= 3)); then
 fi
 
 menard="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard"
+err=$(mktemp "${TMPDIR:-/tmp}/menard-err.XXXXXX")
+trap 'rm -f "$err"' EXIT
 red=""
 while IFS= read -r dir; do
   for verb in "compile" "credo --changed" "test --stale"; do
+    # the reply is stdout's last line; stderr is kept apart, where a line that says "ok":true is no answer
     # shellcheck disable=SC2086 # the verb's words are its arguments
-    out=$("$menard" run $verb --in "$dir" 2>&1 </dev/null)
-    [[ "$out" == *'"ok":true'* ]] && continue
-    why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$out" 2>/dev/null)
-    [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$out" 2>/dev/null | tail -12)
+    reply=$("$menard" run $verb --in "$dir" 2>"$err" </dev/null | tail -n1)
+    jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1 && continue
+    why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$reply" 2>/dev/null)
+    [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$reply" 2>/dev/null | tail -12)
     # no answer at all: menard's own refusal or error, which it writes to stderr
-    [[ -n "$why" ]] || why=$(tail -12 <<<"$out")
+    [[ -n "$why" ]] || why=$(tail -12 "$err")
     red+="${dir}:"$'\n'"${why}"$'\n'
     break
   done
