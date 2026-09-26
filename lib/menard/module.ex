@@ -42,11 +42,7 @@ defmodule Menard.Module do
          {:ok, ast} <- parse(source) do
       case List.keyfind(Tree.modules(ast), name, 0) do
         {^name, node} ->
-          range = Menard.Source.range(node, source)
-
-          Sourceror.patch_string(source, [
-            %{range: range, change: String.trim(code), preserve_indentation: false}
-          ])
+          Menard.Source.patch(source, Menard.Source.range(node, source), String.trim(code))
 
         nil ->
           {:error, "no module #{name} in this file — have: #{Enum.join(names(ast), ", ")}"}

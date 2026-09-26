@@ -16,7 +16,7 @@ defmodule Menard.Rename do
   @spec run(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def run(source, old, new, opts \\ []) when is_binary(source) do
     with {:ok, ast} <- Menard.Source.parse(source) do
-      apply_patches(
+      Menard.Source.patch(
         source,
         code_patches(ast, old, new, opts) ++
           comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
@@ -163,9 +163,6 @@ defmodule Menard.Rename do
       %{range: %{start: [line: no, column: c], end: [line: no, column: c + len]}, change: new}
     end
   end
-
-  defp apply_patches(source, []), do: source
-  defp apply_patches(source, patches), do: Sourceror.patch_string(source, patches)
 
   defp patches(ast, from, new, atoms?) do
     ast

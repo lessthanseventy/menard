@@ -11,7 +11,8 @@ defmodule Menard.Clause do
   sibling.)
   """
 
-  import Menard.Source, only: [comment_lines_above: 2, parse: 1, reindent: 2]
+  import Menard.Source,
+    only: [comment_lines_above: 2, dedent: 1, delete_lines: 3, parse: 1, patch: 2, patch: 3, reindent: 2]
 
   import Menard.Tree,
     only: [definitions: 1, module_bodies: 1, module_scope: 2, modules: 1, start_line: 1]
@@ -167,14 +168,7 @@ defmodule Menard.Clause do
         leading_attrs(code) ->
           {first, _last} = attached_span(ast, String.split(source, "\n"), clause)
           range = %{clause.range | start: [line: first + 1, column: 1]}
-
-          Sourceror.patch_string(source, [
-            %{
-              range: range,
-              change: clause.indent <> reindent(code, clause.indent),
-              preserve_indentation: false
-            }
-          ])
+          patch(source, range, clause.indent <> reindent(code, clause.indent))
 
         # A comment over a clause with @impl/@doc/@spec goes above THOSE, as `comment/5` puts it: written
         # at the `def`, it would sit between the attributes and what they describe
@@ -211,10 +205,7 @@ defmodule Menard.Clause do
     range = with_comments_above(source, clause.range, code)
     # a range widened to the comments above starts at column 1, so the text brings its own indent
     indent = if range.start[:column] == 1, do: clause.indent, else: ""
-
-    Sourceror.patch_string(source, [
-      %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
-    ])
+    patch(source, range, indent <> reindent(code, clause.indent))
   end
 
   # The lines a clause OWNS: its `def`, the @doc/@spec/@impl written above it, and the comment above
@@ -225,12 +216,9 @@ defmodule Menard.Clause do
     {a - 1 - comment_lines_above(lines, a - 1), b - 1}
   end
 
-  defp drop_spans(lines, spans) do
-    lines
-    |> Enum.with_index()
-    |> Enum.reject(fn {_l, i} -> Enum.any?(spans, fn {a, b} -> i >= a and i <= b end) end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
+  # spans are zero-based, as `attached_span/3` counts them
+  defp drop_spans(source, spans),
+    do: Menard.Source.delete_lines(source, for({a, b} <- spans, do: {a + 1, b + 1}))
 
   defp span_text(lines, {a, b}), do: lines |> Enum.slice(a..b) |> Enum.join("\n")
 
@@ -255,17 +243,6 @@ defmodule Menard.Clause do
     |> Enum.reverse()
   end
 
-  defp dedent(text) do
-    pad =
-      text
-      |> String.split("\n")
-      |> Enum.reject(&(String.trim(&1) == ""))
-      |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
-      |> Enum.min(fn -> 0 end)
-
-    text |> String.split("\n") |> Enum.map_join("\n", &String.slice(&1, pad..-1//1))
-  end
-
   @doc """
   Delete the clause, the comment lines glued above it, and one blank line left behind. The function's
   last clause takes its @doc/@spec too; one clause of several leaves them for the clauses left.
@@ -284,7 +261,7 @@ defmodule Menard.Clause do
           _several -> own_span(ast, lines, clause)
         end
 
-      drop_spans(lines, [span])
+      drop_spans(source, [span])
     end
   end
 
@@ -317,7 +294,7 @@ defmodule Menard.Clause do
 
         all ->
           spans = all |> Enum.map(&attached_span(ast, lines, &1)) |> merge_spans()
-          drop_spans(lines, Enum.map(spans, &with_trailing_blank(lines, &1)))
+          drop_spans(source, Enum.map(spans, &with_trailing_blank(lines, &1)))
       end
     end
   end
@@ -365,7 +342,7 @@ defmodule Menard.Clause do
       %{range: %{end: [line: b, column: c]}, indent: indent} = clause
       body = indent <> reindent(code, indent)
       at = %{start: [line: b, column: c], end: [line: b, column: c]}
-      Sourceror.patch_string(source, [%{range: at, change: gap <> body, preserve_indentation: false}])
+      patch(source, at, gap <> body)
     end
   end
 
@@ -383,7 +360,7 @@ defmodule Menard.Clause do
       a = a - comment_lines_above(lines, a - 1)
       body = indent <> reindent(code, indent)
       at = %{start: [line: a, column: 1], end: [line: a, column: 1]}
-      Sourceror.patch_string(source, [%{range: at, change: body <> gap, preserve_indentation: false}])
+      patch(source, at, body <> gap)
     end
   end
 
@@ -471,7 +448,8 @@ defmodule Menard.Clause do
 
           moved = insert_into(dest, dest_module, nil, code)
 
-          {:ok, drop_spans(lines, spans |> merge_spans() |> Enum.map(&with_trailing_blank(lines, &1))), moved}
+          {:ok, drop_spans(source, spans |> merge_spans() |> Enum.map(&with_trailing_blank(lines, &1))),
+           moved}
       end
     end
   end
@@ -563,9 +541,6 @@ defmodule Menard.Clause do
     indent = String.duplicate(" ", col - 1)
     code |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
   end
-
-  defp patch(source, range, change),
-    do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
 
   # -- locating a clause ----------------------------------------------------
 
@@ -1003,14 +978,13 @@ defmodule Menard.Clause do
                 start: [line: line, column: col],
                 end: [line: line, column: col + String.length(Atom.to_string(clause.kind))]
               },
-              change: Atom.to_string(new),
-              preserve_indentation: false
+              change: Atom.to_string(new)
             }
           ]
         end
       end)
 
-    if patches == [], do: source, else: Sourceror.patch_string(source, patches)
+    patch(source, patches)
   end
 
   defp kind_for(:def, :private), do: :defp
@@ -1084,7 +1058,7 @@ defmodule Menard.Clause do
     case {attached_lines(ast, first.range, :spec), rendered} do
       {nil, nil} -> source
       {nil, _} -> insert_at_line(source, line, rendered)
-      {{a, b}, nil} -> delete_line_range(source, a, b)
+      {{a, b}, nil} -> delete_lines(source, a, b)
       {{a, b}, _} -> replace_line_range(source, a, b, rendered)
     end
   end
@@ -1112,14 +1086,6 @@ defmodule Menard.Clause do
     end
   end
 
-  defp delete_line_range(source, a, b) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.reject(fn {_text, i} -> i >= a and i <= b end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
-
   defp replace_line_range(source, a, b, text) do
     lines = String.split(source, "\n")
 
@@ -1135,7 +1101,7 @@ defmodule Menard.Clause do
     case {above, text} do
       {0, nil} -> source
       {0, _} -> insert_at_line(source, anchor, comment_text(text, indent))
-      {n, nil} -> delete_line_range(source, anchor - n, anchor - 1)
+      {n, nil} -> delete_lines(source, anchor - n, anchor - 1)
       {n, _} -> replace_line_range(source, anchor - n, anchor - 1, comment_text(text, indent))
     end
   end
