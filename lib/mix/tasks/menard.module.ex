@@ -12,65 +12,55 @@ defmodule Mix.Tasks.Menard.Module do
   @impl true
   def run(argv) do
     {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean, above: :boolean])
-    stale = Keyword.take(flags, [:version, :force])
+    verb(argv, flags)
+  end
 
-    case argv do
-      ["list", file] ->
-        case Menard.Module.list(File.read!(Menard.resolve(file))) do
-          {:error, message} -> Mix.raise(message)
-          names -> Mix.shell().info(Enum.join(names, "\n"))
-        end
+  defp verb(["list", file], _flags) do
+    case Menard.Module.list(File.read!(Menard.resolve(file))) do
+      {:error, message} -> Mix.raise(message)
+      names -> Mix.shell().info(Enum.join(names, "\n"))
+    end
+  end
 
-      ["add", file, code] ->
-        file = Menard.resolve(file)
-        code = if code == "-", do: IO.read(:stdio, :eof), else: code
+  defp verb(["add", file, code], flags) do
+    file = Menard.resolve(file)
+    code = if code == "-", do: IO.read(:stdio, :eof), else: code
 
-        case Menard.Module.add(File.read!(file), to_string(code)) do
-          {:error, message} ->
-            Mix.raise(message)
+    write(
+      file,
+      Menard.Module.add(File.read!(file), to_string(code)),
+      "module add in #{Path.basename(file)}",
+      flags
+    )
+  end
 
-          out ->
-            case Menard.write(file, out, [did: "module add in #{Path.basename(file)}"] ++ stale) do
-              {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-              {:error, message} -> Mix.raise(message)
-            end
-        end
+  defp verb(["comment", file, module | text], flags) when length(text) <= 1 do
+    file = Menard.resolve(file)
+    module = if module in ["-", ""], do: nil, else: module
+    out = Menard.Module.comment(File.read!(file), module, List.first(text), above: flags[:above] == true)
+    write(file, out, "module comment in #{Path.basename(file)}", flags)
+  end
 
-      ["comment", file, module | text] when length(text) <= 1 ->
-        file = Menard.resolve(file)
-        module = if module in ["-", ""], do: nil, else: module
+  defp verb(["replace", file, name, code], flags) do
+    file = Menard.resolve(file)
+    out = Menard.Module.replace(File.read!(file), name, code)
+    write(file, out, "module replace #{name} in #{Path.basename(file)}", flags)
+  end
 
-        case Menard.Module.comment(File.read!(file), module, List.first(text), above: flags[:above] == true) do
-          {:error, message} ->
-            Mix.raise(message)
+  defp verb(_argv, _flags) do
+    Mix.raise(
+      "usage: mix menard.module add FILE CODE  (CODE of `-` reads stdin) | list FILE\n" <>
+        "       mix menard.module replace FILE Mod.Name CODE          one whole module, of several\n" <>
+        "       mix menard.module comment FILE (Mod.Name|-) [TEXT] [--above]   (no TEXT removes it; --above: over defmodule)"
+    )
+  end
 
-          out ->
-            case Menard.write(file, out, [did: "module comment in #{Path.basename(file)}"] ++ stale) do
-              {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-              {:error, message} -> Mix.raise(message)
-            end
-        end
+  defp write(_file, {:error, message}, _did, _flags), do: Mix.raise(message)
 
-      ["replace", file, name, code] ->
-        file = Menard.resolve(file)
-
-        case Menard.Module.replace(File.read!(file), name, code) do
-          {:error, message} ->
-            Mix.raise(message)
-
-          out ->
-            case Menard.write(file, out, [did: "module replace #{name} in #{Path.basename(file)}"] ++ stale) do
-              {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-              {:error, message} -> Mix.raise(message)
-            end
-        end
-
-      _ ->
-        Mix.raise(
-          "usage: mix menard.module add FILE CODE  (CODE of `-` reads stdin) | list FILE\n" <>
-            "       mix menard.module replace FILE Mod.Name CODE          one whole module, of several\n" <>
-            "       mix menard.module comment FILE (Mod.Name|-) [TEXT] [--above]   (no TEXT removes it; --above: over defmodule)"
-        )
+  defp write(file, out, did, flags) do
+    case Menard.write(file, out, [did: did] ++ Keyword.take(flags, [:version, :force])) do
+      {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
+      {:error, message} -> Mix.raise(message)
     end
   end
 end

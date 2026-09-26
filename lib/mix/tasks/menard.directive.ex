@@ -22,12 +22,7 @@ defmodule Mix.Tasks.Menard.Directive do
 
     case args do
       ["list", file] ->
-        file = Menard.resolve(file)
-
-        case Directive.list(File.read!(file), module: opts[:module]) do
-          {:error, message} -> Mix.raise(message)
-          found -> Mix.shell().info(Enum.map_join(found, "\n", fn {kind, target} -> "#{kind} #{target}" end))
-        end
+        list(file, opts)
 
       ["add", file, kind, target | rest] ->
         edit(
@@ -55,6 +50,13 @@ defmodule Mix.Tasks.Menard.Directive do
             "       mix menard.directive remove FILE (alias|import|require|use|doctest) MOD [--module Mod]\n" <>
             "       mix menard.directive list FILE [--module Mod]"
         )
+    end
+  end
+
+  defp list(file, opts) do
+    case Directive.list(File.read!(Menard.resolve(file)), module: opts[:module]) do
+      {:error, message} -> Mix.raise(message)
+      found -> Mix.shell().info(Enum.map_join(found, "\n", fn {kind, target} -> "#{kind} #{target}" end))
     end
   end
 
