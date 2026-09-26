@@ -449,3 +449,20 @@ model on renames across files, not for a capable one on everyday edits.
   ("CI runs mix precommit") from every agent. `--setting-sources project` alone keeps the user's own
   CLAUDE.md out and the project's in (tried both ways in a bench); the flag is gone.
 - One run per arm: the token gaps between the clean arms are within one run's noise.
+
+### focus2 and focus3 (2026-09-26)
+
+- 02:21 focus2 on Tlön (eval/tlon/cases/focus, sonnet): arms all (hook + run-cli + compile + big-read
+  + stop) and A, one run each (runs 2-3 dropped: focus3 takes the repeats). Earlier starts are void
+  (results/focus2-void, -void2, -void3): Tlön's sandbox kept /tmp read-only and its tmux tests failed
+  inside every agent's session (fixed: a tmux dir per run), then the arms were rebuilt twice.
+- all run 1: 5/5 steps once re-graded. Step 5's check matched a bare `leaf_window` and hit
+  Server.Tmux.leaf_window?/1, a different function the agent rightly kept; fixed (dbd4519) and
+  re-graded from the run's diff: 736 tests green. 37 turns, 98k new / 2.23M cached / 17k out.
+  The run-cli note won over Tlön's cap.sh rule once AGENTS.md sent tests through menard; credo and
+  the compiler hook each caught one issue at write time in step 2.
+- A run 1: in progress. Its step 2 said "I didn't run mise run server:check, so credo and the evals
+  haven't run".
+- Before focus3: Tlön's console had 2 credo findings at its base; fixed in Tlön (7d09361) and in the
+  template, so credo left counts only what an agent adds. focus3 is queued behind focus2 (re-pins
+  the plugins from HEAD first): Opus, all vs A, 3 runs each, interleaved.
