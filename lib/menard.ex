@@ -9,11 +9,6 @@ defmodule Menard do
   against the caller's directory (`MENARD_CWD`, else the cwd), and the run verbs act in
   `--in DIR` (default: the caller's directory).
   """
-  alias Mix.Tasks.Format
-
-  # Under load a host's own `mix format` through mise (its plugins will not load here) took past
-  # 30s; 60s still leaves the MCP door's 90s deadline room
-  @format_timeout 60_000
 
   @doc "The directory the caller stood in."
   def caller_dir, do: System.get_env("MENARD_CWD") || File.cwd!()
@@ -21,284 +16,11 @@ defmodule Menard do
   @doc "A path as the caller meant it: absolute stays, relative joins the caller's directory."
   def resolve(path), do: Path.expand(path, caller_dir())
 
-  @doc """
-  Format `file` with the TARGET project's formatter — its `.formatter.exs`, plugins and `import_deps` —
-  while that project is as broken as it gets. Run in THIS VM through
-  `Mix.Tasks.Format.formatter_for_file/2`, so the host's `mix.exs` is never evaluated and its deps
-  never checked: plugins load from the host's last build (`_build/*/lib/*/ebin`), and each
-  `import_deps` entry from `deps/`, else from the copy cached by the last format that found it
-  (`cache:` overrides the cache directory). A dep with neither leaves the file UNformatted with the
-  reason: without its exports the formatter would add parens to every DSL call in the file.
+  @doc "Format `file` in place with the host's own formatter: `Menard.Format.file/2`."
+  defdelegate format(file, opts \\ []), to: Menard.Format, as: :file
 
-  Where a plugin will not load in this VM, it shells out to the host's `mix format` instead. Either way it
-  is bounded — over stdio an unbounded wait is an MCP tool that never answers — and `{:error, reason}`
-  means "written but not formatted", never "not written".
-  """
-  def format(file, opts \\ []) do
-    content = File.read!(file)
-
-    case format_content(file, content, opts) do
-      {:ok, formatted} ->
-        if formatted != content, do: File.write!(file, formatted)
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  @doc """
-  Format `content` for `file` in-memory — the host's `.formatter.exs`, plugins and `import_deps`,
-  without writing to disk. Returns `{:ok, formatted}` or `{:error, reason}`. The fallback path
-  (shell out to the host's `mix format`) writes to disk and reads back, since `mix format` works on
-  a file path; the caller's write is then a no-op.
-  """
-  def format_content(file, content, opts \\ []) do
-    with {:ok, formatted, _split} <- format_staged(file, content, opts), do: {:ok, formatted}
-  end
-
-  @doc """
-  `format_content/3`, and where the host's `.formatter.exs` has plugins, what the formatter alone
-  made of `content`: `{:ok, formatted, {plain, plugins}}`, so a caller can tell a plugin's rewrites
-  (Styler's) from the formatter's. `formatted` is always the host's full formatter, so its
-  `format --check-formatted` agrees. The split is `nil` with no plugins, or on the shell fallback,
-  which runs both in one pass.
-  """
-  def format_staged(file, content, opts \\ []) do
-    parent = self()
-    ms = opts[:timeout] || @format_timeout
-    task = Task.async(fn -> format_somewhere(file, content, Keyword.put(opts, :timeout, ms), parent) end)
-
-    done = Task.yield(task, ms) || Task.shutdown(task, :brutal_kill)
-
-    # taken whether it is needed or not: left in the mailbox, the MCP server kept one per format
-    waiting_on =
-      receive do
-        {__MODULE__, :waiting_on, what} -> what
-      after
-        0 -> "the formatter in menard's VM"
-      end
-
-    case done do
-      {:ok, result} ->
-        result
-
-      # Which formatter ran out the time is the thing to know: under load, a host's plugins that do
-      # not load here send it to its own `mix format` through mise, a whole VM of its own.
-      _timeout ->
-        {:error, "format did not finish in #{ms / 1000}s, in #{waiting_on} — file written UNFORMATTED"}
-    end
-  end
-
-  defp format_somewhere(file, content, opts, parent) do
-    case in_process(file, content, opts) do
-      {:ok, formatted, split} -> {:ok, formatted, split}
-      {:fallback, why} -> format_in_shell(file, content, why, parent, opts[:timeout])
-    end
-  end
-
-  defp format_in_shell(file, content, why, parent, ms) do
-    send(parent, {__MODULE__, :waiting_on, "the host's own `mix format` (#{why})"})
-    File.write!(file, content)
-
-    case shell_format(file, ms) do
-      :ok -> {:ok, File.read!(file), nil}
-      {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
-    end
-  end
-
-  defp in_process(file, content, opts) do
-    root = formatter_root(file)
-    project = find_up(root, "mix.exs") || root
-    dot = Path.join(root, ".formatter.exs")
-    dot_opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
-    plugins = dot_opts[:plugins] || []
-
-    with {:ok, deps_paths} <-
-           import_deps(dot_opts[:import_deps] || [], project, opts[:cache] || cache_dir(project)),
-         :ok <- plugins_here(plugins, project) do
-      forget_plugin_state(plugins)
-
-      in_host_dir(plugins, project, fn ->
-        {formatter, formatter_opts} =
-          Format.formatter_for_file(file,
-            root: root,
-            dot_formatter: dot,
-            deps_paths: deps_paths,
-            plugin_loader: & &1
-          )
-
-        split = split(content, formatter_opts, file, plugins)
-        {:ok, formatter.(content), split}
-      end)
-    end
-  rescue
-    e -> {:fallback, Exception.message(e)}
-  end
-
-  @doc """
-  Whether `file` is formatted already by its project's formatter with the plugins left out: the
-  check for a file `format/2` could not format (its plugins will not load here), where it is
-  checked instead of refused. Nothing is loaded or written; `import_deps` resolve as for a format,
-  and any that do not, like any error, answer false.
-  """
-  def formatted_without_plugins?(file) do
-    root = formatter_root(file)
-    project = find_up(root, "mix.exs") || root
-    dot = Path.join(root, ".formatter.exs")
-    dot_opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
-
-    case import_deps(dot_opts[:import_deps] || [], project, cache_dir(project)) do
-      {:ok, deps_paths} ->
-        # each dep's exported locals, as `mix format` imports them
-        exported =
-          for {_dep, path} <- deps_paths,
-              dep_dot = Path.join(path, ".formatter.exs"),
-              File.regular?(dep_dot),
-              local <- elem(Code.eval_file(dep_dot), 0)[:export][:locals_without_parens] || [],
-              do: local
-
-        opts =
-          dot_opts
-          |> Keyword.drop([:plugins, :inputs, :subdirectories, :import_deps, :export])
-          |> Keyword.update(:locals_without_parens, exported, &(&1 ++ exported))
-          |> Keyword.put(:file, file)
-
-        content = File.read!(file)
-        IO.iodata_to_binary([Code.format_string!(content, opts), ?\n]) == content
-
-      _missing ->
-        false
-    end
-  rescue
-    _ -> false
-  end
-
-  # Every plugin must load here, or none is used: without one of them the formatter writes code the
-  # host's own would rewrite, a diff on lines nobody touched. Decided BEFORE Mix sees the file, since
-  # it loads every plugin .formatter.exs names when it picks one by extension, whatever a
-  # plugin_loader returned. The host's last build is appended, so menard's own modules win any name
-  # both have.
-  defp plugins_here(plugins, project) do
-    for ebin <- Path.wildcard(Path.join(project, "_build/*/lib/*/ebin")),
-        to_charlist(ebin) not in :code.get_path(),
-        do: Code.append_path(ebin)
-
-    case Enum.reject(plugins, &(loadable?(&1) and Code.ensure_loaded?(&1))) do
-      [] -> :ok
-      skipped -> {:fallback, "#{inspect(skipped)} will not load from #{project}/_build in this VM"}
-    end
-  end
-
-  # A beam a newer compiler built will not load in this VM, and trying makes the VM log an error per
-  # attempt. Its compile_info chunk names the compiler, and reading a chunk loads nothing.
-  defp loadable?(module) do
-    with path when is_list(path) <- :code.which(module),
-         {:ok, {_, [compile_info: info]}} <- chunks(path),
-         built when is_list(built) <- info[:version] do
-      Application.load(:compiler)
-      vsn_parts(built) <= vsn_parts(Application.spec(:compiler, :vsn))
-    else
-      :unreadable -> false
-      # loaded already, preloaded, not on the path, or no chunk to say: loading it is the test
-      _ -> true
-    end
-  end
-
-  # beam_lib RAISES on an atom chunk this VM cannot read (Tlön's Quokka, built by OTP 29, read by
-  # OTP 27: a MatchError over `binary_to_atom`), where it returns an error for most bad beams. A beam
-  # this VM cannot even read will not load in it.
-  defp chunks(path) do
-    :beam_lib.chunks(path, [:compile_info])
-  rescue
-    _ -> :unreadable
-  end
-
-  defp vsn_parts(vsn) do
-    vsn |> to_string() |> String.split(".") |> Enum.map(&(Integer.parse(&1) |> elem_or_zero()))
-  end
-
-  defp elem_or_zero({n, _rest}), do: n
-  defp elem_or_zero(:error), do: 0
-
-  defp import_deps(wanted, project, cache) do
-    Enum.reduce_while(wanted, {:ok, %{}}, fn dep, {:ok, acc} ->
-      real = Path.join([project, "deps", to_string(dep)])
-      cached = Path.join(cache, to_string(dep))
-
-      cond do
-        File.regular?(Path.join(real, ".formatter.exs")) ->
-          File.mkdir_p!(cached)
-          File.cp!(Path.join(real, ".formatter.exs"), Path.join(cached, ".formatter.exs"))
-          {:cont, {:ok, Map.put(acc, dep, real)}}
-
-        File.dir?(real) ->
-          {:cont, {:ok, Map.put(acc, dep, real)}}
-
-        File.regular?(Path.join(cached, ".formatter.exs")) ->
-          {:cont, {:ok, Map.put(acc, dep, cached)}}
-
-        true ->
-          {:halt,
-           {:fallback, "import_deps names #{inspect(dep)}, not fetched in #{project} and never cached"}}
-      end
-    end)
-  end
-
-  defp cache_dir(project),
-    do:
-      Path.join([
-        :filename.basedir(:user_cache, "menard"),
-        "formatter",
-        Integer.to_string(:erlang.phash2(project))
-      ])
-
-  # `ms` is the format's own deadline: killing the task that waits on the host's mix does not stop
-  # the OS process, which then wrote the file after menard had handed out its version
-  defp shell_format(file, ms) do
-    # the host's own toolchain — a plugin built by a newer OTP loads there and not here. `loadpaths
-    # --no-deps-check` first puts its last build on the path without checking deps, so the `format`
-    # after it finds its plugins loaded and neither checks nor compiles anything.
-    args = ["do", "loadpaths", "--no-deps-check", "+", "format", file]
-
-    case host_mix(formatter_root(file), args, timeout: ms) do
-      {_out, 0} ->
-        :ok
-
-      # the last lines that say why: mise ends every refusal (an untrusted config) with its version
-      # and a pointer to --verbose, which were all the reply kept
-      {out, _status} ->
-        said =
-          out
-          |> String.split("\n")
-          |> Enum.reject(&(String.trim(&1) == "" or &1 =~ ~r/^mise ERROR (Version:|Run with --verbose)/))
-          |> Enum.take(-3)
-
-        {:error, "mix format failed: " <> Enum.join(said, " ")}
-    end
-  end
-
-  defp formatter_root(file) do
-    dir = file |> Path.expand() |> Path.dirname()
-    find_up(dir, ".formatter.exs") || find_up(dir, "mix.exs") || dir
-  end
-
-  defp find_up("/", _name), do: nil
-
-  defp find_up(dir, name) do
-    if File.exists?(Path.join(dir, name)), do: dir, else: find_up(Path.dirname(dir), name)
-  end
-
-  defp split(_content, _formatter_opts, _file, []), do: nil
-  # The formatter alone, with the host's options (import_deps' locals included), so whatever the
-  # plugins changed after it is theirs to answer for. A pass that fails loses the split, not the
-  # format: the plugins' changes are then billed to the formatter, as before.
-  defp split(content, formatter_opts, file, plugins) do
-    plain = Code.format_string!(content, Keyword.put(formatter_opts, :file, file))
-    {IO.iodata_to_binary([plain, ?\n]), Enum.map(plugins, &inspect/1)}
-  rescue
-    _ -> nil
-  end
+  @doc "Format `content` for `file` without writing, formatter and plugins apart: `Menard.Format.staged/3`."
+  defdelegate format_staged(file, content, opts \\ []), to: Menard.Format, as: :staged
 
   # :formatter is what `mix format` alone changed; :plugins, when the host has any, what they
   # (Styler) rewrote after it — so an agent can tell a rewrite it did not ask for from its own edit
@@ -374,69 +96,6 @@ defmodule Menard do
     Path.join([:filename.basedir(:user_cache, "menard"), "versions", hex])
   end
 
-  # Quokka and Styler keep their config in :persistent_term under their own modules and read it only
-  # when it is unset, which in one VM is once: the MCP server formatted every host with the first
-  # host's config. What a host's plugins cached is forgotten before each format.
-  defp forget_plugin_state(plugins) do
-    prefixes = Enum.map(plugins, &(inspect(&1) <> "."))
-
-    for {key, _value} <- :persistent_term.get(),
-        is_atom(key),
-        name = inspect(key),
-        Enum.any?(prefixes, &String.starts_with?(name, &1)),
-        do: :persistent_term.erase(key)
-  end
-
-  # From the host's directory, as its own `mix format` runs: Quokka reads .credo.exs from the cwd,
-  # and from menard's it found none and rewrapped whole files at its default line length. Only a
-  # plugin reads the cwd, so only then; and the cwd is the whole VM's, so one format at a time.
-  defp in_host_dir([], _project, fun), do: fun.()
-
-  # The cwd is a guard's, not the caller's: the caller is a format task killed when its time runs out,
-  # and killed inside a File.cd!/2 it never cd'd back. The guard holds the lock, cds back when the
-  # caller is done or dead, and only then lets the next format in.
-  defp in_host_dir(_plugins, project, fun) do
-    caller = self()
-
-    {guard, ref} =
-      spawn_monitor(fn ->
-        watch = Process.monitor(caller)
-
-        :global.trans(
-          {{__MODULE__, :cwd}, self()},
-          fn ->
-            home = File.cwd!()
-            File.cd!(project)
-            send(caller, {__MODULE__, :in_host_dir, self()})
-
-            receive do
-              {__MODULE__, :done} -> :ok
-              {:DOWN, ^watch, _, _, _} -> :ok
-            end
-
-            File.cd!(home)
-          end,
-          [node()],
-          :infinity
-        )
-      end)
-
-    receive do
-      {__MODULE__, :in_host_dir, ^guard} -> :ok
-      {:DOWN, ^ref, _, _, why} -> raise "could not work in #{project}: #{inspect(why)}"
-    end
-
-    try do
-      fun.()
-    after
-      send(guard, {__MODULE__, :done})
-
-      receive do
-        {:DOWN, ^ref, _, _, _} -> :ok
-      end
-    end
-  end
-
   @doc """
   Write `content` to `file` through the staged pipeline: parse-check, format in-memory, diff each
   stage, write the result. Returns `{:ok, reply}` where reply is `%{did, file, version, stages}` —
@@ -508,32 +167,43 @@ defmodule Menard do
   `require:` names an .exs file the host's VM loads before mix starts (`elixir -r FILE -S mix`).
   """
   def host_mix(dir, args, opts \\ []) do
-    {timeout, opts} = Keyword.pop(opts, :timeout)
     {require, opts} = Keyword.pop(opts, :require)
+    argv = if require, do: ["elixir", "-r", require, "-S", "mix" | args], else: ["mix" | args]
+    host_cmd(dir, argv, Keyword.put(opts, :label, "mix #{hd(args)}"))
+  end
+
+  @doc """
+  `[exe | args]` run in `dir` on the host's toolchain, as `host_mix/3` runs its mix: `elixir` for
+  the formatter, which must not evaluate the host's `mix.exs`. `timeout:` is its deadline in ms;
+  past it the process is killed and the status is 124 (137 when it would not stop); `label:` names
+  it in the line that says so.
+  """
+  def host_cmd(dir, [exe | args], opts \\ []) do
+    {timeout, opts} = Keyword.pop(opts, :timeout)
+    {label, opts} = Keyword.pop(opts, :label, exe)
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
-    [mix | argv] = if require, do: ["elixir", "-r", require, "-S", "mix" | args], else: ["mix" | args]
 
     {exe, argv, note} =
       case host_toolchain(dir) do
-        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", mix | argv], ""}
-        {:path, nil} -> {mix, argv, ""}
-        {:path, why} -> {mix, argv, "menard: #{why}\n"}
+        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", exe | args], ""}
+        {:path, nil} -> {exe, args, ""}
+        {:path, why} -> {exe, args, "menard: #{why}\n"}
       end
 
     # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
     # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;
     # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
     argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
-    {out, status} = bounded_cmd("sh", argv, opts, timeout, hd(args))
+    {out, status} = bounded_cmd("sh", argv, opts, timeout, label)
     {note <> out, status}
   end
 
   # Past its deadline the host's mix is KILLED, not abandoned: a caller that gave up while it kept
   # compiling left it racing the next mix in the same _build ("corrupt atom table"). coreutils
   # `timeout` signals the OS process, which a killed Elixir task never does; without it, no deadline.
-  defp bounded_cmd(exe, argv, opts, nil, _task), do: System.cmd(exe, argv, opts)
+  defp bounded_cmd(exe, argv, opts, nil, _label), do: System.cmd(exe, argv, opts)
 
-  defp bounded_cmd(exe, argv, opts, ms, task) do
+  defp bounded_cmd(exe, argv, opts, ms, label) do
     # to the nearest second: rounded down, 10_000ms given and 9_999 left a millisecond later was 9s
     secs = max(div(ms + 500, 1000), 1)
 
@@ -544,7 +214,7 @@ defmodule Menard do
       timeout ->
         case System.cmd(timeout, ["--kill-after=5", "#{secs}", exe | argv], opts) do
           {out, status} when status in [124, 137] ->
-            {out <> "\nmenard: mix #{task} did not finish in #{secs}s, and was stopped", status}
+            {out <> "\nmenard: #{label} did not finish in #{secs}s, and was stopped", status}
 
           done ->
             done
