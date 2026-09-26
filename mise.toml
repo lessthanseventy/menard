@@ -2,12 +2,18 @@
 # clone menard, `mise run install:pi` (or `install:claude`), and the guard, the MCP server, the
 # formatter and the skill are all in place. menard is standalone.
 
+[tasks."install:path"]
+description = "Put `menard` on PATH (~/.local/bin); inside a menard checkout or worktree it runs that one"
+run = "scripts/install-path.sh"
+
 [tasks."install:pi"]
 description = "Wire menard into pi: the guard extension, the MCP server, and the skill"
+depends = ["install:path"]
 run = "scripts/install-pi.sh"
 
 [tasks."install:claude"]
 description = "Wire menard into Claude Code: the plugin (MCP, hooks, skill) via the marketplace"
+depends = ["install:path"]
 run = "scripts/install-claude.sh"
 
 [tasks.test]

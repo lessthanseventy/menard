@@ -602,4 +602,5 @@ committed, resume or redo the rest):
 - build-riverside follow-up: reference solutions as patches under
   eval/riverside/cases/events/reference/ with a re-validation script; confirm no leftovers.
 Then: the test-suite review's 12 findings (docs/review/2026-09-26-fable.md), TODO.md's focus3
-re-plant, re-pin the plugins, and the round on ex_riverside (all vs A, Opus, 3 runs).
+re-plant, re-pin the plugins, and the round on ex_riverside (all vs A, Opus and Fable, 3 runs: the
+project tier of PLAN.md's model split).
