@@ -575,7 +575,7 @@ defmodule Menard.Clause do
         "no function #{name}/#{arity}: `#{macro} \"#{label}\"` is a macro call, not a function — " <>
           "reach it with `block replace FILE #{macro} --label \"#{label}\"` (or get, delete)"
 
-      name in [:test, :describe, :setup, :setup_all] ->
+      name in ["test", "describe", "setup", "setup_all"] ->
         "no function #{name}/#{arity}: `#{name}` is a macro, and its blocks are reached with `block` — " <>
           "`block {verb: \"get\", file, name: \"#{name}\"}` answers with every one, `label` picks one"
 
@@ -796,7 +796,7 @@ defmodule Menard.Clause do
          {arity, ""} <- Integer.parse(arity) do
       # `Mod.Sub.fun/2` scopes the search to that module; `fun/2` searches the whole file
       {mod, [name]} = path |> String.split(".") |> Enum.split(-1)
-      {:ok, {if(mod == [], do: nil, else: Enum.join(mod, ".")), String.to_atom(name), arity}}
+      {:ok, {if(mod == [], do: nil, else: Enum.join(mod, ".")), name, arity}}
     else
       _ -> {:error, "expected [Mod.]name/arity, got #{inspect(spec)}"}
     end
@@ -841,8 +841,13 @@ defmodule Menard.Clause do
   end
 
   defp name_arity({:when, _, [call | _]}), do: name_arity(call)
-  defp name_arity({name, _, args}) when is_list(args), do: {name, length(args)}
-  defp name_arity({name, _, _}), do: {name, 0}
+  # The name as text, as `parse_name_arity` gives it: an input name is never made an atom.
+  defp name_arity({name, _, args}) when is_list(args), do: {name_text(name), length(args)}
+  defp name_arity({name, _, _}), do: {name_text(name), 0}
+
+  # `def unquote(name)(…)` has no name to read, and matches no name asked for
+  defp name_text(name) when is_atom(name), do: Atom.to_string(name)
+  defp name_text(name), do: name
 
   # The head as written: `{args_text, guard_text | nil}`.
   defp split_head({:when, _, [call, guard]}), do: {elem(split_head(call), 0), Sourceror.to_string(guard)}

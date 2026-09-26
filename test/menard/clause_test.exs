@@ -66,6 +66,15 @@ defmodule Menard.ClauseTest do
     assert {:error, _} = Clause.delete(@src, "nope/0", "", [])
   end
 
+  test "a name/arity is matched as text, never made an atom: atoms are never collected" do
+    name = "never_an_atom_#{System.unique_integer([:positive])}"
+
+    assert Clause.delete(@src, "#{name}/1", "x") ==
+             {:error, "no clause #{name}/1 with head `x` — have: none"}
+
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "a file with several modules: Mod.name/arity scopes the edit; a bare name they share is refused" do
     src = "defmodule A do\n  def run(x), do: x\nend\n\ndefmodule B do\n  def run(x), do: x\nend\n"
 
