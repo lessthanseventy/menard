@@ -33,7 +33,7 @@ defmodule Menard.Find do
   defp self_calls(_source, nil, _fun), do: []
 
   defp self_calls(source, mod, fun) do
-    case Sourceror.parse_string(source) do
+    case Menard.Source.parse(source) do
       {:ok, ast} ->
         for {name, module} <- Menard.Clause.modules(ast),
             {{:., _, [receiver, called]}, _, args} = node <- own_nodes(module),
@@ -136,7 +136,7 @@ defmodule Menard.Find do
   # answered two callers of four. Those are Elixir, matched as written (`Alias.fun(` or `fun(`);
   # the markup around them is not.
   defp heex_calls(source, mod, fun) do
-    case Sourceror.parse_string(source) do
+    case Menard.Source.parse(source) do
       {:ok, ast} ->
         aliases = collect_aliases(ast)
         name = Regex.escape(to_string(fun))
@@ -231,7 +231,7 @@ defmodule Menard.Find do
   # Walk every node with the aliases seen so far (a flat, file-wide map — good enough for a
   # module's worth of `alias` lines); `match.(node, aliases)` answers `{kind, node_to_report}`.
   defp walk(source, match) do
-    case Sourceror.parse_string(source) do
+    case Menard.Source.parse(source) do
       {:ok, ast} ->
         aliases = collect_aliases(ast)
 
