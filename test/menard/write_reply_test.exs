@@ -150,7 +150,7 @@ defmodule Menard.WriteReplyTest do
     test "a kept copy gone mid-prune does not fail the write that kept the next", %{tmp_dir: dir} do
       # another menard pruning the same directory removes a copy between the listing and its stat;
       # a link to nowhere is a copy that listed and will not stat
-      kept = Path.join([:filename.basedir(:user_cache, "menard"), "versions"])
+      kept = Path.join(Menard.cache_dir(), "versions")
       File.mkdir_p!(kept)
       gone = Path.join(kept, "gone-#{System.os_time()}")
       File.ln_s!(Path.join(dir, "nowhere"), gone)
@@ -199,6 +199,23 @@ defmodule Menard.WriteReplyTest do
       end
 
       refute File.exists?(dest)
+    end
+
+    test "a kept copy older than a week goes when the next is kept, and a newer one stays" do
+      kept = Path.join(Menard.cache_dir(), "versions")
+      File.mkdir_p!(kept)
+      now = System.os_time(:second)
+      old = Path.join(kept, "old-#{System.unique_integer([:positive])}")
+      recent = Path.join(kept, "recent-#{System.unique_integer([:positive])}")
+      File.write!(old, "")
+      File.write!(recent, "")
+      File.touch!(old, now - 8 * 24 * 3600)
+      File.touch!(recent, now - 6 * 24 * 3600)
+      on_exit(fn -> Enum.each([old, recent], &File.rm/1) end)
+
+      assert "sha256:" <> _ = Menard.remember("defmodule Pruned do\nend\n")
+      refute File.exists?(old)
+      assert File.exists?(recent)
     end
   end
 

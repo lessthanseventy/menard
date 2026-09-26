@@ -138,12 +138,7 @@ defmodule Menard.Format do
   end
 
   defp cache_dir(project),
-    do:
-      Path.join([
-        :filename.basedir(:user_cache, "menard"),
-        "formatter",
-        Integer.to_string(:erlang.phash2(project))
-      ])
+    do: Path.join([Menard.cache_dir(), "formatter", Integer.to_string(:erlang.phash2(project))])
 
   defp root(file) do
     dir = file |> Path.expand() |> Path.dirname()
