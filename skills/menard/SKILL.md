@@ -72,7 +72,10 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 - **`clause move` carries the function, not its call sites or aliases**: fix those after, with
   `find calls`.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
-  whole statement or its unique start (`total =`). A miss lists what is there. `stmt replace` also
+  whole statement or its unique start (`total =`); a line of a test with the test's label as `head`,
+  and a statement of the module itself (`defstruct`, `@type t ::`) with no clause named. A miss
+  lists what is there. A start matches the WHOLE statement: `case x do` is the whole case, so its
+  `code` is the whole case too. `stmt replace` also
   reaches into a `~H` template: an expression in its `{…}`, or any text of it found once; the other
   verbs, and a heredoc, leave that text to `Edit`.
 - `attr` refuses `@doc`/`@impl`/`@spec`, which repeat per clause: the clause verbs carry those.
