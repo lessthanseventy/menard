@@ -148,4 +148,20 @@ defmodule Menard.HooksTest do
     assert {_, 0} = read.(%{file_path: big, offset: 10, limit: 40})
     assert {_, 0} = read.(%{file_path: small})
   end
+
+  test "shell-edits hears a failed command too: PostToolUse does not run when the tool fails" do
+    # a shell command that edits a module and then runs a failing test (the usual edit-then-test)
+    # fires PostToolUseFailure, not PostToolUse, so a hook on the latter never heard of the edit
+    # (found in the eval: arm H's shell hook, 2026-09-25)
+    hooks = @root |> Path.join("hooks/hooks.json") |> File.read!() |> JSON.decode!()
+
+    scripts = fn event ->
+      for %{"matcher" => "Bash", "hooks" => list} <- hooks["hooks"][event] || [],
+          %{"command" => cmd} <- list,
+          do: cmd
+    end
+
+    assert Enum.any?(scripts.("PostToolUse"), &(&1 =~ "shell-edits.sh"))
+    assert Enum.any?(scripts.("PostToolUseFailure"), &(&1 =~ "shell-edits.sh"))
+  end
 end
