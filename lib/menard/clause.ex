@@ -653,6 +653,10 @@ defmodule Menard.Clause do
   end
 
   defp clause_attr?({:@, _, [{name, _, _}]}), do: name in [:doc, :spec, :impl, :deprecated]
+  # a component written whole starts with its `attr`/`slot` declarations (long2 cart-refactor.B.haiku)
+  defp clause_attr?({macro, _, [{:__block__, _, [name]} | _]}) when macro in [:attr, :slot] and is_atom(name),
+    do: true
+
   defp clause_attr?(_node), do: false
 
   defp comment_or_blank?(line) do
