@@ -264,12 +264,16 @@ defmodule Menard.Run do
 
   # Only what an edit brought: issues on the lines changed since the last commit, every line of a file
   # git does not track yet. Old debt in the file is not the edit's to answer for.
+  # Two git calls for every file at once, not two per file: which are tracked, and one diff.
   def only_changed(issues, dir) do
-    lines =
-      issues
-      |> Enum.map(&(&1.at |> String.split(":") |> hd()))
-      |> Enum.uniq()
-      |> Map.new(&{&1, changed_lines(dir, &1)})
+    files = issues |> Enum.map(&(&1.at |> String.split(":") |> hd())) |> Enum.uniq()
+    # paths as the project names them, whatever its place in the repo, and unquoted
+    git = &System.cmd("git", ["-C", dir, "-c", "core.quotePath=false" | &1], stderr_to_stdout: true)
+    {tracked, _} = git.(["ls-files", "-z", "--" | files])
+    tracked = tracked |> String.split(<<0>>, trim: true) |> MapSet.new()
+    {diff, _} = git.(["diff", "-U0", "--relative", "HEAD", "--" | files])
+    hunks = hunks(diff)
+    lines = Map.new(files, &{&1, if(&1 in tracked, do: Map.get(hunks, &1, MapSet.new()), else: :all)})
 
     Enum.filter(issues, fn %{at: at} ->
       [file, line] = String.split(at, ":")
@@ -277,19 +281,17 @@ defmodule Menard.Run do
     end)
   end
 
-  defp changed_lines(dir, file) do
-    case System.cmd("git", ["-C", dir, "ls-files", "--error-unmatch", file], stderr_to_stdout: true) do
-      {_, 0} -> hunks(dir, file)
-      _ -> :all
-    end
+  # each file's changed lines, from one diff of them all
+  defp hunks(diff) do
+    for [_, file, body] <- Regex.scan(~r/^\+\+\+ b\/(.+)\n((?:(?!diff --git ).*\n?)*)/m, diff),
+        into: %{},
+        do: {file, hunk_lines(body)}
   end
 
-  defp hunks(dir, file) do
-    {diff, _} = System.cmd("git", ["-C", dir, "diff", "-U0", "HEAD", "--", file], stderr_to_stdout: true)
-
+  defp hunk_lines(body) do
     # the count's group always matches, empty when a hunk has none (`@@ -2 +2 @@`): an optional group
     # that did not match drops out of scan's list, and the pattern skipped every one-line hunk
-    for [_, start, count] <- Regex.scan(~r/^@@ -\S+ \+(\d+),?(\d*) @@/m, diff),
+    for [_, start, count] <- Regex.scan(~r/^@@ -\S+ \+(\d+),?(\d*) @@/m, body),
         n = if(count == "", do: 1, else: String.to_integer(count)),
         n > 0,
         line <- String.to_integer(start)..(String.to_integer(start) + n - 1),
