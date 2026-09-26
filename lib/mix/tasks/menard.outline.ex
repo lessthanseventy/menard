@@ -14,14 +14,24 @@ defmodule Mix.Tasks.Menard.Outline do
     {opts, files, _} = OptionParser.parse(argv, strict: [json: :boolean])
     if files == [], do: Mix.raise("usage: mix menard.outline [--json] FILE...")
 
-    for file <- Enum.map(files, &Menard.resolve/1) do
-      content = File.read!(file)
+    # every file that parses is outlined; one that does not fails the verb, or a caller going by
+    # the exit status took a file it never got for one with nothing in it
+    failed =
+      Enum.flat_map(files, fn file ->
+        file = Menard.resolve(file)
+        content = File.read!(file)
 
-      case Outline.run(content) do
-        {:ok, modules} -> print(file, Menard.remember(content), modules, opts[:json] == true)
-        {:error, reason} -> Mix.shell().error("#{file}: not parseable — #{inspect(reason)}")
-      end
-    end
+        case Outline.run(content) do
+          {:ok, modules} ->
+            print(file, Menard.remember(content), modules, opts[:json] == true)
+            []
+
+          {:error, reason} ->
+            ["#{file}: not parseable — #{inspect(reason)}"]
+        end
+      end)
+
+    if failed != [], do: Mix.raise(Enum.join(failed, "\n"))
   end
 
   defp print(file, version, modules, true),
