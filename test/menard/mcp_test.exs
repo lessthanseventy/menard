@@ -366,20 +366,23 @@ defmodule Menard.MCPTest do
   end
 
   test "a tool that never returns still gets an answer out of the door, in time" do
-    # a verb stuck on a lock, or a format that never returns, must still get an answer out of the door
+    # a verb stuck on a lock, or a format that never returns: the answer names the deadline it was
+    # given, and the stuck tool is killed, not left running. No clock bound: a deadline not kept
+    # hangs this test, and ExUnit's own timeout fails it.
     defmodule Stuck do
-      def call(_params, frame) do
+      def call(%{test: test}, frame) do
+        send(test, {:stuck, self()})
         Process.sleep(:infinity)
         {:reply, :never, frame}
       end
     end
 
-    {us, {:reply, response, _frame}} =
-      :timer.tc(fn -> Reply.bounded(Stuck, %{}, Frame.new(), 200) end)
+    {:reply, response, _frame} = Reply.bounded(Stuck, %{test: self()}, Frame.new(), 200)
 
     assert response.isError
-    assert response.content |> hd() |> Map.fetch!("text") =~ "did not finish in"
-    assert us < 2_000_000
+    assert response.content |> hd() |> Map.fetch!("text") =~ "did not finish in 0.2s"
+    assert_received {:stuck, stuck}
+    refute Process.alive?(stuck)
   end
 
   test "a tool that exits, or loses a process it linked, answers why; the door lives on" do
