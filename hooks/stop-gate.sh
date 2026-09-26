@@ -28,10 +28,12 @@ red=""
 while IFS= read -r dir; do
   for verb in "compile" "credo --changed" "test --stale"; do
     # shellcheck disable=SC2086 # the verb's words are its arguments
-    out=$("$menard" run $verb --in "$dir" 2>/dev/null </dev/null)
+    out=$("$menard" run $verb --in "$dir" 2>&1 </dev/null)
     [[ "$out" == *'"ok":true'* ]] && continue
     why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$out" 2>/dev/null)
-    [[ -n "$why" ]] || why=$(jq -r '.tail // "  (no detail)"' <<<"$out" 2>/dev/null | tail -12)
+    [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$out" 2>/dev/null | tail -12)
+    # no answer at all: menard's own refusal or error, which it writes to stderr
+    [[ -n "$why" ]] || why=$(tail -12 <<<"$out")
     red+="${dir}:"$'\n'"${why}"$'\n'
     break
   done

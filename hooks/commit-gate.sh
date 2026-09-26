@@ -16,10 +16,12 @@ touched="${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
 
 red=""
 while IFS= read -r dir; do
-  out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>/dev/null </dev/null)
+  out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>&1 </dev/null)
   [[ "$out" == *'"ok":true'* ]] && continue
   why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$out" 2>/dev/null)
-  [[ -n "$why" ]] || why=$(jq -r '.tail // "  (no detail)"' <<<"$out" 2>/dev/null | tail -12)
+  [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$out" 2>/dev/null | tail -12)
+  # no answer at all: menard's own refusal or error, which it writes to stderr
+  [[ -n "$why" ]] || why=$(tail -12 <<<"$out")
   red+="${dir}:"$'\n'"${why}"$'\n'
 done < <(sort -u "$touched")
 
