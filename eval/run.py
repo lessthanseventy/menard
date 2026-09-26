@@ -447,20 +447,46 @@ def suite_env(case_dir, rid, ws):
 
 
 def run_agent(cmd, ws, out, env):
-    """The agent, in a process group of its own: at TIMEOUT all of it goes, the mix it started too.
-    True when it timed out."""
+    """The agent, in a process group of its own. When it is done, or at TIMEOUT, the whole group goes,
+    then anything else still working in the workspace: a server or a test watcher it backgrounded
+    would hold the run's database (cleanup's dropdb failed, silently) and can write into the
+    workspace after it. True when it timed out."""
     p = subprocess.Popen(cmd, cwd=ws, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                          env=env, start_new_session=True)
     LIVE.add(p)
+    timed_out = False
     try:
         p.wait(timeout=TIMEOUT)
-        return False
     except subprocess.TimeoutExpired:
+        timed_out = True
+    finally:
         kill_group(p)
         p.wait()
-        return True
-    finally:
         LIVE.discard(p)
+        left = kill_stragglers(ws)
+        if left:
+            print(f"  {left} process(es) left running in the workspace, killed", flush=True)
+    return timed_out
+
+
+def kill_stragglers(ws):
+    """Kill every process whose cwd is in the workspace (a `setsid` watcher is outside the agent's
+    group; one from a crashed run has its cwd '(deleted)'). How many."""
+    killed = 0
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            cwd = os.readlink(f"/proc/{pid}/cwd").removesuffix(" (deleted)")
+        except OSError:
+            continue
+        if cwd == str(ws) or cwd.startswith(str(ws) + "/"):
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+                killed += 1
+            except OSError:
+                pass
+    return killed
 
 
 def check(check_dir, ws, run_env=None):
@@ -551,6 +577,8 @@ def run_one(case_dir, arm, model, n, out_dir):
     env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
                                   if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
     env["PATH"] = str(EVAL / "stubs") + os.pathsep + env["PATH"]
+    # what an earlier run of this rid left (its databases, a BEAM holding them) goes before this one starts
+    cleanup(case_dir, rid, ws, env)
     global CURRENT
     CURRENT = (case_dir, rid, ws, env)
     if (case_dir / "steps").exists():
@@ -623,10 +651,15 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
 
 
 def cleanup(case_dir, rid, ws, env):
-    """The suite's cleanup.sh (eval/tlon: the run's throwaway databases and tmux servers)."""
+    """The suite's cleanup.sh (eval/tlon: the run's throwaway databases and tmux servers), after a
+    run and before it (what a crashed run left holds its database: every test run of the rerun
+    failed). What it could not clean is said, not hidden."""
     script = case_dir.parent.parent / "cleanup.sh"
     if script.exists():
-        sh(["bash", str(script), rid, str(ws)], ws, timeout=120, env=env)
+        kill_stragglers(ws)
+        code, out = sh(["bash", str(script), rid, str(ws)], ws.parent if ws.exists() else WORK, timeout=120, env=env)
+        if code != 0 or out.strip():
+            print(f"  cleanup{' FAILED' if code else ''}: {out.strip()}", flush=True)
 
 
 def added_lines(ws):
