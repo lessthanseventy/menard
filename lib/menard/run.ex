@@ -453,41 +453,65 @@ defmodule Menard.Run do
         [_, passed] = m
         {String.to_integer(passed), 0}
 
-      m = Regex.run(~r/(\d+) tests?, (\d+) failures?/, out) ->
-        [_, tests, failed] = m
-        {String.to_integer(tests), String.to_integer(failed)}
+      # `1 doctest, 1 property, 2 tests, 3 failures, 1 invalid`: every kind of test counts, and a test
+      # a failed setup_all invalidated did not pass
+      line =
+          ~r/^\d+ [a-z]+(?:, \d+ [a-z]+)*/m
+          |> Regex.scan(out)
+          |> List.flatten()
+          |> Enum.filter(&(&1 =~ "failure"))
+          |> List.last() ->
+        counted = for [_, n, word] <- Regex.scan(~r/(\d+) ([a-z]+)/, line), do: {word, String.to_integer(n)}
+        failed = for {word, n} <- counted, word in ~w(failure failures invalid), do: n
+        tests = for {word, n} <- counted, word not in ~w(failure failures invalid excluded skipped), do: n
+        {Enum.sum(tests), Enum.sum(failed)}
 
       true ->
         {nil, nil}
     end
   end
 
-  # Each `N) test NAME (Module)` block up to the next block or the summary.
+  # Each `N) TYPE NAME (Module)` block (a test, a doctest, a property) up to the next block or the
+  # summary, and each `N) Module: failure on setup_all callback` block.
   defp failures(out) do
-    ~r/^\s*\d+\) test (.+?) \((\S+)\)\n(.*?)(?=^\s*\d+\) test |\nFinished in|\z)/ms
+    ~r/^\s*\d+\) (?:\w+ (.+?) \(([\w.]+)\)|([\w.]+): failure on setup_all callback[^\n]*)\n(.*?)(?=^\s*\d+\) |\nFinished in|\z)/ms
     |> Regex.scan(out)
-    |> Enum.map(fn [_, name, module, body] ->
-      %{
-        kind: "test",
-        message: error_of(body) || headline(body),
-        at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
-        name: name,
-        module: module,
-        code: first(~r/^\s*code:\s+(.+)$/m, body),
-        left: first(~r/^\s*left:\s+(.+)$/m, body),
-        right: first(~r/^\s*right:\s+(.+)$/m, body)
-      }
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-      |> Map.new()
+    |> Enum.map(fn
+      [_, "", "", module, body] ->
+        %{
+          kind: "test",
+          name: "setup_all",
+          module: module,
+          message:
+            "setup_all failed, so none of the module's tests ran: " <> (error_of(body) || headline(body)),
+          at: first(~r/^\s*(\S+_test\.exs:\d+):/m, body)
+        }
+
+      [_, name, module, _, body] ->
+        %{
+          kind: "test",
+          message: error_of(body) || headline(body),
+          at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
+          name: name,
+          module: module,
+          code: first(~r/^\s*code:\s+(.+)$/m, body),
+          left: first(~r/^\s*left:\s+(.+)$/m, body),
+          right: first(~r/^\s*right:\s+(.+)$/m, body)
+        }
     end)
+    |> Enum.map(fn failure -> failure |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new() end)
   end
 
-  # An assertion's reason: ExUnit's line under the location, "Assertion with == failed"
+  # An assertion's reason: ExUnit's lines under the location up to its code, "Assertion with ==
+  # failed", or a property's generated values with the assertion under them
   defp headline(body) do
     body
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
-    |> Enum.find(&(&1 != "" and not Regex.match?(~r/^(\S+_test\.exs:\d+|(code|left|right|stacktrace):)/, &1)))
+    |> Enum.drop_while(&(&1 == "" or &1 =~ ~r/^\S+_test\.exs:\d+$/))
+    |> Enum.take_while(&(not Regex.match?(~r/^(code|left|right|stacktrace|doctest):/, &1)))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
   end
 
   # Compiler warnings and errors, each the same shape as a test failure: kind, message, at
