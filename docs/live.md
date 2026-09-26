@@ -59,8 +59,9 @@ plugins, whatever they are:
   be told apart.
 - What menard writes is always the host's full formatter output, as before, so the host's
   `format --check-formatted` agrees by construction.
-- On the shell fallback (a plugin that will not load in menard's VM), `mix format` runs everything
-  in one pass and there is one `:formatter` stage, as in phase 1.
+- Both run in the host's own VM, as one OS process per write (`Menard.Format`, `priv/format.exs`):
+  a plugin built by the host's OTP, reading its config from the host's directory, keeping state in
+  `:persistent_term`, never touches menard's.
 
 Open: which Styler *rule* made each change. Styler runs its styles through `Styler.style/3`, which is
 `@doc false`, and reaching into it would break with Styler releases.
