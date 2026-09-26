@@ -161,4 +161,12 @@ defmodule Menard.MixDepsTest do
     lock = ~s(%{"jason": {:hex, :jason, "1.4.4", "x", [:mix], [], "hexpm", "y"}})
     assert ExUnit.CaptureIO.capture_io(:stderr, fn -> MixDeps.lock_diff(lock, lock) end) == ""
   end
+
+  @tag :tmp_dir
+  test "mix menard.deps refuses an option it does not know, before it touches anything", %{tmp_dir: dir} do
+    # swallowed, `upgrade --in DIR --tp 2.0` ran an upgrade of an app named "2.0", with no --to
+    assert_raise OptionParser.ParseError, ~r/--tp/, fn ->
+      Mix.Tasks.Menard.Deps.run(["upgrade", "--in", dir, "--tp", "2.0"])
+    end
+  end
 end

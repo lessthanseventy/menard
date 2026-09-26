@@ -45,7 +45,7 @@ defmodule Menard.Run do
     reply =
       if status != 0 and out =~ ~s(The task "precommit" could not be found),
         do: check_steps(run, args),
-        else: out |> gate(status, fetched, dir) |> credo_named(out, run)
+        else: out |> gate(status, fetched, dir) |> credo_named(out, run, "--strict" in args)
 
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
     reply
@@ -114,17 +114,29 @@ defmodule Menard.Run do
   end
 
   # A precommit that failed in credo printed its report as text: the same report as data puts each
-  # issue in `failures`, at the alias's own strictness
-  defp credo_named(%{ok: false} = reply, out, run) do
-    if out =~ "mix credo explain" and credo?(run.dir) do
-      strict = if File.read!(Path.join(run.dir, "mix.exs")) =~ "credo --strict", do: ["--strict"], else: []
-      %{reply | failures: reply.failures ++ credo(run, strict).failures}
-    else
-      reply
+  # issue in `failures`, at the alias's own strictness. `--strict` asked of an alias that lints at
+  # credo's default level runs credo --strict as well: dropped, it passed a gate it was asked to fail.
+  defp credo_named(reply, out, run, strict?) do
+    alias_strict? = File.read!(Path.join(run.dir, "mix.exs")) =~ "credo --strict"
+
+    cond do
+      not credo?(run.dir) ->
+        reply
+
+      strict? and not alias_strict? ->
+        lint = credo(run, ["--strict"])
+        %{reply | ok: reply.ok and lint.ok, failures: reply.failures ++ lint.failures}
+
+      not reply.ok and out =~ "mix credo explain" ->
+        %{
+          reply
+          | failures: reply.failures ++ credo(run, if(alias_strict?, do: ["--strict"], else: [])).failures
+        }
+
+      true ->
+        reply
     end
   end
-
-  defp credo_named(reply, _out, _run), do: reply
 
   defp credo(run, args) do
     {strict, args} = {"--strict" in args, args -- ["--strict"]}
