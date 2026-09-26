@@ -411,4 +411,24 @@ defmodule Menard.StmtTest do
     assert out =~ ~s|    [line] = lines()\n    assert Money.format_line(line) == "1 x Mug"\n|
     assert {:error, _} = Stmt.replace(src, "-", "no such test", "x", "y")
   end
+
+  test "a statement in a test, the label given as the name_arity" do
+    # bench3 move-function.B.haiku: stmt {name_arity: "formats a line/0", head: ""}
+    src =
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"formats a line\" do\n    assert f(1) == 1\n  end\nend\n"
+
+    out = Stmt.replace(src, "formats a line/0", "", "assert f(1) == 1", "assert g(1) == 1")
+    assert out =~ "    assert g(1) == 1\n"
+  end
+
+  test "a replace matched by its start that leaves code which does not parse says what it matched" do
+    # replacing `case x do` with one line took the whole case, and the refusal said only
+    # "missing terminator: end" (found fixing bench3's bugs, twice)
+    src =
+      "defmodule A do\n  def f(x) do\n    case x do\n      1 -> :one\n      _ -> :other\n    end\n  end\nend\n"
+
+    assert {:error, message} = Stmt.replace(src, "f/1", "x", "case x do", "y = x\ncase y do")
+    assert message =~ "whole statement"
+    assert message =~ "lines 3-6"
+  end
 end
