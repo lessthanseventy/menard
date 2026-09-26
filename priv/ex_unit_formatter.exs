@@ -95,10 +95,20 @@ defmodule Menard.ExUnitFormatter do
 
   defp side(%ExUnit.AssertionError{} = error, key) do
     value = Map.fetch!(error, key)
-    if value == ExUnit.AssertionError.no_value(), do: nil, else: inspect(value, pretty: true, width: 80)
+
+    cond do
+      value == ExUnit.AssertionError.no_value() -> nil
+      # a match's left is its pattern, quoted (`{:match, pins}`, not an atom); written back as code,
+      # the way the CLI formatter shows it
+      key == :left and not is_atom(error.context) -> value |> Macro.prewalk(&original/1) |> Macro.to_string()
+      true -> inspect(value, pretty: true, width: 80)
+    end
   end
 
   defp side(_reason, _key), do: nil
+
+  defp original({_, [original: original], _}), do: original
+  defp original(node), do: node
 
   defp compact(map), do: for({k, v} <- map, v != nil, into: %{}, do: {k, v})
 end

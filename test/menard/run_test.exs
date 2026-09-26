@@ -655,11 +655,21 @@ defmodule Menard.RunTest do
 
       test "never runs", do: :ok
     end
+
+    defmodule HeldMatchTest do
+      use ExUnit.Case
+
+      test "shape" do
+        assert {:ok, _} = Function.identity({:error, 1})
+      end
+    end
     """)
 
     r = Menard.Run.result(dir, "test", ["--seed", "0"])
     refute r.ok
-    assert {r.tests, r.failed} == {3, 3}
+    assert {r.tests, r.failed} == {4, 4}
+    # a match's left is its pattern, as written
+    assert %{left: "{:ok, _}", right: "{:error, 1}"} = Enum.find(r.failures, &(&1.name == "shape"))
 
     assert [
              %{
@@ -671,7 +681,7 @@ defmodule Menard.RunTest do
                doctest,
              %{name: "big", at: "test/held_test.exs:5", left: left, right: "%{}"},
              %{name: "setup_all", module: "HeldSetupTest", at: "test/held_test.exs:14", message: setup_all}
-           ] = Enum.sort_by(r.failures, & &1.name)
+           ] = r.failures |> Enum.reject(&(&1.name == "shape")) |> Enum.sort_by(& &1.name)
 
     # the whole value, every line of it
     assert left =~ ~s|12 => "xxxxxxxxxxxx"|
