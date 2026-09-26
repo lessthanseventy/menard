@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "hook", "cli", "grep", "map", "lazy-mcp", "M", "H", "L", "C"]
+ARMS = ["A", "B", "hook", "stop", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
 ARM_TEXT = {
     "A": "no menard",
     # B is menard as shipped at the round's commit: through bench5 the MCP tools, the guard hook and
@@ -20,6 +20,8 @@ ARM_TEXT = {
     "B": "menard as shipped (bench1-5: MCP tools, guard hook, skill; bench6 on: the formatting hook)",
     "M": "menard's hook plus manos (the MCP tools and their skill)",
     "hook": "menard as it ships: the formatting hook (B from bench6 on)",
+    "stop": "hook, plus a Stop hook that runs the project's gate when the agent ends and refuses the stop while it is red",
+    "map-mcp": "hook, plus the full map and manos (its MCP tools, always loaded)",
     "cli": "hook, plus a few lines at session start teaching menard's CLI (rename, find, outline)",
     "grep": "hook, plus each Elixir grep hit's enclosing function",
     "map": "hook, plus a map of the project's modules and public functions at session start",
@@ -66,6 +68,14 @@ def stats(rows):
         # what CI would still catch: credo issues left (None where the fixture has no credo), and
         # whether the agent ran the gate itself before it stopped
         "credo": mean([r.get("credo") for r in rows]),
+        # CI after the agent stopped: green the first time, and the tokens (new in + out) to a green CI,
+        # the rounds it took included
+        "ci_first": mean([None if (r.get("ci") or {}).get("green_first") is None else float(r["ci"]["green_first"])
+                          for r in rows]),
+        "to_green": mean([None if not r.get("ci") or r["ci"]["green_first"] is None else
+                          r["tokens"]["input"] + r["tokens"]["cache_write"] + r["tokens"]["output"]
+                          + r["ci"]["tokens"]["input"] + r["ci"]["tokens"]["cache_write"] + r["ci"]["tokens"]["output"]
+                          for r in rows]),
         "ran_gate": mean([None if "ran_gate" not in r else 1.0 if r["ran_gate"] else 0.0 for r in rows]),
     }
 
@@ -140,8 +150,8 @@ def num(x, fmt="{:.1f}"):
 
 
 def table(groups, key_label):
-    out = [f"| {key_label} | arm | n | pass | clean | new in tok | cached in tok | out tok | turns | wall s | failed calls | credo left | ran gate |",
-           "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    out = [f"| {key_label} | arm | n | pass | clean | new in tok | cached in tok | out tok | turns | wall s | failed calls | credo left | ran gate | CI green 1st | tok to green |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for key, by_arm in groups:
         for arm in ARMS + sorted(a for a in by_arm if a not in ARMS):
             rows = by_arm.get(arm, [])
@@ -150,7 +160,7 @@ def table(groups, key_label):
             s = stats(rows)
             out.append(f"| {key} | {arm} | {s['n']} | {pct(s['pass'])} | {pct(s['clean'])} | {num(s['new'], '{:,.0f}')} | "
                        f"{num(s['cached'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} | "
-                       f"{num(s['credo'])} | {pct(s['ran_gate'])} |")
+                       f"{num(s['credo'])} | {pct(s['ran_gate'])} | {pct(s['ci_first'])} | {num(s['to_green'], '{:,.0f}')} |")
     return "\n".join(out)
 
 
@@ -171,7 +181,8 @@ def main():
           "Tokens are per run, summed over its model calls: `new in` is input the model had not seen (uncached input + cache writes), "
           "`cached in` is input read from the prompt cache, `out` is output. `credo left`: credo issues in the "
           "project after the run, whose base has none; `ran gate`: runs where the agent ran precommit, credo or "
-          "`run check` itself.\n"]
+          "`run check` itself. `CI green 1st`: the project's CI passed as the agent left it; "
+          "`tok to green`: new input + output until CI was green, the rounds of fixing it included.\n"]
 
     md.append("## By arm\n\n" + table(grouped(rows, lambda r: "all"), "") + "\n")
     md.append("## By model\n\n" + table(sorted(grouped(rows, lambda r: r["model"]), key=lambda kv: MODELS.index(kv[0]) if kv[0] in MODELS else 9), "model") + "\n")

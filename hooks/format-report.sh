@@ -43,6 +43,8 @@ while IFS= read -r file; do
   dir=$(dirname "$(readlink -f "$file")")
   while [[ "$dir" != "/" && ! -f "$dir/mix.exs" ]]; do dir=$(dirname "$dir"); done
   [[ -f "$dir/mix.exs" ]] || continue
+  # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
+  printf '%s\n' "$dir" >>"${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
 
   before=$(mktemp)
   cp "$file" "$before"
