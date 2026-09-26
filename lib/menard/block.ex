@@ -263,6 +263,7 @@ defmodule Menard.Block do
         |> Zipper.zip()
         |> Zipper.traverse_while([], &collect_block/2)
         |> elem(1)
+        |> Enum.reverse()
 
       {:ok, found}
     end
@@ -272,7 +273,8 @@ defmodule Menard.Block do
   defp collect_block(zipper, acc) do
     case Zipper.node(zipper) do
       {kind, _, _} when kind in [:def, :defp, :defmacro, :defmacrop] -> {:skip, zipper, acc}
-      node -> {:cont, zipper, if(block?(node), do: acc ++ [node], else: acc)}
+      # prepended, and reversed once at the end: appending copied the list at every block found
+      node -> {:cont, zipper, if(block?(node), do: [node | acc], else: acc)}
     end
   end
 
