@@ -36,7 +36,7 @@ else
 fi
 [[ -n "$files" ]] || exit 0
 
-report="" problems="" moved=""
+report="" problems="" moved="" written=""
 while IFS= read -r file; do
   case "$file" in *.ex | *.exs) ;; *) continue ;; esac
   [[ -f "$file" ]] || continue
@@ -46,6 +46,7 @@ while IFS= read -r file; do
   # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
   printf '%s\n' "$dir" >>"${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
 
+  written+="$dir|${file#"$dir"/}"$'\n'
   before=$(mktemp)
   cp "$file" "$before"
   # </dev/null: mix reads stdin, and inside this loop took the rest of the file list with it
@@ -67,6 +68,19 @@ while IFS= read -r file; do
   fi
   rm -f "$before"
 done <<<"$files"
+
+# MENARD_HOOK_COMPILE (the eval's compile arm): compile each project written into, once, and report
+# the compiler's warnings in the files this call wrote. 42 red gates in the operator's sessions were
+# warnings-as-errors, found only when the gate ran; an incremental compile on Tlön is under a second.
+if [[ -n "${MENARD_HOOK_COMPILE:-}" && -n "$written" ]]; then
+  while IFS= read -r dir; do
+    out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run compile --in "$dir" 2>/dev/null </dev/null)
+    mine=$(grep "^$dir|" <<<"$written" | cut -d'|' -f2 | sort -u)
+    warn=$(jq -r '.failures[]? | select(.kind == "warning" or .kind == "error") | "\(.at)|\(.message | split("\n")[0])"' <<<"$out" 2>/dev/null |
+      while IFS='|' read -r at msg; do grep -qxF "${at%%:*}" <<<"$mine" && echo "  $at $msg"; done)
+    [[ -n "$warn" ]] && report+="the compiler, on files you changed:"$'\n'"$warn"$'\n'
+  done < <(cut -d'|' -f1 <<<"$written" | sort -u | grep .)
+fi
 
 if [[ -n "$problems" ]]; then
   printf '%s' "$problems" >&2

@@ -283,6 +283,48 @@ defmodule Menard.HooksTest do
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s2"}, dir)
   end
 
+  @tag :tmp_dir
+  test "format-report with MENARD_HOOK_COMPILE names a compiler warning in the file written", %{tmp_dir: dir} do
+    host(dir)
+    file = Path.join(dir, "lib/w.ex")
+    File.write!(file, "defmodule W do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
+
+    input = Path.join(dir, "payload.json")
+
+    File.write!(
+      input,
+      JSON.encode!(%{
+        hook_event_name: "PostToolUse",
+        tool_name: "Write",
+        cwd: dir,
+        tool_input: %{file_path: file}
+      })
+    )
+
+    {out, 0} =
+      System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/format-report.sh"), input],
+        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"MENARD_HOOK_COMPILE", "1"}]
+      )
+
+    assert JSON.decode!(out)["hookSpecificOutput"]["additionalContext"] =~
+             ~s(lib/w.ex:3 variable "y" is unused)
+  end
+
+  @tag :tmp_dir
+  test "big-read answers a whole read of a big Elixir file with its outline, once", %{tmp_dir: dir} do
+    file = Path.join(dir, "big.ex")
+    defs = Enum.map_join(1..300, "\n", &"  def f#{&1}(x) do\n    x\n  end\n")
+    File.write!(file, "defmodule Big do\n" <> defs <> "end\n")
+    run = fn input -> bigread(Map.merge(%{session_id: "b1", tool_input: %{file_path: file}}, input), dir) end
+
+    reason = JSON.decode!(run.(%{}))["hookSpecificOutput"]["permissionDecisionReason"]
+    assert reason =~ "def f150/1"
+    assert reason =~ "offset and limit"
+    # the second whole read, and any read by range, go through
+    assert run.(%{}) == ""
+    assert bigread(%{session_id: "b2", tool_input: %{file_path: file, offset: 10}}, dir) == ""
+  end
+
   # A host menard can format: a mix.exs and a formatter, nothing fetched
   defp host(dir) do
     File.mkdir_p!(Path.join(dir, "lib"))
@@ -295,6 +337,18 @@ defmodule Menard.HooksTest do
     )
 
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
+  end
+
+  defp bigread(payload, dir) do
+    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
+    File.write!(input, JSON.encode!(payload))
+
+    {out, 0} =
+      System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/big-read.sh"), input],
+        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}]
+      )
+
+    out
   end
 
   defp stop(payload, dir) do

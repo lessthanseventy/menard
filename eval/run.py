@@ -99,7 +99,7 @@ def build_plugins(force=False):
     """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
     loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
     # L (the tools always loaded) is gone: manos loads them up front, and menard has none
-    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp", "stop", "map-mcp", "run-cli"]:
+    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp", "stop", "map-mcp", "run-cli", "compile", "big-read", "all"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -127,7 +127,11 @@ def build_plugins(force=False):
         # red; `map-mcp` is the map and manos together, which neither alone would show
         extra = {"cli": [("SessionStart", None, "session-cli.sh")], "grep": [("PostToolUse", "Bash", "grep-where.sh")],
                  "map": [("SessionStart", None, "session-map.sh")], "map-mcp": [("SessionStart", None, "session-map.sh")],
-                 "stop": [("Stop", None, "stop-gate.sh")], "run-cli": [("SessionStart", None, "session-run.sh")]}.get(arm, [])
+                 "stop": [("Stop", None, "stop-gate.sh")], "run-cli": [("SessionStart", None, "session-run.sh")],
+                 "big-read": [("PreToolUse", "Read", "big-read.sh")],
+                 # everything the hook-side arms add, together
+                 "all": [("SessionStart", None, "session-run.sh"), ("PreToolUse", "Read", "big-read.sh"),
+                         ("Stop", None, "stop-gate.sh")]}.get(arm, [])
         for event, matcher, script in extra:
             hooks_json = dest / "hooks" / "hooks.json"
             d = json.loads(hooks_json.read_text())
@@ -139,6 +143,13 @@ def build_plugins(force=False):
                 entry["matcher"] = matcher
             d["hooks"].setdefault(event, []).append(entry)
             hooks_json.write_text(json.dumps(d, indent=2) + "\n")
+        # `compile`: the format hook also compiles and names warnings in the files written (a flag, so
+        # the shipped hook is unchanged until the round says it earns it)
+        if arm in ("compile", "all"):
+            hooks_json = dest / "hooks" / "hooks.json"
+            text = hooks_json.read_text().replace('bash \\"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\\"',
+                                                  'MENARD_HOOK_COMPILE=1 bash \\"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\\"')
+            hooks_json.write_text(text)
         if arm == "lazy-mcp":
             manifest = dest / "manos" / ".claude-plugin" / "plugin.json"
             d = json.loads(manifest.read_text())
@@ -524,17 +535,28 @@ def lint(ws, env, out_dir, rid):
     """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
     each is the agent's), and whether the agent ran the gate itself before it stopped."""
     ran, runs, reruns, last, formats = 0, 0, 0, False, 0
-    test = re.compile(r"(?:^|&&|;|\n)\s*(?:cd \S+\s*(?:&&|;)\s*)?(?:timeout \d+\s+)?(?:MIX_ENV=\S+\s+)?"
-                      r"(?:mix (?:test|precommit)|mise run [\w:]*(?:test|check))\b")
+    fired = {"big_read": 0, "compile_warned": 0, "stop_refused": 0, "credo_flagged": 0}
+    # anywhere in the command, a wrapper in front included (Tlön's scripts/cap.sh saves the output to
+    # .logs/, and its agents grep the log instead of running again); a heredoc'd script is not a run
+    test = re.compile(r"\bmix (?:test|precommit)\b|\bmise run [\w:]*(?:test|check)\b")
     for trace in sorted((out_dir / "traces").glob(f"{rid}*.jsonl")):
         for line in open(trace):
+            if '"hook_response"' in line and line.startswith("{"):
+                # what the hooks inside `all` did: each counted, so the combined arm reads piece by piece
+                h = json.loads(line)
+                said = (h.get("output") or "") + (h.get("stderr") or "")
+                fired["big_read"] += "permissionDecision" in said and "offset and limit" in said
+                fired["compile_warned"] += "the compiler, on files you changed" in said
+                fired["stop_refused"] += (h.get("hook_name") or "").startswith("Stop") and '"block"' in said
+                fired["credo_flagged"] += "credo, on lines you changed" in said
+                continue
             if '"tool_use"' not in line or not line.startswith("{"):
                 continue
             for c in json.loads(line).get("message", {}).get("content", []):
                 if c.get("type") != "tool_use":
                     continue
                 inp = c.get("input", {})
-                if re.search(r'precommit|credo|run check|"verb": "check"', json.dumps(inp)):
+                if re.search(r'precommit|credo|run check|mise run [\w:]*:check\b|"verb": "check"', json.dumps(inp)):
                     ran += 1
                 # a test or gate run, and whether it repeats one with no edit between: the operator's own
                 # sessions ran 40% of them again, to grep a different slice of the same failure
@@ -550,11 +572,11 @@ def lint(ws, env, out_dir, rid):
                 if "<<" not in cmd and re.search(r"(?:^|&&|;)\s*(?:mise exec -- )?mix format\b(?! --check)", cmd):
                     formats += 1
     if not (ws / "deps" / "credo").exists():
-        return {"credo": None, "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "hand_formats": formats}
+        return {"credo": None, "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired}
     _, out = sh("mix credo --format json", ws, timeout=300, env=env)
     at = out.find('{\n  "issues"')
     issues = json.loads(out[at:])["issues"] if at >= 0 else []
-    return {"credo": len(issues), "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats,
+    return {"credo": len(issues), "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired,
             "credo_issues": [f"{i['filename']}:{i['line_no']} {i['message']}" for i in issues][:20]}
 
 

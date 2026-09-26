@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "hook", "run-cli", "stop", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
+ARMS = ["A", "B", "hook", "run-cli", "compile", "big-read", "stop", "all", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
 ARM_TEXT = {
     "A": "no menard",
     # B is menard as shipped at the round's commit: through bench5 the MCP tools, the guard hook and
@@ -21,6 +21,9 @@ ARM_TEXT = {
     "M": "menard's hook plus manos (the MCP tools and their skill)",
     "hook": "menard as it ships: the formatting hook (B from bench6 on)",
     "run-cli": "hook, plus a few lines at session start teaching `menard run test` / `run check` (one JSON line per run)",
+    "compile": "hook, plus a compile after each write naming compiler warnings in the files written",
+    "big-read": "hook, plus a whole-file Read of an Elixir file over 800 lines answered with its outline (once)",
+    "all": "hook, plus run-cli, compile, big-read and stop together",
     "stop": "hook, plus a Stop hook that runs the project's gate when the agent ends and refuses the stop while it is red",
     "map-mcp": "hook, plus the full map and manos (its MCP tools, always loaded)",
     "cli": "hook, plus a few lines at session start teaching menard's CLI (rename, find, outline)",
