@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034 # every variable here is read by the scripts that source this
 # What the hooks share, sourced by each that needs it: the payload and its session, where menard
 # is, where the session's state lives, what a search for written files skips, and a red reply put
 # into lines for the agent. One copy, so a fix to one hook's copy cannot miss another's.

@@ -33,7 +33,7 @@ changed=$(find "$dir" "${prune[@]}" \
 
 cat >&2 <<MSG
 menard: that command changed Elixir modules outside menard's verbs, with nothing parse-checked:
-$(sed 's/^/  /' <<<"$changed")
+  ${changed//$'\n'/$'\n'  }
 Confirm they still compile: ${p}run {verb: "check"}. The next edit to a
 module goes through menard's tools, which parse-check what they write.
 MSG
