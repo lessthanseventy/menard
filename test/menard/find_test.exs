@@ -27,6 +27,22 @@ defmodule Menard.FindTest do
     assert [%{line: 7}] = Find.calls(@src, "general")
   end
 
+  test "calls: `__MODULE__.fun()` is a call to the module it is written in" do
+    src = """
+    defmodule A do
+      def go, do: __MODULE__.x()
+
+      defmodule Inner do
+        def go, do: __MODULE__.x() + __MODULE__.Deep.x()
+      end
+    end
+    """
+
+    assert [%{line: 2, text: "__MODULE__.x()"}] = Find.calls(src, "A.x")
+    assert [%{line: 5, column: 17}] = Find.calls(src, "A.Inner.x")
+    assert [%{line: 5, column: 34}] = Find.calls(src, "A.Inner.Deep.x")
+  end
+
   test "a name the source never mentions makes no atom: the VM never collects one" do
     name = "never_found_#{System.unique_integer([:positive])}"
     assert Find.calls(@src, name) == []
