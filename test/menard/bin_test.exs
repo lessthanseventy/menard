@@ -160,14 +160,16 @@ defmodule Menard.BinTest do
     assert newer == []
   end
 
+  @caller [
+    Path.expand("~/.local/share/mise/installs/elixir/1.20.4-otp-29/bin"),
+    Path.expand("~/.local/share/mise/installs/erlang/29.0.6/bin")
+  ]
+  @tag skip:
+         !(System.find_executable("mise") && Enum.all?(@caller, &File.dir?/1)) &&
+           "needs mise with elixir 1.20.4-otp-29 and erlang 29.0.6 installed"
   test "runs on menard's own pinned toolchain, whatever the caller's PATH puts first" do
-    installs = Path.expand("~/.local/share/mise/installs")
-    caller = [Path.join(installs, "elixir/1.20.4-otp-29/bin"), Path.join(installs, "erlang/29.0.6/bin")]
-
-    if System.find_executable("mise") && Enum.all?(caller, &File.dir?/1) do
-      path = Enum.join(caller ++ [System.get_env("PATH")], ":")
-      {out, 0} = System.cmd(@bin, ["version"], env: [{"PATH", path}, {"MIX_ENV", "dev"}])
-      assert out =~ "on Elixir 1.19.4 / OTP 27"
-    end
+    path = Enum.join(@caller ++ [System.get_env("PATH")], ":")
+    {out, 0} = System.cmd(@bin, ["version"], env: [{"PATH", path}, {"MIX_ENV", "dev"}])
+    assert out =~ "on Elixir 1.19.4 / OTP 27"
   end
 end
