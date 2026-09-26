@@ -23,8 +23,8 @@ defmodule Menard.Clause do
 
   @typedoc """
   One clause as the verbs address it: its kind and name (text), its head as written (`args`,
-  `guard`, `head_text`, and `bare_head` without `\\\\ default`s), where it sits (`range`, `indent`)
-  and its node.
+  `guard`, `head_text`; `bare_head` without `\\\\ default`s, `bare_args` without the guard too), where
+  it sits (`range`, `indent`) and its node.
   """
   @type clause :: %{
           kind: atom(),
@@ -33,6 +33,7 @@ defmodule Menard.Clause do
           guard: String.t() | nil,
           head_text: String.t(),
           bare_head: String.t(),
+          bare_args: String.t(),
           range: Sourceror.Range.t(),
           indent: String.t(),
           node: Macro.t()
@@ -551,8 +552,7 @@ defmodule Menard.Clause do
       want = wanted_head(head, name, arity)
       exact = Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)]))
       # the guard left off still names a clause, when it isn't what tells the clauses apart
-      unguarded =
-        Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.node |> elem(2) |> hd() |> bare_args())]))
+      unguarded = Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.bare_args)]))
 
       candidates = if exact != [], do: exact, else: unguarded
 
@@ -852,6 +852,8 @@ defmodule Menard.Clause do
       head_text: with_guard.(args),
       # the head without its `\\ default`s — what a caller types, since the arity already says which
       bare_head: bare_head(head),
+      # and without its guard too, which a caller may leave off
+      bare_args: bare_args(head),
       range: range,
       indent: String.duplicate(" ", col - 1),
       node: node
