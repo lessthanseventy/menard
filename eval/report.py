@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "L", "C"]
+ARMS = ["A", "B", "H", "L", "C"]
 MODELS = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]
 
 
@@ -143,7 +143,7 @@ def main():
     rounds = sys.argv[1:] or ["round1"]
     rows = load(rounds)
     md = [f"# menard eval report\n\nRounds: {', '.join(rounds)}. {len(rows)} runs. Arms: A no menard, "
-          "B full menard (MCP, guard hook, skill), L = B with its MCP tools always loaded, C menard without its hooks.\n\n"
+          "B full menard (MCP, guard hook, skill), H only the format-and-parse-check hook, L = B with its MCP tools always loaded, C menard without its hooks.\n\n"
           "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
           "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
           "`context tok`: input + cache read + cache write, summed over the run.\n"]
