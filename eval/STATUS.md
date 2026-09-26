@@ -143,3 +143,6 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   agent to add; change step 06 (or drop it from the fixture) and red-check every step's check.sh
   against the untouched fixture first. Then pilot: `MENARD_EVAL_WORK=/tmp/menard-eval-long run.py
   long1 --suite eval/long --arms A,B --models claude-haiku-4-5 --runs 1`.
+- 18:06 bench2 restarted from zero (the 17:57 start stopped at 5 rows, at Andrew's call, to
+  take two more fixes): pinned at dafd33e, which adds stmt replace inside ~H expressions (a3863e3)
+  and whole-function delete with the calls left named (dafd33e). Same matrix, 68 runs.
