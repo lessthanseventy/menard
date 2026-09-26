@@ -8,7 +8,7 @@ defmodule Menard.Block do
   sharing a name and no label given is refused with their labels, never guessed at.
   """
 
-  import Menard.Source, only: [parse: 1, patch: 3, reindent: 2]
+  import Menard.Source, only: [indented: 2, parse: 1, patch: 3, reindent: 2]
   alias Menard.Tree
   alias Sourceror.Zipper
 
@@ -186,11 +186,6 @@ defmodule Menard.Block do
     %{start: [line: _, column: col], end: [line: last, column: last_col]} = Sourceror.get_range(node)
     at = %{start: [line: last, column: last_col], end: [line: last, column: last_col]}
     patch(source, at, "\n\n" <> indented(text, col))
-  end
-
-  defp indented(text, col) do
-    indent = String.duplicate(" ", col - 1)
-    text |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
   end
 
   @doc "The block's body exactly as written."
