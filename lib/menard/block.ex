@@ -186,7 +186,8 @@ defmodule Menard.Block do
 
     with {:ok, blocks} <- blocks(source, opts) do
       blocks
-      |> Enum.filter(&(call_name(&1) == want))
+      # no name, a label: the label alone says which (bench3 new-component.B.sonnet)
+      |> Enum.filter(&(name in [nil, ""] or call_name(&1) == want))
       |> Enum.filter(fn node -> is_nil(wanted_label) or label(node) == wanted_label end)
       |> pick(want, wanted_label)
     end
