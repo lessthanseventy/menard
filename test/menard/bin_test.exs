@@ -68,6 +68,58 @@ defmodule Menard.BinTest do
     assert File.read!(file) == "defmodule Z do\nend\n"
   end
 
+  test "a verb menard does not have is refused with the list of those it has, every one" do
+    # it went to `mix menard.VERB` for mix's "could not be found", and the list left out two verbs
+    {out, status} =
+      System.cmd(@bin, ["--frozen", "nosuch"], stderr_to_stdout: true, env: [{"MIX_ENV", "dev"}])
+
+    assert status == 2
+    assert out =~ "menard: no verb nosuch"
+    [_, listed] = Regex.run(~r/\(([a-z|]+)\)/, out)
+
+    tasks =
+      for task <- Path.wildcard(Path.join(@root, "lib/mix/tasks/menard.*.ex")),
+          do: task |> Path.basename(".ex") |> String.replace_prefix("menard.", "")
+
+    assert Enum.sort(String.split(listed, "|")) == Enum.sort(tasks)
+  end
+
+  test "--frozen names its version" do
+    # the version came from the app spec, never loaded under --frozen, or mix.exs, not there either
+    {out, 0} = System.cmd(@bin, ["--frozen", "version"], env: [{"MIX_ENV", "dev"}])
+    assert out =~ "menard #{Mix.Project.config()[:version]} on Elixir"
+  end
+
+  @tag :tmp_dir
+  test "--frozen runs the build of MIX_ENV (dev by default), not whichever _build globs first", %{
+    tmp_dir: dir
+  } do
+    # a checkout with dev, docs and test builds: all three were on the code path, and the glob's
+    # order picked the module. Each build's `version` here names its env.
+    File.mkdir_p!(Path.join(dir, "bin"))
+    File.cp!(@bin, Path.join(dir, "bin/menard"))
+    File.cp!(Path.join(@root, ".tool-versions"), Path.join(dir, ".tool-versions"))
+    File.mkdir_p!(Path.join(dir, "deps/sourceror"))
+
+    for env <- ["dev", "docs", "test"] do
+      ebin = Path.join(dir, "_build/#{env}/lib/fake/ebin")
+      File.mkdir_p!(ebin)
+      src = Path.join(dir, "#{env}.ex")
+
+      File.write!(src, """
+      defmodule Mix.Tasks.Menard.Version do
+        def run(_argv), do: IO.puts("built for #{env}")
+      end
+      """)
+
+      {_, 0} = System.cmd("elixirc", ["--ignore-module-conflict", "-o", ebin, src], stderr_to_stdout: true)
+    end
+
+    frozen = &System.cmd(Path.join(dir, "bin/menard"), ["--frozen", "version"], env: &1)
+    assert {"built for dev\n", 0} = frozen.([{"MIX_ENV", nil}])
+    assert {"built for test\n", 0} = frozen.([{"MIX_ENV", "test"}])
+  end
+
   test "a build mix finds nothing to do in is not stale on the next call" do
     System.cmd(@bin, ["version"], env: [{"MIX_ENV", "dev"}])
     # same content, newer mtime: mix recompiles nothing, and must not be asked to again

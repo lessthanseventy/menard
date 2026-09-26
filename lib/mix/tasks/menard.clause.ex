@@ -119,7 +119,13 @@ defmodule Mix.Tasks.Menard.Clause do
     )
   end
 
-  defp verb(["move", file, na], flags), do: move(file, flags[:to], na, flags)
+  defp verb(["move", file, na], flags) do
+    case flags[:to] do
+      # no DEST: the usage, as for any other call the verbs do not take
+      nil -> verb([], flags)
+      dest -> move(file, dest, na, flags)
+    end
+  end
 
   defp verb(["comment", file, na, head, text], flags) do
     write(
@@ -201,9 +207,8 @@ defmodule Mix.Tasks.Menard.Clause do
     end
 
     case Menard.Move.run(file, dest, na, as: flags[:as], module: flags[:module]) do
-      {:ok, created} ->
-        if created, do: Mix.shell().info("menard.clause: created #{dest} as defmodule #{created}")
-        Mix.shell().info("menard.clause: #{na} moved to #{dest}")
+      {:ok, moved} ->
+        Mix.shell().info(JSON.encode!(Map.put(moved, :did, "move #{na} to #{Path.basename(dest)}")))
 
       {:error, message} ->
         Mix.raise(message)

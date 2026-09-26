@@ -51,8 +51,26 @@ defmodule Menard.OutlineTest do
     assert {:error, _} = Outline.run("defmodule (")
   end
 
+  @tag :tmp_dir
+  test "a file that does not parse fails the verb, after the others are outlined", %{tmp_dir: dir} do
+    # it said so on stderr and exited 0, so a caller that went by the status read nothing as fine
+    good = Path.join(dir, "good.ex")
+    bad = Path.join(dir, "bad.ex")
+    File.write!(good, "defmodule Good do\n  def go, do: 1\nend\n")
+    File.write!(bad, "defmodule (")
+
+    out =
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert_raise Mix.Error, ~r/bad\.ex: not parseable/, fn ->
+          Mix.Tasks.Menard.Outline.run([bad, good])
+        end
+      end)
+
+    assert out =~ "Good  L1-3"
+  end
+
   test "outline --json answers with the version, and line spans JSON can carry" do
-    dir = Path.join(System.tmp_dir!(), "menard-outline-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "menard-outline-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     file = Path.join(dir, "a.ex")

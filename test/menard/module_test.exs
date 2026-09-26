@@ -90,4 +90,17 @@ defmodule Menard.ModuleTest do
     assert Menard.Module.comment(out, nil, nil, above: true) =~
              ~r/\Adefmodule ATest do\n  # the body's header/
   end
+
+  @tag :tmp_dir
+  test "add with an empty stdin is refused, not added as the module `eof`", %{tmp_dir: dir} do
+    # IO.read's :eof went through to_string/1 as the CODE
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\nend\n")
+
+    assert_raise Mix.Error, ~r/stdin was empty/, fn ->
+      ExUnit.CaptureIO.capture_io("", fn -> Mix.Tasks.Menard.Module.run(["add", file, "-"]) end)
+    end
+
+    assert File.read!(file) == "defmodule A do\nend\n"
+  end
 end
