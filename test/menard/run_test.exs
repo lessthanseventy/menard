@@ -4,6 +4,7 @@ defmodule Menard.RunTest do
   use ExUnit.Case, async: true
 
   alias Menard.Run
+  alias Menard.Test.Host
 
   @moduletag :tmp_dir
 
@@ -123,12 +124,7 @@ defmodule Menard.RunTest do
 
   @tag :tmp_dir
   test "compile reports a warning left by an earlier compile", %{tmp_dir: dir} do
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Warm.MixProject do
-      use Mix.Project
-      def project, do: [app: :warm, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :warm)
 
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/warm.ex"), "defmodule Warm do\n  def go(x), do: 1\nend\n")
@@ -178,12 +174,7 @@ defmodule Menard.RunTest do
   test "hunts a flake: repeats until it fails, and answers with that run, its seed and the run count", %{
     tmp_dir: dir
   } do
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Flaky.MixProject do
-      use Mix.Project
-      def project, do: [app: :flaky, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :flaky)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -272,12 +263,7 @@ defmodule Menard.RunTest do
 
   test "check with no precommit alias runs format, warnings-as-errors and tests itself", %{tmp_dir: dir} do
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Plain.MixProject do
-      use Mix.Project
-      def project, do: [app: :plain, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :plain)
 
     File.write!(
       Path.join(dir, ".formatter.exs"),
@@ -363,12 +349,7 @@ defmodule Menard.RunTest do
   test "check answers with its failures in the one shape: a file not formatted, a failing test", %{
     tmp_dir: dir
   } do
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Plain.MixProject do
-      use Mix.Project
-      def project, do: [app: :plain, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :plain)
 
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"{lib,test}/**/*.{ex,exs}\"]]\n")
     File.mkdir_p!(Path.join(dir, "lib"))
@@ -398,12 +379,7 @@ defmodule Menard.RunTest do
   @tag :tmp_dir
   test "a red run keeps its whole output in a log and names it; a green one names none", %{tmp_dir: dir} do
     # cap.sh's rule, Tlön's: run once, read the log; never run again with another grep to see more
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Logged.MixProject do
-      use Mix.Project
-      def project, do: [app: :logged, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :logged)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -467,12 +443,7 @@ defmodule Menard.RunTest do
   test "a run past its deadline kills the host's mix and says what it was doing", %{tmp_dir: dir} do
     # an MCP client gave up on `run` while its mix kept compiling, and the agent's own `mix test` then
     # raced it in the same _build: "corrupt atom table"
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Slow.MixProject do
-      use Mix.Project
-      def project, do: [app: :slow, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :slow)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -588,12 +559,7 @@ defmodule Menard.RunTest do
   test "a host that colours its output through a pipe still has its failures read", %{tmp_dir: dir} do
     # `config :elixir, :ansi_enabled, true` colours ExUnit's report even into menard's pipe, and every
     # pattern missed the `code:`, `left:` and the location between the escapes
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Colour.MixProject do
-      use Mix.Project
-      def project, do: [app: :colour, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :colour)
 
     File.mkdir_p!(Path.join(dir, "config"))
     File.write!(Path.join(dir, "config/config.exs"), "import Config\nconfig :elixir, :ansi_enabled, true\n")
@@ -626,12 +592,7 @@ defmodule Menard.RunTest do
   test "a verb called past the doors (deps' compile) leaves nothing behind in its caller", %{tmp_dir: dir} do
     # the deadline and the log lived in the process dictionary: a call that did not go through the
     # door that clears them left its log for the MCP server's next call to append to
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Left.MixProject do
-      use Mix.Project
-      def project, do: [app: :left, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :left)
 
     before = Process.get()
     assert %{ok: true, log: log} = Menard.Run.result(dir, "compile", [])
@@ -641,12 +602,7 @@ defmodule Menard.RunTest do
 
   test "run test reads each failure as ExUnit holds it, not as the prose it prints", %{tmp_dir: dir} do
     # read from the CLI's prose, a `left:` that did not fit one line came back as its first line, "%{"
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Held.MixProject do
-      use Mix.Project
-      def project, do: [app: :held, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :held)
 
     File.mkdir_p!(Path.join(dir, "lib"))
 
@@ -715,12 +671,7 @@ defmodule Menard.RunTest do
 
   test "run test says how many tests were skipped, not only how many ran", %{tmp_dir: dir} do
     # a `@tag skip:` test left the counts without a word: 5 tests, 3 skipped, answered as `tests: 2`
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Skips.MixProject do
-      use Mix.Project
-      def project, do: [app: :skips, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :skips)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
