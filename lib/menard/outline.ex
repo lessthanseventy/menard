@@ -8,12 +8,9 @@ defmodule Menard.Outline do
 
   @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp, :defdelegate]
 
-  @spec run(String.t()) :: {:ok, [map()]} | {:error, term()}
+  @spec run(String.t()) :: {:ok, [map()]} | {:error, String.t()}
   def run(source) when is_binary(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} -> {:ok, modules(ast)}
-      {:error, reason} -> {:error, reason}
-    end
+    with {:ok, ast} <- Menard.Source.parse(source), do: {:ok, modules(ast)}
   end
 
   # Top-level modules; a `defmodule` nested in a body lands under its parent's `modules`, with

@@ -11,20 +11,16 @@ defmodule Menard.Rename do
 
   alias Sourceror.Zipper
 
-  @spec run(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, term()}
+  @spec run(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def run(source, old, new, opts \\ []) when is_binary(source) do
-    case Sourceror.parse_string(source) do
-      {:ok, ast} ->
-        apply_patches(
-          source,
-          code_patches(ast, old, new, opts) ++
-            comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
-            heex_patches(ast, source, old, new, opts[:only]) ++
-            doc_patches(ast, source, old, new, Keyword.get(opts, :docs, true) and opts[:only] != :variables)
-        )
-
-      {:error, reason} ->
-        {:error, reason}
+    with {:ok, ast} <- Menard.Source.parse(source) do
+      apply_patches(
+        source,
+        code_patches(ast, old, new, opts) ++
+          comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
+          heex_patches(ast, source, old, new, opts[:only]) ++
+          doc_patches(ast, source, old, new, Keyword.get(opts, :docs, true) and opts[:only] != :variables)
+      )
     end
   end
 

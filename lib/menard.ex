@@ -104,7 +104,8 @@ defmodule Menard do
 
   `did` is a human-readable one-liner (`opts[:did]`), `version` is `sha256:` + the hex digest of the
   file after every stage. A format failure is NOT a write failure: the bytes are on disk and
-  correct, just not reformatted — the reason goes to stderr and the `:formatter` stage is empty.
+  correct, just not reformatted — the reply says so in `unformatted`, and the `:formatter` stage
+  carries the reason. Nothing is printed: that is a door's business.
   """
   @spec write(String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, String.t()}
@@ -121,9 +122,6 @@ defmodule Menard do
         end
 
       File.write!(file, formatted)
-
-      if format_error, do: Mix.shell().error("menard: " <> format_error)
-
       version = remember(formatted)
       # what Claude Code tells an agent after an Edit, and the reason B re-read files A did not
       reply = %{
