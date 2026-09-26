@@ -400,3 +400,4 @@ every edit (its blocks are a turn each and bought nothing measurable over H).
 
 **Verdict**: hook-only is the right default. manos stays opt-in; it earns its keep for a weaker
 model on renames across files, not for a capable one on everyday edits.
+- 23:41 tlon1 started on 65bf545: Tlön tickets 2, 3, 6, 9 × A, B, M × opus, fable (24 sessions, sequential). Smoke (t2 A haiku) passed the gate: 729 tests, 74 turns, $0.94, 17 min.
