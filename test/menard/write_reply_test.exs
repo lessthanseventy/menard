@@ -83,6 +83,14 @@ defmodule Menard.WriteReplyTest do
       assert :ok = Menard.checked_write(file, patched)
       assert File.read!(file) == patched
     end
+
+    test "says the file needs no read back: its stages are every change", %{tmp_dir: dir} do
+      # an Edit gets "no need to Read it back" from Claude Code; a menard write got hunks alone, and in
+      # bench1/bench2 B read files back after its last edit 2.6x as often as A
+      file = write_file(dir, "a.ex", "defmodule A do\n  def go, do: :a\nend\n")
+      assert {:ok, reply} = Menard.write(file, String.replace(File.read!(file), ":a", ":b"))
+      assert reply.note =~ "no need to Read"
+    end
   end
 
   describe "Menard.write/3 — a version given is a version checked" do

@@ -403,7 +403,15 @@ defmodule Menard do
       if format_error, do: Mix.shell().error("menard: " <> format_error)
 
       version = remember(formatted)
-      reply = %{did: did, file: file, version: version, stages: stages(original, patched, formatted, split)}
+      # what Claude Code tells an agent after an Edit, and the reason B re-read files A did not
+      reply = %{
+        did: did,
+        file: file,
+        version: version,
+        stages: stages(original, patched, formatted, split),
+        note: "the stages are every change this made: no need to Read the file back"
+      }
+
       {:ok, unformatted(reply, format_error)}
     end
   end
