@@ -121,6 +121,11 @@ trap 'rm -f "$err"' EXIT
 # `&& status=0 || status=$?` keeps the call in a condition: under `set -e` a failing mix would abort
 # the script before the line below prints the error, the one that says what to fix.
 "${run[@]}" mix "menard.$verb" "$@" 2>"$err" && status=0 || status=$?
+# the reader went away (`| head`): the BEAM's writer crashed on the closed stdout (:epipe) with a
+# stack trace, and nothing is wrong. What was read was the answer; exit as a shell tool does.
+if ((status != 0)) && grep -q "Writer crashed (:epipe)" "$err"; then
+  exit 0
+fi
 cat "$err" >&2
 if ((status != 0)) && grep -qE "cannot compile module|CompileError" "$err"; then
   echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2

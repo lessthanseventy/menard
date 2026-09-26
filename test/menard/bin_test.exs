@@ -37,6 +37,25 @@ defmodule Menard.BinTest do
   end
 
   @tag :tmp_dir
+  test "a reader that stops early (`| head`) gets its lines and no crash", %{tmp_dir: dir} do
+    # the BEAM's writer crashes on a closed stdout (:epipe) and printed a stack trace for it
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    for n <- 1..400,
+        do: File.write!(Path.join(dir, "lib/m#{n}.ex"), "defmodule M#{n} do\n  def f, do: 1\nend\n")
+
+    {out, status} =
+      System.cmd("bash", ["-c", ~s("$0" map | head -1), @bin],
+        cd: dir,
+        env: [{"MIX_ENV", "dev"}, {"MENARD_CWD", dir}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0
+    assert out =~ ~r/\AM\d+  lib\/m\d+\.ex  f\/0\n\z/
+  end
+
+  @tag :tmp_dir
   test "a verb reading stdin gets it, even when menard compiles first", %{tmp_dir: dir} do
     file = Path.join(dir, "z.ex")
     fresh_build!()
