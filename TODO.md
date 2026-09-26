@@ -20,3 +20,7 @@ commit lands.
   string's value. `Menard.Source.reindent/2` already handles both (blank stays blank, literal lines
   stay put); `indent <> reindent(text, indent)` is the likely fix, with a test for each case. Left
   out of the Menard.Source consolidation because it changes behaviour.
+- `bin/menard run check` in a fresh worktree: `BinTest` "a verb reading stdin gets it, even when
+  menard compiles first" timed out at 60s. The `bintest` build is cold there (every dep compiles
+  inside the test), and a second run was green. Give the cold-build tests a timeout that covers a
+  cold worktree, or warm the `bintest` build first.
