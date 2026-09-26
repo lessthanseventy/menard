@@ -8,7 +8,7 @@ defmodule Menard.Block do
   sharing a name and no label given is refused with their labels, never guessed at.
   """
 
-  import Menard.Source, only: [parse: 1, reindent: 2]
+  import Menard.Source, only: [parse: 1, patch: 3, reindent: 2]
   alias Menard.Tree
   alias Sourceror.Zipper
 
@@ -172,9 +172,6 @@ defmodule Menard.Block do
     text |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
   end
 
-  defp patch(source, range, change),
-    do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
-
   @doc "The block's body exactly as written."
   @spec get(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def get(source, name, opts \\ []) do
@@ -333,9 +330,7 @@ defmodule Menard.Block do
   def relabel(source, name, label, new_label, opts \\ []) do
     with {:ok, node} <- one(source, name, Keyword.put(opts, :label, label)),
          {:ok, range} <- label_range(node) do
-      Sourceror.patch_string(source, [
-        %{range: range, change: inspect(new_label), preserve_indentation: false}
-      ])
+      patch(source, range, inspect(new_label))
     end
   end
 
@@ -348,14 +343,10 @@ defmodule Menard.Block do
     with {:ok, node} <- one(source, name, opts) do
       %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
       lines = String.split(source, "\n")
-      first = a - 1 - Menard.Source.comment_lines_above(lines, a - 1)
-      blank_after? = Enum.at(lines, b) == "" and (first == 0 or Enum.at(lines, first - 1) == "")
-      last = if blank_after?, do: b, else: b - 1
-
-      lines
-      |> Enum.with_index()
-      |> Enum.reject(fn {_text, i} -> i >= first and i <= last end)
-      |> Enum.map_join("\n", &elem(&1, 0))
+      first = a - Menard.Source.comment_lines_above(lines, a - 1)
+      blank_after? = Enum.at(lines, b) == "" and (first == 1 or Enum.at(lines, first - 2) == "")
+      last = if blank_after?, do: b + 1, else: b
+      Menard.Source.delete_lines(source, first, last)
     end
   end
 

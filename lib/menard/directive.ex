@@ -13,7 +13,7 @@ defmodule Menard.Directive do
   never duplicates a line. One that is there with other options is refused: `replace` changes those.
   """
 
-  import Menard.Source, only: [parse: 1]
+  import Menard.Source, only: [parse: 1, patch: 3]
   # in the order they are written; a test module's doctest line comes last, as Quokka places it
   @kinds [:use, :import, :alias, :require, :doctest]
 
@@ -54,7 +54,8 @@ defmodule Menard.Directive do
 
       cond do
         found = Enum.find(body, &match(&1, kind, target)) ->
-          drop_lines(source, Sourceror.get_range(found))
+          {a, b} = Menard.Tree.line_span(found)
+          Menard.Source.delete_lines(source, a, b)
 
         # dropping the line would take its siblings with it
         multi = Enum.find(body, &({kind, target} in directives(&1))) ->
@@ -152,14 +153,6 @@ defmodule Menard.Directive do
     patch(source, at, String.duplicate(" ", col - 1) <> line <> "\n")
   end
 
-  defp drop_lines(source, %{start: [line: a, column: _], end: [line: b, column: _]}) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index()
-    |> Enum.reject(fn {_text, i} -> i >= a - 1 and i <= b - 1 end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
-
   # -- reading directives ---------------------------------------------------
 
   defp directive({kind, _meta, [{:__aliases__, _alias_meta, parts} | _rest]}) when kind in @kinds,
@@ -224,7 +217,4 @@ defmodule Menard.Directive do
   defp directive_line(kind, target, nil), do: "#{kind} #{target}"
   defp directive_line(kind, target, ""), do: "#{kind} #{target}"
   defp directive_line(kind, target, args), do: "#{kind} #{target}, #{args}"
-
-  defp patch(source, range, change),
-    do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
 end

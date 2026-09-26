@@ -14,3 +14,9 @@ commit lands.
   clause given there was taken as a `rewrite`; that fallback is removed (2026-09-26, with the
   prose verbs), so on upgrading tlon must send a whole clause to `Menard.Clause.rewrite/5` itself,
   or the call is refused toward `rewrite`. Not edited from here: tlon's change, when it upgrades.
+- `indented/2` in lib/menard/block.ex and lib/menard/clause.ex (identical copies) prefixes EVERY line
+  of the text with the indent: a blank line inside a block or definition comes out as trailing
+  spaces, and the lines of a heredoc or multi-line string inside it are shifted, changing the
+  string's value. `Menard.Source.reindent/2` already handles both (blank stays blank, literal lines
+  stay put); `indent <> reindent(text, indent)` is the likely fix, with a test for each case. Left
+  out of the Menard.Source consolidation because it changes behaviour.

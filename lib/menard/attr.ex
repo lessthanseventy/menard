@@ -9,7 +9,7 @@ defmodule Menard.Attr do
   when it privatises).
   """
 
-  import Menard.Source, only: [parse: 1, reindent: 2]
+  import Menard.Source, only: [delete_lines: 3, parse: 1, patch: 3, reindent: 2]
   alias Menard.Tree
 
   @def_kinds Tree.def_kinds()
@@ -72,7 +72,7 @@ defmodule Menard.Attr do
       above = body |> Enum.take_while(&(&1 != node)) |> List.last()
       next_blank? = source |> String.split("\n") |> Enum.at(b) |> Kernel.==("")
       b = if attr_name(above) in @per_definition and next_blank?, do: b + 1, else: b
-      drop_lines(source, a, b)
+      delete_lines(source, a, b)
     end
   end
 
@@ -136,7 +136,7 @@ defmodule Menard.Attr do
   defp replace(source, node, name, value) do
     %{start: [line: _, column: col]} = range = Menard.Source.range(node, source)
     written = "@#{key(name)} " <> reindent(value, String.duplicate(" ", col - 1))
-    Sourceror.patch_string(source, [%{range: range, change: written, preserve_indentation: false}])
+    patch(source, range, written)
   end
 
   # Above the first TABLE or definition, whichever comes first — not merely above the first def:
@@ -181,26 +181,9 @@ defmodule Menard.Attr do
     indent = String.duplicate(" ", col - 1)
     written = indent <> "@#{key(name)} " <> reindent(value, indent) <> "\n\n"
     # above the comment glued to what it goes before, too: that comment explains the node, not this
-    line = line - comment_lines_above(source, line)
+    line = line - Menard.Source.comment_lines_above(String.split(source, "\n"), line - 1)
     at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
-    Sourceror.patch_string(source, [%{range: at, change: written, preserve_indentation: false}])
-  end
-
-  defp comment_lines_above(source, line) do
-    source
-    |> String.split("\n")
-    |> Enum.take(line - 1)
-    |> Enum.reverse()
-    |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
-    |> length()
-  end
-
-  defp drop_lines(source, a, b) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.reject(fn {_text, line} -> line >= a and line <= b end)
-    |> Enum.map_join("\n", &elem(&1, 0))
+    patch(source, at, written)
   end
 
   # -- shapes --------------------------------------------------------------

@@ -11,7 +11,7 @@ defmodule Menard.Stmt do
   step in a `with`, and a `case` arm (`match -> body`) alike — the smallest node whose text
   matches wins, so naming a call does not accidentally select the block containing it.
   """
-  import Menard.Source, only: [reindent: 2]
+  import Menard.Source, only: [comment_lines_above: 2, patch: 3, reindent: 2, slice: 2]
   alias Menard.Clause
   alias Sourceror.Zipper
 
@@ -167,13 +167,9 @@ defmodule Menard.Stmt do
 
   defp delete_lines(source, %{start: [line: a, column: _], end: [line: b, column: _]}) do
     lines = String.split(source, "\n")
-    first = a - 1 - comments_above(lines, a - 1)
-    last = if Enum.at(lines, b) == "", do: b, else: b - 1
-
-    lines
-    |> Enum.with_index()
-    |> Enum.reject(fn {_text, i} -> i >= first and i <= last end)
-    |> Enum.map_join("\n", &elem(&1, 0))
+    first = a - comment_lines_above(lines, a - 1)
+    last = if Enum.at(lines, b) == "", do: b + 1, else: b
+    Menard.Source.delete_lines(source, first, last)
   end
 
   # A with's step goes with the comma that joins it to its neighbour: the first up to the next
@@ -421,34 +417,6 @@ defmodule Menard.Stmt do
        do: a >= ca and b <= cb
 
   defp same_as?(%{start: s, end: e}, %{start: s2, end: e2}), do: s == s2 and e == e2
-
-  defp slice(source, %{start: [line: a, column: ca], end: [line: b, column: cb]}) do
-    lines = source |> String.split("\n") |> Enum.slice((a - 1)..(b - 1))
-
-    case lines do
-      [] ->
-        ""
-
-      [one] ->
-        String.slice(one, ca - 1, cb - ca)
-
-      many ->
-        [first | rest] = many
-        {mid, [last]} = Enum.split(rest, length(rest) - 1)
-        Enum.join([String.slice(first, (ca - 1)..-1//1) | mid] ++ [String.slice(last, 0, cb - 1)], "\n")
-    end
-  end
-
-  defp comments_above(lines, i) do
-    lines
-    |> Enum.take(i)
-    |> Enum.reverse()
-    |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
-    |> length()
-  end
-
-  defp patch(source, range, change),
-    do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
 
   # 2+ children means a SEQUENCE of statements. Sourceror also wraps literals in `__block__`, and a
   # one-child block is one of those (`{:ok, :up}`) — a body holding a single statement is reached
