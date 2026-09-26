@@ -198,6 +198,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     `move` carries EVERY clause of `name_arity`, with its `@doc`, `@spec` and comment, to the file
     `to`. A missing file is created, its module named from the path or by `as`; `module` picks the
     destination module in a file with several. Aliases and call sites are not touched — `deps` first.
+    It answers `{did, created, to, from}`: `to` and `from` are each file's reply, version and stages.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply

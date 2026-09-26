@@ -23,6 +23,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - The Claude Code plugin loads its MCP tools up front (`alwaysLoad`): no ToolSearch round trip
   before the first edit, for ~3.7k tokens of schemas in every turn.
 - `clause`'s tool description says what a head is: the clause's current one, as `outline` prints it.
+- `clause move` answers `{did, created, to, from}` at both doors, `to` and `from` each file's write
+  reply (its version and stages). MCP answered `{did, file, created}` and the CLI prose, with
+  neither file's version.
 
 **New**
 - The guard passes an edit that only changes text inside a string or sigil (a heredoc, a `~H`

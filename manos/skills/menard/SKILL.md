@@ -91,7 +91,9 @@ project's plugins (Styler: sorted aliases, a collapsed pipe). Read them before l
 that moved. `unformatted` means written but not formatted, and says why.
 
 Pass the reply's `version` back on your next edit to that file. If another session changed it
-since, the edit is refused with the diff: re-read and redo it.
+since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
+created, to, from}`: `to` and `from` are each file's own reply, its `version` and stages;
+`created` is the new module's name when `to` did not exist.
 
 ## Done
 

@@ -35,6 +35,20 @@ defmodule Menard.SkillTest do
     end
   end
 
+  @tag :tmp_dir
+  test "the reply it gives for clause move is the one move answers", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\n  def go, do: 1\nend\n")
+    {:ok, moved} = Menard.Move.run(file, Path.join(dir, "b.ex"), "go/0", as: "B")
+    # both doors add the `did`
+    keys = moved |> Map.put(:did, "") |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+
+    [described] =
+      Regex.run(~r/`clause move` answers `\{([^}]*)\}`/, File.read!(@skill), capture: :all_but_first)
+
+    assert described |> String.split(~r/,\s*/) |> Enum.sort() == keys
+  end
+
   # `verb: "a" \| "b"` and the `{verb: "c"` of a second call on the same row
   defp verbs(row) do
     ~r/verb: "(\w+)"((?: \\\| "\w+")*)/
