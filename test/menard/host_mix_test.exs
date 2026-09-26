@@ -20,4 +20,33 @@ defmodule Menard.HostMixTest do
       assert us < 20_000_000
     end
   end
+
+  test "the host's mix reads no stdin: a prompt gets end of input, not a wait", %{tmp_dir: dir} do
+    # `mix deps.get` asking "Shall I install Hex? [Yn]" waited forever on the CLI door: the port's
+    # stdin stays open and never says anything
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Asks.MixProject do
+      use Mix.Project
+      def project, do: [app: :asks, version: "0.1.0"]
+    end
+    """)
+
+    {out, status} = Menard.host_mix(dir, ["run", "-e", ~s|IO.inspect(IO.gets("go? "))|], timeout: 20_000)
+    assert status == 0, out
+    assert out =~ ":eof"
+  end
+
+  test "a deadline a millisecond short of a second is that second, not one less", %{tmp_dir: dir} do
+    # a verb's deadline is what is left of it when each mix starts: 10_000ms given, 9_999 left a
+    # millisecond later, and the kill came at 9s
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Waits.MixProject do
+      use Mix.Project
+      def project, do: [app: :waits, version: "0.1.0"]
+    end
+    """)
+
+    {out, _status} = Menard.host_mix(dir, ["run", "-e", "Process.sleep(:infinity)"], timeout: 1_999)
+    assert out =~ "did not finish in 2s"
+  end
 end

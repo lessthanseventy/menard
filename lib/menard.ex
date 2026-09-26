@@ -444,19 +444,26 @@ defmodule Menard do
   The HOST project's `mix`, run in `dir` on the host's own toolchain. menard's toolchain is first on
   its PATH, so a bare `mix` built the host with the wrong Elixir: every dep rebuilt, and nothing the
   host's toolchain built would load. With mise installed, `mise exec` picks the host's pins.
+  `require:` names an .exs file the host's VM loads before mix starts (`elixir -r FILE -S mix`).
   """
   def host_mix(dir, args, opts \\ []) do
     {timeout, opts} = Keyword.pop(opts, :timeout)
+    {require, opts} = Keyword.pop(opts, :require)
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
+    [mix | argv] = if require, do: ["elixir", "-r", require, "-S", "mix" | args], else: ["mix" | args]
 
     {exe, argv, note} =
       case host_toolchain(dir) do
-        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", "mix" | args], ""}
-        {:path, nil} -> {"mix", args, ""}
-        {:path, why} -> {"mix", args, "menard: #{why}\n"}
+        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", mix | argv], ""}
+        {:path, nil} -> {mix, argv, ""}
+        {:path, why} -> {mix, argv, "menard: #{why}\n"}
       end
 
-    {out, status} = bounded_cmd(exe, argv, opts, timeout, hd(args))
+    # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
+    # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;
+    # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
+    argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
+    {out, status} = bounded_cmd("sh", argv, opts, timeout, hd(args))
     {note <> out, status}
   end
 
@@ -466,7 +473,8 @@ defmodule Menard do
   defp bounded_cmd(exe, argv, opts, nil, _task), do: System.cmd(exe, argv, opts)
 
   defp bounded_cmd(exe, argv, opts, ms, task) do
-    secs = max(div(ms, 1000), 1)
+    # to the nearest second: rounded down, 10_000ms given and 9_999 left a millisecond later was 9s
+    secs = max(div(ms + 500, 1000), 1)
 
     case System.find_executable("timeout") do
       nil ->

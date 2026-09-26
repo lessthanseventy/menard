@@ -256,6 +256,22 @@ defmodule Menard.RunTest do
     assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
   end
 
+  test "format with no files formats a subdirectory's inputs too (Phoenix's migrations)", %{tmp_dir: dir} do
+    # `subdirectories:` was ignored: `run format` skipped the migrations, and `run check` failed on them
+    File.write!(
+      Path.join(dir, ".formatter.exs"),
+      ~s|[inputs: ["lib/**/*.ex"], subdirectories: ["priv/*/migrations"]]|
+    )
+
+    migrations = Path.join(dir, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    File.write!(Path.join(migrations, ".formatter.exs"), ~s|[inputs: ["*.exs"]]\n|)
+    messy = Path.join(migrations, "20260101_add.exs")
+    File.write!(messy, "defmodule M do\n  def   change, do: 1\nend\n")
+
+    assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
+  end
+
   test "check with no precommit alias runs format, warnings-as-errors and tests itself", %{tmp_dir: dir} do
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
@@ -520,5 +536,157 @@ defmodule Menard.RunTest do
 
     assert [%{kind: "error", at: "lib/shop/cart.ex:285", message: message}] = Run.parse_test(out, 1).failures
     assert message =~ "cannot set attribute @doc inside function/macro"
+  end
+
+  @kinds File.read!(Path.expand("../fixtures/ex_unit/kinds.txt", __DIR__))
+
+  test "a failing doctest, a property and a setup_all are failures too, and count" do
+    # real `mix test` output (Elixir 1.19): only `N) test …` parsed, so these came back ok: false,
+    # failures: [] and the hooks had nothing to act on
+    r = Run.parse_test(@kinds, 2)
+
+    assert [
+             %{kind: "test", name: "ints are small", module: "BenchTest", at: "test/bench_test.exs:10"} =
+               property,
+             %{kind: "test", name: "plain", code: "assert 1 + 1 == 3", left: "2", right: "3"},
+             %{kind: "test", name: "Bench.one/0 (1)", at: "test/bench_test.exs:4", code: "Bench.one() === 2"},
+             %{kind: "test", name: "setup_all", module: "SetupAllTest", message: setup_all}
+           ] = r.failures
+
+    assert property.message =~ "Generated: 5"
+    assert setup_all =~ "(File.Error) could not read file"
+    # 1 doctest, 1 property, 2 tests: 3 failures and 1 invalid
+    assert {r.tests, r.failed} == {4, 4}
+    # and a run that left tests out says so after the counts
+    assert %{tests: 1, failed: 0} =
+             Run.parse_test("Finished in 0.9 seconds\n1 test, 0 failures (22 excluded)\n", 0)
+  end
+
+  test "a host that colours its output through a pipe still has its failures read", %{tmp_dir: dir} do
+    # `config :elixir, :ansi_enabled, true` colours ExUnit's report even into menard's pipe, and every
+    # pattern missed the `code:`, `left:` and the location between the escapes
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Colour.MixProject do
+      use Mix.Project
+      def project, do: [app: :colour, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "config"))
+    File.write!(Path.join(dir, "config/config.exs"), "import Config\nconfig :elixir, :ansi_enabled, true\n")
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/colour_test.exs"),
+      "defmodule ColourTest do\n  use ExUnit.Case\n\n  test \"red\" do\n    assert 1 + 1 == 3\n  end\nend\n"
+    )
+
+    r = Menard.Run.result(dir, "test", [])
+    refute r.ok
+
+    assert [
+             %{
+               kind: "test",
+               name: "red",
+               at: "test/colour_test.exs:4",
+               code: "assert 1 + 1 == 3",
+               left: "2",
+               right: "3"
+             }
+           ] =
+             r.failures
+
+    assert {r.tests, r.failed} == {1, 1}
+  end
+
+  test "a verb called past the doors (deps' compile) leaves nothing behind in its caller", %{tmp_dir: dir} do
+    # the deadline and the log lived in the process dictionary: a call that did not go through the
+    # door that clears them left its log for the MCP server's next call to append to
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Left.MixProject do
+      use Mix.Project
+      def project, do: [app: :left, version: "0.1.0"]
+    end
+    """)
+
+    before = Process.get()
+    assert %{ok: true, log: log} = Menard.Run.result(dir, "compile", [])
+    assert File.read!(log) =~ "$ mix compile"
+    assert Process.get() == before
+  end
+
+  test "run test reads each failure as ExUnit holds it, not as the prose it prints", %{tmp_dir: dir} do
+    # read from the CLI's prose, a `left:` that did not fit one line came back as its first line, "%{"
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Held.MixProject do
+      use Mix.Project
+      def project, do: [app: :held, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(
+      Path.join(dir, "lib/held.ex"),
+      ~s|defmodule Held do\n  @doc """\n      iex> Held.one()\n      2\n  """\n  def one, do: 1\nend\n|
+    )
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/held_test.exs"), """
+    defmodule HeldTest do
+      use ExUnit.Case
+      doctest Held
+
+      test "big" do
+        assert Map.new(1..12, &{&1, String.duplicate("x", 12)}) == %{}
+      end
+    end
+
+    defmodule HeldSetupTest do
+      use ExUnit.Case
+
+      setup_all do
+        File.read!("/nonexistent/menard-held")
+        :ok
+      end
+
+      test "never runs", do: :ok
+    end
+
+    defmodule HeldMatchTest do
+      use ExUnit.Case
+
+      test "shape" do
+        assert {:ok, _} = Function.identity({:error, 1})
+      end
+    end
+    """)
+
+    r = Menard.Run.result(dir, "test", ["--seed", "0"])
+    refute r.ok
+    assert {r.tests, r.failed} == {4, 4}
+    # a match's left is its pattern, as written
+    assert %{left: "{:ok, _}", right: "{:error, 1}"} = Enum.find(r.failures, &(&1.name == "shape"))
+
+    assert [
+             %{
+               name: "Held.one/0 (1)",
+               module: "HeldTest",
+               at: "test/held_test.exs:3",
+               code: "Held.one() === 2"
+             } =
+               doctest,
+             %{name: "big", at: "test/held_test.exs:5", left: left, right: "%{}"},
+             %{name: "setup_all", module: "HeldSetupTest", at: "test/held_test.exs:14", message: setup_all}
+           ] = r.failures |> Enum.reject(&(&1.name == "shape")) |> Enum.sort_by(& &1.name)
+
+    # the whole value, every line of it
+    assert left =~ ~s|12 => "xxxxxxxxxxxx"|
+    assert setup_all =~ "(File.Error) could not read file"
+    # a doctest's source is its `doctest` line, not every line down to the next `end`
+    assert doctest.source == "  doctest Held"
   end
 end
