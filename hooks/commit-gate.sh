@@ -15,7 +15,12 @@ grep -qE "(^|[[:space:];&|(\`\"'/])git$opts[[:space:]]+commit([[:space:];&|)\`\"
 
 session=$(jq -r '.session_id // "none"' <<<"$payload")
 touched="${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
-[[ -s "$touched" ]] || exit 0
+# one line for the trace on every outcome (stderr at exit 0 reaches no model): a green gate and one
+# that never ran looked the same
+if [[ ! -s "$touched" ]]; then
+  echo "commit gate: nothing written this session" >&2
+  exit 0
+fi
 
 # the repo the commit lands in: -C's directory when the command names one, else the call's own; a
 # project written into in another repo is not this commit's to wait on
@@ -34,7 +39,7 @@ trap 'rm -f "$err"' EXIT
 # the gate's own deadline, under the 300s its wiring gives it (eval/run.py): a hook the harness kills
 # lets the commit through and leaves its mix test running; `timeout` takes menard's whole group down
 deadline=$((SECONDS + 280))
-red=""
+red="" checked=0 stamped=0
 while IFS= read -r dir; do
   [[ -n "$repo" && "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" == "$repo" ]] || continue
   # the files as a commit would take them (a git tree, the same for the same files): the very ones a
@@ -49,7 +54,11 @@ while IFS= read -r dir; do
   name=${prefix//[^A-Za-z0-9]/-}
   name=${name%-}
   stamp="$git_dir/menard-green-${name:-root}"
-  [[ -n "$tree" && "$(cat "$stamp" 2>/dev/null)" == "$tree" ]] && continue
+  if [[ -n "$tree" && "$(cat "$stamp" 2>/dev/null)" == "$tree" ]]; then
+    stamped=$((stamped + 1))
+    continue
+  fi
+  checked=$((checked + 1))
   # the reply is stdout's last line; stderr is kept apart, where a line that says "ok":true is no answer
   reply=$(timeout --kill-after=5 $((deadline > SECONDS ? deadline - SECONDS : 1)) "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>"$err" </dev/null | tail -n1)
   if (($? == 124)); then
@@ -64,6 +73,18 @@ while IFS= read -r dir; do
   red+="${dir}:"$'\n'"${why}"$'\n'
 done < <(sort -u "$touched")
 
-[[ -n "$red" ]] || exit 0
+if [[ -z "$red" ]]; then
+  if ((checked > 0)); then
+    also=""
+    ((stamped > 0)) && also=", $stamped more already green"
+    echo "commit gate: green in ${SECONDS}s$also" >&2
+  elif ((stamped > 0)); then
+    echo "commit gate: skipped, files already green" >&2
+  else
+    echo "commit gate: nothing written in this repo" >&2
+  fi
+  exit 0
+fi
+echo "commit gate: red in ${SECONDS}s" >&2
 jq -n --arg r "Not committed: the project's gate (what CI runs) is red:"$'\n'"${red}Fix these, then commit." \
   '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
