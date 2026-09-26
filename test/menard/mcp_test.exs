@@ -309,7 +309,6 @@ defmodule Menard.MCPTest do
 
   test "stdout carries only the protocol, even with debug logs on", %{root: root} do
     # the task sets this up itself: a host that takes menard as a dep never loads menard's config/
-    # the task sets this up itself: a host that takes menard as a dep never loads menard's config/
     input = Path.join(root, "in.jsonl")
 
     File.write!(

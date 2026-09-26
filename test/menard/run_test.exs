@@ -274,7 +274,6 @@ defmodule Menard.RunTest do
 
   test "check with no precommit alias runs format, warnings-as-errors and tests itself", %{tmp_dir: dir} do
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
-    # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
     File.write!(Path.join(dir, "mix.exs"), """
     defmodule Plain.MixProject do
       use Mix.Project
