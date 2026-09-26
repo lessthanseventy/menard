@@ -36,7 +36,7 @@ else
 fi
 [[ -n "$files" ]] || exit 0
 
-report="" problems=""
+report="" problems="" moved=""
 while IFS= read -r file; do
   case "$file" in *.ex | *.exs) ;; *) continue ;; esac
   [[ -f "$file" ]] || continue
@@ -51,7 +51,14 @@ while IFS= read -r file; do
 
   if [[ "$out" == *'"ok":true'* ]]; then
     change=$(diff -U0 "$before" "$file" | grep -v '^---\|^+++' | head -40)
-    [[ -n "$change" ]] && report+="${file#"$dir"/} was reformatted:"$'\n'"$change"$'\n'
+    [[ -n "$change" ]] && report+="${file#"$dir"/} was reformatted:"$'\n'"$change"$'\n' && moved=1
+    # credo on what this session changed in the file, when the project lints with it: found at write
+    # time it is one edit; found in CI it is a round trip. Its default level; --strict is the project's.
+    if [[ -d "$dir/deps/credo" ]] || grep -qs '"credo":' "$dir/mix.lock"; then
+      lint=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run credo --in "$dir" --changed "${file#"$dir"/}" 2>/dev/null </dev/null |
+        jq -r '.failures[]? | "  \(.at) \(.message)"' 2>/dev/null)
+      [[ -n "$lint" ]] && report+="credo, on lines you changed in ${file#"$dir"/}:"$'\n'"$lint"$'\n'
+    fi
   else
     why=$(printf '%s' "$out" | jq -r '.failures[0].message // empty' 2>/dev/null | sed 's/; mix format failed:.*//')
     problems+="${file#"$dir"/} was written but ${why:-could not be formatted}"$'\n'
@@ -65,7 +72,7 @@ if [[ -n "$problems" ]]; then
 fi
 
 if [[ -n "$report" ]]; then
-  jq -n --arg ev "$event" --arg ctx "${report}Edit against these lines as they are now, not as you last read them." \
+  jq -n --arg ev "$event" --arg ctx "${report}${moved:+Edit against these lines as they are now, not as you last read them.}" \
     '{hookSpecificOutput: {hookEventName: $ev, additionalContext: $ctx}}'
 fi
 exit 0
