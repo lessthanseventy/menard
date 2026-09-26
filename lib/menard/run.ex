@@ -34,11 +34,17 @@ defmodule Menard.Run do
   diagnostics) — as one map with `ok`. Both doors (`mix menard.run`, the MCP `run` tool) call this.
   """
   def result(dir, "check", args) do
+    # the files as checked, taken before the gate runs: one written meanwhile is not what went green
+    tree = tree(dir)
     {out, status, fetched} = mix_fetching(dir, ["precommit"])
 
-    if status != 0 and out =~ ~s(The task "precommit" could not be found),
-      do: check_steps(dir, args),
-      else: out |> gate(status, fetched, dir) |> credo_named(out, dir)
+    reply =
+      if status != 0 and out =~ ~s(The task "precommit" could not be found),
+        do: check_steps(dir, args),
+        else: out |> gate(status, fetched, dir) |> credo_named(out, dir)
+
+    if reply.ok and tree, do: File.write(green_stamp(dir), tree)
+    reply
   end
 
   def result(dir, "test", args) do
@@ -108,6 +114,45 @@ defmodule Menard.Run do
           fetched: fetched
         }
     end
+  end
+
+  @doc """
+  The project's files as a commit would take them now, untracked ones too and ignored ones not: a
+  git tree id, the same for the same files whatever HEAD is. A green `check` stamps it in the repo's
+  git dir (`green_stamp/1`), and the commit hook (hooks/commit-gate.sh, which computes it the same
+  way) skips a gate over files it already passed. nil outside a git repo.
+  """
+  def tree(dir) do
+    # a scratch index in the git dir: one under a TMPDIR inside the project would be one of its files
+    case System.cmd("git", ["-C", dir, "rev-parse", "--absolute-git-dir"], stderr_to_stdout: true) do
+      {git_dir, 0} ->
+        tree(dir, Path.join(String.trim(git_dir), "menard-index-#{System.unique_integer([:positive])}"))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp tree(dir, index) do
+    env = [{"GIT_INDEX_FILE", index}]
+
+    try do
+      with {_, 0} <- System.cmd("git", ["-C", dir, "add", "-A", "."], env: env, stderr_to_stdout: true),
+           {tree, 0} <- System.cmd("git", ["-C", dir, "write-tree"], env: env, stderr_to_stdout: true),
+           do: String.trim(tree),
+           else: (_ -> nil)
+    after
+      File.rm(index)
+    end
+  end
+
+  # in the git dir, which the agent and the hooks share whatever TMPDIR each has; one per project of
+  # the repo (Tlön's server/ and console/), named by its path in it
+  defp green_stamp(dir) do
+    {git_dir, 0} = System.cmd("git", ["-C", dir, "rev-parse", "--absolute-git-dir"])
+    {prefix, 0} = System.cmd("git", ["-C", dir, "rev-parse", "--show-prefix"])
+    name = prefix |> String.trim() |> String.replace(~r/[^A-Za-z0-9]/, "-") |> String.trim_trailing("-")
+    Path.join(String.trim(git_dir), "menard-green-" <> if(name == "", do: "root", else: name))
   end
 
   # A host with no `precommit` alias: the steps `run check` stands for, each its own mix, so `test`
