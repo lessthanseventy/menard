@@ -2,6 +2,8 @@ defmodule Menard.HooksTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../..", __DIR__)
+  # a stub menard's red reply (stub_menard/3)
+  @red ~s(echo '{"ok":false,"failures":[{"kind":"test","at":"t.exs:1","message":"red"}]}')
 
   # `sh` is dash on Debian/Ubuntu, and a bash script parsed by dash dies with exit 2 — which a
   # PreToolUse hook reads as "block", so every Edit/Write on every file was refused there.
@@ -371,6 +373,28 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "stop-gate clears its refusals on green, and gates again after it let a saturated stop through", %{
+    tmp_dir: dir
+  } do
+    # three early refusals switched the gate off for the rest of a multi-step session (the all arm)
+    red = stub_menard(dir, "red", @red)
+    green = stub_menard(dir, "green", ~s(echo '{"ok":true}'))
+    touched = Path.join(dir, "menard-touched-s5")
+    blocks = Path.join(dir, "menard-stop-blocks-s5")
+
+    File.write!(touched, dir <> "\n")
+    File.write!(blocks, "2")
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s5"}, dir, green)
+    refute File.exists?(blocks)
+
+    File.write!(touched, dir <> "\n" <> dir <> "\n")
+    File.write!(blocks, "3")
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s5"}, dir, red)
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s5"}, dir, red)
+    assert JSON.decode!(out)["decision"] == "block"
+  end
+
+  @tag :tmp_dir
   test "format-report with MENARD_HOOK_COMPILE names a compiler warning in the file written", %{tmp_dir: dir} do
     host(dir)
     file = Path.join(dir, "lib/w.ex")
@@ -467,12 +491,21 @@ defmodule Menard.HooksTest do
     out
   end
 
-  defp stop(payload, dir) do
+  # A plugin root whose menard answers what the test says: the gates' own logic, without a real suite
+  defp stub_menard(dir, name, body) do
+    bin = Path.join([dir, name, "bin/menard"])
+    File.mkdir_p!(Path.dirname(bin))
+    File.write!(bin, "#!/usr/bin/env bash\n" <> body <> "\n")
+    File.chmod!(bin, 0o755)
+    Path.join(dir, name)
+  end
+
+  defp stop(payload, dir, root \\ @root) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
 
     System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/stop-gate.sh"), input],
-      env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}]
+      env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}]
     )
   end
 

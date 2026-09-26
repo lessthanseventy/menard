@@ -19,9 +19,13 @@ green="${TMPDIR:-/tmp}/menard-stop-green-$session"
 writes=$(wc -l <"$touched")
 [[ "$(cat "$green" 2>/dev/null)" == "$writes" ]] && exit 0
 
-# three refusals at most: a gate the agent cannot turn green must not hold the session forever
+# three refusals at most: a gate the agent cannot turn green must not hold the session forever. The
+# stop it lets through starts the count again, so the next step of a long session is gated too.
 count=$(cat "$blocks" 2>/dev/null || echo 0)
-((count < 3)) || exit 0
+if ((count >= 3)); then
+  rm -f "$blocks"
+  exit 0
+fi
 
 menard="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard"
 red=""
@@ -41,6 +45,7 @@ done < <(sort -u "$touched")
 
 if [[ -z "$red" ]]; then
   echo "$writes" >"$green"
+  rm -f "$blocks"
   exit 0
 fi
 echo $((count + 1)) >"$blocks"
