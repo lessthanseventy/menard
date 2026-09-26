@@ -181,15 +181,20 @@ defmodule Menard.Stmt do
       case Enum.find_value(labels, &ok_block(source, &1)) do
         {:ok, node} -> {:ok, %{node: node, range: Menard.Source.range(node, source)}}
         # neither: the module itself, for `defstruct` or `@type t ::`; a miss there is the clause miss
-        nil -> module_scope(source, miss)
+        nil -> module_scope(source, miss, to_string(name_arity) in ["", "-"] and to_string(head) == "")
       end
     end
   end
 
-  defp module_scope(source, miss) do
+  # The module when no clause or test is named. Something named that is not there reaches only the
+  # module's own statements: reaching into a function or a test from there put a test inside a test
+  # (bench4 bug-receipt-total.B.haiku, which named the function under test). Nothing named at all
+  # ("" or "-") searches the whole file for the one statement written (bench5 move-function.B.haiku).
+  defp module_scope(source, miss, anywhere?) do
     case Menard.Source.parse(source) do
-      # the module's own statements only: reaching into a function or a test from here put a test
-      # inside a test (bench4 bug-receipt-total.B.haiku, which named the function under test)
+      {:ok, ast} when anywhere? ->
+        {:ok, %{node: ast, range: Menard.Source.range(ast, source)}}
+
       {:ok, ast} ->
         {:ok,
          %{

@@ -459,4 +459,12 @@ defmodule Menard.StmtTest do
     assert Stmt.replace(src, "-", "", "use ExUnit.Case", "use ExUnit.Case, async: true") =~
              "use ExUnit.Case, async: true"
   end
+
+  test "naming nothing searches the whole file for the one statement written" do
+    # bench5 move-function.B.haiku: name_arity "" and head "" for a line inside a test
+    src = "defmodule CTest do\n  use ExUnit.Case\n\n  test \"formats\" do\n    assert f(1) == 1\n  end\nend\n"
+    assert Stmt.replace(src, "", "", "assert f(1) == 1", "assert g(1) == 1") =~ "    assert g(1) == 1\n"
+    # naming a function that is not there still reaches only the module's own statements
+    assert {:error, _} = Stmt.replace(src, "subject/1", "x", "assert f(1) == 1", "assert g(1) == 1")
+  end
 end
