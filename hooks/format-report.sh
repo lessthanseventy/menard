@@ -67,7 +67,7 @@ for dir in "${!of[@]}"; do
   reply=$("$menard" run format --in "$dir" "${list[@]}" 2>/dev/null </dev/null | tail -n1)
   # the files that did not format, as the reply names them (relative to the project)
   failed=$(jq -r '.failures[]?.at' <<<"$reply" 2>/dev/null)
-  why=$(jq -r '.failures[]? | "\(.at) was written but \(.message | sub("; mix format failed:.*"; ""))"' <<<"$reply" 2>/dev/null)
+  why=$(jq -r '.failures[]? | "\(.at) was written but \(.message)"' <<<"$reply" 2>/dev/null)
   [[ -n "$why" ]] && problems+="$why"$'\n'
   lint=()
   for i in "${!list[@]}"; do
