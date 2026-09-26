@@ -49,8 +49,10 @@ def stats(rows):
         "n": len(rows),
         "pass": mean([1.0 if r["pass"] else 0.0 for r in rows]),
         "clean": mean([1.0 if r["clean"] else 0.0 for r in rows]),
-        "cost": mean([r["cost_usd"] for r in rows]),
-        "ctx": mean([ctx_tokens(r) for r in rows]),
+        # tokens, not dollars: on a subscription the meter is usage. Kept apart because a cache read
+        # costs a tenth of new input on any meter, and one total would hide which one grew
+        "new": mean([r["tokens"]["input"] + r["tokens"]["cache_write"] for r in rows]),
+        "cached": mean([r["tokens"]["cache_read"] for r in rows]),
         "out": mean([r["tokens"]["output"] for r in rows]),
         "turns": mean([r["turns"] for r in rows]),
         "wall": mean([r["wall_s"] for r in rows]),
@@ -129,7 +131,7 @@ def num(x, fmt="{:.1f}"):
 
 
 def table(groups, key_label):
-    out = [f"| {key_label} | arm | n | pass | clean | cost $ | context tok | out tok | turns | wall s | failed calls |",
+    out = [f"| {key_label} | arm | n | pass | clean | new in tok | cached in tok | out tok | turns | wall s | failed calls |",
            "|---|---|---|---|---|---|---|---|---|---|---|"]
     for key, by_arm in groups:
         for arm in ARMS + sorted(a for a in by_arm if a not in ARMS):
@@ -137,8 +139,8 @@ def table(groups, key_label):
             if not rows:
                 continue
             s = stats(rows)
-            out.append(f"| {key} | {arm} | {s['n']} | {pct(s['pass'])} | {pct(s['clean'])} | {num(s['cost'], '{:.3f}')} | "
-                       f"{num(s['ctx'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} |")
+            out.append(f"| {key} | {arm} | {s['n']} | {pct(s['pass'])} | {pct(s['clean'])} | {num(s['new'], '{:,.0f}')} | "
+                       f"{num(s['cached'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} |")
     return "\n".join(out)
 
 
@@ -156,7 +158,8 @@ def main():
           + ", ".join(f"{a} {ARM_TEXT[a]}" for a in ARMS if any(r["arm"] == a for r in rows)) + ".\n\n"
           "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
           "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
-          "`context tok`: input + cache read + cache write, summed over the run.\n"]
+          "Tokens are per run, summed over its model calls: `new in` is input the model had not seen (uncached input + cache writes), "
+          "`cached in` is input read from the prompt cache, `out` is output.\n"]
 
     md.append("## By arm\n\n" + table(grouped(rows, lambda r: "all"), "") + "\n")
     md.append("## By model\n\n" + table(sorted(grouped(rows, lambda r: r["model"]), key=lambda kv: MODELS.index(kv[0]) if kv[0] in MODELS else 9), "model") + "\n")
