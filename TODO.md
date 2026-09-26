@@ -17,6 +17,14 @@ commit lands.
   _build/dev/lib/menard/ebin/…)" at lib/menard/mcp/tools.ex:700/800/861 (Block, Deps, Module). Three runs
   after (mix precommit direct, run check, each precommit stage alone) had none. Suspect bin_test's
   fresh_build! rebuilding the dev build while the edited build was loading.
+- `mcp_test`'s root is `menard-mcp-#{System.unique_integer([:positive])}` in /tmp, unique only within
+  one VM: two suites run at once (parallel worktrees, 2026-09-26) share small integers, and one's
+  `on_exit` `rm_rf` deletes the other's files. Three runs failed three different tests ("could not
+  read file /tmp/menard-mcp-1282/lib/a.ex", an attr set that did not land, a block delete refused);
+  alone, green. Fix: a root from `System.tmp_dir!()` + a random or OS-pid-qualified name.
+- The identity test "lib/menard/clause.ex stmt replace with a statement's own text" takes ~25s alone
+  (621 stmt edits, 2026-09-26) and hit ExUnit's 60s timeout in the full suite on a machine at load
+  ~30 (20 cores): the corpus grows with clause.ex, and nothing but the default timeout bounds it.
 - The format hook blocks on files a shell command restored untouched: `git checkout -- eval/long/fixture`
   (a project never built in place: no _build, no deps) answered "lib/shop/cart.ex was written but not
   formatted — [Phoenix.LiveView.HTMLFormatter] will not load from …/_build in this VM" for two files
