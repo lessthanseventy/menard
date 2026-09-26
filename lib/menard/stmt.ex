@@ -127,16 +127,80 @@ defmodule Menard.Stmt do
   @spec delete(String.t(), String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def delete(source, name_arity, head, match, opts \\ []) do
     with {:ok, stmt} <- locate(source, name_arity, head, match, opts) do
-      lines = String.split(source, "\n")
-      %{start: [line: a, column: _], end: [line: b, column: _]} = stmt.range
-      first = a - 1 - comments_above(lines, a - 1)
-      last = if Enum.at(lines, b) == "", do: b, else: b - 1
+      case role(source, stmt.range) do
+        {:step, [_only]} ->
+          {:error, "`#{match}` is the with's only step: replace the whole with instead"}
 
-      lines
-      |> Enum.with_index()
-      |> Enum.reject(fn {_text, i} -> i >= first and i <= last end)
-      |> Enum.map_join("\n", &elem(&1, 0))
+        {:step, steps} ->
+          patch(source, step_cut(steps, stmt.range), "")
+
+        :keyword_body ->
+          {:error,
+           "`#{match}` is a do: body, and deleting it leaves the clause none: replace it, or delete the clause"}
+
+        :inline ->
+          {:error,
+           "`#{match}` shares its line with the code it belongs to (an arm's body): replace it instead"}
+
+        :lines ->
+          delete_lines(source, stmt.range)
+      end
     end
+  end
+
+  defp delete_lines(source, %{start: [line: a, column: _], end: [line: b, column: _]}) do
+    lines = String.split(source, "\n")
+    first = a - 1 - comments_above(lines, a - 1)
+    last = if Enum.at(lines, b) == "", do: b, else: b - 1
+
+    lines
+    |> Enum.with_index()
+    |> Enum.reject(fn {_text, i} -> i >= first and i <= last end)
+    |> Enum.map_join("\n", &elem(&1, 0))
+  end
+
+  # A with's step goes with the comma that joins it to its neighbour: the first up to the next
+  # step's start, any other from the end of the one before it
+  defp step_cut([first, next | _], first), do: %{start: first.start, end: next.start}
+
+  defp step_cut(steps, range) do
+    before = steps |> Enum.take_while(&(&1 != range)) |> List.last()
+    %{start: before.end, end: range.end}
+  end
+
+  # Where a statement sits decides what deleting it, or inserting beside it, means: a with's steps
+  # are joined by commas, a `do:` body shares its clause's line, and cutting whole lines under either
+  # took the `with`, the ` do` or the whole `def` with it
+  defp role(source, range) do
+    {:ok, ast} = Menard.Source.parse(source)
+    nodes = ast |> Macro.prewalker() |> Enum.to_list()
+
+    cond do
+      steps = Enum.find_value(nodes, &with_steps(&1, source, range)) -> {:step, steps}
+      Enum.any?(nodes, &keyword_body?(&1, source, range)) -> :keyword_body
+      own_lines?(source, range) -> :lines
+      true -> :inline
+    end
+  end
+
+  defp with_steps({:with, _meta, [_ | _] = args}, source, range) do
+    steps = args |> Enum.drop(-1) |> Enum.map(&Menard.Source.range(&1, source))
+    if range in steps, do: steps
+  end
+
+  defp with_steps(_node, _source, _range), do: nil
+
+  defp keyword_body?({{:__block__, meta, [key]}, body}, source, range) when key in [:do, :else],
+    do: meta[:format] == :keyword and Menard.Source.range(body, source) == range
+
+  defp keyword_body?(_node, _source, _range), do: false
+
+  # nothing but indent before it on its first line, nothing but a comment after it on its last
+  defp own_lines?(source, %{start: [line: a, column: ca], end: [line: b, column: cb]}) do
+    lines = String.split(source, "\n")
+    before = lines |> Enum.at(a - 1) |> String.slice(0, ca - 1)
+    rest = lines |> Enum.at(b - 1) |> String.slice((cb - 1)..-1//1) |> String.trim()
+    String.trim(before) == "" and (rest == "" or String.starts_with?(rest, "#"))
   end
 
   @doc """
