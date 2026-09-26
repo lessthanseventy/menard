@@ -69,20 +69,23 @@ defmodule Menard do
     ms = opts[:timeout] || @format_timeout
     task = Task.async(fn -> format_somewhere(file, content, Keyword.put(opts, :timeout, ms), parent) end)
 
-    case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
+    done = Task.yield(task, ms) || Task.shutdown(task, :brutal_kill)
+
+    # taken whether it is needed or not: left in the mailbox, the MCP server kept one per format
+    waiting_on =
+      receive do
+        {__MODULE__, :waiting_on, what} -> what
+      after
+        0 -> "the formatter in menard's VM"
+      end
+
+    case done do
       {:ok, result} ->
         result
 
       # Which formatter ran out the time is the thing to know: under load, a host's plugins that do
       # not load here send it to its own `mix format` through mise, a whole VM of its own.
       _timeout ->
-        waiting_on =
-          receive do
-            {__MODULE__, :waiting_on, what} -> what
-          after
-            0 -> "the formatter in menard's VM"
-          end
-
         {:error, "format did not finish in #{ms / 1000}s, in #{waiting_on} — file written UNFORMATTED"}
     end
   end

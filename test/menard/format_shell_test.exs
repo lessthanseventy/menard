@@ -44,4 +44,13 @@ defmodule Menard.FormatShellTest do
     Process.sleep(2_500)
     assert File.read!(file) == "defmodule A do\nend\n"
   end
+
+  test "a format that finished leaves nothing in the caller's mailbox", %{dir: dir, target: file} do
+    # the note of which formatter it waited on is for a timeout's reply; the MCP server is one
+    # long-lived process, and every format through the fallback left one behind
+    fake_mix(dir, "exit 0\n")
+
+    assert {:ok, _formatted, nil} = Menard.format_staged(file, "defmodule A do\nend\n")
+    refute_received {Menard, :waiting_on, _}
+  end
 end
