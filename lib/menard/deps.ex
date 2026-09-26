@@ -83,12 +83,25 @@ defmodule Menard.Deps do
   defp collect({_kind, _meta, args}, acc) when is_list(args) and args != [] do
     args
     |> List.last()
+    |> Macro.prewalk(&as_call/1)
     |> Zipper.zip()
     |> Zipper.traverse(acc, fn zipper, found -> {zipper, absorb(Zipper.node(zipper), found)} end)
     |> elem(1)
   end
 
   defp collect(_node, acc), do: acc
+
+  # A pipeline step and a capture, written as the call they make: `x |> step()` is step/1, not
+  # step/0, and `&step/1` calls step/1. Read as written, a helper two functions share looked free
+  # to move.
+  defp as_call({:|>, _meta, [lhs, {fun, meta, args}]}) when is_list(args) or is_nil(args),
+    do: {fun, meta, [lhs | List.wrap(args)]}
+
+  defp as_call({:&, _meta, [{:/, _, [{fun, meta, args}, {:__block__, _, [arity]}]}]})
+       when is_integer(arity) and (is_nil(args) or args == []),
+       do: {fun, meta, List.duplicate(:_, arity)}
+
+  defp as_call(node), do: node
 
   # A remote call: `Mod.fun(args)`. Its module counts as a reference too — that is the alias that
   # has to travel with the code.

@@ -34,10 +34,9 @@ defmodule Menard.MixDeps do
   @doc "Change the version requirement of `app`'s dependency — its bytes and nothing else."
   @spec set_requirement(String.t(), String.t(), String.t()) :: String.t() | {:error, String.t()}
   def set_requirement(source, app, requirement) do
-    app = String.to_atom(app)
-
+    # compared as text: an atom made of every name a caller typed would never be collected
     with {:ok, list} <- deps_list(source),
-         dep when not is_nil(dep) <- Enum.find(elements(list), &(dep_app(&1) == app)) do
+         dep when not is_nil(dep) <- Enum.find(elements(list), &(to_string(dep_app(&1)) == app)) do
       case requirement_node(dep) do
         {:__block__, _, [current]} = node when is_binary(current) ->
           range = Menard.Source.range(node, source)
@@ -264,7 +263,8 @@ defmodule Menard.MixDeps do
   defp resolve_spec(_dir, "{" <> _ = spec), do: {:ok, spec}
 
   defp resolve_spec(dir, name) do
-    {output, _status} = Menard.host_mix(dir, ["hex.info", name])
+    # in the host's own env, as every host mix runs: menard's MIX_ENV unset
+    {output, _status} = Menard.host_mix(dir, ["hex.info", name], env: [{"MIX_ENV", nil}])
     spec_from_hex_info(output)
   end
 

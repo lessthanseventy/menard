@@ -6,8 +6,6 @@ defmodule Menard.Run do
   `mix menard.run` prints what these return, as one JSON line.
   """
 
-  @deadline {__MODULE__, :deadline}
-  @log {__MODULE__, :log}
   @keep 40
 
   @doc """
@@ -16,43 +14,63 @@ defmodule Menard.Run do
   client's timeout, the CLI none.
   """
   def result(dir, verb, args, opts) do
-    if ms = opts[:timeout], do: Process.put(@deadline, System.monotonic_time(:millisecond) + ms)
-    # one log per call: the MCP server lives across calls, and each call's output is its own
-    Process.delete(@log)
+    # the run's context, handed to every mix it makes: its deadline, and its one log (the MCP server
+    # lives across calls, and each call's output is its own)
+    log = log_path(dir, [verb | args])
 
-    try do
-      Map.put(result(dir, verb, args), :log, Process.get(@log))
-    after
-      Process.delete(@deadline)
-      Process.delete(@log)
-    end
+    run = %{
+      dir: dir,
+      log: log,
+      deadline: if(ms = opts[:timeout], do: System.monotonic_time(:millisecond) + ms)
+    }
+
+    reply = verb(run, verb, args)
+    if File.exists?(run.log), do: Map.put(reply, :log, run.log), else: reply
   end
 
   @doc """
   A run verb in the mix project at `dir` — `"check"` (its `mix precommit`), `"test"` (args: files,
   file:line), `"format"` (args: files; reports what changed), `"compile"` (warnings as
-  diagnostics) — as one map with `ok`. Both doors (`mix menard.run`, the MCP `run` tool) call this.
+  diagnostics) — as one map with `ok`, and `log` when it ran mix. Both doors (`mix menard.run`, the
+  MCP `run` tool) call this, and `deps` for its compile after an update.
   """
-  def result(dir, "check", args) do
+  def result(dir, verb, args), do: result(dir, verb, args, [])
+
+  defp verb(%{dir: dir} = run, "check", args) do
     # the files as checked, taken before the gate runs: one written meanwhile is not what went green
     tree = tree(dir)
-    {out, status, fetched} = mix_fetching(dir, ["precommit"])
+    {out, status, fetched} = mix_fetching(run, ["precommit"])
 
     reply =
       if status != 0 and out =~ ~s(The task "precommit" could not be found),
-        do: check_steps(dir, args),
-        else: out |> gate(status, fetched, dir) |> credo_named(out, dir)
+        do: check_steps(run, args),
+        else: out |> gate(status, fetched, dir) |> credo_named(out, run, "--strict" in args)
 
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
     reply
   end
 
-  def result(dir, "test", args) do
-    {out, status, fetched} = mix_fetching(dir, ["test" | args])
-    out |> parse_test(status) |> with_sources(dir) |> Map.put(:fetched, fetched)
+  defp verb(run, "test", args) do
+    # ExUnit's failures as data, from a formatter required into the host's VM beside its CLI one: read
+    # from the prose, a `left:` that did not fit one line came back as its first line. The prose
+    # still says what no formatter sees (a test file that does not compile, mix refusing an option).
+    held = run.log <> ".exunit"
+    formatters = ["--formatter", "Menard.ExUnitFormatter", "--formatter", "ExUnit.CLIFormatter"]
+
+    host = [
+      require: Application.app_dir(:menard, "priv/ex_unit_formatter.exs"),
+      env: [{"MENARD_EXUNIT_OUT", held}]
+    ]
+
+    {out, status, fetched} = mix_fetching(run, ["test" | formatters ++ args], host)
+
+    out
+    |> parse_test(status, read_held(held))
+    |> with_sources(run.dir)
+    |> Map.put(:fetched, fetched)
   end
 
-  def result(dir, "format", files) do
+  defp verb(%{dir: dir}, "format", files) do
     # no files named: what the project's own `mix format` would take, its formatter inputs. Given
     # none, this formatted nothing and answered ok, while the project's check failed.
     files = if files == [], do: formatter_inputs(dir), else: Enum.map(files, &Path.expand(&1, dir))
@@ -69,40 +87,66 @@ defmodule Menard.Run do
     %{ok: failures == [], changed: changed, failures: failures}
   end
 
-  def result(dir, "compile", _args) do
+  defp verb(run, "compile", _args) do
     # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
-    {out, status, fetched} = mix_fetching(dir, ["compile", "--warnings-as-errors"])
+    {out, status, fetched} = mix_fetching(run, ["compile", "--warnings-as-errors"])
 
     %{ok: status == 0, exit: status, failures: diagnostics(out), tail: tail(out), fetched: fetched}
   end
 
-  def result(dir, "credo", args) do
-    if credo?(dir), do: credo(dir, args), else: %{ok: true, failures: [], skipped: "no credo in this project"}
+  defp verb(run, "credo", args) do
+    if credo?(run.dir),
+      do: credo(run, args),
+      else: %{ok: true, failures: [], skipped: "no credo in this project"}
   end
 
-  # A precommit that failed in credo printed its report as text: the same report as data puts each
-  # issue in `failures`, at the alias's own strictness
-  defp credo_named(%{ok: false} = reply, out, dir) do
-    if out =~ "mix credo explain" and credo?(dir) do
-      strict = if File.read!(Path.join(dir, "mix.exs")) =~ "credo --strict", do: ["--strict"], else: []
-      %{reply | failures: reply.failures ++ credo(dir, strict).failures}
-    else
-      reply
+  # what the formatter wrote at the suite's end; nil when no suite ran
+  defp read_held(path) do
+    case File.read(path) do
+      {:ok, bin} ->
+        File.rm(path)
+        :erlang.binary_to_term(bin, [:safe])
+
+      _ ->
+        nil
     end
   end
 
-  defp credo_named(reply, _out, _dir), do: reply
+  # A precommit that failed in credo printed its report as text: the same report as data puts each
+  # issue in `failures`, at the alias's own strictness. `--strict` asked of an alias that lints at
+  # credo's default level runs credo --strict as well: dropped, it passed a gate it was asked to fail.
+  defp credo_named(reply, out, run, strict?) do
+    alias_strict? = File.read!(Path.join(run.dir, "mix.exs")) =~ "credo --strict"
 
-  defp credo(dir, args) do
+    cond do
+      not credo?(run.dir) ->
+        reply
+
+      strict? and not alias_strict? ->
+        lint = credo(run, ["--strict"])
+        %{reply | ok: reply.ok and lint.ok, failures: reply.failures ++ lint.failures}
+
+      not reply.ok and out =~ "mix credo explain" ->
+        %{
+          reply
+          | failures: reply.failures ++ credo(run, if(alias_strict?, do: ["--strict"], else: [])).failures
+        }
+
+      true ->
+        reply
+    end
+  end
+
+  defp credo(run, args) do
     {strict, args} = {"--strict" in args, args -- ["--strict"]}
     {changed, files} = {"--changed" in args, args -- ["--changed"]}
 
     {out, status, fetched} =
-      mix_fetching(dir, ["credo", "--format", "json"] ++ if(strict, do: ["--strict"], else: []) ++ files)
+      mix_fetching(run, ["credo", "--format", "json"] ++ if(strict, do: ["--strict"], else: []) ++ files)
 
     case credo_issues(out) do
       {:ok, issues} ->
-        issues = if changed, do: only_changed(issues, dir), else: issues
+        issues = if changed, do: only_changed(issues, run.dir), else: issues
         %{ok: issues == [], failures: issues, fetched: fetched}
 
       :error ->
@@ -121,12 +165,19 @@ defmodule Menard.Run do
   git tree id, the same for the same files whatever HEAD is. A green `check` stamps it in the repo's
   git dir (`green_stamp/1`), and the commit hook (hooks/commit-gate.sh, which computes it the same
   way) skips a gate over files it already passed. nil outside a git repo.
+
+  `git add` into the scratch index writes each file's blob into the repo's `.git/objects`, as any
+  `git add` does: unreferenced, they stay loose objects until `git gc` prunes them.
   """
   def tree(dir) do
-    # a scratch index in the git dir: one under a TMPDIR inside the project would be one of its files
+    # a scratch index in the git dir: one under a TMPDIR inside the project would be one of its files.
+    # Named by the OS pid, like the hook's (`$$`), so no other live process's is the same file:
+    # `System.unique_integer` is unique in one VM only, and fresh VMs draw near the same numbers. The
+    # integer after the pid keeps two calls in one VM (the MCP server's) apart.
     case System.cmd("git", ["-C", dir, "rev-parse", "--absolute-git-dir"], stderr_to_stdout: true) do
       {git_dir, 0} ->
-        tree(dir, Path.join(String.trim(git_dir), "menard-index-#{System.unique_integer([:positive])}"))
+        index = "menard-index-#{System.pid()}-#{System.unique_integer([:positive])}"
+        tree(dir, Path.join(String.trim(git_dir), index))
 
       _ ->
         nil
@@ -158,12 +209,12 @@ defmodule Menard.Run do
   # A host with no `precommit` alias: the steps `run check` stands for, each its own mix, so `test`
   # picks its own env. The first that fails is the answer. Credo too, when the project has it: at
   # its default level, `--strict` when the caller asks.
-  defp check_steps(dir, args) do
+  defp check_steps(%{dir: dir} = run, args) do
     steps = [["format", "--check-formatted"], ["compile", "--warnings-as-errors"], ["test"]]
 
     {out, status, fetched} =
       Enum.reduce_while(steps, {"", 0, []}, fn step, {_out, _status, fetched} ->
-        {out, status, more} = mix_fetching(dir, step)
+        {out, status, more} = mix_fetching(run, step)
         next = {out, status, fetched ++ more}
         if status == 0, do: {:cont, next}, else: {:halt, next}
       end)
@@ -171,7 +222,7 @@ defmodule Menard.Run do
     reply = gate(out, status, fetched, dir)
 
     lint =
-      if credo?(dir), do: credo(dir, Enum.filter(args, &(&1 == "--strict"))), else: %{ok: true, failures: []}
+      if credo?(dir), do: credo(run, Enum.filter(args, &(&1 == "--strict"))), else: %{ok: true, failures: []}
 
     %{reply | ok: reply.ok and lint.ok, failures: reply.failures ++ lint.failures}
     |> Map.put(
@@ -189,31 +240,39 @@ defmodule Menard.Run do
       end
   end
 
-  # `--format json` prints the report after whatever compiling said first
+  # `--format json` prints the report after whatever compiling said first: the object from a line
+  # that opens a brace to the end, however it is laid out
   def credo_issues(out) do
-    with {at, _} <- :binary.match(out, ~s({\n  "issues")),
-         {:ok, %{"issues" => issues}} <- JSON.decode(binary_part(out, at, byte_size(out) - at)) do
-      {:ok,
-       for i <- issues do
-         %{
-           kind: "credo",
-           message: "#{i["message"]} (#{i["check"] |> String.split(".") |> List.last()})",
-           at: "#{i["filename"]}:#{i["line_no"]}"
-         }
-       end}
-    else
-      _ -> :error
-    end
+    ~r/^\{/m
+    |> Regex.scan(out, return: :index)
+    |> Enum.find_value(:error, fn [{at, _}] ->
+      case JSON.decode(binary_part(out, at, byte_size(out) - at)) do
+        {:ok, %{"issues" => issues}} -> {:ok, Enum.map(issues, &credo_issue/1)}
+        _ -> nil
+      end
+    end)
+  end
+
+  defp credo_issue(i) do
+    %{
+      kind: "credo",
+      message: "#{i["message"]} (#{i["check"] |> String.split(".") |> List.last()})",
+      at: "#{i["filename"]}:#{i["line_no"]}"
+    }
   end
 
   # Only what an edit brought: issues on the lines changed since the last commit, every line of a file
   # git does not track yet. Old debt in the file is not the edit's to answer for.
+  # Two git calls for every file at once, not two per file: which are tracked, and one diff.
   def only_changed(issues, dir) do
-    lines =
-      issues
-      |> Enum.map(&(&1.at |> String.split(":") |> hd()))
-      |> Enum.uniq()
-      |> Map.new(&{&1, changed_lines(dir, &1)})
+    files = issues |> Enum.map(&(&1.at |> String.split(":") |> hd())) |> Enum.uniq()
+    # paths as the project names them, whatever its place in the repo, and unquoted
+    git = &System.cmd("git", ["-C", dir, "-c", "core.quotePath=false" | &1], stderr_to_stdout: true)
+    {tracked, _} = git.(["ls-files", "-z", "--" | files])
+    tracked = tracked |> String.split(<<0>>, trim: true) |> MapSet.new()
+    {diff, _} = git.(["diff", "-U0", "--relative", "HEAD", "--" | files])
+    hunks = hunks(diff)
+    lines = Map.new(files, &{&1, if(&1 in tracked, do: Map.get(hunks, &1, MapSet.new()), else: :all)})
 
     Enum.filter(issues, fn %{at: at} ->
       [file, line] = String.split(at, ":")
@@ -221,19 +280,17 @@ defmodule Menard.Run do
     end)
   end
 
-  defp changed_lines(dir, file) do
-    case System.cmd("git", ["-C", dir, "ls-files", "--error-unmatch", file], stderr_to_stdout: true) do
-      {_, 0} -> hunks(dir, file)
-      _ -> :all
-    end
+  # each file's changed lines, from one diff of them all
+  defp hunks(diff) do
+    for [_, file, body] <- Regex.scan(~r/^\+\+\+ b\/(.+)\n((?:(?!diff --git ).*\n?)*)/m, diff),
+        into: %{},
+        do: {file, hunk_lines(body)}
   end
 
-  defp hunks(dir, file) do
-    {diff, _} = System.cmd("git", ["-C", dir, "diff", "-U0", "HEAD", "--", file], stderr_to_stdout: true)
-
+  defp hunk_lines(body) do
     # the count's group always matches, empty when a hunk has none (`@@ -2 +2 @@`): an optional group
     # that did not match drops out of scan's list, and the pattern skipped every one-line hunk
-    for [_, start, count] <- Regex.scan(~r/^@@ -\S+ \+(\d+),?(\d*) @@/m, diff),
+    for [_, start, count] <- Regex.scan(~r/^@@ -\S+ \+(\d+),?(\d*) @@/m, body),
         n = if(count == "", do: 1, else: String.to_integer(count)),
         n > 0,
         line <- String.to_integer(start)..(String.to_integer(start) + n - 1),
@@ -266,26 +323,28 @@ defmodule Menard.Run do
   # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
   # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
   # and name what came.
-  defp mix_fetching(dir, args) do
-    {out, status} = mix(dir, args)
+  defp mix_fetching(run, args, host \\ []) do
+    {out, status} = mix(run, args, host)
 
     if status != 0 and out =~ ~s(run "mix deps.get") do
-      {got, _status} = mix(dir, ["deps.get"])
+      {got, _status} = mix(run, ["deps.get"])
       fetched = ~r/\* Getting (\S+)/ |> Regex.scan(got) |> Enum.map(&List.last/1)
-      {out, status} = mix(dir, args)
+      {out, status} = mix(run, args, host)
       {out, status, fetched}
     else
       {out, status, []}
     end
   end
 
+  # what `mix format` takes: the inputs, and each `subdirectories:` match's own .formatter.exs inputs
+  # (Phoenix's priv/*/migrations), relative to it
   defp formatter_inputs(dir) do
     dot = Path.join(dir, ".formatter.exs")
-    inputs = if File.regular?(dot), do: elem(Code.eval_file(dot), 0)[:inputs] || [], else: []
+    opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
+    glob = &Path.wildcard(Path.join(dir, &1), match_dot: true)
+    subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
 
-    inputs
-    |> List.wrap()
-    |> Enum.flat_map(&Path.wildcard(Path.join(dir, &1), match_dot: true))
+    (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs/1))
     |> Enum.uniq()
   end
 
@@ -295,29 +354,26 @@ defmodule Menard.Run do
   # every test/support module read as "not loaded" — first under `run test`, then again under
   # `run check`. nil unsets, so menard's own MIX_ENV cannot leak into the target either, which is
   # what the pin was for.
-  defp mix(dir, args) do
-    left =
-      case Process.get(@deadline) do
-        nil -> nil
-        at -> max(at - System.monotonic_time(:millisecond), 1_000)
-      end
-
-    {out, status} = Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}], timeout: left)
-    keep(dir, args, out)
-    {out, status}
+  defp mix(run, args, host \\ []) do
+    left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
+    {env, host} = Keyword.pop(host, :env, [])
+    {out, status} = Menard.host_mix(run.dir, args, [env: [{"MIX_ENV", nil} | env], timeout: left] ++ host)
+    File.write!(run.log, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
+    # uncoloured, once, for every parser: `config :elixir, :ansi_enabled, true` colours ExUnit's
+    # report even into this pipe, and `mix format --check-formatted` colours its list anyway
+    {String.replace(out, ~r/\e\[[0-9;]*m/, ""), status}
   end
 
   # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
   # reply names it, so what the failures leave out is a grep away, not a second run (Tlön's cap.sh
   # rule: run once, read the log; 40% of the operator's test runs were run again to see more)
-  defp keep(dir, args, out) do
+  defp log_path(dir, words) do
     logs = Path.join([System.tmp_dir!(), "menard-run", slug(Path.expand(dir))])
     File.mkdir_p!(logs)
+    # room for this run's: all but one of the last @keep stay
+    logs |> File.ls!() |> Enum.sort(:desc) |> Enum.drop(@keep - 1) |> Enum.each(&File.rm(Path.join(logs, &1)))
     stamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%S%f")
-    path = Process.get(@log) || Path.join(logs, "#{stamp}-#{slug(Enum.join(args, " "))}.log")
-    File.write!(path, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
-    Process.put(@log, path)
-    logs |> File.ls!() |> Enum.sort(:desc) |> Enum.drop(@keep) |> Enum.each(&File.rm(Path.join(logs, &1)))
+    Path.join(logs, "#{stamp}-#{slug(Enum.join(words, " "))}.log")
   end
 
   defp slug(text),
@@ -325,18 +381,23 @@ defmodule Menard.Run do
 
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
-  @doc "Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, failures, tail}`."
-  def parse_test(out, status) do
+  @doc """
+  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, failures, tail}`.
+  `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
+  run had it; output menard does not run itself (a precommit alias) is read from its prose.
+  """
+  def parse_test(out, status, held \\ nil) do
     # `--repeat-until-failure N` prints one run after another, and only the LAST run says anything:
     # the one that failed, or the Nth that passed. Its counts, failures and tail are the answer; the
     # seed is how to reproduce it, and the run count is how long it hid.
     runs = out |> String.split(~r/Running ExUnit with seed: /)
     last = List.last(runs)
-    {tests, failed} = counts(last)
+    # the formatter's counts and failures when it wrote them, else what the prose says
+    {tests, failed} = if held, do: {held.tests, held.failed}, else: counts(last)
     # the compile before the first run: its warnings, which a green run went on to hide, or, with no
     # run at all, a test file's errors
     compile = diagnostics(hd(runs))
-    failures = failures(last) ++ compile
+    failures = if(held, do: held.failures, else: failures(last)) ++ compile
 
     %{
       ok: status == 0,
@@ -425,7 +486,10 @@ defmodule Menard.Run do
     with true <- File.exists?(path),
          lines <- File.read!(path) |> String.split("\n"),
          {start, _} <- Integer.parse(line),
-         [head | rest] <- Enum.drop(lines, start - 1) do
+         [head | rest] <- Enum.drop(lines, start - 1),
+         # a line that opens no block (`doctest Mod`, a one-line test) is the whole source: read
+         # down to the next `end` at its indent, it was the rest of the module
+         true <- String.ends_with?(String.trim_trailing(head), " do") || head do
       indent = String.length(head) - String.length(String.trim_leading(head))
 
       body =
@@ -438,6 +502,7 @@ defmodule Menard.Run do
       closer = Enum.at(rest, length(body))
       Enum.join([head | body] ++ List.wrap(closer), "\n")
     else
+      head when is_binary(head) -> head
       _ -> nil
     end
   end
@@ -453,41 +518,65 @@ defmodule Menard.Run do
         [_, passed] = m
         {String.to_integer(passed), 0}
 
-      m = Regex.run(~r/(\d+) tests?, (\d+) failures?/, out) ->
-        [_, tests, failed] = m
-        {String.to_integer(tests), String.to_integer(failed)}
+      # `1 doctest, 1 property, 2 tests, 3 failures, 1 invalid`: every kind of test counts, and a test
+      # a failed setup_all invalidated did not pass
+      line =
+          ~r/^\d+ [a-z]+(?:, \d+ [a-z]+)*/m
+          |> Regex.scan(out)
+          |> List.flatten()
+          |> Enum.filter(&(&1 =~ "failure"))
+          |> List.last() ->
+        counted = for [_, n, word] <- Regex.scan(~r/(\d+) ([a-z]+)/, line), do: {word, String.to_integer(n)}
+        failed = for {word, n} <- counted, word in ~w(failure failures invalid), do: n
+        tests = for {word, n} <- counted, word not in ~w(failure failures invalid excluded skipped), do: n
+        {Enum.sum(tests), Enum.sum(failed)}
 
       true ->
         {nil, nil}
     end
   end
 
-  # Each `N) test NAME (Module)` block up to the next block or the summary.
+  # Each `N) TYPE NAME (Module)` block (a test, a doctest, a property) up to the next block or the
+  # summary, and each `N) Module: failure on setup_all callback` block.
   defp failures(out) do
-    ~r/^\s*\d+\) test (.+?) \((\S+)\)\n(.*?)(?=^\s*\d+\) test |\nFinished in|\z)/ms
+    ~r/^\s*\d+\) (?:\w+ (.+?) \(([\w.]+)\)|([\w.]+): failure on setup_all callback[^\n]*)\n(.*?)(?=^\s*\d+\) |\nFinished in|\z)/ms
     |> Regex.scan(out)
-    |> Enum.map(fn [_, name, module, body] ->
-      %{
-        kind: "test",
-        message: error_of(body) || headline(body),
-        at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
-        name: name,
-        module: module,
-        code: first(~r/^\s*code:\s+(.+)$/m, body),
-        left: first(~r/^\s*left:\s+(.+)$/m, body),
-        right: first(~r/^\s*right:\s+(.+)$/m, body)
-      }
-      |> Enum.reject(fn {_k, v} -> is_nil(v) end)
-      |> Map.new()
+    |> Enum.map(fn
+      [_, "", "", module, body] ->
+        %{
+          kind: "test",
+          name: "setup_all",
+          module: module,
+          message:
+            "setup_all failed, so none of the module's tests ran: " <> (error_of(body) || headline(body)),
+          at: first(~r/^\s*(\S+_test\.exs:\d+):/m, body)
+        }
+
+      [_, name, module, _, body] ->
+        %{
+          kind: "test",
+          message: error_of(body) || headline(body),
+          at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
+          name: name,
+          module: module,
+          code: first(~r/^\s*code:\s+(.+)$/m, body),
+          left: first(~r/^\s*left:\s+(.+)$/m, body),
+          right: first(~r/^\s*right:\s+(.+)$/m, body)
+        }
     end)
+    |> Enum.map(fn failure -> failure |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new() end)
   end
 
-  # An assertion's reason: ExUnit's line under the location, "Assertion with == failed"
+  # An assertion's reason: ExUnit's lines under the location up to its code, "Assertion with ==
+  # failed", or a property's generated values with the assertion under them
   defp headline(body) do
     body
     |> String.split("\n")
     |> Enum.map(&String.trim/1)
-    |> Enum.find(&(&1 != "" and not Regex.match?(~r/^(\S+_test\.exs:\d+|(code|left|right|stacktrace):)/, &1)))
+    |> Enum.drop_while(&(&1 == "" or &1 =~ ~r/^\S+_test\.exs:\d+$/))
+    |> Enum.take_while(&(not Regex.match?(~r/^(code|left|right|stacktrace|doctest):/, &1)))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
   end
 
   # Compiler warnings and errors, each the same shape as a test failure: kind, message, at
@@ -521,13 +610,13 @@ defmodule Menard.Run do
     end
   end
 
-  # `mix format --check-formatted`'s list of files, colored even when piped, each with its diff after
+  # `mix format --check-formatted`'s list of files, each with its diff after
   defp unformatted(out, dir) do
     case String.split(out, "The following files are not formatted:", parts: 2) do
       [_, rest] ->
         root = Path.expand(dir) <> "/"
 
-        for line <- rest |> String.replace(~r/\e\[[0-9;]*m/, "") |> String.split("\n"),
+        for line <- String.split(rest, "\n"),
             path = String.trim(line),
             path =~ ~r/\.(ex|exs|heex)$/,
             do: %{kind: "format", message: "not formatted", at: String.replace_prefix(path, root, "")}
