@@ -19,23 +19,40 @@ defmodule Menard.Stmt do
   @spec insert_after(String.t(), String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
   def insert_after(source, name_arity, head, match, code, opts \\ []) do
-    with {:ok, stmt} <- locate(source, name_arity, head, match, opts) do
-      %{end: [line: line, column: col]} = stmt.range
-      at = %{start: [line: line, column: col], end: [line: line, column: col]}
-      patch(source, at, "\n\n" <> indent_block(code, stmt.indent))
-    end
+    with {:ok, stmt} <- locate(source, name_arity, head, match, opts),
+         do: insert(source, stmt, match, code, :after)
   end
 
   @doc "Insert `code` as a new statement directly before the matched one."
   @spec insert_before(String.t(), String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
   def insert_before(source, name_arity, head, match, code, opts \\ []) do
-    with {:ok, stmt} <- locate(source, name_arity, head, match, opts) do
-      %{start: [line: line, column: _]} = stmt.range
-      at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
-      patch(source, at, indent_block(code, stmt.indent) <> "\n\n")
+    with {:ok, stmt} <- locate(source, name_arity, head, match, opts),
+         do: insert(source, stmt, match, code, :before)
+  end
+
+  # At the statement's own column, joined as its neighbours are: a with's steps by a comma, anything
+  # else by a newline. Written from column 1 it went above the `with`, or above the def of a `do:` body.
+  defp insert(source, stmt, match, code, side) do
+    code = reindent(code, stmt.indent)
+
+    case {role(source, stmt.range), side} do
+      {:keyword_body, _} ->
+        {:error,
+         "`#{match}` is a do: body, which holds one expression: rewrite the clause with a do … end body"}
+
+      {role, :after} ->
+        at = stmt.range.end
+        patch(source, %{start: at, end: at}, joint(role) <> stmt.indent <> code)
+
+      {role, :before} ->
+        at = stmt.range.start
+        patch(source, %{start: at, end: at}, code <> joint(role) <> stmt.indent)
     end
   end
+
+  defp joint({:step, _steps}), do: ",\n"
+  defp joint(_role), do: "\n"
 
   @doc "Replace the matched statement with `code`."
   @spec replace(String.t(), String.t(), String.t(), String.t(), String.t(), keyword()) ::
@@ -442,8 +459,6 @@ defmodule Menard.Stmt do
     |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
     |> length()
   end
-
-  defp indent_block(code, indent), do: indent <> reindent(code, indent)
 
   defp patch(source, range, change),
     do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
