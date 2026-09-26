@@ -24,22 +24,6 @@ defmodule Menard.ClauseCommentTest do
     assert message =~ "needs a whole clause"
   end
 
-  test "a comment between the attributes and the def is the one replaced, in place" do
-    # written between `@doc false` and the def, the old comment was missed: the new one went above
-    # the @doc and the old stayed, two comments for one clause
-    src = """
-    defmodule A do
-      @doc false
-      # old why
-      def go, do: 1
-    end
-    """
-
-    out = Clause.comment(src, "go/0", "", "new why")
-    assert out == String.replace(src, "old why", "new why")
-    assert Clause.comment(src, "go/0", "", nil) == "defmodule A do\n  @doc false\n  def go, do: 1\nend\n"
-  end
-
   test "replace_body with a body that repeats its leading comment writes it once" do
     # a new body that opens with the comment the old one opened with: once, not twice
     src = "defmodule C do\n  def go do\n    # why one\n    1\n  end\nend\n"

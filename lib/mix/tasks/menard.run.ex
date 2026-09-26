@@ -21,6 +21,10 @@ defmodule Mix.Tasks.Menard.Run do
   """
   use Mix.Task
 
+  alias Menard.Verbs
+
+  import Menard.CLI
+
   @impl true
   def run(argv) do
     # Only `--in` is menard's; every other flag belongs to the mix task behind the verb
@@ -29,11 +33,11 @@ defmodule Mix.Tasks.Menard.Run do
 
     case args do
       [verb | rest] when verb in ~w(check test format compile credo) ->
-        finish(Menard.Run.result(Menard.resolve(dir), verb, rest, []))
+        finish(Verbs.Run.run(%{verb: verb, args: rest, dir: dir}))
 
       _ ->
-        Mix.raise(
-          "usage: mix menard.run [--in DIR] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed])"
+        usage(
+          "mix menard.run [--in DIR] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed])"
         )
     end
   end
@@ -42,9 +46,4 @@ defmodule Mix.Tasks.Menard.Run do
   defp split_in(["--in=" <> dir | rest], _dir, acc), do: split_in(rest, dir, acc)
   defp split_in([arg | rest], dir, acc), do: split_in(rest, dir, [arg | acc])
   defp split_in([], dir, acc), do: {dir, Enum.reverse(acc)}
-
-  defp finish(%{ok: ok} = result) do
-    Mix.shell().info(JSON.encode!(Menard.Run.lean(result)))
-    if not ok, do: exit({:shutdown, 1})
-  end
 end

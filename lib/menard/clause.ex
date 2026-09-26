@@ -43,15 +43,9 @@ defmodule Menard.Clause do
   @spec replace_body(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
   def replace_body(source, name_arity, head, code, opts \\ []) do
-    case body_only(code) do
-      # the whole clause of the function named: what the eval's agents meant was the rewrite
-      {:error, _} = refused ->
-        if same_function?(code, name_arity), do: rewrite(source, name_arity, head, code, opts), else: refused
-
-      :ok ->
-        with {:ok, clause} <- find(source, name_arity, head, opts) do
-          body_edit(source, clause, code, name_arity, opts)
-        end
+    with :ok <- body_only(code),
+         {:ok, clause} <- find(source, name_arity, head, opts) do
+      body_edit(source, clause, code, name_arity, opts)
     end
   end
 
@@ -983,15 +977,6 @@ defmodule Menard.Clause do
     end
   end
 
-  defp same_function?(code, name_arity) do
-    with {:ok, {_mod, name, arity}} <- parse_name_arity(name_arity),
-         {:ok, {_kind, _meta, [head | _]}} <- parse_clause(code) do
-      name_arity(head) == {name, arity}
-    else
-      _ -> false
-    end
-  end
-
   # -- text -----------------------------------------------------------------
 
   defp clause_text(%{kind: kind, name: name, args: args, guard: guard, indent: indent}, code) do
@@ -1124,28 +1109,6 @@ defmodule Menard.Clause do
   end
 
   @doc """
-  Set (or replace) the `@doc` attached to a clause. A docstring is a string literal on an
-  attribute, so no other verb reaches it. `text` is the prose, not the `@doc` line: it is wrapped in
-  a heredoc here. `nil` deletes the attribute.
-  """
-  @spec doc(String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
-          String.t() | {:error, String.t()}
-  def doc(source, name_arity, head, text, opts \\ []) do
-    with {:ok, ast} <- parse(source),
-         {:ok, clause} <- find(source, name_arity, head, opts) do
-      existing = attached_lines(ast, clause.range, :doc)
-      rendered = if is_nil(text), do: nil, else: clause.indent <> doc_text(text, clause.indent)
-
-      case {existing, text} do
-        {nil, nil} -> source
-        {nil, _} -> insert_at_line(source, doc_start(ast, clause.range), rendered)
-        {{a, b}, nil} -> delete_line_range(source, a, b)
-        {{a, b}, _} -> replace_line_range(source, a, b, rendered)
-      end
-    end
-  end
-
-  @doc """
   Set, replace, or with `spec` nil remove the `@spec` of `name_arity`. A spec belongs to the
   function, not to one clause, so there is no HEAD: it sits above the first clause, below its
   `@doc`. `spec` is the signature (`go(integer()) :: atom()`); a leading `@spec ` is dropped.
@@ -1176,20 +1139,6 @@ defmodule Menard.Clause do
     end
   end
 
-  # Where a NEW @doc goes: above the clause's attached attributes, so it lands over @impl/@spec
-  # rather than between them and the def.
-  defp doc_start(ast, range), do: attrs_start(ast, range)
-
-  defp doc_text(text, pad) do
-    body =
-      text
-      |> String.trim_trailing()
-      |> String.split("\n")
-      |> Enum.map_join("\n", &if(&1 == "", do: "", else: pad <> &1))
-
-    "@doc \"\"\"\n" <> body <> "\n" <> pad <> "\"\"\""
-  end
-
   defp insert_at_line(source, line, text) do
     lines = String.split(source, "\n")
     {before, rest} = Enum.split(lines, line - 1)
@@ -1213,41 +1162,24 @@ defmodule Menard.Clause do
     end
   end
 
-  @doc """
-  Set, replace or delete the comment block glued above a clause — the load-bearing `why` that sits
-  over a `def`. `text` is prose, one line per line; `#` is added (and an existing one tolerated, so
-  pasting a block back is idempotent). A blank line becomes a bare `#`. `nil` deletes the block.
-
-  `rewrite` can carry a comment too, but only by restating the whole clause; this changes the
-  comment and nothing else.
-  """
-  @spec comment(String.t(), String.t(), String.t(), String.t() | nil, keyword()) ::
-          String.t() | {:error, String.t()}
-  def comment(source, name_arity, head, text, opts \\ []) do
-    with {:ok, ast} <- parse(source),
-         {:ok, clause} <- find(source, name_arity, head, opts) do
-      %{start: [line: def_line, column: _]} = clause.range
-      above_attrs = attrs_start(ast, clause.range)
-
-      # Above the clause's ATTACHED attributes, not above the `def` — a `@doc` written between them
-      # would orphan the comment from what it explains. But a comment already written between the
-      # attributes and the def IS the clause's: replaced there, or the clause ends up with two.
-      anchor =
-        if above_attrs < def_line and comment_lines_above(String.split(source, "\n"), def_line - 1) > 0,
-          do: def_line,
-          else: above_attrs
-
-      comment_at(source, anchor, clause.indent, text)
-    end
+  defp delete_line_range(source, a, b) do
+    source
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reject(fn {_text, i} -> i >= a and i <= b end)
+    |> Enum.map_join("\n", &elem(&1, 0))
   end
 
-  @doc """
-  The `#` comment block immediately above line `anchor`: written, replaced, or — with `text` nil —
-  removed. Shared with `Menard.Attr.comment/4`, since an attribute's comment is the same edit at a
-  different anchor.
-  """
-  @spec comment_at(String.t(), pos_integer(), non_neg_integer() | String.t(), String.t() | nil) :: String.t()
-  def comment_at(source, anchor, indent, text) do
+  defp replace_line_range(source, a, b, text) do
+    lines = String.split(source, "\n")
+
+    (Enum.take(lines, a - 1) ++ [text] ++ Enum.drop(lines, b))
+    |> Enum.join("\n")
+  end
+
+  # The `#` comment block immediately above line `anchor`: written, replaced, or — with `text` nil —
+  # removed. Where `rewrite` puts the comment the new clause came with.
+  defp comment_at(source, anchor, indent, text) do
     above = source |> String.split("\n") |> comment_lines_above(anchor - 1)
 
     case {above, text} do
@@ -1270,21 +1202,6 @@ defmodule Menard.Clause do
         body -> pad <> "# " <> body
       end
     end)
-  end
-
-  defp delete_line_range(source, a, b) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.reject(fn {_text, i} -> i >= a and i <= b end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
-
-  defp replace_line_range(source, a, b, text) do
-    lines = String.split(source, "\n")
-
-    (Enum.take(lines, a - 1) ++ [text] ++ Enum.drop(lines, b))
-    |> Enum.join("\n")
   end
 
   # The lines of the `@name` attached above the clause at `range`, or nil.

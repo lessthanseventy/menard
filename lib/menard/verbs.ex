@@ -1,0 +1,150 @@
+defmodule Menard.Verbs do
+  @moduledoc """
+  The one verb layer both doors call. Every noun has a `Menard.Verbs.<Noun>.run/1`: a params map
+  in — the fields as the MCP schema names them (`verb`, `file`, `name_arity`, …), string values,
+  atom keys — and `{:ok, reply} | {:error, reason}` out, `reply` the one JSON-able map a caller
+  sees and `reason` a string. A verb owns resolve → read → change → `Menard.write/3` → the `did`
+  text → the reply, and the check that the fields it cannot do without are there. A door (a mix
+  task, an MCP tool) only turns its input into the params and the result into its own answer:
+  the CLI prints the reply as one JSON line and raises the reason, the MCP tool returns each.
+
+  `root` in the params is the MCP door's launch directory: a path resolves under it and one that
+  escapes it is refused. Without it a path resolves against the caller's directory, as the CLI
+  means it.
+  """
+
+  @type params :: %{optional(atom()) => term()}
+  @type result :: {:ok, map()} | {:error, String.t()}
+
+  @doc """
+  A path as the door meant it: under `params[:root]`, as written and as the OS follows it (a
+  symlink under the root that points outside it passed the first test alone), or against the
+  caller's directory when no root is given.
+  """
+  @spec resolve(String.t(), params()) :: {:ok, String.t()} | {:error, String.t()}
+  def resolve(path, params) do
+    case params[:root] do
+      nil -> {:ok, Menard.resolve(path)}
+      root -> resolve_under(path, Path.expand(root), real(Path.expand(root)))
+    end
+  end
+
+  @doc """
+  Every path resolved, or the first refusal, so no verb edits some of its files. A glob
+  (`lib/**/*.ex`) is expanded — agents pass them, and no shell is there to expand them; one that
+  matches nothing beside others that do is dropped, and only an empty whole is refused.
+  """
+  @spec resolve_all([String.t()], params()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def resolve_all(paths, params) do
+    base = if root = params[:root], do: Path.expand(root), else: Menard.caller_dir()
+    glob? = &String.contains?(&1, ["*", "?", "[", "{"])
+
+    expanded =
+      Enum.flat_map(paths, fn p ->
+        if glob?.(p), do: Path.wildcard(Path.expand(p, base)), else: [p]
+      end)
+
+    case expanded do
+      [] -> {:error, "no file matches #{paths |> Enum.filter(glob?) |> Enum.join(", ")}"}
+      _ -> resolve_each(expanded, params[:root])
+    end
+  end
+
+  # the root's own real path once, not per file: resolving 20,000 paths is a rename's first step
+  defp resolve_each(paths, nil), do: {:ok, Enum.map(paths, &Menard.resolve/1)}
+
+  defp resolve_each(paths, root) do
+    root = Path.expand(root)
+    real_root = real(root)
+
+    resolved =
+      Enum.reduce_while(paths, {:ok, []}, fn p, {:ok, acc} ->
+        case resolve_under(p, root, real_root) do
+          {:ok, abs} -> {:cont, {:ok, [abs | acc]}}
+          {:error, _} = refused -> {:halt, refused}
+        end
+      end)
+
+    with {:ok, reversed} <- resolved, do: {:ok, Enum.reverse(reversed)}
+  end
+
+  defp resolve_under(path, root, real_root) do
+    abs = Path.expand(path, root)
+
+    if under?(abs, root) and under?(real_below(abs, root, real_root), real_root),
+      do: {:ok, abs},
+      else: {:error, "refused: #{path} is outside #{root}"}
+  end
+
+  # only the part below the root is walked, from the root's own real path: each link looked up is a
+  # call to the file server, and resolve_all makes these for every file it is given
+  defp real_below(abs, root, real_root) do
+    abs |> Path.relative_to(root) |> Path.split() |> Enum.reduce(real_root, &follow(Path.join(&2, &1), 0))
+  end
+
+  defp under?(path, dir), do: path == dir or String.starts_with?(path, dir <> "/")
+
+  # `path` with each symlink in it followed, as far as it exists: a file about to be created is
+  # taken as written. A link loop stops following after 40 links, as the OS does.
+  defp real(path, hops \\ 0) do
+    path |> Path.split() |> Enum.reduce(&follow(Path.join(&2, &1), hops))
+  end
+
+  defp follow(path, hops) when hops > 40, do: path
+
+  defp follow(path, hops) do
+    case :file.read_link(path) do
+      {:ok, target} -> real(Path.expand(to_string(target), Path.dirname(path)), hops + 1)
+      {:error, _} -> path
+    end
+  end
+
+  @doc """
+  The fields a verb cannot do without, where the schema leaves them optional for the noun's other
+  verbs: a path left out was `params[:to] || ""`, which resolved to the root directory itself.
+  """
+  @spec need(params(), [atom()], String.t()) :: :ok | {:error, String.t()}
+  def need(params, keys, what) do
+    case for(key <- keys, params[key] in [nil, ""], do: key) do
+      [] -> :ok
+      missing -> {:error, "#{what} needs #{Enum.join(missing, ", ")}"}
+    end
+  end
+
+  @doc "The file's content, or why it could not be read — a door never sees a File.Error."
+  @spec read(String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def read(file) do
+    case File.read(file) do
+      {:ok, source} -> {:ok, source}
+      {:error, reason} -> {:error, "cannot read #{file}: #{:file.format_error(reason)}"}
+    end
+  end
+
+  @doc """
+  The pipeline every writing verb is: `params.file` resolved and read, `change.(source)` (the new
+  source, or `{:error, reason}`), written through `Menard.write/3` under the `version` and `force`
+  the params carry, and the staged reply, its `did` from `did.(file)`.
+  """
+  @spec edit(params(), (String.t() -> String.t()), (String.t() -> String.t() | {:error, String.t()})) ::
+          result()
+  def edit(params, did, change) do
+    with {:ok, file} <- resolve(params.file, params),
+         {:ok, source} <- read(file),
+         out when is_binary(out) <- change.(source) do
+      Menard.write(file, out, [did: did.(Path.basename(file))] ++ stale(params))
+    end
+  end
+
+  @doc "The `version` and `force` a writing verb hands `Menard.write/3`, from the params."
+  @spec stale(params()) :: keyword()
+  def stale(params), do: [version: params[:version], force: params[:force] == true]
+
+  @doc "The `nth` option, when the params pick one of two clauses that share a head."
+  @spec nth(params()) :: keyword()
+  def nth(params), do: if(n = params[:nth], do: [nth: n], else: [])
+
+  @doc "`\"-\"` or an empty module name means the file's one module: nothing to name."
+  @spec module(String.t() | nil) :: String.t() | nil
+  def module(m) when m in [nil, "-", ""], do: nil
+  def module(m), do: m
+end

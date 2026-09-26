@@ -200,22 +200,6 @@ defmodule Menard.StmtTest do
     assert Stmt.replace(src, "y/1", "a", "nil -> false", "nil -> true") =~ "nil -> true\n    end"
   end
 
-  test "comment sets, replaces and removes the # comment above one statement" do
-    src = """
-    defmodule A do
-      def go(x) do
-        # old why
-        step(x)
-      end
-    end
-    """
-
-    replaced = Stmt.comment(src, "go/1", "x", "step(x)", "the new why")
-    assert replaced =~ "    # the new why\n    step(x)"
-    refute replaced =~ "old why"
-    assert Stmt.comment(src, "go/1", "x", "step(x)", nil) =~ "def go(x) do\n    step(x)"
-  end
-
   test "a with's steps and its else arms are statements" do
     # a `with`'s steps are statements, and so is each arm of its `else` — with an `else` or without
     src = """

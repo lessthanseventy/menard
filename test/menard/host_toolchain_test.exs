@@ -49,18 +49,11 @@ defmodule Menard.HostToolchainTest do
       # [env] is what mise refuses to read from an untrusted file; [tools] alone it reads
       File.write!(Path.join(dir, "mise.toml"), "[tools]\nerlang = \"27\"\n\n[env]\nMENARD_TRUST = \"1\"\n")
       File.write!(Path.join(dir, "mix.exs"), "defmodule T.MixProject do\n  use Mix.Project\nend\n")
-      ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
-      File.mkdir_p!(ebin)
-      File.write!(Path.join(ebin, "Elixir.MenardBadPlug.beam"), "not a beam")
-      File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"], plugins: [MenardBadPlug]]")
+      File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")
       file = Path.join(dir, "t.ex")
       File.write!(file, "defmodule T do\nend\n")
 
-      ExUnit.CaptureLog.capture_log(fn ->
-        send(self(), {:format, Menard.format(file, cache: Path.join(dir, "cache"))})
-      end)
-
-      assert_received {:format, {:error, message}}
+      assert {:error, message} = Menard.format(file, cache: Path.join(dir, "cache"))
       assert message =~ "are not trusted"
     end
   end

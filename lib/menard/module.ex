@@ -32,32 +32,6 @@ defmodule Menard.Module do
   end
 
   @doc """
-  The `#` comment block at the top of a module's body — what a test module, say, is about — set,
-  replaced, or with `text` nil removed. `above: true` means the one above `defmodule` itself instead.
-  `module` is `"Mod.Name"`, or nil in a one-module file.
-  """
-  @spec comment(String.t(), String.t() | nil, String.t() | nil, keyword()) ::
-          String.t() | {:error, String.t()}
-  def comment(source, module, text, opts \\ []) do
-    with {:ok, ast} <- parse(source),
-         {:ok, node} <- Clause.module_scope(ast, module) do
-      case {opts[:above], Clause.module_body(node)} do
-        # above `defmodule` itself: a license header, why the file exists
-        {true, _body} ->
-          %{start: [line: line, column: col]} = Sourceror.get_range(node)
-          Clause.comment_at(source, line, col - 1, text)
-
-        {_, [first | _]} ->
-          %{start: [line: line, column: col]} = Sourceror.get_range(first)
-          Clause.comment_at(source, line, col - 1, text)
-
-        {_, []} ->
-          {:error, "the module is empty — nothing to put a comment above"}
-      end
-    end
-  end
-
-  @doc """
   Replace the module `name` with `code`, a complete `defmodule` of the same name — one module of a
   file that holds several, where `write` would take them all. Only that module's bytes change; the
   comment above it and its neighbours stay as written.

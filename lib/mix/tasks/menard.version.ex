@@ -6,12 +6,11 @@ defmodule Mix.Tasks.Menard.Version do
   """
   use Mix.Task
 
+  alias Menard.Verbs
+
   @impl true
   def run(_argv) do
-    # loaded, not assumed: under `bin/menard --frozen` nothing has loaded the app, and there is no
-    # mix.exs to fall back on, so the version printed empty
-    Application.load(:menard)
-    version = Application.spec(:menard, :vsn) || Mix.Project.config()[:version]
-    Mix.shell().info("menard #{version} on Elixir #{System.version()} / OTP #{System.otp_release()}")
+    {:ok, reply} = Verbs.Version.run(%{})
+    Mix.shell().info(Verbs.Version.line(reply))
   end
 end
