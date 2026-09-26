@@ -21,14 +21,12 @@ defmodule Menard.Write do
       existed? = File.exists?(path)
       previous = if existed?, do: File.read!(path)
 
-      cond do
-        previous == content ->
-          {:ok, :unchanged}
-
-        true ->
-          File.mkdir_p!(Path.dirname(path))
-          File.write!(path, content)
-          {:ok, if(existed?, do: :replaced, else: :created)}
+      if previous == content do
+        {:ok, :unchanged}
+      else
+        File.mkdir_p!(Path.dirname(path))
+        File.write!(path, content)
+        {:ok, if(existed?, do: :replaced, else: :created)}
       end
     end
   end

@@ -649,7 +649,10 @@ defmodule Menard.Clause do
   # `@doc`/`@spec`/`@impl` lines and then a def, as a whole clause is written with what it carries: the
   # def, when that is the shape (long1 cart-refactor.B.haiku nested one such in the old body)
   defp leading_attrs(code) do
-    with {:ok, defn, true} <- clause_form(code), do: {:ok, defn}, else: (_ -> nil)
+    case clause_form(code) do
+      {:ok, defn, true} -> {:ok, defn}
+      _ -> nil
+    end
   end
 
   defp clause_attr?({:@, _, [{name, _, _}]}), do: name in [:doc, :spec, :impl, :deprecated]

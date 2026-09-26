@@ -210,7 +210,10 @@ defmodule Menard.Stmt do
   end
 
   defp ok_block(source, label) do
-    with {:ok, _node} = found <- Menard.Block.labelled(source, label), do: found, else: (_ -> nil)
+    case Menard.Block.labelled(source, label) do
+      {:ok, _node} = found -> found
+      _ -> nil
+    end
   end
 
   defp locate(source, name_arity, head, match, opts) do
