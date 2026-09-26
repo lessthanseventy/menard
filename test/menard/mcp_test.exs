@@ -223,6 +223,25 @@ defmodule Menard.MCPTest do
     assert text.(refs) =~ "deps refs needs file"
   end
 
+  test "stmt and attr get answer through the door", %{root: root} do
+    file = Path.join(root, "lib/s.ex")
+    File.write!(file, "defmodule S do\n  @limit 5\n\n  def go(x) do\n    y = x + 1\n    y\n  end\nend\n")
+
+    refute call(Menard.MCP.Stmt, %{
+             verb: "insert_after",
+             file: "lib/s.ex",
+             name_arity: "go/1",
+             head: "x",
+             match: "y = x + 1",
+             code: "IO.inspect(y)"
+           }).isError
+
+    assert File.read!(file) =~ "    IO.inspect(y)\n    y\n"
+
+    value = call(Menard.MCP.Attr, %{verb: "get", file: "lib/s.ex", name: "limit"})
+    assert value.content |> hd() |> Map.fetch!("text") |> JSON.decode!() == %{"value" => "5"}
+  end
+
   test "attr comment writes the # line above an attribute", %{root: root} do
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
 
