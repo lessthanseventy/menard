@@ -443,6 +443,35 @@ defmodule Menard.HooksTest do
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
   end
 
+  @tag :tmp_dir
+  test "commit-gate does not run the gate again over the very files a green run check passed", %{tmp_dir: dir} do
+    # focus3: the agent ran the gate, green, and committed; the hook ran the whole gate again
+    host(dir)
+    # the hook's own files (its TMPDIR is this dir here) are no part of the project
+    File.write!(Path.join(dir, ".gitignore"), "/_build/\n/menard-*\n/payload-*\n")
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 1\nend\n")
+    File.write!(Path.join(dir, "menard-touched-c3"), dir <> "\n")
+    assert %{ok: true} = Menard.Run.result(dir, "check", [])
+
+    commit = %{
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      session_id: "c3",
+      tool_input: %{command: "git commit -m x"}
+    }
+
+    gate_runs = fn -> Path.wildcard(Path.join(dir, "menard-run/**/*.log")) end
+
+    assert {"", 0} = commit_gate(commit, dir)
+    assert gate_runs.() == []
+
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 2\nend\n")
+    assert {"", 0} = commit_gate(commit, dir)
+    assert gate_runs.() != []
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))
