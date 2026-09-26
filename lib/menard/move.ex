@@ -7,18 +7,21 @@ defmodule Menard.Move do
 
   @doc """
   Move `name_arity` from `file` to `dest` (absolute paths). `module:` picks the destination module
-  in a file with several. Returns `{:ok, created}` — the module name when `dest` was created, else nil.
+  in a file with several. Returns `{:ok, %{created, to, from}}`: `created` is the module name when
+  `dest` was created, else nil; `to` and `from` are each file's `Menard.write/3` reply, its version
+  and stages.
   """
-  @spec run(String.t(), String.t(), String.t(), keyword()) :: {:ok, String.t() | nil} | {:error, String.t()}
+  @spec run(String.t(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, String.t()}
   def run(file, dest, name_arity, opts \\ []) do
     with {:ok, dest_source, created} <- dest_source(dest, opts[:as]),
          {:ok, out_source, out_dest} <-
            Menard.Clause.move(File.read!(file), dest_source, name_arity, module: opts[:module]),
          {:ok, _} <- Menard.Write.checked(dest, out_dest),
          {:ok, _} <- Menard.Write.checked(file, out_source),
-         :ok <- Menard.checked_write(dest, out_dest),
-         :ok <- Menard.checked_write(file, out_source) do
-      {:ok, created}
+         {:ok, to} <- Menard.write(dest, out_dest, did: "move #{name_arity} into #{Path.basename(dest)}"),
+         {:ok, from} <-
+           Menard.write(file, out_source, did: "move #{name_arity} out of #{Path.basename(file)}") do
+      {:ok, %{created: created, to: to, from: from}}
     end
   end
 
