@@ -108,15 +108,17 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     defp versions(params) do
       pairs =
-        for spec <- params[:versions] || [] do
-          [file, version] = String.split(spec, "=", parts: 2)
-          {:ok, abs} = Menard.MCP.resolve(file)
-          {abs, version}
-        end
+        Enum.reduce_while(params[:versions] || [], {:ok, []}, fn spec, {:ok, acc} ->
+          with [file, version] <- String.split(spec, "=", parts: 2),
+               {:ok, abs} <- Menard.MCP.resolve(file) do
+            {:cont, {:ok, [{abs, version} | acc]}}
+          else
+            {:error, _} = refused -> {:halt, refused}
+            _ -> {:halt, {:error, "versions are FILE=SHA, got #{spec}"}}
+          end
+        end)
 
-      Menard.check_versions(pairs)
-    rescue
-      MatchError -> {:error, "versions are FILE=SHA, each FILE under the root"}
+      with {:ok, pairs} <- pairs, do: Menard.check_versions(Enum.reverse(pairs))
     end
 
     # a file it could not parse or write is neither: "unchanged" told the agent the old name was

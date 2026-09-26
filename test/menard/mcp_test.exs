@@ -416,6 +416,17 @@ defmodule Menard.MCPTest do
     end
   end
 
+  test "rename's versions: a path outside the root is refused as that, not as a bad FILE=SHA", %{
+    root: root
+  } do
+    File.write!(Path.join(root, "lib/r.ex"), "defmodule R do\n  def old, do: 1\nend\n")
+    text = &(&1.content |> hd() |> Map.fetch!("text"))
+    rename = &call(Menard.MCP.Rename, %{old: "old", new: "fresh", files: ["lib/r.ex"], versions: [&1]})
+
+    assert text.(rename.("../elsewhere.ex=sha256:00")) =~ "refused: ../elsewhere.ex is outside"
+    assert text.(rename.("lib/r.ex")) =~ "versions are FILE=SHA"
+  end
+
   test "rename names a file it could not parse, apart from the ones it had nothing to do in", %{
     root: root
   } do
