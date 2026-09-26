@@ -57,7 +57,8 @@ defmodule Menard.ClauseTest do
 
   test "an unknown clause is an error naming the candidates" do
     assert {:error, msg} = Clause.replace_body(@src, "go/1", ":zzz", "1")
-    assert msg =~ "go/1" and msg =~ ":a"
+    assert msg =~ "go/1"
+    assert msg =~ ":a"
     assert {:error, _} = Clause.delete(@src, "nope/0", "", [])
   end
 
@@ -82,7 +83,8 @@ defmodule Menard.ClauseTest do
              "defmodule A do\n  def run(x), do: x\nend\n\ndefmodule B do\n  def run(x), do: x + 1\nend\n"
 
     assert {:error, msg} = Clause.replace_body(src, "run/1", "x", "x + 1")
-    assert msg =~ "A, B" and msg =~ "Mod.run/1"
+    assert msg =~ "A, B"
+    assert msg =~ "Mod.run/1"
     assert {:error, msg} = Clause.replace_body(src, "C.run/1", "x", "x + 1")
     assert msg =~ "no module C"
   end
@@ -194,7 +196,8 @@ defmodule Menard.ClauseTest do
       # the guard is what tells these two apart: left off, the exact head wins, and a tie is refused
       tie = "defmodule D do\n  def f(x) when is_integer(x), do: x\n  def f(x) when is_atom(x), do: x\nend\n"
       assert {:error, message} = Clause.replace_body(tie, "f/1", "x", ":no")
-      assert message =~ "is_integer" and message =~ "is_atom"
+      assert message =~ "is_integer"
+      assert message =~ "is_atom"
     end
 
     test "a function with one clause answers to any head" do
