@@ -34,12 +34,6 @@ defmodule Mix.Tasks.Menard.Stmt do
   defp verb(["delete", file, na, head, match], did, flags),
     do: write(file, did, flags, &Stmt.delete(&1, na, head, match, flags))
 
-  defp verb(["comment", file, na, head, match, text], did, flags),
-    do: write(file, did, flags, &Stmt.comment(&1, na, head, match, text, flags))
-
-  defp verb(["comment", file, na, head, match], did, flags),
-    do: write(file, did, flags, &Stmt.comment(&1, na, head, match, nil, flags))
-
   defp verb(["list", file, na, head], _did, flags) do
     case Stmt.list(File.read!(Menard.resolve(file)), na, head, flags) do
       {:error, message} -> Mix.raise(message)
@@ -51,7 +45,6 @@ defmodule Mix.Tasks.Menard.Stmt do
     Mix.raise(
       "usage: mix menard.stmt (insert-after|insert-before|replace) FILE name/arity HEAD MATCH CODE [--nth N]\n" <>
         "       mix menard.stmt delete FILE name/arity HEAD MATCH [--nth N]\n" <>
-        "       mix menard.stmt comment FILE name/arity HEAD MATCH [TEXT]   (no TEXT removes it)\n" <>
         "       mix menard.stmt list FILE name/arity HEAD"
     )
   end

@@ -127,42 +127,6 @@ defmodule Mix.Tasks.Menard.Clause do
     end
   end
 
-  defp verb(["comment", file, na, head, text], flags) do
-    write(
-      file,
-      &Clause.comment(&1, na, head, text, nth: flags[:nth]),
-      "comment #{na} in #{Path.basename(file)}",
-      flags
-    )
-  end
-
-  defp verb(["comment", file, na, head], flags) do
-    write(
-      file,
-      &Clause.comment(&1, na, head, nil, nth: flags[:nth]),
-      "comment #{na} in #{Path.basename(file)}",
-      flags
-    )
-  end
-
-  defp verb(["doc", file, na, head, text], flags) do
-    write(
-      file,
-      &Clause.doc(&1, na, head, text, nth: flags[:nth]),
-      "doc #{na} in #{Path.basename(file)}",
-      flags
-    )
-  end
-
-  defp verb(["doc", file, na, head], flags) do
-    write(
-      file,
-      &Clause.doc(&1, na, head, nil, nth: flags[:nth]),
-      "doc #{na} in #{Path.basename(file)}",
-      flags
-    )
-  end
-
   defp verb(["spec", file, na | spec], flags) when length(spec) <= 1 do
     write(
       file,
@@ -188,8 +152,6 @@ defmodule Mix.Tasks.Menard.Clause do
         "       mix menard.clause get FILE name/arity [HEAD]            (the function as written; a HEAD: that clause)\n" <>
         "       mix menard.clause insert-at FILE (Mod.Name|-) [top|bottom] CODE\n" <>
         "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
-        "       mix menard.clause doc FILE name/arity HEAD [TEXT]       (no TEXT deletes it)\n" <>
-        "       mix menard.clause comment FILE name/arity HEAD [TEXT]   (no TEXT deletes it)\n" <>
         "       mix menard.clause spec FILE name/arity [SPEC]           (no SPEC deletes it)\n" <>
         "       mix menard.clause visibility FILE name/arity (public|private)"
     )

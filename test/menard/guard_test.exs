@@ -108,8 +108,10 @@ defmodule Menard.GuardTest do
       assert {_, 2} = edit(file, %{old_string: "\#{name}", new_string: "\#{String.upcase(name)}"})
     end
 
-    test "a comment is refused: menard has verbs for those", %{mailer: file} do
-      assert {_, 2} = edit(file, %{old_string: "# the receipt", new_string: "# the mail"})
+    test "a comment passes: no verb reaches prose, and the tree is the same without it", %{mailer: file} do
+      assert {_, 0} = edit(file, %{old_string: "# the receipt", new_string: "# the mail"})
+      assert {_, 0} = edit(file, %{old_string: "  # the receipt\n", new_string: ""})
+      assert {_, 0} = edit(file, %{old_string: "  def hi(name)", new_string: "  # says hi\n  def hi(name)"})
     end
 
     test "an edit that breaks the parse, or does not apply, is refused", %{mailer: file} do

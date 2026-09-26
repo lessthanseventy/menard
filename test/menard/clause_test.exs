@@ -481,8 +481,9 @@ defmodule Menard.ClauseTest do
       """
 
       # `def bg, do: def(bg, do: 1)` is VALID Elixir, so the parse-check passes and only the compiler
-      # objects. A whole clause of bg itself is read as the rewrite it means, never nested
-      assert Clause.replace_body(src, "bg/0", "", "def bg, do: 1") == "defmodule A do\n  def bg, do: 1\nend\n"
+      # objects. A whole clause is refused toward `rewrite`, never nested
+      assert {:error, message} = Clause.replace_body(src, "bg/0", "", "def bg, do: 1")
+      assert message =~ "rewrite"
     end
   end
 
@@ -706,24 +707,21 @@ defmodule Menard.ClauseTest do
     assert out =~ "  # why\n  @impl true\n  def run(args), do: args"
   end
 
-  test "replace handed the whole clause of the function it names does the rewrite that was meant" do
+  test "replace handed a whole clause is refused toward rewrite, the function's own or another's" do
     src = "defmodule T do\n  def total(cart), do: cart\nend\n"
-    # as the eval's agents wrote it: the def line and all
-    out = Clause.replace_body(src, "total/1", "cart", "def total(cart) do\n  cart * 2\nend")
-    assert out =~ "def total(cart) do\n    cart * 2\n  end"
-    refute out =~ "def total(cart) do\n    def"
-    # a whole clause of ANOTHER function is still refused: that one is a mistake, not a shorthand
+    # as the eval's agents wrote it: the def line and all. One name per edit: `rewrite` is that one
+    assert {:error, message} =
+             Clause.replace_body(src, "total/1", "cart", "def total(cart) do\n  cart * 2\nend")
+
+    assert message =~ "rewrite"
     assert {:error, message} = Clause.replace_body(src, "total/1", "cart", "def other(x), do: x")
     assert message =~ "rewrite"
-  end
-
-  test "replace handed a whole clause under a comment takes it as the rewrite, comment and all" do
     # a comment above the def hid that it was a whole clause, and it was nested in the old one:
     # it parsed, and did not compile (found fixing bench1's bugs)
-    src = "defmodule A do\n  def f(x), do: x\nend\n"
-    out = Clause.replace_body(src, "f/1", "x", "# why\ndef f(x) do\n  x + 1\nend")
-    assert out =~ ~r/  # why\n  def f\(x\) do\n    x \+ 1\n  end/
-    refute out =~ ~r/def f\(x\) do\n\s+# why\n\s+def f/
+    assert {:error, message} =
+             Clause.replace_body(src, "total/1", "cart", "# why\ndef total(cart) do\n  cart * 2\nend")
+
+    assert message =~ "rewrite"
   end
 
   test "delete_function takes every clause, with the @doc, @spec and comments above them" do
@@ -781,11 +779,10 @@ defmodule Menard.ClauseTest do
     src = "defmodule A do\n  @doc \"Old.\"\n  def f(x), do: x\n\n  def g, do: 1\nend\n"
     code = "@doc \"New.\"\n@spec f(integer()) :: integer()\ndef f(x) do\n  x + 1\nend"
 
-    for out <- [Clause.replace_body(src, "f/1", "x", code), Clause.rewrite(src, "f/1", "x", code)] do
-      assert out =~ ~s|  @doc "New."\n  @spec f(integer()) :: integer()\n  def f(x) do\n    x + 1\n  end|
-      refute out =~ "Old."
-      assert out =~ "def g, do: 1"
-    end
+    out = Clause.rewrite(src, "f/1", "x", code)
+    assert out =~ ~s|  @doc "New."\n  @spec f(integer()) :: integer()\n  def f(x) do\n    x + 1\n  end|
+    refute out =~ "Old."
+    assert out =~ "def g, do: 1"
   end
 
   test "rewrite takes the clause and whatever the code adds after it: a new function beside it" do
@@ -838,7 +835,7 @@ defmodule Menard.ClauseTest do
     assert message =~ "stmt"
   end
 
-  test "a whole component, its attr lines and @doc above the def, is the rewrite" do
+  test "a whole component, its attr lines and @doc above the def, is a rewrite; replace refuses it" do
     # long2 cart-refactor.B.haiku replaced cart_summary/1 with `attr …` `attr …` `@doc …` then the def:
     # not seen as a whole clause, nested in the old body, and step 02 ended not compiling again
     src =
@@ -847,7 +844,10 @@ defmodule Menard.ClauseTest do
     code =
       "attr :cart, :map, required: true\nattr :region, :atom, default: :home\n\n@doc \"New.\"\ndef summary(assigns) do\n  ~H\"new\"\nend"
 
-    out = Clause.replace_body(src, "summary/1", "assigns", code)
+    assert {:error, message} = Clause.replace_body(src, "summary/1", "assigns", code)
+    assert message =~ "rewrite"
+
+    out = Clause.rewrite(src, "summary/1", "assigns", code)
     assert out =~ "  attr :region, :atom, default: :home\n\n  @doc \"New.\"\n  def summary(assigns) do"
     refute out =~ "Old."
     assert length(Regex.scan(~r/attr :cart/, out)) == 1

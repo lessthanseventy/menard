@@ -183,10 +183,6 @@ if Code.ensure_loaded?(Anubis.Server) do
     `@doc`/`@spec`/comments above it) and `delete` deletes it, answering with `left`: each call to it
     still to fix. With a `head`, each takes that one clause.
 
-    `doc` and `comment` set the `@doc` or the `#` comment above a clause — prose in `text`, no
-    `text` deletes it. They are the only door to either: both are string literals, so the clause
-    verbs cannot reach them.
-
     Two clauses CAN share a head (an insert beside its twin). That is refused with both line
     numbers rather than guessed at; `nth` says which one.
 
@@ -222,8 +218,6 @@ if Code.ensure_loaded?(Anubis.Server) do
           "move",
           "visibility",
           "spec",
-          "doc",
-          "comment",
           "get"
         ],
         required: true
@@ -236,7 +230,6 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
       field(:at, :enum, values: ["top", "bottom"])
       field(:visibility, :enum, values: ["public", "private"])
-      field(:text, :string)
       field(:nth, :integer)
       field(:to, :string)
       field(:as, :string)
@@ -342,14 +335,6 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp edit_clause("insert_at", p, source, code, _opts),
       do: Clause.insert_at(source, p[:module], at(p[:at]), code)
 
-    # `text` absent means DELETE for both — the prose is the whole payload, so nothing to give
-    # is the only way to say "remove it".
-    defp edit_clause("doc", p, source, _code, opts),
-      do: Clause.doc(source, p.name_arity, p.head, p[:text], opts)
-
-    defp edit_clause("comment", p, source, _code, opts),
-      do: Clause.comment(source, p.name_arity, p.head, p[:text], opts)
-
     # every clause of the function at once — a half-flipped one does not compile
     defp edit_clause("visibility", p, source, _code, _opts),
       do: Clause.visibility(source, p.name_arity, want(p[:visibility]))
@@ -363,8 +348,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     ONE statement inside a clause body — a line in a `do` block, a step in a `with`, a `case` arm.
     Name the clause (`name_arity` + `head`), then the statement by what is WRITTEN (`match`),
     whitespace-insensitive. `verb` is `insert_after`, `insert_before`, `replace`, `delete` or
-    `list`; `code` is the new statement. `comment` sets the `#` comment above it — prose in
-    `text`, no `text` removes it.
+    `list`; `code` is the new statement.
 
     A miss lists the statements that are there. An ambiguous match is refused with line numbers
     rather than guessed at; `nth` says which one.
@@ -381,7 +365,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:force, :boolean)
 
       field(:verb, :enum,
-        values: ["insert_after", "insert_before", "replace", "delete", "comment", "list"],
+        values: ["insert_after", "insert_before", "replace", "delete", "list"],
         required: true
       )
 
@@ -390,7 +374,6 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:head, :string, required: true)
       field(:match, :string)
       field(:code, :string)
-      field(:text, :string)
       field(:nth, :integer)
     end
 
@@ -426,7 +409,6 @@ if Code.ensure_loaded?(Anubis.Server) do
         "insert_before" -> Stmt.insert_before(source, p.name_arity, p.head, match, code, opts)
         "replace" -> Stmt.replace(source, p.name_arity, p.head, match, code, opts)
         "delete" -> Stmt.delete(source, p.name_arity, p.head, match, opts)
-        "comment" -> Stmt.comment(source, p.name_arity, p.head, match, p[:text], opts)
       end
     end
   end
@@ -653,10 +635,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     @moduledoc """
     Module attributes — the tables a module keeps at the top (`@hints`, `@colors`, `@panes`), which
     no clause verb reaches because an attribute is not a clause. `verb` is `get`, `set` (replaces the
-    value, or adds the attribute above the first definition when missing), `delete`, `list`, or
-    `comment` (the `#` comment above it — prose in `text`, no `text` deletes it). Addressed by
-    `name`; a name several attributes share (`@doc`/`@impl`/`@spec` repeat per clause) is refused
-    with their lines — those belong to the clause verbs.
+    value, or adds the attribute above the first definition when missing), `delete` or `list`.
+    Addressed by `name`; a name several attributes share (`@doc`/`@impl`/`@spec` repeat per clause)
+    is refused with their lines — those belong to the clause verbs.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
@@ -669,11 +650,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     schema do
       field(:version, :string)
       field(:force, :boolean)
-      field(:verb, :enum, values: ["get", "set", "replace", "delete", "list", "comment"], required: true)
+      field(:verb, :enum, values: ["get", "set", "delete", "list"], required: true)
       field(:file, :string, required: true)
       field(:name, :string)
       field(:value, :string)
-      field(:text, :string)
       field(:module, :string)
     end
 
@@ -736,10 +716,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp read("list", source, p), do: Attr.list(source, module: p[:module])
 
     defp write("set", source, p), do: Attr.set(source, p[:name] || "", p[:value] || "", module: p[:module])
-    # every other tool calls it replace, and agents do too
-    defp write("replace", source, p), do: write("set", source, p)
     defp write("delete", source, p), do: Attr.delete(source, p[:name] || "", module: p[:module])
-    defp write("comment", source, p), do: Attr.comment(source, p[:name] || "", p[:text], module: p[:module])
   end
 
   defmodule Menard.MCP.Block do
@@ -909,10 +886,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     @moduledoc """
     Whole modules inside a file. `verb` is `add` (a complete `defmodule` appended after the last
     one; a name the file already defines is refused), `replace` (the module named `module` swapped
-    for `code`, a complete `defmodule` of that name; its neighbours untouched), `list`, or `comment`
-    (the `#` comment at the top of a module's body, or with `above` the one over its `defmodule`;
-    `module`, or the file's one). `clause insert_at`
-    puts a function INTO a module, and `write` replaces the whole file.
+    for `code`, a complete `defmodule` of that name; its neighbours untouched) or `list`. `clause
+    insert_at` puts a function INTO a module, and `write` replaces the whole file.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
@@ -923,12 +898,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     schema do
       field(:version, :string)
       field(:force, :boolean)
-      field(:verb, :enum, values: ["add", "replace", "list", "comment"], required: true)
+      field(:verb, :enum, values: ["add", "replace", "list"], required: true)
       field(:file, :string, required: true)
       field(:code, :string)
       field(:module, :string)
-      field(:text, :string)
-      field(:above, :boolean)
     end
 
     def call(%{verb: "list"} = params, frame) do
@@ -940,7 +913,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def call(%{verb: verb} = params, frame) when verb in ["add", "replace", "comment"] do
+    def call(%{verb: verb} = params, frame) when verb in ["add", "replace"] do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            out when is_binary(out) <- edit(verb, File.read!(file), params),
            {:ok, reply} <-
@@ -957,8 +930,5 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     defp edit("add", source, p), do: Menard.Module.add(source, p[:code] || "")
     defp edit("replace", source, p), do: Menard.Module.replace(source, p[:module] || "", p[:code] || "")
-
-    defp edit("comment", source, p),
-      do: Menard.Module.comment(source, p[:module], p[:text], above: p[:above] == true)
   end
 end

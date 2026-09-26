@@ -33,19 +33,6 @@ defmodule Menard.ModuleTest do
     assert Menard.Module.list(@src) == ["A", "B"]
   end
 
-  test "comment sets the # comment at the top of a module's body" do
-    src = """
-    defmodule ATest do
-      # old header
-      use ExUnit.Case
-    end
-    """
-
-    out = Menard.Module.comment(src, nil, "what these tests are about")
-    assert out =~ "defmodule ATest do\n  # what these tests are about\n  use ExUnit.Case"
-    refute out =~ "old header"
-  end
-
   test "replace swaps one whole module in a file of several, and only its bytes" do
     src = """
     defmodule A do
@@ -71,24 +58,6 @@ defmodule Menard.ModuleTest do
     assert {:error, message} = Menard.Module.replace(src, "B", "defmodule Z do\nend")
     assert message =~ "B"
     assert {:error, _} = Menard.Module.replace(src, "Nope", "defmodule Nope do\nend")
-  end
-
-  test "comment with above: sets the # comment above defmodule, not in its body" do
-    src = """
-    # old note
-    defmodule ATest do
-      # the body's header, not this one's
-      use ExUnit.Case
-    end
-    """
-
-    out = Menard.Module.comment(src, nil, "why this module exists", above: true)
-    assert out =~ "# why this module exists\ndefmodule ATest do\n  # the body's header"
-    refute out =~ "old note"
-
-    # no text removes it, and only it
-    assert Menard.Module.comment(out, nil, nil, above: true) =~
-             ~r/\Adefmodule ATest do\n  # the body's header/
   end
 
   @tag :tmp_dir

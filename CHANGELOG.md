@@ -32,10 +32,18 @@ agents tripped on, fixed, and what they reached for first, made to work.
   failure of kind `step`: the step, as mix ran it, and the last lines it printed. It answered
   `failures: []` and a stack trace's tail.
 - The guard passes an edit that only changes text inside a string or sigil (a heredoc, a `~H`
-  template), where no verb reaches: `menard guard FILE --edit INPUT`, from both adapters.
-- `clause replace` handed the whole clause of the function it names does that rewrite; `block
-  replace` and `block add` handed a whole block of the macro (and label) named take its body,
-  label and args. Both were refused, and `block add` nested the block inside another.
+  template) or a `#` comment, where no verb reaches: `menard guard FILE --edit INPUT`, from both
+  adapters.
+- `block replace` and `block add` handed a whole block of the macro (and label) named take its
+  body, label and args. Both were refused, and `block add` nested the block inside another.
+
+**Removed**
+- The prose verbs: `clause doc`, `clause comment`, `stmt comment`, `attr comment` and `module
+  comment` (with its `--above`). A `@doc` is a string and a comment is no node at all, so an `Edit`
+  of either is what the guard now passes; each verb was one more schema to read for an edit `Edit`
+  makes as well. `attr replace` (an alias of `set`) and `clause replace`'s fallback to `rewrite`
+  when handed a whole clause are gone with them: one name per edit, and a whole clause handed to
+  `replace` is refused toward `rewrite`, as it was in 0.5.0.
 - The MCP server's instructions (in the client's system prompt) say modules are edited with its
   tools, from `outline`, finishing on `run check`: 4 of 6 smoke-run agents tried Edit first.
 - `hooks/shell-edits.sh`: a module a shell command changed is named, with `run check` to confirm it.

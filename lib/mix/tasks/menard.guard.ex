@@ -85,9 +85,9 @@ defmodule Mix.Tasks.Menard.Guard do
     end
   end
 
-  # Text inside a string or sigil (a heredoc, a ~H template) is one node to menard, so no verb reaches
-  # into it. Such an edit passes: the file it leaves parses to the same tree, strings aside, with the
-  # same comments. Code interpolated into a string is still tree, so a change to it is refused.
+  # Text inside a string or sigil (a heredoc, a ~H template) is one node to menard, and a comment is
+  # no node at all: no verb reaches either. Such an edit passes: the file it leaves parses to the same
+  # tree, strings aside. Code interpolated into a string is still tree, so a change to it is refused.
   defp strings_only?(_path, nil), do: false
 
   defp strings_only?(path, json) do
@@ -95,9 +95,9 @@ defmodule Mix.Tasks.Menard.Guard do
 
     with {:ok, input} <- JSON.decode(json),
          {:ok, new} <- applied(old, input),
-         {:ok, a, a_comments} <- Code.string_to_quoted_with_comments(old, emit_warnings: false),
-         {:ok, b, b_comments} <- Code.string_to_quoted_with_comments(new, emit_warnings: false) do
-      unstrung(a) == unstrung(b) and Enum.map(a_comments, & &1.text) == Enum.map(b_comments, & &1.text)
+         {:ok, a} <- Code.string_to_quoted(old, emit_warnings: false),
+         {:ok, b} <- Code.string_to_quoted(new, emit_warnings: false) do
+      unstrung(a) == unstrung(b)
     else
       _ -> false
     end
