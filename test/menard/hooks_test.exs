@@ -413,6 +413,25 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "the gates read ok from menard's reply, not from a stderr line that says it", %{tmp_dir: dir} do
+    host(dir)
+    File.write!(Path.join(dir, "menard-touched-g1"), dir <> "\n")
+    liar = stub_menard(dir, "liar", @red <> ~s(\necho 'building: {"ok":true}' >&2))
+    refused = stub_menard(dir, "refused", "echo 'menard: no such verb' >&2\nexit 1")
+
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "g1"}, dir, liar)
+    assert JSON.decode!(out)["reason"] =~ "t.exs:1 red"
+
+    commit = %{session_id: "g1", tool_input: %{command: "git commit -m x"}}
+    {out, 0} = commit_gate(commit, dir, liar)
+    assert JSON.decode!(out)["hookSpecificOutput"]["permissionDecisionReason"] =~ "t.exs:1 red"
+
+    # no reply at all: menard's own error is the reason
+    {out, 0} = commit_gate(commit, dir, refused)
+    assert JSON.decode!(out)["hookSpecificOutput"]["permissionDecisionReason"] =~ "menard: no such verb"
+  end
+
+  @tag :tmp_dir
   test "stop-gate lets a session end that wrote nothing, or was refused three times", %{tmp_dir: dir} do
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "none-written"}, dir)
 
