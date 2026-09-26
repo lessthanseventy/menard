@@ -146,3 +146,10 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
 - 18:06 bench2 restarted from zero (the 17:57 start stopped at 5 rows, at Andrew's call, to
   take two more fixes): pinned at dafd33e, which adds stmt replace inside ~H expressions (a3863e3)
   and whole-function delete with the calls left named (dafd33e). Same matrix, 68 runs.
+- 18:20 HARNESS BUG: new-component's hidden test/hidden/badge_test.exs was not formatted, and
+  the check copies it in before `mix format --check-formatted`: every new-component run, both
+  arms, bench1 and bench2 (pinned before this fix), is `clean: false` whatever the agent did. B's
+  own edits in bench2 new-component.B.haiku format clean (checked on its diff). Read those rows'
+  clean as unknown. Fixed in the case (and the long suite's step 06 copy) for later rounds.
+- 18:20 Fixing as bench2 runs (Andrew): cd9b403 (clause get; schema refusals say why),
+  5598d8f (stmt replace on any ~H text; short miss lists). The gate runs at nice 19 meanwhile.
