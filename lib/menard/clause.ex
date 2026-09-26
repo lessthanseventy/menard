@@ -81,7 +81,7 @@ defmodule Menard.Clause do
       true ->
         inline = patch(source, range, String.trim(code))
 
-        if reads_back?(inline, source, name_arity, clause, code, opts),
+        if reads_back?(inline, source, clause, code),
           do: inline,
           else: patch(source, clause.range, clause_text(clause, code))
     end
@@ -103,18 +103,35 @@ defmodule Menard.Clause do
     end
   end
 
-  defp reads_back?(out, source, name_arity, clause, code, opts) do
+  # One parse of OUT answers both questions: does the clause's body read back as CODE, and does it
+  # take a warning to — an unparenthesised call in a keyword is ambiguous to Elixir, which picks a
+  # reading and says so. The source is parsed for its own warnings only when OUT has some.
+  defp reads_back?(out, source, clause, code) do
+    %{start: [line: line, column: column]} = clause.range
+
     with false <- String.contains?(String.trim(code), "\n"),
-         {:ok, %{node: {_kind, _meta, [_head, [{_do, body}]]}}} <-
-           find(out, name_arity, clause.head_text, opts),
-         {:ok, want} <- Sourceror.parse_string(code) do
-      # parsed "right" can still be parsed with a warning: an unparenthesised call in a keyword is
-      # ambiguous to Elixir, which picks a reading and says so
-      Sourceror.to_string(body) == Sourceror.to_string(want) and parse_warnings(out) <= parse_warnings(source)
+         {{:ok, ast}, warnings} <- Code.with_diagnostics(fn -> Code.string_to_quoted(out, columns: true) end),
+         {{:ok, want}, _} <- Code.with_diagnostics(fn -> Code.string_to_quoted(code) end),
+         {_kind, _meta, [_head, [do: body]]} <- def_at(ast, line, column) do
+      no_meta(body) == no_meta(want) and (warnings == [] or length(warnings) <= parse_warnings(source))
     else
       _ -> false
     end
   end
+
+  defp def_at(ast, line, column) do
+    ast
+    |> Macro.prewalk(nil, fn
+      {kind, meta, _args} = node, nil when kind in @kinds ->
+        {node, if(meta[:line] == line and meta[:column] == column, do: node)}
+
+      node, found ->
+        {node, found}
+    end)
+    |> elem(1)
+  end
+
+  defp no_meta(ast), do: Macro.prewalk(ast, &Macro.update_meta(&1, fn _meta -> [] end))
 
   defp parse_warnings(source) do
     {_result, diagnostics} = Code.with_diagnostics(fn -> Code.string_to_quoted(source) end)
