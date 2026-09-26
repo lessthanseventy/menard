@@ -99,4 +99,20 @@ defmodule Menard.FindTest do
     assert hd(Find.calls(src, "Shop.Catalog.price_with_tax")).text =~ "Catalog.price_with_tax(@product)"
     assert [%{line: 8}] = Find.calls(src, "local")
   end
+
+  @tag :tmp_dir
+  test "left answers, never raises: an empty lib/, a file it cannot read", %{tmp_dir: root} do
+    # a whole-function delete has already written when left runs: a raise here lost the reply
+    File.mkdir_p!(Path.join(root, "lib"))
+    File.mkdir_p!(Path.join(root, "test"))
+    File.ln_s!("nowhere.exs", Path.join(root, "test/gone_test.exs"))
+    file = Path.join(root, "a.ex")
+    source = "defmodule A do\n  def run, do: go()\nend\n"
+    File.write!(file, source)
+
+    assert Find.left(root, file, source, "go/0") == [
+             "a.ex:2: go()",
+             "test/gone_test.exs: not read (no such file or directory)"
+           ]
+  end
 end

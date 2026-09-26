@@ -48,35 +48,51 @@ defmodule Menard.Find do
 
     {mod, fun} =
       case String.split(spec, ".") do
-        [fun] ->
-          {source
-           |> Code.string_to_quoted!(emit_warnings: false)
-           |> Menard.Clause.modules()
-           |> hd()
-           |> elem(0), fun}
-
-        parts ->
-          {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
+        [fun] -> {own_module(source), fun}
+        parts -> {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
       end
 
-    dirs = for dir <- ["lib", "test"], File.dir?(Path.join(root, dir)), do: Path.join(root, dir)
-    {:ok, files} = if dirs == [], do: {:ok, []}, else: Menard.Find.files(dirs)
+    # Never raises: the delete this answers for is already written, and a raise lost its reply. An
+    # empty lib/ holds no calls (files/1 calls it an error), and a file that cannot be read says so.
+    files = for dir <- ["lib", "test"], f <- Path.wildcard(Path.join([root, dir, "**/*.{ex,exs}"])), do: f
 
-    for f <- Enum.uniq([file | files]),
-        text = File.read!(f),
-        hit <-
-          Menard.Find.calls(text, "#{mod}.#{fun}") ++
-            if(f == file, do: Menard.Find.calls(text, fun), else: []) do
-      test =
-        text
-        |> Menard.Block.list()
-        |> List.wrap()
-        |> Enum.filter(&match?({:test, _label, line} when line <= hit.line, &1))
-        |> List.last()
+    for f <- Enum.uniq([file | files]), line <- left_in(f, root, f == file, mod, fun), do: line
+  end
 
-      where = Path.relative_to(f, root) <> ":#{hit.line}"
-      if test, do: ~s(#{where}, in test "#{elem(test, 1)}": #{hit.text}), else: "#{where}: #{hit.text}"
+  defp left_in(f, root, own?, mod, fun) do
+    case File.read(f) do
+      {:ok, text} ->
+        text |> left_hits(own?, mod, fun) |> Enum.map(&left_line(f, root, text, &1))
+
+      {:error, reason} ->
+        ["#{Path.relative_to(f, root)}: not read (#{:file.format_error(reason)})"]
     end
+  end
+
+  # every file's remote calls by the module's full name, and the file's own local ones
+  defp left_hits(text, own?, mod, fun) do
+    remote = if mod, do: calls(text, "#{mod}.#{fun}"), else: []
+    local = if own?, do: calls(text, fun), else: []
+    remote ++ local
+  end
+
+  defp left_line(f, root, text, hit) do
+    test =
+      text
+      |> Menard.Block.list()
+      |> List.wrap()
+      |> Enum.filter(&match?({:test, _label, line} when line <= hit.line, &1))
+      |> List.last()
+
+    where = Path.relative_to(f, root) <> ":#{hit.line}"
+    if test, do: ~s(#{where}, in test "#{elem(test, 1)}": #{hit.text}), else: "#{where}: #{hit.text}"
+  end
+
+  defp own_module(source) do
+    with {:ok, ast} <- Menard.Source.parse(source),
+         [{name, _node} | _] <- Menard.Clause.modules(ast),
+         do: name,
+         else: (_ -> nil)
   end
 
   # ~H is a string to the AST, so a call in its `{…}` or `<%= … %>` was never found: explore-callers
