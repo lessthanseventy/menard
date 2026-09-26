@@ -21,6 +21,23 @@ defmodule Menard.Clause do
   # attribute previously set at line N", or a @spec describing a head that no longer exists.
   @attached [:doc, :impl, :spec, :deprecated, :dialyzer]
 
+  @typedoc """
+  One clause as the verbs address it: its kind and name (text), its head as written (`args`,
+  `guard`, `head_text`, and `bare_head` without `\\\\ default`s), where it sits (`range`, `indent`)
+  and its node.
+  """
+  @type clause :: %{
+          kind: atom(),
+          name: String.t(),
+          args: String.t(),
+          guard: String.t() | nil,
+          head_text: String.t(),
+          bare_head: String.t(),
+          range: Sourceror.Range.t(),
+          indent: String.t(),
+          node: Macro.t()
+        }
+
   @doc "Replace the clause's body with `code` (one line → `, do:` form; more → a `do … end` block)."
   @spec replace_body(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
@@ -521,11 +538,12 @@ defmodule Menard.Clause do
   # -- locating a clause ----------------------------------------------------
 
   @doc """
-  Locate one clause: `%{kind, name, args, guard, head_text, range, indent}`, or an error naming the
-  heads that exist. Public so `Menard.Stmt` addresses a statement the same way — inside the clause
-  you named, by what is written.
+  Locate one clause (`t:clause/0`), or an error naming the heads that exist. `opts[:nth]` picks one
+  of several clauses that share the head. Public so `Menard.Stmt` addresses a statement the same way
+  — inside the clause you named, by what is written.
   """
-  def find(source, name_arity, head, opts) do
+  @spec find(String.t(), String.t(), String.t(), keyword()) :: {:ok, clause()} | {:error, String.t()}
+  def find(source, name_arity, head, opts \\ []) do
     with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
          {:ok, ast} <- parse(source),
          {:ok, scope} <- scope(ast, mod, name, arity) do
@@ -879,6 +897,11 @@ defmodule Menard.Clause do
 
   defp bare_args(_head), do: ""
 
+  @doc """
+  A head reduced to what tells heads apart: trimmed, one pair of parens wrapping it dropped, and no
+  whitespace. Both sides of a head match go through it; `Menard.Stmt` keys statements with it too.
+  """
+  @spec squash(String.t()) :: String.t()
   def squash(text), do: text |> String.trim() |> unwrap_parens() |> String.replace(~r/\s+/, "")
   # `(dir, args)` IS how a head is written, so accept the parens people copy off the def line —
   # strip one pair when it actually wraps the whole head (`(a), (b)` is two args, not a wrapper,
