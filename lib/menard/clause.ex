@@ -320,7 +320,7 @@ defmodule Menard.Clause do
     with {:ok, found} <- find(source, name_arity, head, opts) do
       {clause, gap} = edge(source, name_arity, found, code, &List.last/1)
       %{range: %{end: [line: b, column: c]}, indent: indent} = clause
-      body = code |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
+      body = indent <> reindent(code, indent)
       at = %{start: [line: b, column: c], end: [line: b, column: c]}
       Sourceror.patch_string(source, [%{range: at, change: gap <> body, preserve_indentation: false}])
     end
@@ -338,7 +338,7 @@ defmodule Menard.Clause do
       # definition FOLLOWS it, so landing between the two hands the doc to the new code.
       a = attrs_start(ast, range)
       a = a - comment_lines_above(lines, a - 1)
-      body = code |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
+      body = indent <> reindent(code, indent)
       at = %{start: [line: a, column: 1], end: [line: a, column: 1]}
       Sourceror.patch_string(source, [%{range: at, change: body <> gap, preserve_indentation: false}])
     end

@@ -42,6 +42,16 @@ defmodule Menard.ClauseTest do
     assert out =~ "def go(:a), do: 1\n  def go(:c), do: 3\n"
   end
 
+  test "insert_after and insert_before take code already at the clause's indent as it is, trailing newline and all" do
+    code = "  def go(:c) do\n    3\n  end\n"
+
+    assert Clause.insert_after(@src, "go/1", ":a", code) ==
+             String.replace(@src, "def go(:a), do: 1\n", "def go(:a), do: 1\n" <> code)
+
+    assert Clause.insert_before(@src, "go/1", ":a", code) ==
+             String.replace(@src, "  # first\n", code <> "  # first\n")
+  end
+
   test "insert_before goes above the clause's comment and docs, not between them and its def" do
     out = Clause.insert_before(@src, "go/1", ":a", "def go(nil), do: 0")
 
