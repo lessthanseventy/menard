@@ -19,10 +19,11 @@ done
 rm -rf "$TEMPLATE/server/deps/menard/lib/mix"
 find "$TEMPLATE/server/_build" -name 'Elixir.Mix.Tasks.Menard.*.beam' -delete
 # menard reaches an agent only through the plugins under test: Tlön's AGENTS.md section telling it
-# to edit Elixir with `mise run menard` goes (agents_md.py, with the watcher section), and that task
-# refuses. Arm A would otherwise have menard's CLI, and arm B the advice the hook-only design dropped.
+# to edit Elixir with `mise run menard` goes (agents_md.py, with the watcher section), and every
+# other passage that teaches or opens menard (hide_menard.py). The task door is kept aside for
+# arm_setup.sh to put back in the arms that have menard; arm A is not told menard exists.
 python3 "$(dirname "$0")/agents_md.py" "$TEMPLATE/AGENTS.md" "$TEMPLATE/AGENTS.md"
-printf '#!/usr/bin/env bash\necho "menard: not available in this checkout" >&2\nexit 1\n' > "$TEMPLATE/scripts/menard.sh"
+python3 "$(dirname "$0")/hide_menard.py" "$TEMPLATE" "$(dirname "$TEMPLATE")/menard-door"
 
 # Tlön's settings sandbox every Bash call, which is one more wall around the agent; its tests need
 # Postgres, whose socket the sandbox refuses (eperm). On Linux only allowAllUnixSockets lets it
@@ -34,4 +35,7 @@ export MISE_TRUSTED_CONFIG_PATHS="$(dirname "$TEMPLATE")"
 for app in server console; do
   (cd "$TEMPLATE/$app" && mise exec -- mix compile >/dev/null && MIX_ENV=test mise exec -- mix compile >/dev/null)
 done
-echo "template at $(git -C "$TEMPLATE" rev-parse --short HEAD)"
+sha=$(git -C "$TEMPLATE" rev-parse --short HEAD)
+# no history: Tlön's commit messages name menard, and a run's diff is against its own base commit
+rm -rf "$TEMPLATE/.git"
+echo "template at $sha"

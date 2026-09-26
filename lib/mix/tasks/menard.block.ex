@@ -11,102 +11,47 @@ defmodule Mix.Tasks.Menard.Block do
   """
   use Mix.Task
 
-  alias Menard.Block
+  alias Menard.Verbs
+
+  import Menard.CLI
+
+  @flags [
+    module: :string,
+    label: :string,
+    in: :string,
+    args: :string,
+    tag: :keep,
+    version: :string,
+    force: :boolean
+  ]
+
+  @usage "mix menard.block (get|replace) FILE NAME [CODE] [--label X]\n" <>
+           "       mix menard.block add FILE NAME CODE [--label X] [--args CONTEXT] [--in PARENT_LABEL] [--tag T]\n" <>
+           "       mix menard.block delete FILE NAME [--label X]\n" <>
+           "       mix menard.block relabel FILE NAME OLD_LABEL NEW_LABEL\n" <>
+           "       mix menard.block list FILE\n" <>
+           "       any of them: --module Mod, when the file holds several modules"
 
   @impl true
   def run(argv) do
-    {opts, args, _} =
-      OptionParser.parse(argv,
-        strict: [
-          module: :string,
-          label: :string,
-          in: :string,
-          args: :string,
-          tag: :keep,
-          version: :string,
-          force: :boolean
-        ]
-      )
+    {flags, argv, _} = OptionParser.parse(argv, strict: @flags)
+    # `--tag` repeats: every one is an `@tag` line above the block
+    flags = flags |> Keyword.delete(:tag) |> Map.new() |> Map.put(:tag, Keyword.get_values(flags, :tag))
 
-    where = [module: opts[:module], label: opts[:label]]
-
-    did = did(args, opts[:label])
-
-    case args do
-      ["get", file, name] ->
-        report(Block.get(File.read!(Menard.resolve(file)), name, where))
-
-      ["relabel", file, name, label, new_label] ->
-        edit(file, did, opts, &Block.relabel(&1, name, label, new_label, module: opts[:module]))
-
-      ["list", file] ->
-        report(list(Block.list(File.read!(Menard.resolve(file)), where)))
-
-      ["replace", file, name, code] ->
-        edit(file, did, opts, &Block.replace(&1, name, code, where))
-
-      ["add", file, name, code] ->
-        edit(
-          file,
-          did,
-          opts,
-          &Block.add(&1, name, opts[:label], code,
-            in: opts[:in],
-            module: opts[:module],
-            args: opts[:args],
-            tag: Keyword.get_values(opts, :tag)
-          )
-        )
-
-      ["delete", file, name] ->
-        edit(file, did, opts, &Block.delete(&1, name, where))
-
-      _ ->
-        Mix.raise(
-          "usage: mix menard.block (get|replace) FILE NAME [CODE] [--label X]\n" <>
-            "       mix menard.block add FILE NAME CODE [--label X] [--args CONTEXT] [--in PARENT_LABEL] [--tag T]\n" <>
-            "       mix menard.block delete FILE NAME [--label X]\n" <>
-            "       mix menard.block relabel FILE NAME OLD_LABEL NEW_LABEL\n" <>
-            "       mix menard.block list FILE\n" <>
-            "       any of them: --module Mod, when the file holds several modules"
-        )
+    case params(argv) do
+      :usage -> usage(@usage)
+      params -> answer(Verbs.Block.run(Map.merge(flags, params)))
     end
   end
 
-  defp list(found) when is_list(found) do
-    Enum.map_join(found, "\n", fn
-      {name, nil, line} -> "#{name} (line #{line})"
-      {name, label, line} -> "#{name} #{inspect(label)} (line #{line})"
-    end)
-  end
+  defp params(["get", file, name]), do: %{verb: "get", file: file, name: name}
+  defp params(["list", file]), do: %{verb: "list", file: file}
+  defp params(["replace", file, name, code]), do: %{verb: "replace", file: file, name: name, code: code}
+  defp params(["add", file, name, code]), do: %{verb: "add", file: file, name: name, code: code}
+  defp params(["delete", file, name]), do: %{verb: "delete", file: file, name: name}
 
-  defp list(other), do: other
+  defp params(["relabel", file, name, label, new_label]),
+    do: %{verb: "relabel", file: file, name: name, label: label, new_label: new_label}
 
-  defp report({:error, message}), do: Mix.raise(message)
-  defp report(text), do: Mix.shell().info(text)
-
-  defp edit(file, did, opts, change) do
-    file = Menard.resolve(file)
-
-    case change.(File.read!(file)) do
-      {:error, message} ->
-        Mix.raise(message)
-
-      out ->
-        case Menard.write(
-               file,
-               out,
-               [did: "#{did} in #{Path.basename(file)}"] ++ Keyword.take(opts, [:version, :force])
-             ) do
-          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-          {:error, message} -> Mix.raise(message)
-        end
-    end
-  end
-
-  # what the reply's `did` names: `replace test "it works"`
-  defp did([verb, _file, name | _], label),
-    do: Enum.join([verb, name | List.wrap(label && inspect(label))], " ")
-
-  defp did(_, _), do: nil
+  defp params(_argv), do: :usage
 end
