@@ -493,8 +493,14 @@ defmodule Menard do
   # reason. MISE_EXEC_AUTO_INSTALL=false did not stop it (mise 2026.8). So ask first: a host that pins
   # a toolchain that is not installed gets the mix on PATH, and is told why.
   defp host_toolchain(dir) do
-    with mise when is_binary(mise) <- System.find_executable("mise"),
-         {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
+    case System.find_executable("mise") do
+      nil -> {:path, nil}
+      mise -> mise_toolchain(mise, dir)
+    end
+  end
+
+  defp mise_toolchain(mise, dir) do
+    with {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
          {:ok, %{} = tools} <- JSON.decode(out) do
       # pinned by the host: a config in its dir or above it. mise's global default is not the host's,
       # and the mix on PATH is the one the agent's own `mix` runs: two toolchains in one _build
@@ -507,20 +513,19 @@ defmodule Menard do
 
       missing = for {tool, %{"installed" => false} = v} <- pinned, do: "#{tool} #{v["version"]}"
 
-      case missing do
-        _ when pinned == [] ->
+      cond do
+        pinned == [] ->
           {:path, nil}
 
-        [] ->
+        missing == [] ->
           {:mise, mise}
 
-        missing ->
+        true ->
           {:path, "#{Enum.join(missing, ", ")} pinned here is not installed, so this ran the mix on PATH"}
       end
     else
-      nil -> {:path, nil}
       # mise could not say: let `exec` decide, as before
-      _ -> {:mise, System.find_executable("mise")}
+      _ -> {:mise, mise}
     end
   end
 
