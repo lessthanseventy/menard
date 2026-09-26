@@ -329,4 +329,10 @@ defmodule Menard.BlockTest do
     assert [%{label: "a", line: 4, body: "assert 1"}, %{label: "b", line: 8, body: "assert 2"}] =
              Block.get_all(src, "test")
   end
+
+  test "a label with no name finds its block, whatever the macro" do
+    # bench3 new-component.B.sonnet: replace {label: "…"} with no name was told there was no such block
+    out = Block.replace(@src, nil, "assert 9 == 9", label: "b")
+    assert out =~ ~s(test "b" do\n      assert 9 == 9)
+  end
 end
