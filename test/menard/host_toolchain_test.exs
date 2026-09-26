@@ -4,7 +4,9 @@ defmodule Menard.HostToolchainTest do
 
   # Off the repo, whose own .tool-versions would pin every dir under it
   setup do
-    dir = Path.join(System.tmp_dir!(), "menard-toolchain-#{System.unique_integer([:positive])}")
+    dir =
+      Path.join(System.tmp_dir!(), "menard-toolchain-#{System.pid()}-#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, dir: dir}

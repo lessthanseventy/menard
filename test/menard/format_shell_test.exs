@@ -5,7 +5,7 @@ defmodule Menard.FormatShellTest do
   use ExUnit.Case, async: false
 
   setup do
-    dir = Path.join(System.tmp_dir!(), "menard-shell-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "menard-shell-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "bin"))
     File.mkdir_p!(Path.join(dir, "host/lib"))
 
