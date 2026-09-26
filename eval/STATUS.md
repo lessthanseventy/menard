@@ -266,3 +266,5 @@ The question this leaves: for sonnet, menard costs about 2x on long work and sav
 measure here; its value is the guard's guarantees (parse-checked, formatted, never a sed gone
 wrong) and correctness catches. Whether that is worth 2x is Andrew's call; batch edits would cut
 the per-site turns that make up most of it.
+- 19:44 bench4 started on 7d5f5df (every fix through the long pilot): same matrix as bench3,
+  to measure the fixes against bench3's numbers.
