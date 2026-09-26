@@ -108,26 +108,24 @@ defmodule Menard.Source do
   # `fn`, which opens on the arm's own first line, so the numbers hold. Code that parses neither way
   # has none found, and moves whole.
   defp literal_lines(code) do
-    with {:error, _} <- Sourceror.parse_string(code),
-         {:error, _} <- Sourceror.parse_string("fn " <> code <> "\nend") do
-      MapSet.new()
-    else
-      {:ok, ast} ->
-        ast
-        |> Macro.prewalker()
-        |> Enum.flat_map(&inner_lines/1)
-        |> MapSet.new()
+    parsed =
+      with {:error, _} <- Sourceror.parse_string(code),
+           do: Sourceror.parse_string("fn " <> code <> "\nend")
+
+    case parsed do
+      {:ok, ast} -> ast |> Macro.prewalker() |> Enum.flat_map(&inner_lines/1) |> MapSet.new()
+      {:error, _} -> MapSet.new()
     end
   end
 
   defp inner_lines(node) do
-    with true <- literal?(node),
-         %{start: [line: a, column: _], end: [line: b, column: _]} when b > a <- Sourceror.get_range(node) do
-      Enum.to_list((a + 1)..b)
-    else
-      _ -> []
-    end
+    if literal?(node), do: lines_after_first(Sourceror.get_range(node)), else: []
   end
+
+  defp lines_after_first(%{start: [line: a, column: _], end: [line: b, column: _]}) when b > a,
+    do: Enum.to_list((a + 1)..b)
+
+  defp lines_after_first(_range), do: []
 
   defp literal?({:__block__, meta, [value]}) when is_binary(value) or is_list(value),
     do: meta[:delimiter] != nil
