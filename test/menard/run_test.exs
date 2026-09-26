@@ -439,17 +439,17 @@ defmodule Menard.RunTest do
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
-    marker = Path.join(dir, "still-running")
+    pidfile = Path.join(dir, "mix.pid")
 
-    # the test starts once the project compiles (a few seconds), says so, and writes its marker 12s
-    # later: a mix really killed at 10s never writes it
+    # the test starts once the project compiles (a few seconds), names its VM and says so, then hangs:
+    # only the deadline ends it
     File.write!(Path.join(dir, "test/slow_test.exs"), """
     defmodule SlowTest do
       use ExUnit.Case
       test "slow" do
+        File.write!(#{inspect(pidfile)}, System.pid())
         IO.puts("halfway there")
-        Process.sleep(12_000)
-        File.write!(#{inspect(marker)}, "x")
+        Process.sleep(:infinity)
       end
     end
     """)
@@ -462,8 +462,9 @@ defmodule Menard.RunTest do
     assert result.tail =~ "did not finish in 10s"
     assert result.tail =~ "halfway there"
 
-    Process.sleep(max(24_000 - (System.monotonic_time(:millisecond) - started), 0))
-    refute File.exists?(marker)
+    # `timeout` returns once its child is gone, so the VM is dead by now, not dying
+    assert {_, status} = System.cmd("kill", ["-0", File.read!(pidfile)], stderr_to_stdout: true)
+    assert status != 0
   end
 
   test "a green run still answers with the warnings its compile printed" do
