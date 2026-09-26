@@ -586,3 +586,20 @@ model on renames across files, not for a capable one on everyday edits.
   workspace and database is gone (only ex_riverside_dev and ex_riverside_test remain, the
   operator's). `bin/menard run check` (802 tests) and `python3 -m unittest discover -s eval/tests`
   (33) green.
+
+### Handoff (2026-09-26, out of credits)
+
+Merged into main and green (850 tests, eval tests OK): all review fixes (hooks, clause, edit verbs,
+run/deps, core and doors, eval harness, follow-ups), refactors 1 (one verb layer, prose verbs
+deleted) and 3 (formatter out of menard's VM), menard hidden from Tlön's arm A, and the
+ex_riverside bench (eval/riverside, case `events`, graders validated both ways; run with
+`--suite eval/riverside`, MENARD_EVAL_WORK=/tmp/riverside-eval).
+In flight when credits ran out, each in its worktree under .claude/worktrees (merge what is
+committed, resume or redo the rest):
+- refactor-ast: module walking and patch/range/parse into Menard.Source.
+- fix-eval-resume: the runner survives usage-limit cutoffs (detect, wait, restore the step, redo;
+  resume a killed round).
+- build-riverside follow-up: reference solutions as patches under
+  eval/riverside/cases/events/reference/ with a re-validation script; confirm no leftovers.
+Then: the test-suite review's 12 findings (docs/review/2026-09-26-fable.md), TODO.md's focus3
+re-plant, re-pin the plugins, and the round on ex_riverside (all vs A, Opus, 3 runs).
