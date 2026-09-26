@@ -8,12 +8,15 @@ import shutil
 import subprocess
 import sys
 import unittest
+import unittest.mock
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(EVAL))
-os.environ.setdefault("MENARD_EVAL_WORK", "/tmp/menard-eval-tlon")
 import run  # noqa: E402
+
+# set here, not through run's import: another test module may have imported run first
+WORK = Path(os.environ.get("MENARD_EVAL_WORK", "/tmp/menard-eval-tlon"))
 
 CASE = EVAL / "tlon" / "cases" / "focus3"
 
@@ -40,8 +43,13 @@ ALLOWED = {
 }
 
 
-@unittest.skipUnless(run.TEMPLATE.exists(), "no Tlön template")
+@unittest.skipUnless((WORK / "template").exists(), "no Tlön template")
 class MenardHidden(unittest.TestCase):
+    def setUp(self):
+        patch = unittest.mock.patch.multiple(run, WORK=WORK, TEMPLATE=WORK / "template", PLUGINS=WORK / "plugins")
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def workspace(self, arm):
         ws = run.WORK / "bench" / f"hidden-{arm}"
         run.prepare(CASE, ws, arm)
