@@ -30,22 +30,11 @@ defmodule Mix.Tasks.Menard.Attr do
       ["set", file, name, value] ->
         edit(file, name, did, opts, &Attr.set(&1, name, value, where))
 
-      ["replace", file, name, value] ->
-        edit(file, name, did, opts, &Attr.set(&1, name, value, where))
-
       ["delete", file, name] ->
         edit(file, name, did, opts, &Attr.delete(&1, name, where))
 
-      ["comment", file, name] ->
-        edit(file, name, did, opts, &Attr.comment(&1, name, nil, where))
-
-      ["comment", file, name, text] ->
-        edit(file, name, did, opts, &Attr.comment(&1, name, text, where))
-
       _ ->
-        Mix.raise(
-          "usage: mix menard.attr (get|set|delete|comment) FILE NAME [VALUE|TEXT] | list FILE [--module Mod]"
-        )
+        Mix.raise("usage: mix menard.attr (get|set|delete) FILE NAME [VALUE] | list FILE [--module Mod]")
     end
   end
 
