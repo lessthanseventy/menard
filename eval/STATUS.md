@@ -461,8 +461,55 @@ model on renames across files, not for a capable one on everyday edits.
   re-graded from the run's diff: 736 tests green. 37 turns, 98k new / 2.23M cached / 17k out.
   The run-cli note won over Tlön's cap.sh rule once AGENTS.md sent tests through menard; credo and
   the compiler hook each caught one issue at write time in step 2.
-- A run 1: in progress. Its step 2 said "I didn't run mise run server:check, so credo and the evals
-  haven't run".
+- A run 1 (02:40-02:51): 5/5, clean. Its step 2 said "I didn't run mise run server:check, so credo
+  and the evals haven't run"; it ran the gate itself 3 times over the session, all 6.
+- The runner started before cf21244 and scored credo at the repo root only (None in both rows):
+  rescored from each run's saved diff over the template, both apps, 0 left in each (credo's JSON read,
+  not a silent 0). all's row carries the step 5 re-grade (`rescored`, `check_first`).
+- report.py read only `{id}.jsonl`, so a long run (a trace per step) showed CLI 0% and no habits
+  whatever it did: fixed (it read all's `bin/menard run test` as no CLI).
 - Before focus3: Tlön's console had 2 credo findings at its base; fixed in Tlön (7d09361) and in the
-  template, so credo left counts only what an agent adds. focus3 is queued behind focus2 (re-pins
-  the plugins from HEAD first): Opus, all vs A, 3 runs each, interleaved.
+  template, so credo left counts only what an agent adds.
+- 03:00 focus3 cancelled by choice before it started (the queue killed, no plugin re-pinned), to be
+  started on purpose once there is more to add.
+
+### focus2 (02:21-02:51): Tlön focus case, sonnet, all vs A, one run each
+
+| step | all turns | all new / cached / out | A turns | A new / cached / out |
+|---|---|---|---|---|
+| 1 approval-wait bug | 10 | 26.4k / 227k / 2.2k | 9 | 27.8k / 233k / 2.3k |
+| 2 search syntax | 8 | 19.2k / 386k / 6.4k | 9 | 17.2k / 443k / 4.7k |
+| 3 ticket #4 | 10 | 30.0k / 727k / 5.5k | 17 | 54.4k / 1.45M / 10.1k |
+| 4 brief commits | 5 | 14.2k / 462k / 1.4k | 5 | 9.2k / 571k / 1.6k |
+| 5 rename | 4 | 8.1k / 425k / 1.4k | 4 | 9.5k / 498k / 1.4k |
+| **session** | **37** | **97.9k / 2.23M / 16.8k** | **44** | **118.0k / 3.20M / 20.1k** |
+
+| | all | A |
+|---|---|---|
+| steps passed | 5/5 (re-graded) | 5/5 |
+| credo left | 0 | 0 |
+| CI | green first, 0 more turns | green first, 0 more turns |
+| test/gate runs, reruns with no edit between | 8, 4 | 5, 1 |
+| hand `mix format` | 0 | 1 |
+| hooks fired | credo 2, compile 1, stop refused 0, big-read 0 | – |
+| wall | 1,088 s | 672 s |
+| ticket #4, blind review | 1/5 | 4/5 |
+
+- **all's token lead is step 3's, and step 3 is where it did the worse fix.** Outside step 3 the
+  arms are even (all 67.9k new, A 63.7k). The blind review (ticket and the two diffs unlabelled):
+  all gated the Staff cron's leaf spawn on "the operator has ever posted", so the reported threads,
+  which have old posts, still spawn on the next tick and replay a stale message, and its test asserts
+  that; A took leaf spawning out of the cron, leaving it to the spawn-on-post path that already did
+  the opening turn, and moved the cap there (off for a parked note that still says "starts
+  automatically" and console comments that still credit the pass). Both passed the step's check,
+  which is compile plus the suite: it cannot tell them apart.
+- **all ran slower**: 416 s more wall, and outside the model (all ~728 s, A ~289 s; model time all
+  ~150 s, A ~184 s, from the traces). all ran the gate 7 times to A's 3 and its Stop hook runs it at
+  each of five step ends; how much of the gap is that hook is unverified (menard's run logs carry
+  only a start time).
+- **The write-time hooks caught 3 issues, and CI would not have differed**: A also ended with 0 credo
+  and a green CI.
+- **Verdict (one run each, thin):** all does not beat A here. Equal on passing, credo and CI; fewer
+  tokens only where it solved less; slower, and 4 reruns to 1. focus3's 3 runs a side are what can
+  say more, and its refactor and feature steps want the blind review too, since their checks pass
+  shallow fixes.
