@@ -22,6 +22,11 @@ open(p, "w").write(s[:a] + s[b:])
 PY
 printf '#!/usr/bin/env bash\necho "menard: not available in this checkout" >&2\nexit 1\n' > "$TEMPLATE/scripts/menard.sh"
 
+# Tlön's settings sandbox every Bash call, which is one more wall around the agent; its tests need
+# Postgres, whose socket the sandbox refuses (eperm) unless allowed.
+jq '.sandbox.network.allowUnixSockets = ["/run/postgresql"]' "$TEMPLATE/.claude/settings.json" > "$TEMPLATE/.claude/settings.json.new"
+mv "$TEMPLATE/.claude/settings.json.new" "$TEMPLATE/.claude/settings.json"
+
 export MISE_TRUSTED_CONFIG_PATHS="$(dirname "$TEMPLATE")"
 for app in server console; do
   (cd "$TEMPLATE/$app" && mise exec -- mix compile >/dev/null && MIX_ENV=test mise exec -- mix compile >/dev/null)
