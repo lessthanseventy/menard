@@ -445,10 +445,11 @@ if Code.ensure_loaded?(Anubis.Server) do
     @moduledoc """
     Run a verb in a mix project under the root and get ONE structured answer: `check` (the
     project's `mix precommit`: format, warnings-as-errors, tests), `test` (args: files, file:line,
-    and any `mix test` flag), `format` (args: files), `compile`. `dir` defaults to the root.
+    and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,
+    `--changed` for the lines changed since the last commit). `dir` defaults to the root.
 
     Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
-    `warning` or `format`, `message` says why, `at` is `file:line`. A test failure adds `name`,
+    `warning`, `format` or `credo`, `message` says why, `at` is `file:line`. A test failure adds `name`,
     `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`.
     """
     use Anubis.Server.Component, type: :tool
@@ -458,7 +459,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
 
     schema do
-      field(:verb, :enum, values: ["check", "test", "format", "compile"], required: true)
+      field(:verb, :enum, values: ["check", "test", "format", "compile", "credo"], required: true)
       field(:args, {:list, :string})
       field(:dir, :string)
     end

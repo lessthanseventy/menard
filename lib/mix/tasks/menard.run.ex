@@ -7,9 +7,12 @@ defmodule Mix.Tasks.Menard.Run do
       mix menard.run test [FILE[:LINE]]   # one file / one test, or the suite: {ok, tests, failed, failures, tail, seed, runs}
       mix menard.run format [FILES]       # format; {ok, changed, failures}
       mix menard.run compile              # compile --warnings-as-errors: {ok, failures, tail}
+      mix menard.run credo [FILES] [--strict] [--changed]
+                                          # the project's credo, when it has one: {ok, failures};
+                                          # --changed, only lines changed since the last commit
 
   Every verb's `failures` is one shape: `{kind, message, at}`, where `kind` is `test`, `error`,
-  `warning` or `format`, `message` says why, and `at` is `file:line` (a file, for `format`). A test
+  `warning`, `format` or `credo`, `message` says why, and `at` is `file:line` (a file, for `format`). A test
   failure adds `name`, `module`, `source` (its body as written) and, for an assertion, `code`,
   `left` and `right`.
 
@@ -25,12 +28,12 @@ defmodule Mix.Tasks.Menard.Run do
     {dir, args} = split_in(argv, ".", [])
 
     case args do
-      [verb | rest] when verb in ~w(check test format compile) ->
+      [verb | rest] when verb in ~w(check test format compile credo) ->
         finish(Menard.Run.result(Menard.resolve(dir), verb, rest))
 
       _ ->
         Mix.raise(
-          "usage: mix menard.run [--in DIR] (check|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile)"
+          "usage: mix menard.run [--in DIR] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed])"
         )
     end
   end
