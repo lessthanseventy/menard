@@ -526,6 +526,8 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
         with open(trace, "w") as f:
             timed_out = run_agent(claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid,
                                              persist=True), ws, f, env)
+        # the agent's own wall, apart from the grading after it (~200 s a session in focus2)
+        agent_wall = round(time.time() - t0, 1)
         m = trace_metrics(trace, ws)
         sid = m["session_id"] or sid
         # a resumed session's total_cost_usd is the whole session's so far; turns and tokens are this call's
@@ -539,7 +541,7 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
         shutil.rmtree(snap, ignore_errors=True)
         steps.append({"step": step.name, "pass": code == 0, "check": out.strip()[-400:],
                       "formatted": "NOTE: unformatted" not in out, "wall_s": round(time.time() - t0, 1),
-                      "timed_out": timed_out, **m})
+                      "agent_wall_s": agent_wall, "timed_out": timed_out, **m})
         if timed_out or not sid:
             break
     ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps)
@@ -613,7 +615,8 @@ def run_one(case_dir, arm, model, n, out_dir):
     cleanup(case_dir, rid, ws, env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
-        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n, "wall_s": wall, "timed_out": timed_out,
+        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n, "wall_s": wall, "agent_wall_s": wall,
+        "timed_out": timed_out,
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
         "clean": code == 0 and not diff["noise_files"] and "NOTE: unformatted" not in check_out, **diff, **trace_metrics(trace, ws),
@@ -638,7 +641,8 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
     row = {
         "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n,
-        "wall_s": round(time.time() - t0, 1), "timed_out": any(s["timed_out"] for s in steps),
+        "wall_s": round(time.time() - t0, 1), "agent_wall_s": round(total("agent_wall_s"), 1),
+        "timed_out": any(s["timed_out"] for s in steps),
         "pass": last_ok, "steps_passed": sum(s["pass"] for s in steps), "steps_total": len(steps),
         "check": steps[-1]["check"] if steps else "no step ran", "formatted": bool(steps) and steps[-1]["formatted"],
         "clean": last_ok and not diff["noise_files"] and steps[-1]["formatted"], **diff,
@@ -652,7 +656,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         "rereads": total("rereads"), "retries": total("retries"),
         "gaps": [dict(g, step=s["step"]) for s in steps for g in s["gaps"]],
         "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "tokens", "peak_ctx",
-                                      "tool_errors", "red_runs", "wall_s", "timed_out")} for s in steps],
+                                      "tool_errors", "red_runs", "wall_s", "agent_wall_s", "timed_out")} for s in steps],
         **lint(ws, env, out_dir, rid),
         "ci": ci,
     }
