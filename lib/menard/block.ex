@@ -443,7 +443,7 @@ defmodule Menard.Block do
   # itself — so only the reader would notice
   defp body_only(name, code) do
     if Regex.match?(~r/\A\s*#{Regex.escape(to_string(name))}[\s(].*\bdo\b/s, code) do
-      case Code.string_to_quoted(code) do
+      case Code.string_to_quoted(code, emit_warnings: false) do
         # a whole block with a typo reads as one here: the parse error is the answer
         {:error, {meta, message, token}} ->
           message =

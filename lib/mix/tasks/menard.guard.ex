@@ -95,8 +95,8 @@ defmodule Mix.Tasks.Menard.Guard do
 
     with {:ok, input} <- JSON.decode(json),
          {:ok, new} <- applied(old, input),
-         {:ok, a, a_comments} <- Code.string_to_quoted_with_comments(old),
-         {:ok, b, b_comments} <- Code.string_to_quoted_with_comments(new) do
+         {:ok, a, a_comments} <- Code.string_to_quoted_with_comments(old, emit_warnings: false),
+         {:ok, b, b_comments} <- Code.string_to_quoted_with_comments(new, emit_warnings: false) do
       unstrung(a) == unstrung(b) and Enum.map(a_comments, & &1.text) == Enum.map(b_comments, & &1.text)
     else
       _ -> false

@@ -59,7 +59,7 @@ defmodule Menard.Stmt do
   # `case x do` matches the whole case by its start, and code for that one line leaves one that does
   # not parse: say what was matched, where the write would only have said "missing terminator"
   defp whole_by_start?(stmt, match, out),
-    do: key(stmt.text) != key(match) and match?({:error, _}, Code.string_to_quoted(out))
+    do: key(stmt.text) != key(match) and match?({:error, _}, Code.string_to_quoted(out, emit_warnings: false))
 
   defp by_start(%{range: %{start: [line: a, column: _], end: [line: b, column: _]}}, match),
     do:
@@ -274,7 +274,7 @@ defmodule Menard.Stmt do
   defp key(text), do: text |> uncommented() |> Clause.squash()
 
   defp uncommented(text) do
-    case Code.string_to_quoted_with_comments(text) do
+    case Code.string_to_quoted_with_comments(text, emit_warnings: false) do
       {:ok, _ast, [_ | _] = comments} ->
         at = Map.new(comments, &{&1.line, &1.column})
 
