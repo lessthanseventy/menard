@@ -238,42 +238,43 @@ defmodule Menard.Source do
   end
 
   # `{line, column}` just past the closing quote of the string opening at `line:column`, honoring
-  # `\` escapes and `#{…}` interpolations (a string inside one is skipped whole); nil if unclosed
+  # `\` escapes and `#{…}` interpolations (a string inside one is skipped whole); nil if unclosed.
+  # Read lazily, up to the closing quote: read to the end of the file, a node with many strings in
+  # it cost the rest of the file once per string.
   defp string_end(lines, line: line, column: column) do
-    rest =
-      lines
-      |> Enum.drop(line - 1)
-      |> Enum.with_index(line)
-      |> Enum.flat_map(fn {text, no} ->
-        text
-        |> String.graphemes()
-        |> Enum.with_index(1)
-        |> Enum.map(fn {g, c} -> {g, no, c} end)
-        |> Kernel.++([{"\n", no, String.length(text) + 1}])
-      end)
-      |> Enum.drop(column - 1)
-
-    case rest do
-      [{"\"", _, _} | body] -> scan_string(body, 0)
-      _ -> nil
+    lines
+    |> Enum.drop(line - 1)
+    |> Stream.with_index(line)
+    |> Stream.flat_map(fn {text, no} ->
+      text
+      |> String.graphemes()
+      |> Stream.with_index(1)
+      |> Stream.map(fn {g, c} -> {g, no, c} end)
+      |> Stream.concat([{"\n", no, String.length(text) + 1}])
+    end)
+    |> Stream.drop(column - 1)
+    |> Enum.reduce_while(:open, &scan_string/2)
+    |> case do
+      {:closed, stop} -> stop
+      _unclosed -> nil
     end
   end
 
-  defp scan_string([], _depth), do: nil
-  defp scan_string([{"\\", _, _}, _escaped | rest], depth), do: scan_string(rest, depth)
-  defp scan_string([{"\"", no, c} | _rest], 0), do: {no, c + 1}
-  defp scan_string([{"#", _, _}, {"{", _, _} | rest], 0), do: scan_string(rest, 1)
-  defp scan_string([{"{", _, _} | rest], depth) when depth > 0, do: scan_string(rest, depth + 1)
-  defp scan_string([{"}", _, _} | rest], depth) when depth > 0, do: scan_string(rest, depth - 1)
-
-  defp scan_string([{"\"", _, _} | rest], depth) when depth > 0 do
-    case scan_string(rest, 0) do
-      nil -> nil
-      {no, c} -> rest |> Enum.drop_while(fn {_g, n, col} -> {n, col} < {no, c} end) |> scan_string(depth)
-    end
-  end
-
-  defp scan_string([_ | rest], depth), do: scan_string(rest, depth)
+  # The state is `{depths, pending}`: the interpolation depth of each string open, innermost first
+  # (a `"` inside `#{…}` opens another), and whether the last grapheme was a `\` or a `#`.
+  defp scan_string({"\"", _, _}, :open), do: {:cont, {[0], nil}}
+  defp scan_string(_g, :open), do: {:halt, nil}
+  defp scan_string(_escaped, {depths, :escape}), do: {:cont, {depths, nil}}
+  defp scan_string({"{", _, _}, {[0 | outer], :hash}), do: {:cont, {[1 | outer], nil}}
+  defp scan_string(g, {depths, :hash}), do: scan_string(g, {depths, nil})
+  defp scan_string({"\\", _, _}, {depths, nil}), do: {:cont, {depths, :escape}}
+  defp scan_string({"\"", no, c}, {[0], nil}), do: {:halt, {:closed, {no, c + 1}}}
+  defp scan_string({"\"", _, _}, {[0 | outer], nil}), do: {:cont, {outer, nil}}
+  defp scan_string({"\"", _, _}, {depths, nil}), do: {:cont, {[0 | depths], nil}}
+  defp scan_string({"#", _, _}, {[0 | _] = depths, nil}), do: {:cont, {depths, :hash}}
+  defp scan_string({"{", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d + 1 | outer], nil}}
+  defp scan_string({"}", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d - 1 | outer], nil}}
+  defp scan_string(_g, state), do: {:cont, state}
 
   @doc """
   The Elixir in a `~H` sigil node: each `{…}` (braces counted) and `<%… %>`, as `{line, column,
