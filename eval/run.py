@@ -13,6 +13,7 @@ import argparse
 import fnmatch
 import json
 import os
+import random
 import re
 import shutil
 import signal
@@ -30,6 +31,8 @@ MAX_TURNS = 60
 # --effort: claude's own flag, unset for the rounds before it (the default level)
 EFFORT = None
 TIMEOUT = 900
+# the round's arm-order seed (schedule/5), in every row so a round can be re-run in the same order
+SEED = None
 
 
 def sh(cmd, cwd, timeout=600, env=None):
@@ -610,7 +613,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     cleanup(case_dir, rid, ws, env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
-        "arm": arm, "model": model, "effort": EFFORT, "n": n, "wall_s": wall, "timed_out": timed_out,
+        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n, "wall_s": wall, "timed_out": timed_out,
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
         "clean": code == 0 and not diff["noise_files"] and "NOTE: unformatted" not in check_out, **diff, **trace_metrics(trace, ws),
@@ -634,7 +637,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
     tokens = {k: sum(s["tokens"][k] for s in steps) for k in ("input", "output", "cache_read", "cache_write")}
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
     row = {
-        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "n": n,
+        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n,
         "wall_s": round(time.time() - t0, 1), "timed_out": any(s["timed_out"] for s in steps),
         "pass": last_ok, "steps_passed": sum(s["pass"] for s in steps), "steps_total": len(steps),
         "check": steps[-1]["check"] if steps else "no step ran", "formatted": bool(steps) and steps[-1]["formatted"],
@@ -765,6 +768,7 @@ def main():
     ap.add_argument("--effort", default="", help="low|medium|high|xhigh|max, passed to claude")
     ap.add_argument("--suite", default=str(EVAL), help="a dir holding fixture/ and cases/")
     ap.add_argument("--stop-at", default="", help="HH:MM local; start no run after it")
+    ap.add_argument("--seed", type=int, default=None, help="the arm order's seed (default: drawn, and kept in results/ROUND/seed)")
     a = ap.parse_args()
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, stop)
@@ -792,25 +796,47 @@ def main():
     if (out_dir / "runs.jsonl").exists():
         done = {json.loads(l)["id"] for l in open(out_dir / "runs.jsonl") if l.strip()}
 
-    # interleave arms within each (case, n) so drift in the API over the window hits every arm alike
-    for n in range(1, a.runs + 1):
-        for model in a.models.split(","):
+    # the round's seed: given, kept from its first start (a resumed round keeps its order), or drawn
+    global SEED
+    seed_file = out_dir / "seed"
+    SEED = a.seed if a.seed is not None else int(seed_file.read_text()) if seed_file.exists() else random.randrange(1 << 32)
+    seed_file.write_text(f"{SEED}\n")
+    log(f"{time.strftime('%H:%M')} {a.round} seed={SEED} arms={a.arms}")
+    for case, arm, model, n in schedule(cases, a.arms.split(","), a.models.split(","), a.runs, SEED):
+        rid = f"{case.name}.{arm}.{model}.{n}"
+        if rid in done:
+            continue
+        if a.stop_at and time.strftime("%H:%M") >= a.stop_at:
+            print(f"stop-at {a.stop_at} reached", flush=True)
+            return
+        row = run_one(case, arm, model, n, out_dir)
+        line = (f"{time.strftime('%H:%M')} {a.round} {rid}: {'PASS' if row['pass'] else 'FAIL'}"
+                f"{'' if row['clean'] or not row['pass'] else ' (noisy)'} turns={row['turns']}"
+                f" cost={row['cost_usd']:.3f} wall={row['wall_s']}s tool_errors={row['tool_errors']} red_runs={row['red_runs']}")
+        log(line, f"tools={row['tools']}")
+
+
+def schedule(cases, arms, models, runs, seed):
+    """Every (case, arm, model, n) in the order they run: run by run, model by model, case by case,
+    and within each the arms in an order `seed` shuffles, so no arm always goes first (wall time and
+    the prompt cache's warmth followed the arm when A always did) while drift in the API over the
+    window still hits every arm alike. The same seed gives the same order."""
+    rng = random.Random(seed)
+    out = []
+    for n in range(1, runs + 1):
+        for model in models:
             for case in cases:
-                for arm in a.arms.split(","):
-                    rid = f"{case.name}.{arm}.{model}.{n}"
-                    if rid in done:
-                        continue
-                    if a.stop_at and time.strftime("%H:%M") >= a.stop_at:
-                        print(f"stop-at {a.stop_at} reached", flush=True)
-                        return
-                    row = run_one(case, arm, model, n, out_dir)
-                    line = (f"{time.strftime('%H:%M')} {a.round} {rid}: {'PASS' if row['pass'] else 'FAIL'}"
-                            f"{'' if row['clean'] or not row['pass'] else ' (noisy)'} turns={row['turns']}"
-                            f" cost={row['cost_usd']:.3f} wall={row['wall_s']}s tool_errors={row['tool_errors']} red_runs={row['red_runs']}")
-                    print(line, f"tools={row['tools']}", flush=True)
-                    # one file across rounds, one line per run: what a watcher tails
-                    with open(EVAL / "results" / "live.log", "a") as f:
-                        f.write(line + "\n")
+                order = list(arms)
+                rng.shuffle(order)
+                out += [(case, arm, model, n) for arm in order]
+    return out
+
+
+def log(line, *more):
+    """One line to stdout and to results/live.log, one file across rounds, what a watcher tails."""
+    print(line, *more, flush=True)
+    with open(EVAL / "results" / "live.log", "a") as f:
+        f.write(line + "\n")
 
 
 if __name__ == "__main__":
