@@ -63,6 +63,10 @@ def stats(rows):
         "wall": mean([r["wall_s"] for r in rows]),
         "failed": mean([r["failed_calls"] for r in rows]),
         "rereads": mean([r["rereads"] for r in rows]),
+        # what CI would still catch: credo issues left (None where the fixture has no credo), and
+        # whether the agent ran the gate itself before it stopped
+        "credo": mean([r.get("credo") for r in rows]),
+        "ran_gate": mean([None if "ran_gate" not in r else 1.0 if r["ran_gate"] else 0.0 for r in rows]),
     }
 
 
@@ -136,8 +140,8 @@ def num(x, fmt="{:.1f}"):
 
 
 def table(groups, key_label):
-    out = [f"| {key_label} | arm | n | pass | clean | new in tok | cached in tok | out tok | turns | wall s | failed calls |",
-           "|---|---|---|---|---|---|---|---|---|---|---|"]
+    out = [f"| {key_label} | arm | n | pass | clean | new in tok | cached in tok | out tok | turns | wall s | failed calls | credo left | ran gate |",
+           "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for key, by_arm in groups:
         for arm in ARMS + sorted(a for a in by_arm if a not in ARMS):
             rows = by_arm.get(arm, [])
@@ -145,7 +149,8 @@ def table(groups, key_label):
                 continue
             s = stats(rows)
             out.append(f"| {key} | {arm} | {s['n']} | {pct(s['pass'])} | {pct(s['clean'])} | {num(s['new'], '{:,.0f}')} | "
-                       f"{num(s['cached'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} |")
+                       f"{num(s['cached'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} | "
+                       f"{num(s['credo'])} | {pct(s['ran_gate'])} |")
     return "\n".join(out)
 
 
@@ -164,7 +169,9 @@ def main():
           "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
           "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
           "Tokens are per run, summed over its model calls: `new in` is input the model had not seen (uncached input + cache writes), "
-          "`cached in` is input read from the prompt cache, `out` is output.\n"]
+          "`cached in` is input read from the prompt cache, `out` is output. `credo left`: credo issues in the "
+          "project after the run, whose base has none; `ran gate`: runs where the agent ran precommit, credo or "
+          "`run check` itself.\n"]
 
     md.append("## By arm\n\n" + table(grouped(rows, lambda r: "all"), "") + "\n")
     md.append("## By model\n\n" + table(sorted(grouped(rows, lambda r: r["model"]), key=lambda kv: MODELS.index(kv[0]) if kv[0] in MODELS else 9), "model") + "\n")
