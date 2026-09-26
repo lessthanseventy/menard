@@ -30,7 +30,7 @@ defmodule Menard do
   (`cache:` overrides the cache directory). A dep with neither leaves the file UNformatted with the
   reason: without its exports the formatter would add parens to every DSL call in the file.
 
-  Where Mix is not loaded (a release), it shells out to the host's `mix format` instead. Either way it
+  Where a plugin will not load in this VM, it shells out to the host's `mix format` instead. Either way it
   is bounded — over stdio an unbounded wait is an MCP tool that never answers — and `{:error, reason}`
   means "written but not formatted", never "not written".
   """
@@ -91,9 +91,7 @@ defmodule Menard do
   end
 
   defp format_somewhere(file, content, opts, parent) do
-    in_vm? = Code.ensure_loaded?(Format) and function_exported?(Format, :formatter_for_file, 2)
-
-    case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
+    case in_process(file, content, opts) do
       {:ok, formatted, split} -> {:ok, formatted, split}
       {:fallback, why} -> format_in_shell(file, content, why, parent, opts[:timeout])
     end
