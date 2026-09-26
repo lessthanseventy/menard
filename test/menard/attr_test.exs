@@ -301,4 +301,22 @@ defmodule Menard.AttrTest do
     assert at.("@open @statuses") < at.("@transitions")
     assert at.("@open @statuses") < at.("def open?")
   end
+
+  test "set handed the whole attribute, @name and all, takes the value from it" do
+    # bench3 bug-receipt-total.B.haiku passed `@receipt """…"""` as the value and got
+    # `@receipt @receipt """…`: it parsed, so nothing refused it
+    src = "defmodule A do\n  @receipt \"\"\"\n  Total: {{totl}}\n  \"\"\"\n\n  def r, do: @receipt\nend\n"
+    out = Attr.set(src, "receipt", "  @receipt \"\"\"\n  Total: {{total}}\n  \"\"\"")
+    refute out =~ "@receipt @receipt"
+    # the heredoc says what it said, whatever indent the format stage then gives it
+    {_ast, [value]} =
+      out
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk([], fn
+        {:@, _, [{:receipt, _, [v]}]} = node, acc when is_binary(v) -> {node, [v | acc]}
+        node, acc -> {node, acc}
+      end)
+
+    assert value == "Total: {{total}}\n"
+  end
 end

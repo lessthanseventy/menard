@@ -601,7 +601,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     schema do
       field(:version, :string)
       field(:force, :boolean)
-      field(:verb, :enum, values: ["get", "set", "delete", "list", "comment"], required: true)
+      field(:verb, :enum, values: ["get", "set", "replace", "delete", "list", "comment"], required: true)
       field(:file, :string, required: true)
       field(:name, :string)
       field(:value, :string)
@@ -650,6 +650,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp read("list", source, p), do: Attr.list(source, module: p[:module])
 
     defp write("set", source, p), do: Attr.set(source, p[:name] || "", p[:value] || "", module: p[:module])
+    # every other tool calls it replace, and agents do too
+    defp write("replace", source, p), do: write("set", source, p)
     defp write("delete", source, p), do: Attr.delete(source, p[:name] || "", module: p[:module])
     defp write("comment", source, p), do: Attr.comment(source, p[:name] || "", p[:text], module: p[:module])
   end
