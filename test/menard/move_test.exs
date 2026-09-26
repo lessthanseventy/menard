@@ -6,7 +6,7 @@ defmodule Menard.MoveTest do
   @moduletag :tmp_dir
 
   test "a missing destination in a mix project is created as the module its path names", %{tmp_dir: dir} do
-    File.write!(Path.join(dir, "mix.exs"), "defmodule App.MixProject do\n  use Mix.Project\nend\n")
+    Menard.Test.Host.mix_project(dir, :app)
     File.mkdir_p!(Path.join(dir, "lib"))
     from = Path.join(dir, "lib/a.ex")
     File.write!(from, "defmodule A do\n  def go, do: 1\n\n  def stays, do: 2\nend\n")
