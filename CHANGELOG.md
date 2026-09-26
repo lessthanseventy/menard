@@ -28,6 +28,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
   neither file's version.
 
 **New**
+- `run check` over a precommit alias whose failing step no parser reads (a `cmd` step) answers a
+  failure of kind `step`: the step, as mix ran it, and the last lines it printed. It answered
+  `failures: []` and a stack trace's tail.
 - The guard passes an edit that only changes text inside a string or sigil (a heredoc, a `~H`
   template), where no verb reaches: `menard guard FILE --edit INPUT`, from both adapters.
 - `clause replace` handed the whole clause of the function it names does that rewrite; `block

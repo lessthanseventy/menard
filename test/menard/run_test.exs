@@ -303,6 +303,30 @@ defmodule Menard.RunTest do
     assert result.tail =~ "1 test, 0 failures"
   end
 
+  test "check names the precommit step that failed when nothing in its output parses", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Stepped.MixProject do
+      use Mix.Project
+
+      def project,
+        do: [
+          app: :stepped,
+          version: "0.1.0",
+          aliases: [precommit: ["compile", ~s(cmd sh -c "echo linting ${MIX_DEBUG:-quiet}; echo 'x.sh:3: bad thing'; exit 1"), "test"]]
+        ]
+    end
+    """)
+
+    result = Menard.Run.result(dir, "check", [])
+    refute result.ok
+
+    assert [%{kind: "step", at: "mix.exs", step: "cmd sh -c" <> _, message: message}] = result.failures
+    assert message =~ "x.sh:3: bad thing"
+    # the task trace that names the step stays in precommit's VM: a host's tests running mix read it
+    assert message =~ "linting quiet"
+    refute message =~ "Mix.Tasks.Cmd.run"
+  end
+
   test "a run behind its mix.lock fetches, runs again, and says what it fetched", %{tmp_dir: dir} do
     # a pull that moved mix.lock leaves deps/ behind it: `run` fetches, runs again, and says so
     dep = Path.join(dir, "dep")

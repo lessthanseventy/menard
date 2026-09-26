@@ -39,12 +39,21 @@ defmodule Menard.Run do
   defp verb(%{dir: dir} = run, "check", args) do
     # the files as checked, taken before the gate runs: one written meanwhile is not what went green
     tree = tree(dir)
-    {out, status, fetched} = mix_fetching(run, ["precommit"])
+    # mix's task trace on (priv/mix_debug.exs): it names each task it runs and each it finished, so
+    # the alias step that failed is the one it never finished. Read here, out of every parser's way.
+    {out, status, fetched} =
+      mix_fetching(run, ["precommit"], require: Application.app_dir(:menard, "priv/mix_debug.exs"))
+
+    {out, failed_step} = untrace(out)
 
     reply =
       if status != 0 and out =~ ~s(The task "precommit" could not be found),
         do: check_steps(run, args),
-        else: out |> gate(status, fetched, dir) |> credo_named(out, run, "--strict" in args)
+        else:
+          out
+          |> gate(status, fetched, dir)
+          |> credo_named(out, run, "--strict" in args)
+          |> step_named(failed_step)
 
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
     reply
@@ -205,6 +214,61 @@ defmodule Menard.Run do
     name = prefix |> String.trim() |> String.replace(~r/[^A-Za-z0-9]/, "-") |> String.trim_trailing("-")
     Path.join(String.trim(git_dir), "menard-green-" <> if(name == "", do: "root", else: name))
   end
+
+  # mix's task trace out of the output, and the alias step it started and never finished with what
+  # that step printed: `{output, nil | {task, printed}}`
+  defp untrace(out) do
+    lines = String.split(out, "\n")
+    trace = ~r/^(->|<-) (?:Running|Ran) mix (\S.*?)(?: \(inside [\w.]+\)| in \d+ms)?$/
+
+    {open, _depth} =
+      lines
+      |> Enum.with_index()
+      |> Enum.reduce({[], 0}, fn {line, i}, {open, depth} ->
+        case Regex.run(trace, line) do
+          [_, "->", task] -> {[{task, i, depth} | open], depth + 1}
+          [_, "<-", _task] -> {tl(open), depth - 1}
+          nil -> {open, depth}
+        end
+      end)
+
+    untraced = &(&1 |> Enum.reject(fn line -> Regex.match?(trace, line) end) |> Enum.join("\n"))
+
+    # an alias's steps run at depth 0, the tasks they run under them
+    step =
+      case Enum.find(open, fn {_task, _i, depth} -> depth == 0 end) do
+        {task, i, _depth} -> {task, untraced.(Enum.drop(lines, i + 1))}
+        nil -> nil
+      end
+
+    {untraced.(lines), step}
+  end
+
+  # A red precommit whose output no parser read (a `cmd` step, a task menard knows nothing of): the
+  # step that failed and the last lines it printed above its stack trace, as its failure
+  defp step_named(%{ok: false, failures: []} = reply, {task, printed}) do
+    {said, stack} = printed |> String.split("\n") |> Enum.split_while(&(not String.starts_with?(&1, "** (")))
+
+    lines =
+      said
+      |> Enum.reject(&(String.trim(&1) == ""))
+      |> Enum.take(-10)
+      |> Kernel.++(Enum.take(stack, 1))
+
+    %{
+      reply
+      | failures: [
+          %{
+            kind: "step",
+            at: "mix.exs",
+            step: task,
+            message: Enum.join(["mix #{task} failed:" | lines], "\n")
+          }
+        ]
+    }
+  end
+
+  defp step_named(reply, _step), do: reply
 
   # A host with no `precommit` alias: the steps `run check` stands for, each its own mix, so `test`
   # picks its own env. The first that fails is the answer. Credo too, when the project has it: at
