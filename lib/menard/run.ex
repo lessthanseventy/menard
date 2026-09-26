@@ -87,12 +87,14 @@ defmodule Menard.Run do
 
     # menard's own formatter, not the host's bare `mix format`: it works while the host's deps do not
     # resolve or its mix.exs does not parse, and never formats without a plugin the host uses. A file
-    # it cannot format (plugins that will not load here) is checked instead: formatted already, the
+    # it cannot format (a plugin the host never built) is checked instead: formatted already, the
     # plugins left out, is no failure (the format hook blocked on files as they were at HEAD).
+    failed = for {file, {:error, message}} <- Menard.Format.files(files), do: {file, message}
+    passing = Menard.Format.formatted_without_plugins(Enum.map(failed, &elem(&1, 0)))
+
     failures =
-      for file <- files,
-          {:error, message} <- [Menard.format(file)],
-          not Menard.formatted_without_plugins?(file),
+      for {file, message} <- failed,
+          file not in passing,
           do: %{kind: "format", message: message, at: Path.relative_to(file, Path.expand(dir))}
 
     changed = Enum.filter(files, &(File.read!(&1) != before[&1]))

@@ -52,6 +52,21 @@ agents tripped on, fixed, and what they reached for first, made to work.
   string (`Attr` answered `:missing`; `Rename` and `Outline` a raw parser term), and nothing in
   the core prints: `Menard.write/3` said an unformatted write on stderr itself, and the CLI door
   says it now, from the reply's `unformatted`.
+- The host's formatter runs on the host's own toolchain, as one OS process per write
+  (`Menard.Format`, `priv/format.exs`), never in menard's VM. It loaded the host's `_build` into
+  menard's code path for good, checked beam compiler versions before loading, erased Styler's and
+  Quokka's cached config, evaluated the host's `.formatter.exs` here, and changed the whole VM's
+  cwd under a global lock; a plugin it could not load sent the file to the host's `mix format`,
+  which evaluates `mix.exs` and the config first (live_beats: `config/dev.exs` wanted a GitHub
+  secret, and the file went unformatted with three stack frames as its reason). Now `elixir` runs
+  `Mix.Tasks.Format.formatter_for_file/2` in the host's project with its plugins from `_build`,
+  and a plugin built by a newer OTP simply runs. The process never writes the real file, so one
+  killed past its deadline cannot write it later. One process formats every file of one call:
+  `run format` over a 69-file Phoenix project takes 1.5s where it took 2.9s; one write pays a VM
+  start, ~0.4s, where the in-VM path took ~50ms after its first.
+- A subdirectory's own `import_deps` resolve (live_beats' `priv/repo/migrations/.formatter.exs`
+  imports `:ecto_sql`, which the root's does not): every file in the project failed on "Unknown
+  dependency :ecto_sql", since only the root's imports were looked up.
 
 **New**
 - `run check` over a precommit alias whose failing step no parser reads (a `cmd` step) answers a
