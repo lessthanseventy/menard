@@ -544,8 +544,7 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
                       "agent_wall_s": agent_wall, "timed_out": timed_out, **m})
         if timed_out or not sid:
             break
-    ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps)
-    return steps, ci
+    return steps, sid
 
 
 def ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps):
@@ -629,13 +628,22 @@ def run_one(case_dir, arm, model, n, out_dir):
 
 
 def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
-    """One row for a whole session: its steps' sums, and each step under `steps`."""
+    """One row for a whole session: its steps' sums, and each step under `steps`. The diff, credo
+    and the habits are the agent's, taken as it stopped and before the CI loop, like pass and clean;
+    what CI's rounds changed on top is under `ci.after`."""
     t0 = time.time()
-    steps, ci = run_steps(case_dir, arm, model, rid, ws, out_dir, env)
+    steps, sid = run_steps(case_dir, arm, model, rid, ws, out_dir, env)
     allowed = [g.strip() for g in (case_dir / "allowed").read_text().splitlines() if g.strip()] \
         if (case_dir / "allowed").exists() else []
     diff, patch = diff_metrics(ws, allowed)
     (out_dir / "traces" / f"{rid}.diff").write_text(patch)
+    linted = lint(ws, env, out_dir, rid)
+    ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps)
+    if ci["rounds"]:
+        after, patch = diff_metrics(ws, allowed)
+        (out_dir / "traces" / f"{rid}.ci.diff").write_text(patch)
+        ci["after"] = {k: after[k] for k in ("files", "lines_changed", "noise_files")}
+        ci["after"]["credo"] = lint(ws, env, out_dir, rid)["credo"]
     total = lambda k: sum(s[k] or 0 for s in steps)
     tokens = {k: sum(s["tokens"][k] for s in steps) for k in ("input", "output", "cache_read", "cache_write")}
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
@@ -657,7 +665,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         "gaps": [dict(g, step=s["step"]) for s in steps for g in s["gaps"]],
         "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "tokens", "peak_ctx",
                                       "tool_errors", "red_runs", "wall_s", "agent_wall_s", "timed_out")} for s in steps],
-        **lint(ws, env, out_dir, rid),
+        **linted,
         "ci": ci,
     }
     # after CI and lint, which need the run's databases: a long session left them all behind
