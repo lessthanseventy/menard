@@ -12,3 +12,9 @@ commit lands.
   ExUnit's 60s twice under the full gate (2026-09-26 ~04:45 and ~05:08, load average ~40 from
   parallel agents) and passed alone (320 identity tests green) and in the next gate. It is the
   slowest identity case; it has no margin under a loaded machine.
+- A write whose host formatter cannot run answers a crash dump for the reason. `clause move` in a
+  Tlön copy whose mise.toml was not trusted (the eval bench, 2026-09-26): the file was moved, and the
+  reply said `not formatted — no match of right hand side value: {:EXIT, {:badarg, [{:erlang,
+  :binary_to_atom, [<<69, 108, 105, …` (the formatter's error text made into an atom?), where "mise:
+  config files in …/mise.toml are not trusted" was the reason. The eval's agent_env.sh sets
+  MISE_TRUSTED_CONFIG_PATHS, so a run does not hit it; a checkout run by hand does.
