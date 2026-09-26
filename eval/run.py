@@ -80,8 +80,9 @@ def build_plugins(force=False):
         # H: no tools, no skill, no guard: only a hook that formats each Elixir file written and
         # names one that does not parse. Is menard's clean output the tools', or the formatting?
         if arm == "H":
-            shutil.copy(EVAL / "arms" / "H" / "hooks.json", dest / "hooks" / "hooks.json")
-            shutil.copy(EVAL / "arms" / "H" / "check-elixir.sh", dest / "hooks" / "check-elixir.sh")
+            # every script the arm's hooks.json names, and nothing else to run
+            for f in (EVAL / "arms" / "H").iterdir():
+                shutil.copy(f, dest / "hooks" / f.name)
             shutil.rmtree(dest / "skills", ignore_errors=True)
             manifest = dest / ".claude-plugin" / "plugin.json"
             d = json.loads(manifest.read_text())
