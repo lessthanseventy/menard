@@ -432,6 +432,21 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "the gates block, and say so, when menard does not answer by their deadline", %{tmp_dir: dir} do
+    # a hook the harness kills fails open, and its mix test outlives it: the gates keep their own
+    # deadline under `timeout`, whose 124 this stub answers with
+    host(dir)
+    File.write!(Path.join(dir, "menard-touched-g2"), dir <> "\n")
+    slow = stub_menard(dir, "slow", "exit 124")
+
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "g2"}, dir, slow)
+    assert JSON.decode!(out)["reason"] =~ "no answer within 280s"
+
+    {out, 0} = commit_gate(%{session_id: "g2", tool_input: %{command: "git commit -m x"}}, dir, slow)
+    assert JSON.decode!(out)["hookSpecificOutput"]["permissionDecisionReason"] =~ "no answer within 280s"
+  end
+
+  @tag :tmp_dir
   test "stop-gate lets a session end that wrote nothing, or was refused three times", %{tmp_dir: dir} do
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "none-written"}, dir)
 
