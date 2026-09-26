@@ -22,15 +22,22 @@ if [[ ! -s "$touched" ]]; then
   exit 0
 fi
 
-# the repo the commit lands in: -C's directory when the command names one, else the call's own; a
-# project written into in another repo is not this commit's to wait on
+# the repo the commit lands in: the call's own directory, moved by a leading `cd DIR &&`/`cd DIR;`
+# (in the command or inside `bash -c "…"`), then by -C's directory; a project written into in
+# another repo is not this commit's to wait on
 cwd=$(jq -r '.cwd // empty' <<<"$payload")
 at=${cwd:-$PWD}
-if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|\'[^\']*\'|[^[:space:]]+) ]]; then
-  c=${BASH_REMATCH[1]}
-  c=${c#[\"\']}
+move_to() {
+  local c=${1#[\"\']}
   c=${c%[\"\']}
   [[ "$c" == /* ]] && at=$c || at="$at/$c"
+}
+cd_re="^[[:space:]]*((ba)?sh[[:space:]]+-c[[:space:]]+[\"'])?cd[[:space:]]+${arg}[[:space:]]*(&&|;)"
+if [[ "$cmd" =~ $cd_re ]]; then
+  move_to "${BASH_REMATCH[3]}"
+fi
+if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+$arg ]]; then
+  move_to "${BASH_REMATCH[1]}"
 fi
 repo=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null)
 
