@@ -713,4 +713,36 @@ defmodule Menard.RunTest do
     # a doctest's source is its `doctest` line, not every line down to the next `end`
     assert doctest.source == "  doctest Held"
   end
+
+  test "run test says how many tests were skipped, not only how many ran", %{tmp_dir: dir} do
+    # a `@tag skip:` test left the counts without a word: 5 tests, 3 skipped, answered as `tests: 2`
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Skips.MixProject do
+      use Mix.Project
+      def project, do: [app: :skips, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/skips_test.exs"), """
+    defmodule SkipsTest do
+      use ExUnit.Case
+
+      test "runs", do: :ok
+
+      @tag skip: "no toolchain"
+      test "skips", do: :ok
+    end
+    """)
+
+    assert Run.lean(Menard.Run.result(dir, "test", [])) == %{
+             ok: true,
+             failures: [],
+             tests: 1,
+             failed: 0,
+             skipped: 1
+           }
+  end
 end
