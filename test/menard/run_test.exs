@@ -699,4 +699,53 @@ defmodule Menard.RunTest do
 
     assert Run.tree(dir) == nil
   end
+
+  test "run check says how many tests were skipped, as run test does", %{tmp_dir: dir} do
+    # check reads ExUnit's prose, not menard's formatter: `2 tests, 0 failures, 1 skipped` came back
+    # as `tests: 2` and no word of the skip
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule CheckSkips.MixProject do
+      use Mix.Project
+      def project, do: [app: :check_skips, version: "0.1.0", aliases: [precommit: ["test"]]]
+      def cli, do: [preferred_envs: [precommit: :test]]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/check_skips_test.exs"), """
+    defmodule CheckSkipsTest do
+      use ExUnit.Case
+
+      test "runs", do: :ok
+
+      @tag skip: "no toolchain"
+      test "skips", do: :ok
+    end
+    """)
+
+    assert Run.lean(Menard.Run.result(dir, "check", [])) == %{
+             ok: true,
+             failures: [],
+             tests: 1,
+             failed: 0,
+             skipped: 1
+           }
+  end
+
+  test "ExUnit's prose says how many skipped, the way the formatter counts them" do
+    # 1.19 counts a skipped test in `N tests`, 1.20 leaves it out of `passed`: `tests` is what ran
+    # either way, as the formatter counts it. An excluded test is the project's own filter, not counted.
+    old = Run.parse_test("Finished in 0.02 seconds\n3 tests, 1 failure, 1 skipped (1 excluded)\n", 2)
+
+    new =
+      Run.parse_test(
+        "Finished in 0.01 seconds\n\nResult: 1/2 passed, 1 skipped, 1 excluded\nFailed: 1 test\n",
+        2
+      )
+
+    assert {old.tests, old.failed, old.skipped} == {2, 1, 1}
+    assert {new.tests, new.failed, new.skipped} == {2, 1, 1}
+  end
 end

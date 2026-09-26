@@ -27,9 +27,6 @@ commit lands.
   one-liners, the refusal-adjacent checks). The ones where placement or blank lines could hide a
   diff are whole-output `==` now (and found two blank-line bugs); convert the rest as they are
   touched.
-- `run check` gives no `skipped` count: `run test` reads it from menard's ExUnit formatter, but
-  `check` runs the host's precommit and reads ExUnit's prose (`gate/4` via `counts/1`), which
-  drops `N skipped`. A check whose tests all skipped reads like one that ran them.
 - hooks/format-report.sh:30 skips a Bash command only when it STARTS with `git`: `cd DIR && git
   worktree add …` (or a checkout after a `cd`) is taken for an edit of every file git wrote, and the
   hook formats each one; in a worktree whose eval fixture has no deps fetched, that was ~45
