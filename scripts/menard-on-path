@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# `menard` on PATH: scripts/install-path.sh links ~/.local/bin/menard here. Inside a menard
+# checkout (a worktree included) it runs THAT checkout's bin/menard, so work on menard uses the code
+# in front of it; anywhere else, the checkout this link was installed from.
+set -euo pipefail
+root=$(git rev-parse --show-toplevel 2>/dev/null) || root=
+if [[ -z "$root" || ! -f "$root/lib/mix/tasks/menard.run.ex" ]]; then
+  root="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
+fi
+exec "$root/bin/menard" "$@"
