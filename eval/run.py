@@ -99,7 +99,7 @@ def build_plugins(force=False):
     """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
     loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
     # L (the tools always loaded) is gone: manos loads them up front, and menard has none
-    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp", "stop", "map-mcp"]:
+    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp", "stop", "map-mcp", "run-cli"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -127,7 +127,7 @@ def build_plugins(force=False):
         # red; `map-mcp` is the map and manos together, which neither alone would show
         extra = {"cli": [("SessionStart", None, "session-cli.sh")], "grep": [("PostToolUse", "Bash", "grep-where.sh")],
                  "map": [("SessionStart", None, "session-map.sh")], "map-mcp": [("SessionStart", None, "session-map.sh")],
-                 "stop": [("Stop", None, "stop-gate.sh")]}.get(arm, [])
+                 "stop": [("Stop", None, "stop-gate.sh")], "run-cli": [("SessionStart", None, "session-run.sh")]}.get(arm, [])
         for event, matcher, script in extra:
             hooks_json = dest / "hooks" / "hooks.json"
             d = json.loads(hooks_json.read_text())
@@ -523,21 +523,38 @@ def cleanup(case_dir, rid, ws, env):
 def lint(ws, env, out_dir, rid):
     """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
     each is the agent's), and whether the agent ran the gate itself before it stopped."""
-    ran = 0
-    for trace in (out_dir / "traces").glob(f"{rid}*.jsonl"):
+    ran, runs, reruns, last, formats = 0, 0, 0, False, 0
+    test = re.compile(r"(?:^|&&|;|\n)\s*(?:cd \S+\s*(?:&&|;)\s*)?(?:timeout \d+\s+)?(?:MIX_ENV=\S+\s+)?"
+                      r"(?:mix (?:test|precommit)|mise run [\w:]*(?:test|check))\b")
+    for trace in sorted((out_dir / "traces").glob(f"{rid}*.jsonl")):
         for line in open(trace):
             if '"tool_use"' not in line or not line.startswith("{"):
                 continue
             for c in json.loads(line).get("message", {}).get("content", []):
-                if c.get("type") == "tool_use" and re.search(r'precommit|credo|run check|"verb": "check"',
-                                                             json.dumps(c.get("input", {}))):
+                if c.get("type") != "tool_use":
+                    continue
+                inp = c.get("input", {})
+                if re.search(r'precommit|credo|run check|"verb": "check"', json.dumps(inp)):
                     ran += 1
+                # a test or gate run, and whether it repeats one with no edit between: the operator's own
+                # sessions ran 40% of them again, to grep a different slice of the same failure
+                cmd = inp.get("command", "") if c["name"] == "Bash" else ""
+                if ("<<" not in cmd and test.search(cmd)) or re.search(r"menard\S* run (test|check)", cmd) or \
+                        (c["name"].endswith("__run") and inp.get("verb") in ("test", "check")):
+                    runs += 1
+                    reruns += last
+                    last = True
+                elif c["name"] in ("Edit", "Write", "MultiEdit") or re.search(r"sed -i|cat >|python3? -", cmd):
+                    last = False
+                # the hook formats every file written: a mix format by hand after it is a wasted turn
+                if "<<" not in cmd and re.search(r"(?:^|&&|;)\s*(?:mise exec -- )?mix format\b(?! --check)", cmd):
+                    formats += 1
     if not (ws / "deps" / "credo").exists():
-        return {"credo": None, "ran_gate": ran}
+        return {"credo": None, "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "hand_formats": formats}
     _, out = sh("mix credo --format json", ws, timeout=300, env=env)
     at = out.find('{\n  "issues"')
     issues = json.loads(out[at:])["issues"] if at >= 0 else []
-    return {"credo": len(issues), "ran_gate": ran,
+    return {"credo": len(issues), "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats,
             "credo_issues": [f"{i['filename']}:{i['line_no']} {i['message']}" for i in issues][:20]}
 
 
