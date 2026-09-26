@@ -146,6 +146,13 @@ def build_plugins(force=False):
             manifest.write_text(json.dumps(d, indent=2) + "\n")
 
 
+def warm_plugins():
+    """Each pinned copy builds itself once here, not on its first hook call inside a measured run."""
+    for dest in PLUGINS.iterdir():
+        if (dest / "bin" / "menard").exists():
+            sh([str(dest / "bin" / "menard"), "version"], dest, timeout=600)
+
+
 def prepare(case_dir, ws):
     shutil.rmtree(ws, ignore_errors=True)
     ws.parent.mkdir(parents=True, exist_ok=True)
@@ -512,6 +519,7 @@ def main():
         MAX_TURNS, TIMEOUT = limits.get("max_turns", MAX_TURNS), limits.get("timeout", TIMEOUT)
     build_template(suite, a.rebuild)
     build_plugins(a.rebuild)
+    warm_plugins()
     for arm in a.arms.split(","):
         if arm.startswith(("S-", "SL-")):
             build_skill_arm(arm, a.rebuild)
