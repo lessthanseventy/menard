@@ -22,3 +22,9 @@ commit lands.
   formatted — [Phoenix.LiveView.HTMLFormatter] will not load from …/_build in this VM" for two files
   already formatted at HEAD (2026-09-26 ~03:00). True, but noise: a file the fallback cannot format
   could still be checked (`--check-formatted` without the plugin, or git saying it matches HEAD).
+- A write whose host formatter cannot run answers a crash dump for the reason. `clause move` in a
+  Tlön copy whose mise.toml was not trusted (the eval bench, 2026-09-26): the file was moved, and the
+  reply said `not formatted — no match of right hand side value: {:EXIT, {:badarg, [{:erlang,
+  :binary_to_atom, [<<69, 108, 105, …` (the formatter's error text made into an atom?), where "mise:
+  config files in …/mise.toml are not trusted" was the reason. The eval's agent_env.sh sets
+  MISE_TRUSTED_CONFIG_PATHS, so a run does not hit it; a checkout run by hand does.
