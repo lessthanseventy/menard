@@ -538,6 +538,23 @@ def cleanup(case_dir, rid, ws, env):
         sh(["bash", str(script), rid, str(ws)], ws, timeout=120, env=env)
 
 
+def added_lines(ws):
+    """{file: set of line numbers} the run added or changed since eval-base; every line of a new file."""
+    _, diff = sh("git diff -U0 eval-base", ws)
+    added, file = {}, None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            file = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("@@") and file:
+            m = re.search(r"\+(\d+)(?:,(\d+))?", line)
+            start, count = int(m.group(1)), int(m.group(2) or 1)
+            added.setdefault(file, set()).update(range(start, start + count))
+    _, untracked = sh("git ls-files --others --exclude-standard", ws)
+    for f in untracked.split():
+        added[f] = set(range(1, 100_000))
+    return added
+
+
 def lint(ws, env, out_dir, rid):
     """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
     each is the agent's), and whether the agent ran the gate itself before it stopped."""
@@ -578,11 +595,19 @@ def lint(ws, env, out_dir, rid):
                 # the hook formats every file written: a mix format by hand after it is a wasted turn
                 if "<<" not in cmd and re.search(r"(?:^|&&|;)\s*(?:mise exec -- )?mix format\b(?! --check)", cmd):
                     formats += 1
-    if not (ws / "deps" / "credo").exists():
+    # every app that lints with credo: the root, or each app of a repo of several (Tlön's server/, console/)
+    apps = [d for d in [ws, *sorted(p.parent for p in ws.glob("*/mix.exs"))] if (d / "deps" / "credo").exists()]
+    if not apps:
         return {"credo": None, "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired}
-    _, out = sh("mix credo --format json", ws, timeout=300, env=env)
-    at = out.find('{\n  "issues"')
-    issues = json.loads(out[at:])["issues"] if at >= 0 else []
+    issues = []
+    for app in apps:
+        _, out = sh("mix credo --format json", app, timeout=300, env=env)
+        at = out.find('{\n  "issues"')
+        prefix = "" if app == ws else f"{app.name}/"
+        issues += [dict(i, filename=prefix + i["filename"]) for i in (json.loads(out[at:])["issues"] if at >= 0 else [])]
+    # only what the run added: Tlön's base already has 2 in console, which were not the agent's
+    added = added_lines(ws)
+    issues = [i for i in issues if i["line_no"] in added.get(i["filename"], ())]
     return {"credo": len(issues), "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired,
             "credo_issues": [f"{i['filename']}:{i['line_no']} {i['message']}" for i in issues][:20]}
 
