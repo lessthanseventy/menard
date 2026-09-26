@@ -18,6 +18,7 @@ defmodule Menard.Move do
            Menard.Clause.move(File.read!(file), dest_source, name_arity, module: opts[:module]),
          {:ok, _} <- Menard.Write.checked(dest, out_dest),
          {:ok, _} <- Menard.Write.checked(file, out_source),
+         :ok <- File.mkdir_p!(Path.dirname(dest)),
          {:ok, to} <- Menard.write(dest, out_dest, did: "move #{name_arity} into #{Path.basename(dest)}"),
          {:ok, from} <-
            Menard.write(file, out_source, did: "move #{name_arity} out of #{Path.basename(file)}") do
