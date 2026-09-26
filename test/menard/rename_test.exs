@@ -45,6 +45,12 @@ defmodule Menard.RenameTest do
     assert Rename.run(@src, "nothing_here", "x") == @src
   end
 
+  test "a name the source never mentions makes no atom: the VM never collects one" do
+    name = "never_named_#{System.unique_integer([:positive])}"
+    assert Rename.run(@src, name, "x", atoms: true, comments: true) == @src
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "an unparseable source is an error, never a partial write" do
     assert {:error, _} = Rename.run("def (", "a", "b")
   end
@@ -70,6 +76,29 @@ defmodule Menard.RenameTest do
     assert out ==
              "# live_workspaces feeds the ring; author_workspaces_extra is another thing\n" <>
                "def live_workspaces, do: \"author_workspaces\"\n"
+  end
+
+  test "comments: true reaches only real comments, not a `#` line of a heredoc or of ~H markup" do
+    src = ~S'''
+    defmodule A do
+      @moduledoc """
+      # old
+      """
+      # old is the one
+      def old, do: 1
+
+      def render(assigns) do
+        ~H"""
+        <p>#old</p>
+        """
+      end
+    end
+    '''
+
+    assert Rename.run(src, "old", "fresh", comments: true) ==
+             src
+             |> String.replace("# old is", "# fresh is")
+             |> String.replace("def old", "def fresh")
   end
 
   test "renames a remote call and a remote capture, not a field access" do
@@ -114,6 +143,32 @@ defmodule Menard.RenameTest do
              def old(x), do: x
              def zero, do: &old/1
              def go(new), do: new + old(1)
+           end
+           """
+  end
+
+  test "only: leaves a module attribute alone, and :functions renames the import that names the function" do
+    src = """
+    defmodule A do
+      import B, only: [old: 1]
+      @old 1
+      def go(old), do: old(@old) + old
+    end
+    """
+
+    assert Rename.run(src, "old", "new", only: :functions) == """
+           defmodule A do
+             import B, only: [new: 1]
+             @old 1
+             def go(old), do: new(@old) + old
+           end
+           """
+
+    assert Rename.run(src, "old", "new", only: :variables) == """
+           defmodule A do
+             import B, only: [old: 1]
+             @old 1
+             def go(new), do: old(@old) + new
            end
            """
   end

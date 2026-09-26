@@ -15,18 +15,9 @@ defmodule Menard.Rename do
   def run(source, old, new, opts \\ []) when is_binary(source) do
     case Sourceror.parse_string(source) do
       {:ok, ast} ->
-        from = String.to_atom(old)
-        functions = function_positions(ast, from)
-
-        patches =
-          ast
-          |> patches(from, new, Keyword.get(opts, :atoms, false))
-          |> Enum.filter(&wanted?(&1, opts[:only], functions))
-          |> Enum.map(&elem(&1, 1))
-
         apply_patches(
           source,
-          patches ++
+          code_patches(ast, old, new, opts) ++
             comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
             heex_patches(ast, source, old, new, opts[:only]) ++
             doc_patches(ast, source, old, new, Keyword.get(opts, :docs, true) and opts[:only] != :variables)
@@ -35,6 +26,35 @@ defmodule Menard.Rename do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # The name is an atom only once the source is parsed, and only if that parse made it: a name the
+  # source never mentions has nothing to rename in the AST, and String.to_atom made an atom per call
+  # that the VM never collects
+  defp code_patches(ast, old, new, opts) do
+    case existing_atom(old) do
+      nil ->
+        []
+
+      from ->
+        functions = function_positions(ast, from)
+        attributes = if opts[:only], do: attribute_starts(ast, from), else: []
+
+        ast
+        |> patches(from, new, Keyword.get(opts, :atoms, false))
+        |> Kernel.++(import_patches(ast, from, new))
+        |> Enum.filter(&wanted?(&1, opts[:only], functions))
+        |> Enum.map(&elem(&1, 1))
+        |> Enum.reject(&(&1.range.start in attributes))
+        # `atoms: true` renames the import's key as an atom too
+        |> Enum.uniq_by(& &1.range)
+    end
+  end
+
+  defp existing_atom(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> nil
   end
 
   # `only:` narrows by what a name IS. A call with args, a remote call and a def head with args are
@@ -63,6 +83,24 @@ defmodule Menard.Rename do
     |> elem(1)
   end
 
+  # `@old` is an attribute, neither a function nor a variable: under `only:` its name stays, where
+  # `only: :functions` renamed `@old 1` and left every `@old` read, and the module stopped compiling
+  defp attribute_starts(ast, from) do
+    for {:@, _, [{^from, _, _} = name]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+        do: Sourceror.get_range(name).start
+  end
+
+  # `import B, only: [old: 1]` names the function by a key: left as it was, it asks B for a function
+  # the rename took away
+  defp import_patches(ast, from, new) do
+    for {:import, _, [_module, opts]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+        is_list(opts),
+        {{:__block__, _, [key]}, {:__block__, _, [names]}} <- opts,
+        key in [:only, :except] and is_list(names),
+        {{:__block__, _, [^from]} = name, _arity} <- names,
+        do: {:function, %{range: Sourceror.get_range(name), change: "#{new}:"}}
+  end
+
   defp strip_when({:when, _, [head | _]}), do: head
   defp strip_when(head), do: head
 
@@ -70,17 +108,18 @@ defmodule Menard.Rename do
   defp bare_start(_node, _from), do: []
 
   # Comments are not AST: a whole-word mention (`\bold\b`) inside a `#` comment is patched by its
-  # own range. The word boundary keeps `old_extra` and the like alone; strings never match here
-  # because only the comment's text is searched.
+  # own range. The word boundary keeps `old_extra` and the like alone. The comments are the
+  # parser's, so a `#` line of a heredoc or of ~H markup is text, not one: a scan of each line for
+  # its first `#` renamed inside both.
   defp comment_patches(_source, _old, _new, false), do: []
 
   defp comment_patches(source, old, new, true) do
     word = ~r/(?<![A-Za-z0-9_])#{Regex.escape(old)}(?![A-Za-z0-9_])/
+    {:ok, _ast, comments} = Code.string_to_quoted_with_comments(source, emit_warnings: false)
 
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.flat_map(fn {line, no} -> line_comment_patches(line, no, word, new) end)
+    Enum.flat_map(comments, fn %{line: no, column: c, text: text} ->
+      mention_patches(text, no, c - 1, word, new)
+    end)
   end
 
   # @doc/@moduledoc/@typedoc text is prose ABOUT the code, and a doctest in it is code: a rename that
@@ -119,13 +158,6 @@ defmodule Menard.Rename do
     Enum.uniq(calls ++ ticked)
   end
 
-  defp line_comment_patches(line, no, word, new) do
-    case comment_start(line) do
-      nil -> []
-      col0 -> line |> String.split_at(col0) |> elem(1) |> mention_patches(no, col0, word, new)
-    end
-  end
-
   # ranges are 1-based columns, in graphemes
   defp mention_patches(comment, no, col0, word, new) do
     for [{off, len}] <- Regex.scan(word, comment, return: :index) do
@@ -133,14 +165,6 @@ defmodule Menard.Rename do
       %{range: %{start: [line: no, column: c], end: [line: no, column: c + len]}, change: new}
     end
   end
-
-  # Where a line's comment begins, ignoring a `#` inside a string — a good-enough scan: the
-  # first `#` not inside double quotes on that line.
-  defp comment_start(line), do: comment_start(String.graphemes(line), 0, false)
-  defp comment_start([], _i, _in_str), do: nil
-  defp comment_start(["\"" | rest], i, in_str), do: comment_start(rest, i + 1, not in_str)
-  defp comment_start(["#" | _rest], i, false), do: i
-  defp comment_start([_g | rest], i, in_str), do: comment_start(rest, i + 1, in_str)
 
   defp apply_patches(source, []), do: source
   defp apply_patches(source, patches), do: Sourceror.patch_string(source, patches)

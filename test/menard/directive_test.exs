@@ -41,6 +41,25 @@ defmodule Menard.DirectiveTest do
     assert Directive.add(@src, :alias, "App.Cat") == @src
   end
 
+  test "adding one that is there with other options is refused, not silently dropped" do
+    src = String.replace(@src, "import Bar", "import Bar, only: [a: 1]")
+
+    assert Directive.add(src, :import, "Bar", args: "only: [a: 1]") == src
+    assert Directive.add(src, :import, "Bar", args: "only:  [a: 1]") == src
+    assert {:error, message} = Directive.add(src, :import, "Bar", args: "only: [b: 1]")
+    assert message =~ "import Bar, only: [a: 1]"
+    assert message =~ "replace"
+    assert {:error, _} = Directive.add(@src, :alias, "App.Cat", args: "as: Kitty")
+  end
+
+  test "an alias sorts case-insensitively, as Styler and Credo sort" do
+    out = Directive.add(@src, :alias, "App.CAT")
+    assert out =~ "alias App.Cat\n  alias App.CAT\n  alias App.Emu"
+
+    src = String.replace(@src, "alias App.Emu", "alias App.ZZ")
+    assert Directive.add(src, :alias, "App.Zb") =~ "alias App.Zb\n  alias App.ZZ"
+  end
+
   test "a kind with no block yet opens one in conventional order" do
     src = """
     defmodule A do

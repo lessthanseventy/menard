@@ -41,14 +41,14 @@ defmodule Menard.StmtTest do
   test "insert_after puts a new statement below the one named, at its indent" do
     out = Stmt.insert_after(@src, "init/1", "_opts", "subscribe_b()", "Import.run()")
 
-    assert out =~ "    subscribe_b()\n\n    Import.run()\n"
+    assert out =~ "    subscribe_b()\n    Import.run()\n"
     assert out =~ "case start() do"
   end
 
   test "insert_before puts one above" do
     out = Stmt.insert_before(@src, "init/1", "_opts", "subscribe_a()", "before_all()")
 
-    assert out =~ "    before_all()\n\n    subscribe_a()"
+    assert out =~ "    before_all()\n    subscribe_a()"
   end
 
   test "replace swaps a CASE ARM without touching its neighbour" do
@@ -183,7 +183,7 @@ defmodule Menard.StmtTest do
     """
 
     out = Stmt.insert_after(src, "go/0", "", "text = \"\"\"\nhi\n\"\"\"", "IO.puts(text)")
-    assert out =~ "  \"\"\"\n\n    IO.puts(text)\n    text\n"
+    assert out =~ "  \"\"\"\n    IO.puts(text)\n    text\n"
   end
 
   test "replacing an arm that ends in a literal keeps the line break after it" do
@@ -485,5 +485,57 @@ defmodule Menard.StmtTest do
     out = Stmt.replace(src, "sidebar/0", "", ~s|%{open: 1, tag: "#top"}|, "%{open: 2}")
     assert out =~ "%{open: 2}"
     refute out =~ "open: 1"
+  end
+
+  @with_src """
+  defmodule W do
+    def go(x) do
+      with {:ok, a} <- fetch(x),
+           {:ok, b} <- parse(a) do
+        b
+      end
+    end
+
+    def one(x), do: g(x)
+  end
+  """
+
+  test "delete takes a with's step and its comma, never the `with` or the ` do` it shares a line with" do
+    assert Stmt.delete(@with_src, "go/1", "x", "{:ok, a} <- fetch(x)") ==
+             String.replace(@with_src, "{:ok, a} <- fetch(x),\n         ", "")
+
+    assert Stmt.delete(@with_src, "go/1", "x", "{:ok, b} <- parse(a)") ==
+             String.replace(@with_src, ",\n         {:ok, b} <- parse(a)", "")
+  end
+
+  test "delete refuses a with's only step, and a do: body, rather than cut the line under it" do
+    only = String.replace(@with_src, ",\n         {:ok, b} <- parse(a)", "")
+    assert {:error, message} = Stmt.delete(only, "go/1", "x", "{:ok, a} <- fetch(x)")
+    assert message =~ "only step"
+
+    assert {:error, message} = Stmt.delete(@with_src, "one/1", "x", "g(x)")
+    assert message =~ "do:"
+
+    assert {:error, message} = Stmt.delete(@src, "init/1", "_opts", "{:ok, :up}")
+    assert message =~ "shares its line"
+  end
+
+  test "insert beside a with's step joins it with a comma, on no blank line" do
+    assert Stmt.insert_before(@with_src, "go/1", "x", "{:ok, a} <- fetch(x)", "true <- ready?(x)") ==
+             String.replace(@with_src, "with {:ok, a}", "with true <- ready?(x),\n         {:ok, a}")
+
+    assert Stmt.insert_after(@with_src, "go/1", "x", "{:ok, b} <- parse(a)", "true <- valid?(b)") ==
+             String.replace(@with_src, "parse(a) do", "parse(a),\n         true <- valid?(b) do")
+  end
+
+  test "insert beside a do: body is refused, not written above the def" do
+    assert {:error, message} = Stmt.insert_before(@with_src, "one/1", "x", "g(x)", "log(x)")
+    assert message =~ "do:"
+    assert {:error, _} = Stmt.insert_after(@with_src, "one/1", "x", "g(x)", "log(x)")
+  end
+
+  test "insert beside an arm's inline body goes at the body, not above the arm" do
+    assert Stmt.insert_before(@src, "init/1", "_opts", "{:ok, :up}", "log()") ==
+             String.replace(@src, "0 -> {:ok, :up}", "0 -> log()\n           {:ok, :up}")
   end
 end

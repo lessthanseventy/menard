@@ -27,6 +27,49 @@ defmodule Menard.FindTest do
     assert [%{line: 7}] = Find.calls(@src, "general")
   end
 
+  test "calls: `__MODULE__.fun()` is a call to the module it is written in" do
+    src = """
+    defmodule A do
+      def go, do: __MODULE__.x()
+
+      defmodule Inner do
+        def go, do: __MODULE__.x() + __MODULE__.Deep.x()
+      end
+    end
+    """
+
+    assert [%{line: 2, text: "__MODULE__.x()"}] = Find.calls(src, "A.x")
+    assert [%{line: 5, column: 17}] = Find.calls(src, "A.Inner.x")
+    assert [%{line: 5, column: 34}] = Find.calls(src, "A.Inner.Deep.x")
+  end
+
+  test "calls parses the source once: its passes share the parse cache" do
+    # traced in a fresh process, whose parse cache is cold; a process cannot be its own tracer
+    src = @src
+    task = Task.async(fn -> receive(do: (:go -> Find.calls(src, "Server.Channels.general"))) end)
+    Code.ensure_loaded!(Sourceror)
+    :erlang.trace_pattern({Sourceror, :parse_string, 1}, true, [])
+    :erlang.trace(task.pid, true, [:call])
+    send(task.pid, :go)
+    assert [_, _] = Task.await(task)
+    ref = :erlang.trace_delivered(task.pid)
+    assert_receive {:trace_delivered, _, ^ref}
+    :erlang.trace_pattern({Sourceror, :parse_string, 1}, false, [])
+
+    parses =
+      Stream.repeatedly(fn -> receive(do: ({:trace, _, :call, {_, _, [^src]}} -> 1), after: (0 -> nil)) end)
+
+    assert parses |> Enum.take_while(& &1) |> length() == 1
+  end
+
+  test "a name the source never mentions makes no atom: the VM never collects one" do
+    name = "never_found_#{System.unique_integer([:positive])}"
+    assert Find.calls(@src, name) == []
+    assert Find.calls(@src, "Server.Channels.#{name}") == []
+    assert Find.defs(@src, name <> "/1") == []
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "defs: by name, any arity or a given one" do
     assert [%{line: 6, kind: :defp, text: "defp general(x)"}] = Find.defs(@src, "general")
     assert [] = Find.defs(@src, "general/2")
@@ -90,5 +133,21 @@ defmodule Menard.FindTest do
 
     assert hd(Find.calls(src, "Shop.Catalog.price_with_tax")).text =~ "Catalog.price_with_tax(@product)"
     assert [%{line: 8}] = Find.calls(src, "local")
+  end
+
+  @tag :tmp_dir
+  test "left answers, never raises: an empty lib/, a file it cannot read", %{tmp_dir: root} do
+    # a whole-function delete has already written when left runs: a raise here lost the reply
+    File.mkdir_p!(Path.join(root, "lib"))
+    File.mkdir_p!(Path.join(root, "test"))
+    File.ln_s!("nowhere.exs", Path.join(root, "test/gone_test.exs"))
+    file = Path.join(root, "a.ex")
+    source = "defmodule A do\n  def run, do: go()\nend\n"
+    File.write!(file, source)
+
+    assert Find.left(root, file, source, "go/0") == [
+             "a.ex:2: go()",
+             "test/gone_test.exs: not read (no such file or directory)"
+           ]
   end
 end

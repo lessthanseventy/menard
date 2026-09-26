@@ -10,7 +10,7 @@ defmodule Menard.Directive do
   isn't one: after the `@moduledoc` and after every kind that outranks it.
 
   An `alias` that is already there is left exactly as written — adding twice is not an error and
-  never duplicates a line.
+  never duplicates a line. One that is there with other options is refused: `replace` changes those.
   """
 
   import Menard.Source, only: [parse: 1]
@@ -35,10 +35,12 @@ defmodule Menard.Directive do
          {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
       body = Menard.Clause.module_body(node)
 
-      if exists?(body, kind, target) do
-        source
-      else
-        insert(source, node, body, kind, target, line)
+      case Enum.find(body, &({kind, target} in directives(&1))) do
+        nil ->
+          insert(source, node, body, kind, target, line)
+
+        found ->
+          already(source, found, line, directive_line(kind, target, nil))
       end
     end
   end
@@ -102,7 +104,8 @@ defmodule Menard.Directive do
   end
 
   defp insert_among(source, peers, target, line) do
-    case Enum.find(peers, fn peer -> target_of(peer) > target end) do
+    # case-insensitive, as Styler and Credo sort: `App.Zb` goes before `App.ZZ`
+    case Enum.find(peers, fn peer -> String.downcase(target_of(peer)) > String.downcase(target) end) do
       nil -> after_line(source, List.last(peers), line)
       later -> before_line(source, later, line)
     end
@@ -186,7 +189,30 @@ defmodule Menard.Directive do
   end
 
   defp match(statement, kind, target), do: directive(statement) == {kind, target}
-  defp exists?(body, kind, target), do: Enum.any?(body, &({kind, target} in directives(&1)))
+
+  # Already there means the same directive, options and all: `import Foo, only: [b: 1]` beside an
+  # `import Foo, only: [a: 1]` was taken for there and dropped without a word. A multi-alias names
+  # its targets bare, so it is the same only as one added without options.
+  defp already(source, found, line, bare) do
+    same? =
+      case found do
+        {_kind, _meta, [{:__aliases__, _, _} | _]} -> plain(written(source, found)) == plain(line)
+        _multi -> line == bare
+      end
+
+    if same?,
+      do: source,
+      else: {:error, "`#{written(source, found)}` is already here — `replace` changes its options"}
+  end
+
+  defp written(source, node), do: Menard.Source.slice(source, Sourceror.get_range(node))
+
+  defp plain(code) do
+    case Code.string_to_quoted(code) do
+      {:ok, ast} -> Macro.prewalk(ast, &Macro.update_meta(&1, fn _meta -> [] end))
+      {:error, _} -> code
+    end
+  end
 
   defp moduledoc?({:@, _meta, [{:moduledoc, _inner, _args}]}), do: true
   defp moduledoc?(_statement), do: false
