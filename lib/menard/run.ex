@@ -222,21 +222,25 @@ defmodule Menard.Run do
       end
   end
 
-  # `--format json` prints the report after whatever compiling said first
+  # `--format json` prints the report after whatever compiling said first: the object from a line
+  # that opens a brace to the end, however it is laid out
   def credo_issues(out) do
-    with {at, _} <- :binary.match(out, ~s({\n  "issues")),
-         {:ok, %{"issues" => issues}} <- JSON.decode(binary_part(out, at, byte_size(out) - at)) do
-      {:ok,
-       for i <- issues do
-         %{
-           kind: "credo",
-           message: "#{i["message"]} (#{i["check"] |> String.split(".") |> List.last()})",
-           at: "#{i["filename"]}:#{i["line_no"]}"
-         }
-       end}
-    else
-      _ -> :error
-    end
+    ~r/^\{/m
+    |> Regex.scan(out, return: :index)
+    |> Enum.find_value(:error, fn [{at, _}] ->
+      case JSON.decode(binary_part(out, at, byte_size(out) - at)) do
+        {:ok, %{"issues" => issues}} -> {:ok, Enum.map(issues, &credo_issue/1)}
+        _ -> nil
+      end
+    end)
+  end
+
+  defp credo_issue(i) do
+    %{
+      kind: "credo",
+      message: "#{i["message"]} (#{i["check"] |> String.split(".") |> List.last()})",
+      at: "#{i["filename"]}:#{i["line_no"]}"
+    }
   end
 
   # Only what an edit brought: issues on the lines changed since the last commit, every line of a file
