@@ -319,3 +319,6 @@ Same six-step cart-refactor session as long1, 1 run per cell (long1 in brackets)
   in step 06. Fixed after (2c4d345), with block's no-name whole block (a9e06ab).
 - **One run per cell is noisy here**: haiku A went from 1/6 (the optional-rate shortcut) to 6/6.
   A verdict on haiku at length needs several runs per cell; sonnet's two runs agree.
+- 21:02 bench5 started: arms A, B, H (only the format-and-parse-check hook) × haiku, sonnet
+  × 17 cases, pinned at dc49e51. The question: is B's clean output the
+  tools' or the formatting's, and what does it cost without the tools?
