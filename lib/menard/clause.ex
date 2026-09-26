@@ -532,6 +532,15 @@ defmodule Menard.Clause do
         "no function #{name}/#{arity}: `#{name}` is a macro, and its blocks are reached with `block` — " <>
           "`block {verb: \"get\", file, name: \"#{name}\"}` answers with every one, `label` picks one"
 
+      # clause t/0 for `@type t ::` (bench3 and bench4 not-compiling.B.haiku)
+      _ when is_atom(name) ->
+        if source =~ ~r/@(type|typep|opaque)\s+#{name}\b/ do
+          "no function #{name}/#{arity}: `@type #{name}` is a type, a statement of the module — stmt reaches it " <>
+            "with no clause named: `stmt {verb: \"replace\", file, name_arity: \"-\", match: \"@type #{name} ::\", code}`"
+        else
+          "no clause #{name}/#{arity} with head `#{head}` — have: none"
+        end
+
       _ ->
         "no clause #{name}/#{arity} with head `#{head}` — have: none"
     end

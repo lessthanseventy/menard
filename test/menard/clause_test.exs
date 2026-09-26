@@ -757,4 +757,12 @@ defmodule Menard.ClauseTest do
     # a part that fits several is still refused
     assert {:error, _} = Clause.replace_body(src, "apply_code/2", "cents", "0")
   end
+
+  test "naming a type where a function goes says it is a type, and what reaches it" do
+    # bench3 and bench4 not-compiling.B.haiku: clause t/0 for `@type t ::`, told "have: none"
+    src = "defmodule P do\n  defstruct [:a]\n  @type t :: %__MODULE__{a: integer()}\nend\n"
+    assert {:error, message} = Clause.replace_body(src, "t/0", "", "x")
+    assert message =~ "@type t"
+    assert message =~ "stmt"
+  end
 end
