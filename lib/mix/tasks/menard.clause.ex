@@ -201,7 +201,7 @@ defmodule Mix.Tasks.Menard.Clause do
     end
 
     case Menard.Move.run(file, dest, na, as: flags[:as], module: flags[:module]) do
-      {:ok, created} ->
+      {:ok, %{created: created}} ->
         if created, do: Mix.shell().info("menard.clause: created #{dest} as defmodule #{created}")
         Mix.shell().info("menard.clause: #{na} moved to #{dest}")
 

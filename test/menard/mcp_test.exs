@@ -195,6 +195,17 @@ defmodule Menard.MCPTest do
     refute response.isError
     refute File.read!(Path.join(root, "lib/a.ex")) =~ "def go"
     assert File.read!(Path.join(root, "lib/b.ex")) =~ "defmodule B do\n  def go, do: 1"
+
+    # both files' replies, as any write gives: the version for the next edit, and what changed
+    reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
+    assert %{"created" => "B", "to" => to, "from" => from} = reply
+    assert to["file"] == Path.join(root, "lib/b.ex")
+    assert from["file"] == Path.join(root, "lib/a.ex")
+
+    for {one, path} <- [{to, "lib/b.ex"}, {from, "lib/a.ex"}] do
+      assert one["version"] == Menard.remember(File.read!(Path.join(root, path)))
+      assert [%{"stage" => "patch", "hunks" => [_ | _]} | _] = one["stages"]
+    end
   end
 
   test "attr comment writes the # line above an attribute", %{root: root} do

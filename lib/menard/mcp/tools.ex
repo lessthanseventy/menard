@@ -207,13 +207,9 @@ if Code.ensure_loaded?(Anubis.Server) do
                do: Menard.check_versions([{file, params.version}]),
                else: :ok
              ),
-           {:ok, created} <-
+           {:ok, moved} <-
              Menard.Move.run(file, dest, params.name_arity, as: params[:as], module: params[:module]) do
-        ok(frame, %{
-          "did" => "move #{params.name_arity} to #{Path.basename(dest)}",
-          "file" => dest,
-          "created" => created
-        })
+        ok(frame, Map.put(moved, :did, "move #{params.name_arity} to #{Path.basename(dest)}"))
       else
         {:error, message} -> fail(frame, message)
       end
