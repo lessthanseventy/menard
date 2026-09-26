@@ -70,17 +70,18 @@ defmodule Menard.Rename do
   defp bare_start(_node, _from), do: []
 
   # Comments are not AST: a whole-word mention (`\bold\b`) inside a `#` comment is patched by its
-  # own range. The word boundary keeps `old_extra` and the like alone; strings never match here
-  # because only the comment's text is searched.
+  # own range. The word boundary keeps `old_extra` and the like alone. The comments are the
+  # parser's, so a `#` line of a heredoc or of ~H markup is text, not one: a scan of each line for
+  # its first `#` renamed inside both.
   defp comment_patches(_source, _old, _new, false), do: []
 
   defp comment_patches(source, old, new, true) do
     word = ~r/(?<![A-Za-z0-9_])#{Regex.escape(old)}(?![A-Za-z0-9_])/
+    {:ok, _ast, comments} = Code.string_to_quoted_with_comments(source, emit_warnings: false)
 
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.flat_map(fn {line, no} -> line_comment_patches(line, no, word, new) end)
+    Enum.flat_map(comments, fn %{line: no, column: c, text: text} ->
+      mention_patches(text, no, c - 1, word, new)
+    end)
   end
 
   # @doc/@moduledoc/@typedoc text is prose ABOUT the code, and a doctest in it is code: a rename that
@@ -119,13 +120,6 @@ defmodule Menard.Rename do
     Enum.uniq(calls ++ ticked)
   end
 
-  defp line_comment_patches(line, no, word, new) do
-    case comment_start(line) do
-      nil -> []
-      col0 -> line |> String.split_at(col0) |> elem(1) |> mention_patches(no, col0, word, new)
-    end
-  end
-
   # ranges are 1-based columns, in graphemes
   defp mention_patches(comment, no, col0, word, new) do
     for [{off, len}] <- Regex.scan(word, comment, return: :index) do
@@ -133,14 +127,6 @@ defmodule Menard.Rename do
       %{range: %{start: [line: no, column: c], end: [line: no, column: c + len]}, change: new}
     end
   end
-
-  # Where a line's comment begins, ignoring a `#` inside a string — a good-enough scan: the
-  # first `#` not inside double quotes on that line.
-  defp comment_start(line), do: comment_start(String.graphemes(line), 0, false)
-  defp comment_start([], _i, _in_str), do: nil
-  defp comment_start(["\"" | rest], i, in_str), do: comment_start(rest, i + 1, not in_str)
-  defp comment_start(["#" | _rest], i, false), do: i
-  defp comment_start([_g | rest], i, in_str), do: comment_start(rest, i + 1, in_str)
 
   defp apply_patches(source, []), do: source
   defp apply_patches(source, patches), do: Sourceror.patch_string(source, patches)

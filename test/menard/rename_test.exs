@@ -72,6 +72,29 @@ defmodule Menard.RenameTest do
                "def live_workspaces, do: \"author_workspaces\"\n"
   end
 
+  test "comments: true reaches only real comments, not a `#` line of a heredoc or of ~H markup" do
+    src = ~S'''
+    defmodule A do
+      @moduledoc """
+      # old
+      """
+      # old is the one
+      def old, do: 1
+
+      def render(assigns) do
+        ~H"""
+        <p>#old</p>
+        """
+      end
+    end
+    '''
+
+    assert Rename.run(src, "old", "fresh", comments: true) ==
+             src
+             |> String.replace("# old is", "# fresh is")
+             |> String.replace("def old", "def fresh")
+  end
+
   test "renames a remote call and a remote capture, not a field access" do
     src = """
     defmodule A do
