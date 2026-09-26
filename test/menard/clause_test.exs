@@ -765,4 +765,19 @@ defmodule Menard.ClauseTest do
     assert message =~ "@type t"
     assert message =~ "stmt"
   end
+
+  test "a whole component, its attr lines and @doc above the def, is the rewrite" do
+    # long2 cart-refactor.B.haiku replaced cart_summary/1 with `attr …` `attr …` `@doc …` then the def:
+    # not seen as a whole clause, nested in the old body, and step 02 ended not compiling again
+    src =
+      "defmodule C do\n  use Phoenix.Component\n\n  attr :cart, :map, required: true\n\n  @doc \"Old.\"\n  def summary(assigns) do\n    ~H\"old\"\n  end\nend\n"
+
+    code =
+      "attr :cart, :map, required: true\nattr :region, :atom, default: :home\n\n@doc \"New.\"\ndef summary(assigns) do\n  ~H\"new\"\nend"
+
+    out = Clause.replace_body(src, "summary/1", "assigns", code)
+    assert out =~ "  attr :region, :atom, default: :home\n\n  @doc \"New.\"\n  def summary(assigns) do"
+    refute out =~ "Old."
+    assert length(Regex.scan(~r/attr :cart/, out)) == 1
+  end
 end
