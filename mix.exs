@@ -41,7 +41,14 @@ defmodule Menard.MixProject do
       # `menard run check` runs `mix precommit` like it does for every other project; without this
       # alias the one tool in the repo could not gate itself.
       aliases: [
-        precommit: ["format --check-formatted", "compile --warnings-as-errors", "credo --strict", "test"]
+        # the hooks are bash: shellcheck, following what they source (ficciones' flake installs it)
+        precommit: [
+          "format --check-formatted",
+          "compile --warnings-as-errors",
+          "credo --strict",
+          "cmd shellcheck -x -P SCRIPTDIR -s bash hooks/*.sh",
+          "test"
+        ]
       ]
     ]
   end
