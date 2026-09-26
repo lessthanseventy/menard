@@ -38,7 +38,7 @@ defmodule Menard.BinTest do
     fresh_build!()
 
     {out, 0} = System.cmd(@bin, ["attr", "get", file, "limit"], env: @fresh)
-    assert out == "5_000\n"
+    assert out == ~s({"value":"5_000"}\n)
   end
 
   @tag :tmp_dir

@@ -26,6 +26,32 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `clause move` answers `{did, created, to, from}` at both doors, `to` and `from` each file's write
   reply (its version and stages). MCP answered `{did, file, created}` and the CLI prose, with
   neither file's version.
+- One verb layer under both doors (`Menard.Verbs.<Noun>.run/1`: params in, `{:ok, reply} |
+  {:error, reason}` out). Every verb was written twice, once per door, and the two had drifted;
+  now a mix task is argv → params → verb → one JSON line, and an MCP tool is its schema → verb →
+  reply, so both give the same map and the same refusal. What that changed at a door:
+  - The CLI's read verbs print the MCP reply as one JSON line where they printed prose: `attr
+    get` (`{value}`), `attr list` (`{attributes}`), `block get` (`{body}`, or `{blocks}` among
+    several), `block list`, `directive list`, `module list`, `stmt list` (`{statements, file}`),
+    `deps FILE name/arity` (the report), and `find --json` (`{hits}`, not a bare list). `outline`,
+    `map`, `where`, `find` and `version` keep their text forms, which the hooks read.
+  - `rename` answers `{did, changed, unchanged, skipped}` at both doors, `changed` each file's
+    write reply (its version and stages, which neither door gave), `skipped` each file with why
+    (the CLI put those on stderr).
+  - A field a verb cannot do without is refused by name at both doors (`clause move needs to`),
+    where the CLI printed the usage; a file that does not parse is named at both (`lib/a.ex: not
+    parseable — …`), where MCP left the file out; `attr` names a Phoenix `attr :x` declaration
+    for what it is at both, where the CLI said only `no @x`.
+  - `deps add|upgrade` that did not work (`ok: false`) is an answer at the MCP door, as `run`'s
+    is, not a tool error whose text is the JSON.
+  - The MCP `outline` tool takes `verb: "map"` (the project's modules, `all` for every function)
+    and `verb: "where"` (`at: ["FILE:LINE", …]`, the function each sits in), the CLI's `map` and
+    `where`, which MCP had no door to. Verbs on `outline`, not tools of their own: a tool per
+    noun, and both are outlines.
+- One error rule in the core: every `{:error, _}` an edit or read function returns carries a
+  string (`Attr` answered `:missing`; `Rename` and `Outline` a raw parser term), and nothing in
+  the core prints: `Menard.write/3` said an unformatted write on stderr itself, and the CLI door
+  says it now, from the reply's `unformatted`.
 
 **New**
 - `run check` over a precommit alias whose failing step no parser reads (a `cmd` step) answers a

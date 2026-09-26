@@ -15,52 +15,30 @@ defmodule Mix.Tasks.Menard.Deps do
   """
   use Mix.Task
 
+  alias Menard.Verbs
+
+  import Menard.CLI
+
   @impl true
   def run(argv) do
     {opts, args} = OptionParser.parse!(argv, strict: [module: :string, in: :string, to: :string])
 
     case args do
       ["add", spec] ->
-        finish(Menard.MixDeps.add_in(Menard.resolve(opts[:in] || "."), spec))
+        finish(Verbs.Deps.run(%{verb: "add", dir: opts[:in], spec: spec}))
 
       ["upgrade" | apps] ->
-        finish(Menard.MixDeps.upgrade_in(Menard.resolve(opts[:in] || "."), apps, opts[:to]))
+        finish(Verbs.Deps.run(%{verb: "upgrade", dir: opts[:in], apps: apps, to: opts[:to]}))
 
       [file, name_arity] ->
-        case Menard.Deps.of(File.read!(Menard.resolve(file)), name_arity, module: opts[:module]) do
-          {:error, message} -> Mix.raise(message)
-          report -> Mix.shell().info(render(report))
-        end
+        answer(Verbs.Deps.run(%{verb: "refs", file: file, name_arity: name_arity, module: opts[:module]}))
 
       _ ->
-        Mix.raise(
-          "usage: mix menard.deps FILE name/arity [--module Mod]        what a function references\n" <>
+        usage(
+          "mix menard.deps FILE name/arity [--module Mod]        what a function references\n" <>
             "       mix menard.deps add [--in DIR] SPEC|NAME              a dependency, fetched and compiled\n" <>
             "       mix menard.deps upgrade [--in DIR] [APPS] [--to REQ]  updated, with its upgraders"
         )
     end
   end
-
-  # one JSON line, and a failing exit when it did not work — the way `run` answers
-  defp finish(%{ok: ok} = result) do
-    Mix.shell().info(JSON.encode!(result))
-    if not ok, do: exit({:shutdown, 1})
-  end
-
-  defp render(report) do
-    [
-      section("locals", Enum.map(report.locals, &local/1)),
-      section("remotes", report.remotes),
-      section("modules", report.modules),
-      section("attributes", Enum.map(report.attributes, &"@#{&1}"))
-    ]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
-  end
-
-  defp local(%{call: call, shared_with: []}), do: "#{call} (free to move)"
-  defp local(%{call: call, shared_with: others}), do: "#{call} (also used by #{Enum.join(others, ", ")})"
-
-  defp section(_title, []), do: ""
-  defp section(title, lines), do: "#{title}:\n" <> Enum.map_join(lines, "\n", &("  " <> &1))
 end
