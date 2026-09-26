@@ -5,7 +5,7 @@ set -uo pipefail
 fail() { echo "FAIL: $*"; exit 1; }
 
 compiles() {
-  mix compile --warnings-as-errors --force >/tmp/.eval-compile.$$ 2>&1 || { tail -20 /tmp/.eval-compile.$$; fail "does not compile clean"; }
+  log=$(mktemp); mix compile --warnings-as-errors --force >"$log" 2>&1 || { tail -20 "$log"; rm -f "$log"; fail "does not compile clean"; }; rm -f "$log"
 }
 
 tests_pass() {

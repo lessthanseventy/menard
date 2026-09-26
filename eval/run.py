@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -30,9 +31,26 @@ TIMEOUT = 900
 
 
 def sh(cmd, cwd, timeout=600, env=None):
-    p = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str), capture_output=True, text=True,
-                       timeout=timeout, env=env, stdin=subprocess.DEVNULL)
-    return p.returncode, p.stdout + p.stderr
+    """(status, output). Past `timeout` the command's whole process group is killed and the status is
+    124: a check whose mix deadlocked on its own build lock (bench3 styler.A) crashed the runner, and
+    its orphaned mix held the lock after."""
+    p = subprocess.Popen(cmd, cwd=cwd, shell=isinstance(cmd, str), stdout=subprocess.PIPE,
+                         stderr=subprocess.STDOUT, text=True, env=env, stdin=subprocess.DEVNULL,
+                         start_new_session=True)
+    try:
+        out, _ = p.communicate(timeout=timeout)
+        return p.returncode, out
+    except subprocess.TimeoutExpired:
+        kill_group(p)
+        out, _ = p.communicate()
+        return 124, (out or "") + f"\nFAIL: timed out after {timeout}s"
+
+
+def kill_group(p):
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
 
 
 def build_template(suite, force=False):
@@ -227,6 +245,20 @@ def trace_metrics(trace_path, ws):
     }
 
 
+def run_agent(cmd, ws, out, env):
+    """The agent, in a process group of its own: at TIMEOUT all of it goes, the mix it started too.
+    True when it timed out."""
+    p = subprocess.Popen(cmd, cwd=ws, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                         env=env, start_new_session=True)
+    try:
+        p.wait(timeout=TIMEOUT)
+        return False
+    except subprocess.TimeoutExpired:
+        kill_group(p)
+        p.wait()
+        return True
+
+
 def check(check_dir, ws):
     """check.sh in check_dir, run in ws after its hidden/ files are copied in."""
     hidden = check_dir / "hidden"
@@ -246,12 +278,8 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
         trace = out_dir / "traces" / f"{rid}.{step.name}.jsonl"
         t0, timed_out = time.time(), False
         with open(trace, "w") as f:
-            try:
-                subprocess.run(claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid, persist=True),
-                               cwd=ws, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
-                               timeout=TIMEOUT)
-            except subprocess.TimeoutExpired:
-                timed_out = True
+            timed_out = run_agent(claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid,
+                                             persist=True), ws, f, env)
         m = trace_metrics(trace, ws)
         sid = m["session_id"] or sid
         # a resumed session's total_cost_usd is the whole session's so far; turns and tokens are this call's
@@ -291,11 +319,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     t0 = time.time()
     timed_out = False
     with open(trace, "w") as f:
-        try:
-            subprocess.run(claude_cmd(prompt, model, arm), cwd=ws, stdout=f, stderr=subprocess.STDOUT,
-                           stdin=subprocess.DEVNULL, env=env, timeout=TIMEOUT)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        timed_out = run_agent(claude_cmd(prompt, model, arm), ws, f, env)
     wall = round(time.time() - t0, 1)
 
     allowed = [g.strip() for g in (case_dir / "allowed").read_text().splitlines() if g.strip()] \
