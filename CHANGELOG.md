@@ -77,6 +77,11 @@ agents tripped on, fixed, and what they reached for first, made to work.
   advisory, in Claude Code and pi.
 
 **Fixed**
+- A verb whose build another process changed between `bin/menard`'s own compile and the verb's
+  mix answered with mix's compile log ("Generated menard app" on stdout, ahead of the answer;
+  "Waiting for lock on the build directory" on stderr). Every verb now runs off the last build
+  the way `--frozen` did, with no mix project and no compile step, so its stdout is only its
+  answer; `bin/menard` compiles first (quietly) when a source, or a dep's build, changed since.
 - `run` past its deadline killed the Elixir task and left the host's `mix` running, and the
   plugin's client gave up at 180s while menard's own deadline was 600s: an agent's next `mix test`
   then raced the orphan in the same `_build` ("corrupt atom table"). The host's mix now runs under

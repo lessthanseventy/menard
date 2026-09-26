@@ -42,6 +42,23 @@ defmodule Menard.BinTest do
   end
 
   @tag :tmp_dir
+  test "a build changed under menard between its compile and the verb leaves the answer alone", %{
+    tmp_dir: dir
+  } do
+    # Found 2026-09-26: another process deleted and rebuilt _build between bin/menard's own compile
+    # and the verb's mix, and the verb's mix compiled again, "Generated menard app" onto stdout
+    # where the answer belongs. Deterministically: a dep's build gone after the last compile is what
+    # the verb's own mix rebuilt, "==> sourceror … Generated menard app" ahead of the answer.
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\n  @limit 5_000\n\n  def go, do: @limit\nend\n")
+    {_, 0} = System.cmd(@bin, ["version"], env: @fresh)
+    File.rm_rf!(Path.join(@root, "_build/bintest/lib/sourceror"))
+
+    {out, 0} = System.cmd(@bin, ["attr", "get", file, "limit"], env: @fresh, stderr_to_stdout: true)
+    assert out == ~s({"value":"5_000"}\n)
+  end
+
+  @tag :tmp_dir
   test "a reader that stops early (`| head`) gets its lines and no crash", %{tmp_dir: dir} do
     # the BEAM's writer crashes on a closed stdout (:epipe) and printed a stack trace for it
     File.mkdir_p!(Path.join(dir, "lib"))
