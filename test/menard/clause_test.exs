@@ -605,6 +605,15 @@ defmodule Menard.ClauseTest do
            """
   end
 
+  test "a body Elixir reads back only with a warning, inline, goes in a do block" do
+    src = "defmodule A do\n  def f(x), do: x\nend\n"
+
+    for code <- ["foo 1, a: 2", "x |> foo 1"] do
+      assert Clause.replace_body(src, "f/1", "x", code) ==
+               "defmodule A do\n  def f(x) do\n    #{code}\n  end\nend\n"
+    end
+  end
+
   test "replacing a do: body that is a literal keeps the blank line after it" do
     src = """
     defmodule A do
