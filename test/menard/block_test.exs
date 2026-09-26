@@ -371,4 +371,22 @@ defmodule Menard.BlockTest do
     assert out =~ ~s|    @tag :tmp_dir\n    test "d", %{tmp_dir: dir} do\n      assert File.dir?(dir)|
     refute out =~ "test do"
   end
+
+  # Work counted, not timed: the calling process's reductions for listing a module's blocks, the
+  # parse already cached, at n and 4n tests. Linear measured 4.1x; collecting with `acc ++ [node]`
+  # copied the list at every block found, 10-12x. `++` bumps reductions per chunk it copies, not per
+  # cell, so below ~8k blocks the traversal hides it: these sizes are where it shows.
+  test "collecting a module's blocks is linear in how many it has" do
+    work = fn n ->
+      src = "defmodule Big do\n" <> Enum.map_join(1..n, &"  test \"t#{&1}\" do\n    :ok\n  end\n") <> "end\n"
+      ^n = length(Block.list(src))
+      {:reductions, before} = Process.info(self(), :reductions)
+      Block.list(src)
+      {:reductions, later} = Process.info(self(), :reductions)
+      later - before
+    end
+
+    ratio = work.(32_000) / work.(8_000)
+    assert ratio < 7, "4x the blocks cost #{Float.round(ratio, 1)}x the work"
+  end
 end
