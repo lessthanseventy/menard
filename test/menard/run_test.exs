@@ -479,4 +479,20 @@ defmodule Menard.RunTest do
     assert message =~ "--doctest : Unknown option"
     refute message =~ "option-30"
   end
+
+  test "a compile error raised as an exception is a failure with its file and line" do
+    # long1 cart-refactor.B.haiku got failures: [] and a raw tail for this, and never found the line
+    out = """
+    Compiling 9 files (.ex)
+
+    == Compilation error in file lib/shop/cart.ex ==
+    ** (ArgumentError) cannot set attribute @doc inside function/macro
+        (elixir 1.19.4) lib/kernel.ex:3769: Kernel.do_at/5
+        (elixir 1.19.4) expanding macro: Kernel.@/1
+        lib/shop/cart.ex:285: Shop.Cart.discount/1
+    """
+
+    assert [%{kind: "error", at: "lib/shop/cart.ex:285", message: message}] = Run.parse_test(out, 1).failures
+    assert message =~ "cannot set attribute @doc inside function/macro"
+  end
 end
