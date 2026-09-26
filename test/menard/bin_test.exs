@@ -68,6 +68,22 @@ defmodule Menard.BinTest do
     assert File.read!(file) == "defmodule Z do\nend\n"
   end
 
+  test "a verb menard does not have is refused with the list of those it has, every one" do
+    # it went to `mix menard.VERB` for mix's "could not be found", and the list left out two verbs
+    {out, status} =
+      System.cmd(@bin, ["--frozen", "nosuch"], stderr_to_stdout: true, env: [{"MIX_ENV", "dev"}])
+
+    assert status == 2
+    assert out =~ "menard: no verb nosuch"
+    [_, listed] = Regex.run(~r/\(([a-z|]+)\)/, out)
+
+    tasks =
+      for task <- Path.wildcard(Path.join(@root, "lib/mix/tasks/menard.*.ex")),
+          do: task |> Path.basename(".ex") |> String.replace_prefix("menard.", "")
+
+    assert Enum.sort(String.split(listed, "|")) == Enum.sort(tasks)
+  end
+
   test "a build mix finds nothing to do in is not stale on the next call" do
     System.cmd(@bin, ["version"], env: [{"MIX_ENV", "dev"}])
     # same content, newer mtime: mix recompiles nothing, and must not be asked to again

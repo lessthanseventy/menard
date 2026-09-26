@@ -29,7 +29,8 @@ if [[ ! -d deps/sourceror ]]; then
   "${run[@]}" mix compile >&2 </dev/null
 fi
 
-verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp"
+# every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
+verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|version"
 
 # menard building ITSELF (a first fetch, a compile after an update) is menard's business, not the
 # caller's: its log goes nowhere unless it fails. stderr then carries only the verb's own refusals
@@ -46,6 +47,8 @@ frozen=0
 
 verb="${1:-}"
 [[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
+# refused here, not by mix's "task could not be found" after a compile
+[[ "|$verbs|" == *"|$verb|"* ]] || { echo "menard: no verb $verb — usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
 shift
 
 # `--stdin`: the LAST argument comes from stdin — multi-line CODE full of quotes and backslashes,
