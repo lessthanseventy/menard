@@ -364,3 +364,5 @@ changed (mix read the loop's stdin).
 **Recommendation**: ship H's hook as menard's default, with the MCP tools as an option for the
 structural edits and large-file reads where they win, and drop the guard that forces them on
 every edit (its blocks are a turn each and bought nothing measurable over H).
+- 22:56 bench6 started on 4f7bb1e: menard is hook-only now (69059a4), the tools are manos.
+  Arms A (none), B (menard as shipped: the hook), M (menard + manos). 102 runs.
