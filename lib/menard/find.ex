@@ -21,22 +21,20 @@ defmodule Menard.Find do
     heads = source |> walk(&def_head/2) |> MapSet.new(&{&1.line, &1.column})
 
     source
-    |> walk(fn node, aliases ->
-      case node do
-        {^fun, _meta, args} when is_list(args) and is_nil(mod) ->
-          {:call, node}
-
-        {{:., _, [{:__aliases__, _, parts}, ^fun]}, _meta, args} when is_list(args) and not is_nil(mod) ->
-          if expand(parts, aliases) == mod, do: {:call, node}, else: nil
-
-        _ ->
-          nil
-      end
-    end)
+    |> walk(&call_to(&1, &2, mod, fun))
     |> Enum.reject(&MapSet.member?(heads, {&1.line, &1.column}))
     |> Kernel.++(heex_calls(source, mod, fun))
     |> Enum.sort_by(&{&1.line, &1.column})
   end
+
+  defp call_to({fun, _meta, args} = node, _aliases, nil, fun) when is_list(args), do: {:call, node}
+
+  defp call_to({{:., _, [{:__aliases__, _, parts}, fun]}, _meta, args} = node, aliases, mod, fun)
+       when is_list(args) and not is_nil(mod) do
+    if expand(parts, aliases) == mod, do: {:call, node}, else: nil
+  end
+
+  defp call_to(_node, _aliases, _mod, _fun), do: nil
 
   @doc """
   The calls to `name_arity` left in `root`'s lib/ and test/ once it is deleted from `file` (whose
@@ -127,39 +125,35 @@ defmodule Menard.Find do
   @spec defs(String.t(), String.t()) :: [hit()]
   def defs(source, name_arity) do
     {name, arity} = split_name_arity(name_arity)
-
-    walk(source, fn node, _aliases ->
-      case node do
-        {kind, _meta, [head | _]} when kind in @def_kinds ->
-          case def_name_arity(head) do
-            {^name, a} when is_nil(arity) or a == arity -> {kind, node, head_only(kind, head)}
-            _ -> nil
-          end
-
-        _ ->
-          nil
-      end
-    end)
+    walk(source, &def_of(&1, &2, name, arity))
   end
+
+  defp def_of({kind, _meta, [head | _]} = node, _aliases, name, arity) when kind in @def_kinds do
+    case def_name_arity(head) do
+      {^name, a} when is_nil(arity) or a == arity -> {kind, node, head_only(kind, head)}
+      _ -> nil
+    end
+  end
+
+  defp def_of(_node, _aliases, _name, _arity), do: nil
 
   @doc "Where module `mod` is aliased (`alias A.B` or `alias A.{B, C}`)."
   @spec aliases(String.t(), String.t()) :: [hit()]
   def aliases(source, mod) do
-    walk(source, fn node, _aliases ->
-      case node do
-        {:alias, _meta, [{:__aliases__, _, parts}]} ->
-          if Menard.Source.alias_name(parts) == mod, do: {:alias, node}, else: nil
-
-        {:alias, _meta, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} ->
-          if Enum.any?(subs, fn {:__aliases__, _, p} -> Menard.Source.alias_name(base ++ p) == mod end),
-            do: {:alias, node},
-            else: nil
-
-        _ ->
-          nil
-      end
-    end)
+    walk(source, &alias_of(&1, &2, mod))
   end
+
+  defp alias_of({:alias, _meta, [{:__aliases__, _, parts}]} = node, _aliases, mod) do
+    if Menard.Source.alias_name(parts) == mod, do: {:alias, node}, else: nil
+  end
+
+  defp alias_of({:alias, _meta, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} = node, _aliases, mod) do
+    if Enum.any?(subs, fn {:__aliases__, _, p} -> Menard.Source.alias_name(base ++ p) == mod end),
+      do: {:alias, node},
+      else: nil
+  end
+
+  defp alias_of(_node, _aliases, _mod), do: nil
 
   @doc """
   The files `paths` name, for either door: a directory is its Elixir files, a glob its matches. A
@@ -186,13 +180,7 @@ defmodule Menard.Find do
 
         ast
         |> Zipper.zip()
-        |> Zipper.traverse([], fn z, acc ->
-          case match.(Zipper.node(z), aliases) do
-            {kind, report} -> {z, [hit(kind, report, nil) | acc]}
-            {kind, report, text} -> {z, [hit(kind, report, text) | acc]}
-            nil -> {z, acc}
-          end
-        end)
+        |> Zipper.traverse([], &add_hit(&1, &2, match.(Zipper.node(&1), aliases)))
         |> elem(1)
         |> Enum.reverse()
 
@@ -200,6 +188,10 @@ defmodule Menard.Find do
         []
     end
   end
+
+  defp add_hit(z, acc, {kind, report}), do: {z, [hit(kind, report, nil) | acc]}
+  defp add_hit(z, acc, {kind, report, text}), do: {z, [hit(kind, report, text) | acc]}
+  defp add_hit(z, acc, nil), do: {z, acc}
 
   defp hit(kind, node, text) do
     text = text || one_line(node)
