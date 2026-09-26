@@ -16,6 +16,13 @@ defmodule Menard do
   @doc "A path as the caller meant it: absolute stays, relative joins the caller's directory."
   def resolve(path), do: Path.expand(path, caller_dir())
 
+  @doc """
+  menard's cache: the versions it handed out, the host formatters' deps. The user's cache directory,
+  or `config :menard, :cache_dir` where one is set (menard's own tests, so a run never writes into,
+  or prunes, the cache a live session reads).
+  """
+  def cache_dir, do: Application.get_env(:menard, :cache_dir) || :filename.basedir(:user_cache, "menard")
+
   @doc "Format `file` in place with the host's own formatter: `Menard.Format.file/2`."
   defdelegate format(file, opts \\ []), to: Menard.Format, as: :file
 
@@ -93,7 +100,7 @@ defmodule Menard do
 
   defp version_path(version) do
     hex = version |> String.replace_prefix("sha256:", "") |> Path.basename()
-    Path.join([:filename.basedir(:user_cache, "menard"), "versions", hex])
+    Path.join([cache_dir(), "versions", hex])
   end
 
   @doc """

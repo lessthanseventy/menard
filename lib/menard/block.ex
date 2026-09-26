@@ -19,28 +19,32 @@ defmodule Menard.Block do
   def replace(source, name, code, opts \\ []) do
     name = named(name, code)
 
-    with {:ok, _label, code, _opts} <- unwrapped(name, opts[:label], code, opts),
+    with {:ok, _label, code, unwrapped_opts} <- unwrapped(name, opts[:label], code, opts),
          :ok <- body_only(name, code),
          {:ok, node} <- one(source, name, opts) do
       {_name, meta, args} = node
       %{start: [line: _, column: col]} = Sourceror.get_range(node)
       indent = String.duplicate(" ", col + 1)
 
-      case {body_range(node), meta[:do]} do
-        # `test "x" do end` has no body to take a range from: write between the `do` and the `end`
-        {nil, [line: line, column: column]} ->
-          at = %{start: [line: line, column: column + 2], end: meta[:end]}
+      out =
+        case {body_range(node), meta[:do]} do
+          # `test "x" do end` has no body to take a range from: write between the `do` and the `end`
+          {nil, [line: line, column: column]} ->
+            at = %{start: [line: line, column: column + 2], end: meta[:end]}
 
-          patch(
-            source,
-            at,
-            "\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1)
-          )
+            patch(
+              source,
+              at,
+              "\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1)
+            )
 
-        {body, _do} ->
-          range = body |> Menard.Source.clamp(source) |> Menard.Source.with_leading_comments(source, code)
-          patch_body(source, range, code, meta, args, col)
-      end
+          {body, _do} ->
+            range = body |> Menard.Source.clamp(source) |> Menard.Source.with_leading_comments(source, code)
+            patch_body(source, range, code, meta, args, col)
+        end
+
+      # the body is patched first: it sits after the args, so their range still holds
+      if is_binary(out), do: with_args(out, args, unwrapped_opts[:args]), else: out
     end
   end
 
@@ -50,6 +54,23 @@ defmodule Menard.Block do
       not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
       true -> to_do_block(source, args, range, code, col)
     end
+  end
+
+  # A whole `test "x", %{tmp_dir: dir} do … end` given for a test written with other args, or none,
+  # carries its args too: only the body taken, `dir` was an undefined variable in it
+  defp with_args(out, _args, nil), do: out
+
+  defp with_args(out, [label | rest], ctx) do
+    %{end: from} = Sourceror.get_range(label)
+
+    to =
+      case rest do
+        [current, _do] -> Sourceror.get_range(current).end
+        _no_args -> from
+      end
+
+    at = %{start: from, end: to}
+    if Menard.Source.slice(out, at) == ", " <> ctx, do: out, else: patch(out, at, ", " <> ctx)
   end
 
   # Several lines cannot sit in a `do:` keyword, so the block becomes `do … end`: from the end of

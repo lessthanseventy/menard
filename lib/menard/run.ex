@@ -451,7 +451,7 @@ defmodule Menard.Run do
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
   @doc """
-  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, failures, tail}`.
+  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, skipped, failures, tail}`.
   `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
   run had it; output menard does not run itself (a precommit alias) is read from its prose.
   """
@@ -473,6 +473,7 @@ defmodule Menard.Run do
       exit: status,
       tests: tests,
       failed: failed,
+      skipped: if(held, do: held[:skipped]),
       failures: if(failures == [] and status != 0, do: refusal(out), else: failures),
       tail: summary(last),
       runs: length(runs) - 1,
@@ -512,6 +513,7 @@ defmodule Menard.Run do
       {_key, nil} -> true
       {:fetched, []} -> true
       {:tail, ""} -> true
+      {:skipped, 0} -> true
       {:exit, _} -> ok
       {:log, _} -> ok
       {:seed, _} -> ok

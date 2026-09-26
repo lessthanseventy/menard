@@ -389,4 +389,27 @@ defmodule Menard.BlockTest do
     ratio = work.(32_000) / work.(8_000)
     assert ratio < 7, "4x the blocks cost #{Float.round(ratio, 1)}x the work"
   end
+
+  test "replace handed a whole test with other args takes its args with its body" do
+    # the whole test given with a context the file's test lacked: only the body was taken, and the
+    # `dir` in it was an undefined variable
+    src =
+      "defmodule T do\n  test \"a\" do\n    assert 1\n  end\n\n  test \"b\", %{x: x} do\n    assert x\n  end\nend\n"
+
+    assert Block.replace(src, "test", "test \"a\", %{tmp_dir: dir} do\n  assert dir\nend", label: "a") ==
+             String.replace(
+               src,
+               "test \"a\" do\n    assert 1",
+               "test \"a\", %{tmp_dir: dir} do\n    assert dir"
+             )
+
+    assert Block.replace(src, "test", "test \"b\", %{y: y} do\n  assert y\nend", label: "b") ==
+             String.replace(src, "%{x: x} do\n    assert x", "%{y: y} do\n    assert y")
+
+    # the same args, or a bare body: the head stays as written
+    assert Block.replace(src, "test", "test \"b\", %{x: x} do\n  assert !x\nend", label: "b") ==
+             String.replace(src, "assert x", "assert !x")
+
+    assert Block.replace(src, "test", "assert 2", label: "a") == String.replace(src, "assert 1", "assert 2")
+  end
 end
