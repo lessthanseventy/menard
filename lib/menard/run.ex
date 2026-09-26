@@ -319,6 +319,28 @@ defmodule Menard.Run do
     |> Enum.map(fn [_, kind, message, file, line] ->
       %{kind: kind, message: message, at: "#{file}:#{line}"}
     end)
+    |> Kernel.++(raised(out))
+  end
+
+  # A compile error raised as an exception (`cannot set attribute @doc inside function/macro`) comes
+  # as `== Compilation error in file F ==` and `** (Error) message` over a stack: no `error:` line
+  # for the pattern above, so it was no failure at all. `at` is the first frame in the project. The
+  # CompileError that says "errors have been logged" only sums up `error:` lines already parsed.
+  defp raised(out) do
+    for [_, file, error, message, stack] <-
+          Regex.scan(
+            ~r/== Compilation error in file (\S+) ==\n\*\* \(([\w.]+)\) (.+)\n((?:[ \t]+.*\n?)*)/,
+            out
+          ),
+        not String.contains?(message, "errors have been logged") do
+      at =
+        case Regex.run(~r/^\s+((?:lib|test|config)\/\S+?\.exs?):(\d+):/m, stack) do
+          [_, path, line] -> "#{path}:#{line}"
+          nil -> file
+        end
+
+      %{kind: "error", message: "(#{error}) #{message}", at: at}
+    end
   end
 
   # `mix format --check-formatted`'s list of files, colored even when piped, each with its diff after
