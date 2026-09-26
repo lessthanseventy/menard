@@ -157,6 +157,8 @@ def build_skill_arm(arm, force=False):
 
 def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd = ["claude", "-p", prompt, "--model", model, "--output-format", "stream-json", "--verbose",
+           # what a hook told the agent is in no other event: without it a trace cannot say
+           "--include-hook-events",
            "--setting-sources", "project", "--permission-mode", "bypassPermissions",
            "--max-turns", str(MAX_TURNS)]
     # a session of steps resumes the one before, so its session has to be kept
