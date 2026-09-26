@@ -391,6 +391,28 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "commit-gate gates the projects of the repo the commit lands in, not every one written into", %{
+    tmp_dir: dir
+  } do
+    [one, two] = for name <- ["one", "two"], do: Path.join(dir, name)
+    host(one)
+    host(two)
+    File.write!(Path.join(dir, "menard-touched-c5"), one <> "\n")
+    red = stub_menard(dir, "red", @red)
+
+    gate = fn cwd, cmd ->
+      commit_gate(%{session_id: "c5", cwd: cwd, tool_input: %{command: cmd}}, dir, red)
+    end
+
+    assert {"", 0} = gate.(two, "git commit -m x")
+    assert {"", 0} = gate.(dir, "git -C two commit -m x")
+    assert {out, 0} = gate.(one, "git commit -m x")
+    assert out =~ ~s("deny")
+    assert {out, 0} = gate.(two, "git -C ../one commit -m x")
+    assert out =~ ~s("deny")
+  end
+
+  @tag :tmp_dir
   test "stop-gate lets a session end that wrote nothing, or was refused three times", %{tmp_dir: dir} do
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "none-written"}, dir)
 

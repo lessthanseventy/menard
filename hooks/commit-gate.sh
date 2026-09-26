@@ -17,8 +17,21 @@ session=$(jq -r '.session_id // "none"' <<<"$payload")
 touched="${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
 [[ -s "$touched" ]] || exit 0
 
+# the repo the commit lands in: -C's directory when the command names one, else the call's own; a
+# project written into in another repo is not this commit's to wait on
+cwd=$(jq -r '.cwd // empty' <<<"$payload")
+at=${cwd:-$PWD}
+if [[ "$cmd" =~ git[[:space:]]+-C[[:space:]]+(\"[^\"]*\"|\'[^\']*\'|[^[:space:]]+) ]]; then
+  c=${BASH_REMATCH[1]}
+  c=${c#[\"\']}
+  c=${c%[\"\']}
+  [[ "$c" == /* ]] && at=$c || at="$at/$c"
+fi
+repo=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null)
+
 red=""
 while IFS= read -r dir; do
+  [[ -n "$repo" && "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" == "$repo" ]] || continue
   # the files as a commit would take them (a git tree, the same for the same files): the very ones a
   # green `run check` already passed are not gated again. Menard.Run.tree/1 and green_stamp/1 write
   # it the same way. focus3: the agent ran the gate, green, and the hook ran it again at the commit.
