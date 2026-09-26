@@ -566,26 +566,25 @@ defmodule Menard.Clause do
   # An agent reaches for a test by its label, as a name or as a head: say which call does reach it
   defp no_clause(source, name, arity, head, []) do
     guesses = [to_string(name), head |> String.trim() |> String.trim(~s("))]
+    blocks = with {:error, _} <- Menard.Block.list(source), do: []
 
-    with [_ | _] = blocks <- Menard.Block.list(source),
-         {macro, label, _line} <- Enum.find(blocks, fn {_macro, label, _line} -> label in guesses end) do
-      "no function #{name}/#{arity}: `#{macro} \"#{label}\"` is a macro call, not a function — " <>
-        "reach it with `block replace FILE #{macro} --label \"#{label}\"` (or get, delete)"
-    else
-      _ when name in [:test, :describe, :setup, :setup_all] ->
+    cond do
+      block = Enum.find(blocks, fn {_macro, label, _line} -> label in guesses end) ->
+        {macro, label, _line} = block
+
+        "no function #{name}/#{arity}: `#{macro} \"#{label}\"` is a macro call, not a function — " <>
+          "reach it with `block replace FILE #{macro} --label \"#{label}\"` (or get, delete)"
+
+      name in [:test, :describe, :setup, :setup_all] ->
         "no function #{name}/#{arity}: `#{name}` is a macro, and its blocks are reached with `block` — " <>
           "`block {verb: \"get\", file, name: \"#{name}\"}` answers with every one, `label` picks one"
 
       # clause t/0 for `@type t ::` (bench3 and bench4 not-compiling.B.haiku)
-      _ when is_atom(name) ->
-        if source =~ ~r/@(type|typep|opaque)\s+#{name}\b/ do
-          "no function #{name}/#{arity}: `@type #{name}` is a type, a statement of the module — stmt reaches it " <>
-            "with no clause named: `stmt {verb: \"replace\", file, name_arity: \"-\", match: \"@type #{name} ::\", code}`"
-        else
-          "no clause #{name}/#{arity} with head `#{head}` — have: none"
-        end
+      source =~ ~r/@(type|typep|opaque)\s+#{name}\b/ ->
+        "no function #{name}/#{arity}: `@type #{name}` is a type, a statement of the module — stmt reaches it " <>
+          "with no clause named: `stmt {verb: \"replace\", file, name_arity: \"-\", match: \"@type #{name} ::\", code}`"
 
-      _ ->
+      true ->
         "no clause #{name}/#{arity} with head `#{head}` — have: none"
     end
   end
