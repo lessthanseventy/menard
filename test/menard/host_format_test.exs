@@ -96,6 +96,25 @@ defmodule Menard.HostFormatTest do
     assert File.read!(file) == code
   end
 
+  test "run format passes a file its plugins cannot format when it is formatted already", %{tmp_dir: dir} do
+    # the format hook blocked on files formatted at HEAD, in a project never built in place: the
+    # file cannot be formatted here, but it can be checked, the plugins left out
+    ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
+    File.mkdir_p!(ebin)
+    File.write!(Path.join(ebin, "Elixir.MenardBadPlug.beam"), "not a beam")
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardBadPlug], locals_without_parens: [field: 2]]")
+    write(dir, "clean.ex", "defmodule C do\n  field :a, 1\nend\n")
+    write(dir, "messy.ex", "defmodule M do\n  def   m, do: 1\nend\n")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      send(self(), {:reply, Menard.Run.result(dir, "format", ["lib/clean.ex", "lib/messy.ex"])})
+    end)
+
+    assert_received {:reply, reply}
+    assert %{ok: false, changed: [], failures: [%{at: "lib/messy.ex", message: message}]} = reply
+    assert message =~ "MenardBadPlug"
+  end
+
   test "formats with the host's own options though its mix.exs is broken", %{tmp_dir: dir} do
     host(dir, "[inputs: [\"lib/**/*.ex\"], line_length: 30]")
     file = write(dir, "a.ex", "defmodule A do\n  def go, do: [:alpha, :beta, :gamma, :delta]\nend\n")
