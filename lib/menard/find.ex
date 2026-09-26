@@ -38,6 +38,41 @@ defmodule Menard.Find do
     |> Enum.sort_by(&{&1.line, &1.column})
   end
 
+  @doc """
+  The calls to `name_arity` left in `root`'s lib/ and test/ once it is deleted from `file` (whose
+  source before the delete is `source`), as `file:line: call`, one inside a test with its label: the
+  file's own local calls, and every file's remote ones by the module's full name. What a
+  whole-function delete answers with, so the agent fixes or deletes those on purpose.
+  """
+  def left(root, file, source, name_arity) do
+    [spec | _] = String.split(name_arity, "/")
+
+    {mod, fun} =
+      case String.split(spec, ".") do
+        [fun] -> {source |> Code.string_to_quoted!() |> Menard.Clause.modules() |> hd() |> elem(0), fun}
+        parts -> {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
+      end
+
+    dirs = for dir <- ["lib", "test"], File.dir?(Path.join(root, dir)), do: Path.join(root, dir)
+    {:ok, files} = if dirs == [], do: {:ok, []}, else: Menard.Find.files(dirs)
+
+    for f <- Enum.uniq([file | files]),
+        text = File.read!(f),
+        hit <-
+          Menard.Find.calls(text, "#{mod}.#{fun}") ++
+            if(f == file, do: Menard.Find.calls(text, fun), else: []) do
+      test =
+        text
+        |> Menard.Block.list()
+        |> List.wrap()
+        |> Enum.filter(&match?({:test, _label, line} when line <= hit.line, &1))
+        |> List.last()
+
+      where = Path.relative_to(f, root) <> ":#{hit.line}"
+      if test, do: ~s(#{where}, in test "#{elem(test, 1)}": #{hit.text}), else: "#{where}: #{hit.text}"
+    end
+  end
+
   # ~H is a string to the AST, so a call in its `{…}` or `<%= … %>` was never found: explore-callers
   # answered two callers of four. Those are Elixir, matched as written (`Alias.fun(` or `fun(`);
   # the markup around them is not.

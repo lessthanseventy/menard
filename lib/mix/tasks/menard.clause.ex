@@ -37,6 +37,25 @@ defmodule Mix.Tasks.Menard.Clause do
           flags
         )
 
+      ["delete", file, na] ->
+        file = Menard.resolve(file)
+        source = File.read!(file)
+
+        with out when is_binary(out) <- Clause.delete_function(source, na),
+             {:ok, reply} <-
+               Menard.write(
+                 file,
+                 out,
+                 [did: "delete #{na}, every clause, in #{Path.basename(file)}"] ++
+                   Keyword.take(flags, [:version, :force])
+               ) do
+          Mix.shell().info(
+            JSON.encode!(Map.put(reply, :left, Menard.Find.left(Menard.caller_dir(), file, source, na)))
+          )
+        else
+          {:error, message} -> Mix.raise(message)
+        end
+
       ["delete", file, na, head] ->
         write(
           file,
@@ -131,6 +150,7 @@ defmodule Mix.Tasks.Menard.Clause do
       _ ->
         Mix.raise(
           "usage: mix menard.clause (replace|rewrite|delete|insert-after|insert-before) FILE name/arity HEAD [CODE] [--nth N]\n" <>
+            "       mix menard.clause delete FILE name/arity                (no HEAD: the whole function, every clause)\n" <>
             "       mix menard.clause insert-at FILE (Mod.Name|-) [top|bottom] CODE\n" <>
             "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
             "       mix menard.clause doc FILE name/arity HEAD [TEXT]       (no TEXT deletes it)\n" <>

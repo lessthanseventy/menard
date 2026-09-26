@@ -195,6 +195,28 @@ defmodule Menard.Clause do
     end
   end
 
+  @doc """
+  Delete a whole function: every clause of `name_arity`, each with the @doc/@spec/@impl and comment
+  lines that belong to it. What an agent means by deleting `f/2` with no head named.
+  """
+  @spec delete_function(String.t(), String.t()) :: String.t() | {:error, String.t()}
+  def delete_function(source, name_arity) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity) do
+      lines = String.split(source, "\n")
+
+      case clauses(scope, name, arity) do
+        [] ->
+          {:error, "no function #{name}/#{arity} here"}
+
+        all ->
+          spans = all |> Enum.map(&attached_span(ast, lines, &1)) |> merge_spans()
+          drop_spans(lines, Enum.map(spans, &with_trailing_blank(lines, &1)))
+      end
+    end
+  end
+
   @doc "Insert `code` as a new clause on the line after the addressed one, at its indent."
   @spec insert_after(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}

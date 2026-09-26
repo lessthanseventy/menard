@@ -34,6 +34,7 @@ SHAPE of the change, not its size:
 | one expression inside it | `stmt {verb: "replace", file, name_arity, head, match, code}` |
 | a new function | `clause {verb: "insert_at", file, module, code}`; a new clause of one: `insert_after` its sibling |
 | a clause's existence | `clause {verb: "delete" \| "insert_before", …}` |
+| a whole function | `clause {verb: "delete", file, name_arity}`, no `head`: every clause; the reply's `left` is each call still to fix |
 | public or private | `clause {verb: "visibility", file, name_arity, visibility}`: every clause at once |
 | which file a function lives in | `clause {verb: "move", file, name_arity, to, as?}` |
 | a function's `@spec`, `@doc`, or the comment above it | `clause {verb: "spec" \| "doc" \| "comment", …, text}`; no `text` removes it |
