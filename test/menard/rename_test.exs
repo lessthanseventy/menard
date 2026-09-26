@@ -141,6 +141,32 @@ defmodule Menard.RenameTest do
            """
   end
 
+  test "only: leaves a module attribute alone, and :functions renames the import that names the function" do
+    src = """
+    defmodule A do
+      import B, only: [old: 1]
+      @old 1
+      def go(old), do: old(@old) + old
+    end
+    """
+
+    assert Rename.run(src, "old", "new", only: :functions) == """
+           defmodule A do
+             import B, only: [new: 1]
+             @old 1
+             def go(old), do: new(@old) + old
+           end
+           """
+
+    assert Rename.run(src, "old", "new", only: :variables) == """
+           defmodule A do
+             import B, only: [old: 1]
+             @old 1
+             def go(new), do: old(@old) + new
+           end
+           """
+  end
+
   test "a call inside ~H is renamed with the rest" do
     # a call inside ~H is a string to the AST: `rename` left it, said the file was done, and the
     # project stopped compiling (hhaa: `:if={… is_editable?(@background_check)}`)

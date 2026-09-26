@@ -17,12 +17,17 @@ defmodule Menard.Rename do
       {:ok, ast} ->
         from = String.to_atom(old)
         functions = function_positions(ast, from)
+        attributes = if opts[:only], do: attribute_starts(ast, from), else: []
 
         patches =
           ast
           |> patches(from, new, Keyword.get(opts, :atoms, false))
+          |> Kernel.++(import_patches(ast, from, new))
           |> Enum.filter(&wanted?(&1, opts[:only], functions))
           |> Enum.map(&elem(&1, 1))
+          |> Enum.reject(&(&1.range.start in attributes))
+          # `atoms: true` renames the import's key as an atom too
+          |> Enum.uniq_by(& &1.range)
 
         apply_patches(
           source,
@@ -61,6 +66,24 @@ defmodule Menard.Rename do
       end
     end)
     |> elem(1)
+  end
+
+  # `@old` is an attribute, neither a function nor a variable: under `only:` its name stays, where
+  # `only: :functions` renamed `@old 1` and left every `@old` read, and the module stopped compiling
+  defp attribute_starts(ast, from) do
+    for {:@, _, [{^from, _, _} = name]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+        do: Sourceror.get_range(name).start
+  end
+
+  # `import B, only: [old: 1]` names the function by a key: left as it was, it asks B for a function
+  # the rename took away
+  defp import_patches(ast, from, new) do
+    for {:import, _, [_module, opts]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+        is_list(opts),
+        {{:__block__, _, [key]}, {:__block__, _, [names]}} <- opts,
+        key in [:only, :except] and is_list(names),
+        {{:__block__, _, [^from]} = name, _arity} <- names,
+        do: {:function, %{range: Sourceror.get_range(name), change: "#{new}:"}}
   end
 
   defp strip_when({:when, _, [head | _]}), do: head
