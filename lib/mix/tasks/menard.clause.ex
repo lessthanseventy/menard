@@ -119,7 +119,13 @@ defmodule Mix.Tasks.Menard.Clause do
     )
   end
 
-  defp verb(["move", file, na], flags), do: move(file, flags[:to], na, flags)
+  defp verb(["move", file, na], flags) do
+    case flags[:to] do
+      # no DEST: the usage, as for any other call the verbs do not take
+      nil -> verb([], flags)
+      dest -> move(file, dest, na, flags)
+    end
+  end
 
   defp verb(["comment", file, na, head, text], flags) do
     write(
