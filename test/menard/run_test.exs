@@ -747,4 +747,13 @@ defmodule Menard.RunTest do
              skipped: 1
            }
   end
+
+  test "outside a git work tree there is no tree to stamp: nil, not a crash" do
+    # off the repo: ExUnit's tmp_dir sits inside menard's own checkout
+    dir = Path.join(System.tmp_dir!(), "menard-tree-#{System.pid()}-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    assert Run.tree(dir) == nil
+  end
 end
