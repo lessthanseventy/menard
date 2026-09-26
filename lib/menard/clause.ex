@@ -493,13 +493,28 @@ defmodule Menard.Clause do
         Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.node |> elem(2) |> hd() |> bare_args())]))
 
       case {exact, unguarded} do
-        {[one], _} -> {:ok, one}
-        {[_ | _] = many, _} -> pick_nth(many, name, arity, head, opts[:nth])
-        {[], [one]} -> {:ok, one}
-        {[], [_ | _] = many} -> pick_nth(many, name, arity, head, opts[:nth])
+        {[one], _} ->
+          {:ok, one}
+
+        {[_ | _] = many, _} ->
+          pick_nth(many, name, arity, head, opts[:nth])
+
+        {[], [one]} ->
+          {:ok, one}
+
+        {[], [_ | _] = many} ->
+          pick_nth(many, name, arity, head, opts[:nth])
+
         # one clause has nothing to tell apart: any head, even the one it is about to get, means it
-        {[], []} when length(clauses) == 1 -> {:ok, hd(clauses)}
-        {[], []} -> {:error, no_clause(source, name, arity, head, clauses)}
+        {[], []} when length(clauses) == 1 ->
+          {:ok, hd(clauses)}
+
+        # part of exactly one head, the argument that tells the clauses apart (`"TENOFF"`): that one
+        {[], []} ->
+          case Enum.filter(clauses, &(want != "" and String.contains?(squash(&1.head_text), want))) do
+            [one] -> {:ok, one}
+            _ -> {:error, no_clause(source, name, arity, head, clauses)}
+          end
       end
     end
   end
