@@ -230,3 +230,39 @@ Open, for Andrew:
 - `Read` called with `file` (menard's name) in place of `file_path`: 3 failed calls, all in B.
   Candidate: accept `file_path` everywhere and document it, so the models' habit matches.
 - The hooks_test flake (TODO.md), not reproduced.
+
+## long1 verdict: the first long sessions (19:13-19:34)
+
+One six-step session (eval/long, cart-refactor: rename, change a signature, move a function,
+add a function, fix a bug, add a component; each step resumed in the same session) on a grown
+fixture (4.6k lines, modules of 300-1000 lines), menard pinned at b5bd97b. 1 run per cell: a pilot.
+
+| model | arm | final | steps (cumulative) | clean | turns | cost | peak context | Reads | failed calls |
+|---|---|---|---|---|---|---|---|---|---|
+| haiku | A | FAIL | 1/6 | no | 126 | $1.86 | 153k | 45 | 7 |
+| haiku | B | PASS | 4/6 | yes | 179 | $2.25 | 166k | 41 | 13 |
+| sonnet | A | PASS | 6/6 | no | 25 | $0.33 | 42k | 0 | 0 |
+| sonnet | B | PASS | 6/6 | yes | 53 | $0.73 | 64k | 0 | 5 |
+
+- **At length menard did not pay its cost back in this pilot.** B cost more for both models
+  (haiku +21%, sonnet +118%) and read more context at its peak (+13k, +22k). The saving it exists
+  for, fewer whole-file reads, did not appear: haiku B made 41 Reads to A's 45; sonnet made none
+  in either arm (it greps and edits with shell commands).
+- **Where it helped: correctness and clean output.** haiku A took a shortcut in step 02
+  (`total(cart, rate \\ nil)`: the rate optional, so 13 callers need not change) and the check
+  caught it; its final state fails. haiku B ended fully correct, all 150 tests green. Both B
+  sessions end formatted; neither A session does.
+- **What broke B's step 02 (haiku) was menard**, and is fixed: `clause replace` given a whole
+  function with its `@doc` above nested the `@doc` inside the old body ("cannot set attribute @doc
+  inside function/macro"; 5bfc41c), and `run check` answered that compile error with
+  `failures: []` (032f5f4). Step 01's miss was rename leaving `price_with_tax/1` in a @moduledoc
+  (7d5f5df, docs now renamed). Also fixed from sonnet B: rewrite that carries a new function after
+  the clause (c4b41bb), block add naming a whole block by its own label (60eb80d, reverses part
+  of aa49875: easy to revert).
+- Harness: step 06's hidden test compared exact HTML (9be97c0 fixed); a cumulative check makes one
+  early failure fail every later step: haiku A's own-step results are 5/6 (only step 02 wrong).
+
+The question this leaves: for sonnet, menard costs about 2x on long work and saves nothing it can
+measure here; its value is the guard's guarantees (parse-checked, formatted, never a sed gone
+wrong) and correctness catches. Whether that is worth 2x is Andrew's call; batch edits would cut
+the per-site turns that make up most of it.
