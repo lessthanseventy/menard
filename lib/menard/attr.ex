@@ -10,7 +10,7 @@ defmodule Menard.Attr do
   """
 
   import Menard.Source, only: [parse: 1, reindent: 2]
-  alias Menard.Clause
+  alias Menard.Tree
 
   # written above one def and belonging to it, as Menard.Clause's @attached
   @per_definition [:doc, :spec, :impl, :deprecated, :dialyzer]
@@ -78,7 +78,7 @@ defmodule Menard.Attr do
   @spec list(String.t(), keyword()) :: [{atom(), pos_integer()}] | {:error, String.t()}
   def list(source, opts \\ []) do
     with {:ok, body} <- body(source, opts) do
-      for node <- body, name = attr_name(node), not is_nil(name), do: {name, start_line(node)}
+      for node <- body, name = attr_name(node), not is_nil(name), do: {name, Tree.start_line(node)}
     end
   end
 
@@ -114,7 +114,7 @@ defmodule Menard.Attr do
           {:error, :missing}
 
         many ->
-          lines = Enum.map_join(many, ", ", &to_string(start_line(&1)))
+          lines = Enum.map_join(many, ", ", &to_string(Tree.start_line(&1)))
 
           {:error,
            "@#{want} is set #{length(many)} times (lines #{lines}) — attributes that repeat per clause belong to the clause verbs"}
@@ -124,8 +124,8 @@ defmodule Menard.Attr do
 
   defp body(source, opts) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Clause.module_scope(ast, opts[:module]) do
-      {:ok, Clause.module_body(node)}
+         {:ok, node} <- Tree.module_scope(ast, opts[:module]) do
+      {:ok, Tree.module_body(node)}
     end
   end
 
@@ -141,8 +141,8 @@ defmodule Menard.Attr do
   # an attribute another attribute reads has to precede it, and Elixir only warns when it does not.
   defp add(source, name, value, opts) do
     with {:ok, ast} <- parse(source),
-         {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
-      body = Clause.module_body(module)
+         {:ok, module} <- Tree.module_scope(ast, opts[:module]) do
+      body = Tree.module_body(module)
       want = key(name)
       # below every attribute the value reads (`@open @statuses -- […]`), which is nil above its set
       deps = reads_in(value)
@@ -260,11 +260,6 @@ defmodule Menard.Attr do
       nil -> false
       name -> name not in ([:moduledoc, :doc, :shortdoc, :typedoc] ++ @per_definition)
     end
-  end
-
-  defp start_line(node) do
-    %{start: [line: line, column: _]} = Sourceror.get_range(node)
-    line
   end
 
   # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the

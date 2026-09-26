@@ -14,7 +14,7 @@ defmodule Menard.Deps do
   """
 
   import Menard.Source, only: [parse: 1]
-  alias Menard.Clause
+  alias Menard.Tree
   alias Sourceror.Zipper
 
   @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
@@ -31,7 +31,7 @@ defmodule Menard.Deps do
   def of(source, name_arity, opts \\ []) do
     with {:ok, want} <- split(name_arity),
          {:ok, ast} <- parse(source),
-         {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
+         {:ok, module} <- Tree.module_scope(ast, opts[:module]) do
       defs = definitions(module)
 
       case Enum.filter(defs, &(key(&1) == want)) do
@@ -132,16 +132,12 @@ defmodule Menard.Deps do
 
   defp definitions(module) do
     module
-    |> Clause.module_body()
+    |> Tree.module_body()
     |> Enum.flat_map(fn
-      {kind, _meta, [head | _rest]} = node when kind in @kinds -> [{head_key(head), node}]
+      {kind, _meta, [head | _rest]} = node when kind in @kinds -> [{Tree.name_arity(head), node}]
       _other -> []
     end)
   end
-
-  defp head_key({:when, _meta, [call | _guard]}), do: head_key(call)
-  defp head_key({fun, _meta, args}) when is_list(args), do: {fun, length(args)}
-  defp head_key({fun, _meta, _nil_args}), do: {fun, 0}
 
   defp key({key, _node}), do: key
   defp name({fun, arity}), do: "#{fun}/#{arity}"

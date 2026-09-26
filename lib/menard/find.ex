@@ -35,7 +35,7 @@ defmodule Menard.Find do
   defp self_calls(source, mod, fun) do
     case Menard.Source.parse(source) do
       {:ok, ast} ->
-        for {name, module} <- Menard.Clause.modules(ast),
+        for {name, module} <- Menard.Tree.modules(ast),
             {{:., _, [receiver, called]}, _, args} = node <- own_nodes(module),
             is_atom(called) and is_list(args) and Atom.to_string(called) == fun,
             self_ref(receiver, name) == mod do
@@ -127,7 +127,7 @@ defmodule Menard.Find do
 
   defp own_module(source) do
     with {:ok, ast} <- Menard.Source.parse(source),
-         [{name, _node} | _] <- Menard.Clause.modules(ast),
+         [{name, _node} | _] <- Menard.Tree.modules(ast),
          do: name,
          else: (_ -> nil)
   end
@@ -183,7 +183,7 @@ defmodule Menard.Find do
   end
 
   defp def_of({kind, _meta, [head | _]} = node, _aliases, name, arity) when kind in @def_kinds do
-    case def_name_arity(head) do
+    case Menard.Tree.name_arity(head) do
       {n, a} when is_atom(n) and (is_nil(arity) or a == arity) ->
         if Atom.to_string(n) == name, do: {kind, node, head_only(kind, head)}
 
@@ -267,7 +267,7 @@ defmodule Menard.Find do
   # `alias __MODULE__.X` means the module it is written in, so each module's aliases are read with its name.
   defp collect_aliases(ast) do
     ast
-    |> Menard.Clause.modules()
+    |> Menard.Tree.modules()
     |> Enum.reduce(aliases_in(ast, nil), fn {mod, node}, acc -> Map.merge(acc, aliases_in(node, mod)) end)
   end
 
@@ -315,8 +315,4 @@ defmodule Menard.Find do
       [name] -> {name, nil}
     end
   end
-
-  defp def_name_arity({:when, _, [call | _]}), do: def_name_arity(call)
-  defp def_name_arity({name, _, args}) when is_list(args), do: {name, length(args)}
-  defp def_name_arity({name, _, _}), do: {name, 0}
 end

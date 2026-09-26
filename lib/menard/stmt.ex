@@ -269,7 +269,7 @@ defmodule Menard.Stmt do
            node: ast,
            range: Menard.Source.range(ast, source),
            miss: miss,
-           top: List.flatten(Clause.module_bodies(ast))
+           top: List.flatten(Menard.Tree.module_bodies(ast))
          }}
 
       _ ->
