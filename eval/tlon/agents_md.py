@@ -24,4 +24,6 @@ def strip(text):
 
 if __name__ == "__main__":
     src, dest = sys.argv[1:3]
-    open(dest, "w").write(strip(open(src).read()))
+    # read before opening the destination: IN and OUT are the same file in build.sh
+    text = open(src).read()
+    open(dest, "w").write(strip(text))
