@@ -305,6 +305,11 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
+    # the core takes atoms only; the schema's enum is the strings
+    defp at("top"), do: :top
+    defp at("bottom"), do: :bottom
+    defp at(nil), do: nil
+
     defp want("public"), do: :public
     defp want(_private), do: :private
 
@@ -334,7 +339,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       do: Clause.insert_before(source, p.name_arity, p.head, code, opts)
 
     defp edit_clause("insert_at", p, source, code, _opts),
-      do: Clause.insert_at(source, p[:module], p[:at], code)
+      do: Clause.insert_at(source, p[:module], at(p[:at]), code)
 
     # `text` absent means DELETE for both — the prose is the whole payload, so nothing to give
     # is the only way to say "remove it".

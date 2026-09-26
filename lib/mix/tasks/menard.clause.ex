@@ -113,7 +113,7 @@ defmodule Mix.Tasks.Menard.Clause do
   defp verb(["insert_at", file, module, where, code], flags) when where in ["top", "bottom"] do
     write(
       file,
-      &Clause.insert_at(&1, module(module), where, code),
+      &Clause.insert_at(&1, module(module), String.to_existing_atom(where), code),
       "insert-at #{module || "-"} #{where} in #{Path.basename(file)}",
       flags
     )
