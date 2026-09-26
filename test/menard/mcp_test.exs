@@ -416,6 +416,29 @@ defmodule Menard.MCPTest do
     end
   end
 
+  test "rename names a file it could not parse, apart from the ones it had nothing to do in", %{
+    root: root
+  } do
+    # both were "unchanged": an agent took a file with the old name still in it for one without
+    File.write!(Path.join(root, "lib/ok.ex"), "defmodule Ok do\n  def old, do: 1\nend\n")
+    File.write!(Path.join(root, "lib/none.ex"), "defmodule None do\nend\n")
+    File.write!(Path.join(root, "lib/broken.ex"), "defmodule Broken do\n  def old, do: (\nend\n")
+
+    response =
+      call(Menard.MCP.Rename, %{
+        old: "old",
+        new: "fresh",
+        files: ["lib/ok.ex", "lib/none.ex", "lib/broken.ex"]
+      })
+
+    reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
+    assert reply["changed"] == [Path.join(root, "lib/ok.ex")]
+    assert reply["unchanged"] == [Path.join(root, "lib/none.ex")]
+    assert [%{"file" => broken, "why" => why}] = reply["skipped"]
+    assert broken == Path.join(root, "lib/broken.ex")
+    assert why =~ "not parseable"
+  end
+
   test "rename takes globs in files, and a glob that matches nothing is refused by name", %{root: root} do
     File.mkdir_p!(Path.join(root, "lib/sub"))
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def old, do: 1\nend\n")
