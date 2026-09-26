@@ -21,3 +21,9 @@ commit lands.
   wrote its pid file inside the 1 s deadline, so `File.read!(pid_file)` raised). Both measure time
   against the machine, so `run check` is not deterministic on a busy host. Make them load-proof
   (count work rather than time it; tolerate the host dying before it wrote its pid).
+- `indented/2` in lib/menard/block.ex and lib/menard/clause.ex (identical copies) prefixes EVERY line
+  of the text with the indent: a blank line inside a block or definition comes out as trailing
+  spaces, and the lines of a heredoc or multi-line string inside it are shifted, changing the
+  string's value. `Menard.Source.reindent/2` already handles both (blank stays blank, literal lines
+  stay put); `indent <> reindent(text, indent)` is the likely fix, with a test for each case. Left
+  out of the Menard.Source consolidation because it changes behaviour.

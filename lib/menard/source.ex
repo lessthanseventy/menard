@@ -166,6 +166,34 @@ defmodule Menard.Source do
     end
   end
 
+  @doc """
+  `source` with `range` replaced by `change`, the change's bytes as given: Sourceror's own
+  reindenting is off, since every verb places its text at the column it means (`reindent/2`).
+  """
+  @spec patch(String.t(), Sourceror.Range.t(), String.t()) :: String.t()
+  def patch(source, range, change), do: patch(source, [%{range: range, change: change}])
+
+  @doc "Several patches at once, each `%{range, change}`, in one pass; none leaves `source` as it is."
+  @spec patch(String.t(), [%{range: Sourceror.Range.t(), change: String.t()}]) :: String.t()
+  def patch(source, []), do: source
+
+  def patch(source, patches),
+    do: Sourceror.patch_string(source, Enum.map(patches, &Map.put(&1, :preserve_indentation, false)))
+
+  @doc "`source` without lines `a` through `b` (1-based, inclusive)."
+  @spec delete_lines(String.t(), pos_integer(), pos_integer()) :: String.t()
+  def delete_lines(source, a, b), do: delete_lines(source, [{a, b}])
+
+  @doc "`source` without each of `spans`, `{first, last}` line numbers (1-based, inclusive)."
+  @spec delete_lines(String.t(), [{pos_integer(), pos_integer()}]) :: String.t()
+  def delete_lines(source, spans) do
+    source
+    |> String.split("\n")
+    |> Enum.with_index(1)
+    |> Enum.reject(fn {_text, i} -> Enum.any?(spans, fn {a, b} -> i >= a and i <= b end) end)
+    |> Enum.map_join("\n", &elem(&1, 0))
+  end
+
   @doc "How many `#` comment lines sit directly above zero-based line `i` — the why glued to what follows."
   def comment_lines_above(lines, i) do
     lines

@@ -6,7 +6,7 @@ defmodule Menard.Outline do
   agent reads before it edits; the outline door is `mix menard.outline FILE`.
   """
 
-  @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp, :defdelegate]
+  @kinds Menard.Tree.def_kinds()
 
   @spec run(String.t()) :: {:ok, [map()]} | {:error, String.t()}
   def run(source) when is_binary(source) do
@@ -78,10 +78,7 @@ defmodule Menard.Outline do
     }
   end
 
-  # `def name(args) when guard` → the guarded head's inner call; `def name` (no parens) → arity 0.
-  defp name_arity({:when, _, [head | _]}), do: name_arity(head)
-  defp name_arity({name, _, args}) when is_list(args), do: {name, length(args)}
-  defp name_arity({name, _, _}), do: {name, 0}
+  defp name_arity(head), do: Menard.Tree.name_arity(head)
 
   defp attr_first_line(forms, attr) do
     Enum.find_value(forms, fn
@@ -94,10 +91,5 @@ defmodule Menard.Outline do
   defp string_first_line({:__block__, _, [text]}) when is_binary(text), do: text |> String.split("\n") |> hd()
   defp string_first_line(_other), do: nil
 
-  defp lines(node) do
-    case Sourceror.get_range(node) do
-      %{start: [line: a, column: _], end: [line: b, column: _]} -> {a, b}
-      _ -> nil
-    end
-  end
+  defp lines(node), do: Menard.Tree.line_span(node)
 end
