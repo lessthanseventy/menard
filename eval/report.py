@@ -67,7 +67,9 @@ def stats(rows):
         "out": mean([r["tokens"]["output"] for r in rows]),
         "turns": mean([r["turns"] for r in rows]),
         "wall": mean([r["wall_s"] for r in rows]),
-        "failed": mean([r["failed_calls"] for r in rows]),
+        # calls the tool refused; rows before 2026-09-26 counted red test runs in (`failed_calls`)
+        "failed": mean([r.get("tool_errors", r.get("failed_calls")) for r in rows]),
+        "red_runs": mean([r.get("red_runs") for r in rows]),
         "rereads": mean([r["rereads"] for r in rows]),
         # what CI would still catch: credo issues left (None where the fixture has no credo), and
         # whether the agent ran the gate itself before it stopped
