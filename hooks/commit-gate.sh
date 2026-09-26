@@ -12,7 +12,7 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload")
 # commit; git after a separator, a quote, a slash or any word (then, env A=1, time, bash -c "…")
 arg="(\"[^\"]*\"|'[^']*'|[^[:space:]]+)"
 opts="([[:space:]]+(-[Cc][[:space:]]+$arg|--(git-dir|work-tree|namespace)[[:space:]]+$arg|-[^[:space:]]+))*"
-grep -qE "(^|[[:space:];&|(\`\"'/])git$opts[[:space:]]+commit([[:space:];&|)\`\"']|\$)" <<<"$cmd" || exit 0
+grep -qE "(^|[[:space:];&|(\`\"'/])git${opts}[[:space:]]+commit([[:space:];&|)\`\"']|\$)" <<<"$cmd" || exit 0
 
 touched=$(session_file touched)
 # one line for the trace on every outcome (stderr at exit 0 reaches no model): a green gate and one
