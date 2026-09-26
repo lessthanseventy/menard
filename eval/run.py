@@ -56,11 +56,19 @@ def sh(cmd, cwd, timeout=600, env=None):
 # runner. Stopping the runner mid-round left an agent running; its workspace deleted, it wrote its
 # fix into the rebuilt template, and every run after started from it (bench5h, 21:44).
 LIVE = set()
+# the run under way, (case_dir, rid, ws, env), for stop() to clean up after
+CURRENT = None
 
 
 def stop(signum, _frame):
     for p in list(LIVE):
         kill_group(p)
+    # the run it cut short: its databases, tmux servers and workspace, as a finished run leaves none
+    # (focus3's first start, stopped mid-run, left all three)
+    if CURRENT:
+        case_dir, rid, ws, env = CURRENT
+        cleanup(case_dir, rid, ws, env)
+        shutil.rmtree(ws, ignore_errors=True)
     sys.exit(128 + signum)
 
 
@@ -466,6 +474,8 @@ def run_one(case_dir, arm, model, n, out_dir):
     env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
                                   if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
     env["PATH"] = str(EVAL / "stubs") + os.pathsep + env["PATH"]
+    global CURRENT
+    CURRENT = (case_dir, rid, ws, env)
     if (case_dir / "steps").exists():
         return run_long(case_dir, arm, model, n, rid, ws, out_dir, env)
     prompt = (case_dir / "prompt.md").read_text().strip()
