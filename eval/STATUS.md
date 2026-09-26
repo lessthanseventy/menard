@@ -322,3 +322,45 @@ Same six-step cart-refactor session as long1, 1 run per cell (long1 in brackets)
 - 21:02 bench5 started: arms A, B, H (only the format-and-parse-check hook) × haiku, sonnet
   × 17 cases, pinned at dc49e51. The question: is B's clean output the
   tools' or the formatting's, and what does it cost without the tools?
+
+## bench5 verdict: is menard's clean output the tools', or the formatting's? (21:02-22:06)
+
+Arms: A no menard; B menard as shipped (tools, skill, guard, hooks); **H only a hook** that formats
+every Elixir file written, by Edit/Write or by a shell command, with the project's own formatter
+and plugins, and names one that does not parse. 17 cases x haiku, sonnet, 1 run each; A and B from
+bench5, H from bench5h (sonnet's two shell-edited cases from bench5h2, after two hook fixes).
+
+| model | arm | pass | clean | turns | $/run | context/run | failed calls |
+|---|---|---|---|---|---|---|---|
+| haiku | A | 17/17 | 11/17 | 11.0 | 0.071 | 267k | 6 |
+| haiku | B | 16/17 | 16/17 | 10.5 | 0.072 | 287k | 7 |
+| haiku | **H** | 16/17 | 16/17 | **10.1** | **0.066** | 264k | **5** |
+| sonnet | A | 17/17 | 14/17 | 4.9 | 0.057 | 72k | 2 |
+| sonnet | B | 17/17 | 17/17 | 8.4 | 0.083 | 141k | 4 |
+| sonnet | **H** | 16/17 | 16/17 | **4.5** | **0.055** | **70k** | **1** |
+
+- **The clean output is the formatting's.** H was clean on every run that passed (16 of 16 on
+  each model), at A's cost or a little under it. B was clean too, at +46% cost for sonnet.
+- **Every failure is the agent's logic, in every arm**: new-module's "10% off, rounding down"
+  read as rounding the discount down (both H runs, and A's own test caught it once), and
+  change-signature made optional where the task said required (bench5 B). Formatting cannot
+  catch either; only the case's hidden tests do.
+- **Where the tools still pay**: structural edits and big files. rename-across for haiku: B 6
+  turns / $0.046 against H's 18 / $0.132 (one `rename` call against a rename by hand). attrs
+  for sonnet: B's targeted reads (`attr get`, `clause get`) $0.073 against H's $0.112 when H read
+  the 1,016-line file (and $0.049 when it did not). explore-callers for haiku: `find` 7 turns
+  against 9.
+- **H's own cost**: the formatter changes text under the agent, so an Edit written against its
+  earlier read can miss (`999999` became `999_999`; two such misses in bench5h). A hook that
+  reports what it reformatted, as B's replies do, would close that.
+
+What bench5 cost to find (all fixed, all harness or hook): the H plugin missed a script it
+named; a stopped runner left its agent running, which wrote its fix into the rebuilt template
+(bench5h's first start is void: results/bench5h-void; the template is read-only now); Claude
+Code runs PostToolUse only when a tool succeeds (menard's own shell-edits hook had the same
+blind spot, 5ce3a26); and the shell hook formatted only the first of the files a command
+changed (mix read the loop's stdin).
+
+**Recommendation**: ship H's hook as menard's default, with the MCP tools as an option for the
+structural edits and large-file reads where they win, and drop the guard that forces them on
+every edit (its blocks are a turn each and bought nothing measurable over H).
