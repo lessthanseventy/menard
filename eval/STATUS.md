@@ -401,3 +401,5 @@ every edit (its blocks are a turn each and bought nothing measurable over H).
 **Verdict**: hook-only is the right default. manos stays opt-in; it earns its keep for a weaker
 model on renames across files, not for a capable one on everyday edits.
 - 23:41 tlon1 started on 65bf545: Tlön tickets 2, 3, 6, 9 × A, B, M × opus, fable (24 sessions, sequential). Smoke (t2 A haiku) passed the gate: 729 tests, 74 turns, $0.94, 17 min.
+- 00:01 tlon1 paused after t2.A.opus (runner SIGSTOPped, no agent running) and resumed: B and M re-pinned to 1fd7a91 (the format hook skips what git ignores; stmt ignores comments; block add takes a leading @tag). t2.A.opus ran with no menard, so nothing already run changed.
+- 00:03 correction: t2.B.opus had started before the pause (my check for a running agent grepped for the run id, which is not in claude's command line). It ran through the pause (its wall, 923 s, is void) and its plugin was re-copied under it: every one of its 35 hook calls exited 0 with no output, so neither hook version had anything to say to it, and its pass, turns and cost stand.

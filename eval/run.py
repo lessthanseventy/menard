@@ -27,6 +27,8 @@ WORK = Path(os.environ.get("MENARD_EVAL_WORK", os.path.join(os.environ.get("TMPD
 TEMPLATE = WORK / "template"
 PLUGINS = WORK / "plugins"
 MAX_TURNS = 60
+# --effort: claude's own flag, unset for the rounds before it (the default level)
+EFFORT = None
 TIMEOUT = 900
 
 
@@ -164,6 +166,7 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     # a session of steps resumes the one before, so its session has to be kept
     cmd += ["--resume", resume] if resume else []
     cmd += [] if persist else ["--no-session-persistence"]
+    cmd += ["--effort", EFFORT] if EFFORT else []
     if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
     # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`
@@ -395,7 +398,7 @@ def run_one(case_dir, arm, model, n, out_dir):
         sh(["bash", str(cleanup), rid, str(ws)], ws, timeout=120, env=env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
-        "arm": arm, "model": model, "n": n, "wall_s": wall, "timed_out": timed_out,
+        "arm": arm, "model": model, "effort": EFFORT, "n": n, "wall_s": wall, "timed_out": timed_out,
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
         "clean": code == 0 and not diff["noise_files"] and "NOTE: unformatted" not in check_out, **diff, **trace_metrics(trace, ws),
@@ -418,7 +421,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
     tokens = {k: sum(s["tokens"][k] for s in steps) for k in ("input", "output", "cache_read", "cache_write")}
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
     row = {
-        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "n": n,
+        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "n": n,
         "wall_s": round(time.time() - t0, 1), "timed_out": any(s["timed_out"] for s in steps),
         "pass": last_ok, "steps_passed": sum(s["pass"] for s in steps), "steps_total": len(steps),
         "check": steps[-1]["check"] if steps else "no step ran", "formatted": bool(steps) and steps[-1]["formatted"],
@@ -449,6 +452,7 @@ def main():
     ap.add_argument("--models", default="claude-sonnet-5")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--rebuild", action="store_true")
+    ap.add_argument("--effort", default="", help="low|medium|high|xhigh|max, passed to claude")
     ap.add_argument("--suite", default=str(EVAL), help="a dir holding fixture/ and cases/")
     ap.add_argument("--stop-at", default="", help="HH:MM local; start no run after it")
     a = ap.parse_args()
@@ -457,7 +461,8 @@ def main():
 
     suite = Path(a.suite).resolve()
     # a real project's tickets run longer than the fixture's cases (eval/tlon/settings.json)
-    global MAX_TURNS, TIMEOUT
+    global MAX_TURNS, TIMEOUT, EFFORT
+    EFFORT = a.effort or None
     if (suite / "settings.json").exists():
         limits = json.loads((suite / "settings.json").read_text())
         MAX_TURNS, TIMEOUT = limits.get("max_turns", MAX_TURNS), limits.get("timeout", TIMEOUT)
