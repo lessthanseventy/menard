@@ -18,7 +18,7 @@ defmodule Menard.Attr do
   @doc "The attribute's value exactly as written, or `{:error, …}` if it is missing or ambiguous."
   @spec get(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def get(source, name, opts \\ []) do
-    with {:ok, node} <- one(source, name, opts), do: value_text(node)
+    with {:ok, node} <- one(source, name, opts), do: value_text(node, source)
   end
 
   @doc """
@@ -204,8 +204,15 @@ defmodule Menard.Attr do
 
   defp attr_name(_node), do: nil
 
-  defp value_text({:@, _meta, [{_name, _inner, [value]}]}), do: Sourceror.to_string(value)
-  defp value_text(_node), do: {:error, "not an attribute with a value"}
+  # The value's own bytes, its continuation lines taken back to the attribute's column as `set` takes
+  # them. A reprint (Sourceror.to_string) broke up a line the project's own formatter keeps whole.
+  defp value_text({:@, _meta, [{_name, _inner, [value]}]} = node, source) do
+    %{start: [line: _, column: col]} = Sourceror.get_range(node)
+    [first | rest] = source |> Menard.Source.slice(Menard.Source.range(value, source)) |> String.split("\n")
+    Enum.join([first | Enum.map(rest, &drop_indent(&1, col - 1))], "\n")
+  end
+
+  defp value_text(_node, _source), do: {:error, "not an attribute with a value"}
 
   defp definition?({kind, _meta, _args})
        when kind in [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp],
