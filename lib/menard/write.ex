@@ -39,7 +39,7 @@ defmodule Menard.Write do
     content = if String.ends_with?(code, "\n"), do: code, else: code <> "\n"
 
     if Path.extname(path) in [".ex", ".exs"] do
-      case Code.string_to_quoted(content) do
+      case Code.string_to_quoted(content, emit_warnings: false) do
         {:ok, _ast} ->
           {:ok, content}
 

@@ -49,8 +49,15 @@ defmodule Menard.Find do
 
     {mod, fun} =
       case String.split(spec, ".") do
-        [fun] -> {source |> Code.string_to_quoted!() |> Menard.Clause.modules() |> hd() |> elem(0), fun}
-        parts -> {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
+        [fun] ->
+          {source
+           |> Code.string_to_quoted!(emit_warnings: false)
+           |> Menard.Clause.modules()
+           |> hd()
+           |> elem(0), fun}
+
+        parts ->
+          {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
       end
 
     dirs = for dir <- ["lib", "test"], File.dir?(Path.join(root, dir)), do: Path.join(root, dir)
