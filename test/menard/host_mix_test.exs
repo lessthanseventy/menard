@@ -35,4 +35,18 @@ defmodule Menard.HostMixTest do
     assert status == 0, out
     assert out =~ ":eof"
   end
+
+  test "a deadline a millisecond short of a second is that second, not one less", %{tmp_dir: dir} do
+    # a verb's deadline is what is left of it when each mix starts: 10_000ms given, 9_999 left a
+    # millisecond later, and the kill came at 9s
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Waits.MixProject do
+      use Mix.Project
+      def project, do: [app: :waits, version: "0.1.0"]
+    end
+    """)
+
+    {out, _status} = Menard.host_mix(dir, ["run", "-e", "Process.sleep(:infinity)"], timeout: 1_999)
+    assert out =~ "did not finish in 2s"
+  end
 end

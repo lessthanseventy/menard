@@ -17,7 +17,6 @@ defmodule Menard.Run do
     # the run's context, handed to every mix it makes: its deadline, and its one log (the MCP server
     # lives across calls, and each call's output is its own)
     log = log_path(dir, [verb | args])
-    # the deadline after the log's pruning: the kill rounds its seconds down, and a 10s timeout ran 9
 
     run = %{
       dir: dir,

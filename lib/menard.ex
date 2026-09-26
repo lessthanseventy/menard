@@ -473,7 +473,8 @@ defmodule Menard do
   defp bounded_cmd(exe, argv, opts, nil, _task), do: System.cmd(exe, argv, opts)
 
   defp bounded_cmd(exe, argv, opts, ms, task) do
-    secs = max(div(ms, 1000), 1)
+    # to the nearest second: rounded down, 10_000ms given and 9_999 left a millisecond later was 9s
+    secs = max(div(ms + 500, 1000), 1)
 
     case System.find_executable("timeout") do
       nil ->
