@@ -99,7 +99,7 @@ def build_plugins(force=False):
     """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
     loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
     # L (the tools always loaded) is gone: manos loads them up front, and menard has none
-    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp"]:
+    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp", "stop", "map-mcp"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -123,13 +123,18 @@ def build_plugins(force=False):
         # `cli` teaches the CLI in a few lines, `grep` answers a grep with each hit's function, `map`
         # gives a map of the project at the start, `lazy-mcp` keeps the MCP tools but deferred behind
         # ToolSearch. `hook` is B under a name that says what it is
-        extra = {"cli": ("SessionStart", None, "session-cli.sh"), "grep": ("PostToolUse", "Bash", "grep-where.sh"),
-                 "map": ("SessionStart", None, "session-map.sh")}.get(arm)
-        if extra:
-            event, matcher, script = extra
+        # `stop` runs the project's gate when the agent ends its turn, and refuses the stop while it is
+        # red; `map-mcp` is the map and manos together, which neither alone would show
+        extra = {"cli": [("SessionStart", None, "session-cli.sh")], "grep": [("PostToolUse", "Bash", "grep-where.sh")],
+                 "map": [("SessionStart", None, "session-map.sh")], "map-mcp": [("SessionStart", None, "session-map.sh")],
+                 "stop": [("Stop", None, "stop-gate.sh")]}.get(arm, [])
+        for event, matcher, script in extra:
             hooks_json = dest / "hooks" / "hooks.json"
             d = json.loads(hooks_json.read_text())
-            entry = {"hooks": [{"type": "command", "command": f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}"'}]}
+            hook = {"type": "command", "command": f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}"'}
+            if event == "Stop":
+                hook["timeout"] = 900
+            entry = {"hooks": [hook]}
             if matcher:
                 entry["matcher"] = matcher
             d["hooks"].setdefault(event, []).append(entry)
@@ -197,7 +202,7 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
     # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`
-    if arm in ("M", "lazy-mcp"):
+    if arm in ("M", "lazy-mcp", "map-mcp"):
         cmd += ["--plugin-dir", str(PLUGINS / arm / "manos")]
     return cmd
 
@@ -387,9 +392,38 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
                       "timed_out": timed_out, **m})
         if timed_out or not sid:
             break
+    ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps)
     # the session files a kept session left under ~/.claude/projects
     shutil.rmtree(Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(ws)), ignore_errors=True)
-    return steps
+    return steps, ci
+
+
+def ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps):
+    """CI as the project runs it (the case's `ci` file), once the agent says it is done. Red, the
+    failure goes back to the same session, twice at most: the tokens to a mergeable change, not to
+    the agent's stop. An agent that left files unformatted "finished" cheaper than it was."""
+    ci = {"green_first": None, "green": None, "rounds": 0, "turns": 0,
+          "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}}
+    if not (case_dir / "ci").exists() or not sid or not steps or steps[-1]["timed_out"]:
+        return ci
+    for attempt in range(3):
+        code, out = sh((case_dir / "ci").read_text().strip(), ws, timeout=900, env=env)
+        ci["green_first"] = code == 0 if attempt == 0 else ci["green_first"]
+        ci["green"] = code == 0
+        if code == 0 or attempt == 2:
+            break
+        failed = "\n".join(out.strip().splitlines()[-60:])
+        trace = out_dir / "traces" / f"{rid}.ci{attempt + 1}.jsonl"
+        with open(trace, "w") as f:
+            run_agent(claude_cmd(f"CI failed on your change:\n\n{failed}\n\nFix it so CI passes.", model, arm,
+                                 resume=sid, persist=True), ws, f, env)
+        m = trace_metrics(trace, ws)
+        sid = m["session_id"] or sid
+        ci["rounds"] += 1
+        ci["turns"] += m["turns"] or 0
+        for k in ci["tokens"]:
+            ci["tokens"][k] += m["tokens"][k]
+    return ci
 
 
 def run_one(case_dir, arm, model, n, out_dir):
@@ -397,7 +431,10 @@ def run_one(case_dir, arm, model, n, out_dir):
     ws = WORK / "runs" / out_dir.name / rid
     prepare(case_dir, ws)
     (out_dir / "traces").mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, CLAUDE_CODE_DISABLE_CLAUDE_MDS="1", ENABLE_CLAUDEAI_MCP_SERVERS="false")
+    # no CLAUDE_CODE_DISABLE_CLAUDE_MDS: it kept the user's own ~/.claude/CLAUDE.md out, which
+    # --setting-sources project already does (tried in a bench), and the project's CLAUDE.md with it:
+    # focus1's fixture said CI runs precommit, and no agent was ever told
+    env = dict(os.environ, ENABLE_CLAUDEAI_MCP_SERVERS="false")
     env.pop("CLAUDECODE", None)
     # A runner started from a Claude Code shell inherits its plugins' bin/ dirs, and an installed
     # menard there (0.3.0 once) answered every `menard` the agents ran through Bash. The arm's own
@@ -441,7 +478,7 @@ def run_one(case_dir, arm, model, n, out_dir):
 def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
     """One row for a whole session: its steps' sums, and each step under `steps`."""
     t0 = time.time()
-    steps = run_steps(case_dir, arm, model, rid, ws, out_dir, env)
+    steps, ci = run_steps(case_dir, arm, model, rid, ws, out_dir, env)
     allowed = [g.strip() for g in (case_dir / "allowed").read_text().splitlines() if g.strip()] \
         if (case_dir / "allowed").exists() else []
     diff, patch = diff_metrics(ws, allowed)
@@ -467,6 +504,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "tokens", "peak_ctx",
                                       "failed_calls", "wall_s", "timed_out")} for s in steps],
         **lint(ws, env, out_dir, rid),
+        "ci": ci,
     }
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")

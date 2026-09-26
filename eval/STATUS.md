@@ -422,3 +422,30 @@ model on renames across files, not for a capable one on everyday edits.
 - B was the cheapest arm on both tickets; M paid manos' schema on every turn and used it twice.
 - Not graded by the blind review: six passes of two tickets is too thin to rank solutions, and
   the round was cut before fable. The diffs are in results/tlon1/traces for later.
+
+### focus1 (00:44–01:10): cart-refactor, six steps in one session, sonnet, one session per arm
+
+| arm | clean | new in | cached in | out | turns | ran gate |
+|---|---|---|---|---|---|---|
+| A (no menard) | **no** | 32.4k | 609k | 6.7k | 21 | 0 |
+| hook | yes | **27.2k** | **591k** | 6.2k | 22 | 0 |
+| cli (hook + CLI note) | yes | 29.9k | 709k | 7.0k | 24 | 0 |
+| grep (hook + each hit's function) | yes | 32.6k | 734k | 6.8k | 23 | 0 |
+| map (hook + capped map) | yes | 30.1k | 678k | 6.1k | 24 | 0 |
+| lazy-mcp (hook + manos deferred) | yes | 33.8k | 742k | 6.3k | 27 | 6 |
+| M (hook + manos loaded) | yes | 45.7k | 727k | 6.4k | 23 | 0 |
+
+- Every step passed in every arm; credo left no issue in any (the fixture's base has none).
+- **hook is the cheapest clean arm**, and A the only unclean one. Every hint on top of the hook
+  cost more: cli and lazy-mcp used what they offered (`rename`, `find calls`, `clause get`) and
+  grepped to confirm anyway; grep's hook fired 7 times and saved no Read; M never called a manos
+  tool and paid 24.5k tokens of schema in step 1 regardless.
+- **The tasks name their targets** ("rename `Shop.Catalog.price_with_tax`"), so there was nothing to
+  explore: the map answered where things are defined, and every step's question was who calls them.
+  The capped map also showed a dozen of each module's 58-78 functions. Not a fair test of a map.
+- **The gate**: 6 of 7 sessions never ran it. The one that did (lazy-mcp) was told to by manos'
+  instructions ("Finish on run check").
+- **Correction**: the runner set CLAUDE_CODE_DISABLE_CLAUDE_MDS, which kept the fixture's CLAUDE.md
+  ("CI runs mix precommit") from every agent. `--setting-sources project` alone keeps the user's own
+  CLAUDE.md out and the project's in (tried both ways in a bench); the flag is gone.
+- One run per arm: the token gaps between the clean arms are within one run's noise.

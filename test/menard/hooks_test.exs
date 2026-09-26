@@ -252,6 +252,37 @@ defmodule Menard.HooksTest do
     assert File.read!(Path.join(dir, "lib/ok.ex")) =~ "  def f(x), do: x\n"
   end
 
+  @tag :tmp_dir
+  test "stop-gate refuses the stop while a project the session wrote into is red, and says why", %{
+    tmp_dir: dir
+  } do
+    # agents told CI runs precommit ran it in 0 of 6 sessions (focus1): the gate runs at the stop
+    host(dir)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def big, do: 999999\nend\n")
+    File.write!(Path.join(dir, "menard-touched-s1"), dir <> "\n")
+
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s1"}, dir)
+    reply = JSON.decode!(out)
+    assert reply["decision"] == "block"
+    assert reply["reason"] =~ "lib/n.ex"
+
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def big, do: 999_999\nend\n")
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s1"}, dir)
+  end
+
+  @tag :tmp_dir
+  test "stop-gate lets a session end that wrote nothing, or was refused three times", %{tmp_dir: dir} do
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "none-written"}, dir)
+
+    host(dir)
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def big, do: 999999\nend\n")
+    File.write!(Path.join(dir, "menard-touched-s2"), dir <> "\n")
+    File.write!(Path.join(dir, "menard-stop-blocks-s2"), "3")
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s2"}, dir)
+  end
+
   # A host menard can format: a mix.exs and a formatter, nothing fetched
   defp host(dir) do
     File.mkdir_p!(Path.join(dir, "lib"))
@@ -264,6 +295,15 @@ defmodule Menard.HooksTest do
     )
 
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
+  end
+
+  defp stop(payload, dir) do
+    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
+    File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
+
+    System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/stop-gate.sh"), input],
+      env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}]
+    )
   end
 
   defp report(payload, dir) do
