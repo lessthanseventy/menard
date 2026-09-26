@@ -181,3 +181,52 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   Also a63ec0b: stmt reaches module-level statements (defstruct, @type), from not-compiling.B;
   6ce5310: not-compiling's setup left catalog.ex unformatted, voiding clean on that case in every
   round so far, both arms.
+
+## bench3 verdict (68 runs: 17 cases × A/B × haiku/sonnet, 1 run each; menard pinned at 8aeaa4f)
+
+One run per cell is noisy: read per-case differences as direction, the totals as the finding.
+
+| model | arm | pass | clean | turns | $/run | context/run | peak context | failed calls |
+|---|---|---|---|---|---|---|---|---|
+| haiku | A | 17/17 | 12/17 | 10.9 | 0.070 | 279k | 29.4k | 6 |
+| haiku | B | 17/17 | 16/17 | 13.1 | 0.082 | 349k | 33.9k | 13 |
+| sonnet | A | 17/17 | 14/17 | 4.9 | 0.053 | 69k | 18.2k | 0 |
+| sonnet | B | 17/17 | 17/17 | 9.2 | 0.092 | 155k | 27.1k | 8 |
+
+- **Correctness: a tie.** Every run passed in both arms and both models.
+- **Where menard helps: clean output.** B was clean where A was not in 4 haiku cases (add-alias,
+  change-signature, rename-across, styler) and 3 sonnet ones (add-alias, change-signature,
+  rename-across); never the reverse. A leaves unformatted code or skips the project's Styler.
+  And on a rename across files it is cheaper outright: rename-across.B.haiku 10 turns/$0.066 vs
+  A 23/$0.142. For haiku, B took fewer turns and cost less on 5 of 17 cases (attrs,
+  explore-callers, explore-config, new-fn-large, rename-across).
+- **Where it costs, haiku: +2.2 turns, +17% cost, +25% context.** Its re-reads after the last edit
+  (1.41/run vs A 0.47) and `outline` of files it had just Read (0.53/run); and 13 failed calls,
+  all first guesses menard did not take (attr replace, a test line through stmt, defstruct,
+  block get with no label, clause get): fixed since, after this pin.
+- **Where it costs, sonnet: B was never cheaper or shorter on any case: +4.3 turns, +74% cost,
+  2.3x context.** Sonnet without menard is already frugal (grep, sed, 2-3 Edits, no whole-file
+  reads), so there is little for menard to save, and three costs remain:
+  1. a fixed tax on every model call, ~9k tokens for sonnet (tool schemas, instructions):
+     explore-config.B.sonnet made the same 3 Bash calls as A and read 22k more context;
+  2. one tool call per edit site, each a full model turn: change-signature.B.sonnet 14 turns /
+     $0.196 against A's 5 / $0.066, which changed every call site with shell commands in one go;
+  3. the guard blocking Edits on test files (4 of 17 sonnet B runs), a turn each before `block`.
+- **Totals:** haiku A $1.19 / B $1.39; sonnet A $0.89 / B $1.57.
+
+Harness notes for this round: not-compiling's setup left catalog.ex unformatted (fixed 6ce5310
+mid-round), so that case's `clean` is void for the haiku rows; the sonnet rows ran after the fix.
+The runner crashed at 30 on a mix build-lock deadlock and resumed on the same pin (e9e4688). My
+niced gates shared the CPU during the haiku half, so wall times there are soft.
+
+Fixed after bench3's pin, not yet measured: 8c4f051 (writes say "no need to Read back"; outline
+only big unread files), 5767d14 (attr whole value, attr replace), b13709c / a63ec0b / 420a26e
+(stmt: test label as name, module-level statements, test-macro hint), 0da39bf / 9436625 (block get
+all, label without name), plus the harness fixes.
+
+Open, for Andrew:
+- **Batch edits** (design): one call carrying several edits, across files, parse-checked and
+  formatted together. The biggest remaining cost for a capable model is a turn per edit site.
+- `Read` called with `file` (menard's name) in place of `file_path`: 3 failed calls, all in B.
+  Candidate: accept `file_path` everywhere and document it, so the models' habit matches.
+- The hooks_test flake (TODO.md), not reproduced.
