@@ -36,4 +36,14 @@ defmodule Menard.IdentityTest do
       end
     end
   end
+
+  test "the oracle is not blind: on weird.ex every check makes edits it can judge" do
+    # `misses == []` is also what a verb that refuses every edit gives: no edit made, none missed
+    source = File.read!(Path.join(@root, "test/fixtures/weird.ex"))
+
+    for check <- Identity.checks() do
+      made = for {_label, outcome} <- Identity.run(source, check), outcome in [:same, :formatted], do: outcome
+      assert made != [], "#{check}: every edit of weird.ex was refused, so no miss could be seen"
+    end
+  end
 end

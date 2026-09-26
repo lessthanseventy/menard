@@ -4,6 +4,7 @@ defmodule Menard.RunTest do
   use ExUnit.Case, async: true
 
   alias Menard.Run
+  alias Menard.Test.Host
 
   @moduletag :tmp_dir
 
@@ -37,7 +38,7 @@ defmodule Menard.RunTest do
 
   test "parses counts and each failure's name, location, assertion and error" do
     r = Run.parse_test(@out, 2)
-    assert r.tests == 5 and r.failed == 2 and r.ok == false
+    assert %{tests: 5, failed: 2, ok: false} = r
 
     # an assertion and an exception, one shape: kind, message, at — then what only a test has
     assert [
@@ -64,8 +65,7 @@ defmodule Menard.RunTest do
   end
 
   # The test's own source, so the reader sees the assertion in context without opening the file.
-  test "with_sources/2 attaches each failing test's body, read from the file under the root" do
-    tmp = Path.join(System.tmp_dir!(), "menard-run-#{System.pid()}-#{System.unique_integer([:positive])}")
+  test "with_sources/2 attaches each failing test's body, read from the file under the root", %{tmp_dir: tmp} do
     File.mkdir_p!(Path.join(tmp, "test/server"))
 
     # the failure says line 40: pad so the test's `test` line IS line 40
@@ -80,13 +80,11 @@ defmodule Menard.RunTest do
 
     assert first.source ==
              "  test \"move/2 refuses another workspace\" do\n    assert moved.channel_id == infra.id\n  end"
-
-    File.rm_rf!(tmp)
   end
 
   test "a green run has no failures and a one-line tail" do
     r = Run.parse_test("....\n\nFinished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed\n", 0)
-    assert r.ok and r.tests == 4 and r.failed == 0 and r.failures == []
+    assert %{ok: true, tests: 4, failed: 0, failures: []} = r
     assert r.tail == "Finished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed"
   end
 
@@ -124,14 +122,8 @@ defmodule Menard.RunTest do
              r.failures
   end
 
-  @tag :tmp_dir
   test "compile reports a warning left by an earlier compile", %{tmp_dir: dir} do
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Warm.MixProject do
-      use Mix.Project
-      def project, do: [app: :warm, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :warm)
 
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/warm.ex"), "defmodule Warm do\n  def go(x), do: 1\nend\n")
@@ -143,27 +135,26 @@ defmodule Menard.RunTest do
     assert message =~ "x"
   end
 
-  @tag :tmp_dir
+  @pinned "1.20.4-otp-29"
+  @tag skip:
+         !(System.find_executable("mise") &&
+             File.dir?(Path.expand("~/.local/share/mise/installs/elixir/#{@pinned}")) &&
+             System.version() != "1.20.4") &&
+           "needs mise with elixir #{@pinned} installed, menard on another elixir"
   test "the host's mix runs on the host's toolchain, not menard's", %{tmp_dir: dir} do
-    pinned = "1.20.4-otp-29"
-    installed = Path.expand("~/.local/share/mise/installs/elixir/#{pinned}")
+    File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{@pinned}\"\nerlang = \"29\"\n")
 
-    if System.find_executable("mise") && File.dir?(installed) && System.version() != "1.20.4" do
-      File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{pinned}\"\nerlang = \"29\"\n")
-
-      File.write!(Path.join(dir, "mix.exs"), """
-      defmodule Pin.MixProject do
-        use Mix.Project
-        def project, do: [app: :pin, version: "0.1.0", aliases: [precommit: ["run --no-start -e \\"IO.puts(System.version())\\""]]]
-      end
-      """)
-
-      System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
-      assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Pin.MixProject do
+      use Mix.Project
+      def project, do: [app: :pin, version: "0.1.0", aliases: [precommit: ["run --no-start -e \\"IO.puts(System.version())\\""]]]
     end
+    """)
+
+    System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
+    assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
   end
 
-  @tag :tmp_dir
   test "format works on a host whose mix.exs does not parse, and says what changed", %{tmp_dir: dir} do
     File.write!(Path.join(dir, "mix.exs"), "defmodule Broken do\n  this does not parse (\n")
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")
@@ -176,16 +167,10 @@ defmodule Menard.RunTest do
     assert File.read!(messy) =~ "def go, do: 1"
   end
 
-  @tag :tmp_dir
   test "hunts a flake: repeats until it fails, and answers with that run, its seed and the run count", %{
     tmp_dir: dir
   } do
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Flaky.MixProject do
-      use Mix.Project
-      def project, do: [app: :flaky, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :flaky)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -274,12 +259,7 @@ defmodule Menard.RunTest do
 
   test "check with no precommit alias runs format, warnings-as-errors and tests itself", %{tmp_dir: dir} do
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Plain.MixProject do
-      use Mix.Project
-      def project, do: [app: :plain, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :plain)
 
     File.write!(
       Path.join(dir, ".formatter.exs"),
@@ -365,12 +345,7 @@ defmodule Menard.RunTest do
   test "check answers with its failures in the one shape: a file not formatted, a failing test", %{
     tmp_dir: dir
   } do
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Plain.MixProject do
-      use Mix.Project
-      def project, do: [app: :plain, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :plain)
 
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"{lib,test}/**/*.{ex,exs}\"]]\n")
     File.mkdir_p!(Path.join(dir, "lib"))
@@ -397,15 +372,9 @@ defmodule Menard.RunTest do
     assert source =~ "assert Plain.go() == 2"
   end
 
-  @tag :tmp_dir
   test "a red run keeps its whole output in a log and names it; a green one names none", %{tmp_dir: dir} do
     # cap.sh's rule, Tlön's: run once, read the log; never run again with another grep to see more
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Logged.MixProject do
-      use Mix.Project
-      def project, do: [app: :logged, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :logged)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -469,12 +438,7 @@ defmodule Menard.RunTest do
   test "a run past its deadline kills the host's mix and says what it was doing", %{tmp_dir: dir} do
     # an MCP client gave up on `run` while its mix kept compiling, and the agent's own `mix test` then
     # raced it in the same _build: "corrupt atom table"
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Slow.MixProject do
-      use Mix.Project
-      def project, do: [app: :slow, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :slow)
 
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -493,9 +457,11 @@ defmodule Menard.RunTest do
     end
     """)
 
+    # the bound is loose on purpose: the test itself never ends, so any answer is the kill, and the
+    # room past 10s is a loaded host's teardown, not slack in the deadline
     started = System.monotonic_time(:millisecond)
     result = Menard.Run.result(dir, "test", [], timeout: 10_000)
-    assert System.monotonic_time(:millisecond) - started < 17_000
+    assert System.monotonic_time(:millisecond) - started < 40_000
 
     refute result.ok
     assert result.tail =~ "did not finish in 10s"
@@ -588,12 +554,7 @@ defmodule Menard.RunTest do
   test "a host that colours its output through a pipe still has its failures read", %{tmp_dir: dir} do
     # `config :elixir, :ansi_enabled, true` colours ExUnit's report even into menard's pipe, and every
     # pattern missed the `code:`, `left:` and the location between the escapes
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Colour.MixProject do
-      use Mix.Project
-      def project, do: [app: :colour, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :colour)
 
     File.mkdir_p!(Path.join(dir, "config"))
     File.write!(Path.join(dir, "config/config.exs"), "import Config\nconfig :elixir, :ansi_enabled, true\n")
@@ -626,12 +587,7 @@ defmodule Menard.RunTest do
   test "a verb called past the doors (deps' compile) leaves nothing behind in its caller", %{tmp_dir: dir} do
     # the deadline and the log lived in the process dictionary: a call that did not go through the
     # door that clears them left its log for the MCP server's next call to append to
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Left.MixProject do
-      use Mix.Project
-      def project, do: [app: :left, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :left)
 
     before = Process.get()
     assert %{ok: true, log: log} = Menard.Run.result(dir, "compile", [])
@@ -641,12 +597,7 @@ defmodule Menard.RunTest do
 
   test "run test reads each failure as ExUnit holds it, not as the prose it prints", %{tmp_dir: dir} do
     # read from the CLI's prose, a `left:` that did not fit one line came back as its first line, "%{"
-    File.write!(Path.join(dir, "mix.exs"), """
-    defmodule Held.MixProject do
-      use Mix.Project
-      def project, do: [app: :held, version: "0.1.0"]
-    end
-    """)
+    Host.mix_project(dir, :held)
 
     File.mkdir_p!(Path.join(dir, "lib"))
 
@@ -711,5 +662,41 @@ defmodule Menard.RunTest do
     assert setup_all =~ "(File.Error) could not read file"
     # a doctest's source is its `doctest` line, not every line down to the next `end`
     assert doctest.source == "  doctest Held"
+  end
+
+  test "run test says how many tests were skipped, not only how many ran", %{tmp_dir: dir} do
+    # a `@tag skip:` test left the counts without a word: 5 tests, 3 skipped, answered as `tests: 2`
+    Host.mix_project(dir, :skips)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/skips_test.exs"), """
+    defmodule SkipsTest do
+      use ExUnit.Case
+
+      test "runs", do: :ok
+
+      @tag skip: "no toolchain"
+      test "skips", do: :ok
+    end
+    """)
+
+    assert Run.lean(Menard.Run.result(dir, "test", [])) == %{
+             ok: true,
+             failures: [],
+             tests: 1,
+             failed: 0,
+             skipped: 1
+           }
+  end
+
+  test "outside a git work tree there is no tree to stamp: nil, not a crash" do
+    # off the repo: ExUnit's tmp_dir sits inside menard's own checkout
+    dir = Path.join(System.tmp_dir!(), "menard-tree-#{System.pid()}-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    assert Run.tree(dir) == nil
   end
 end

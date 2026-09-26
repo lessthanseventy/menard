@@ -4,7 +4,7 @@
 # formatter prints (a multi-line `left:` came back as its first line). It runs on the host's
 # Elixir, whatever version that is: no JSON module, only what ExUnit has had for years.
 #
-# At each suite's end it writes `:erlang.term_to_binary(%{tests, failed, failures})` to the path
+# At each suite's end it writes `:erlang.term_to_binary(%{tests, failed, skipped, failures})` to the path
 # in MENARD_EXUNIT_OUT; each failure is the reply's shape (kind, message, at, name, module, and an
 # assertion's code/left/right). A `--repeat-until-failure` run writes once per suite, so the file
 # holds the last, the run the reply is about.
@@ -22,7 +22,8 @@ defmodule Menard.ExUnitFormatter do
         nil -> %{acc | tests: acc.tests + 1}
         {:failed, failures} -> failed(acc, [test_failure(test, failures)])
         {:invalid, _module} -> failed(acc, [])
-        _excluded_or_skipped -> acc
+        {:skipped, _reason} -> %{acc | skipped: acc.skipped + 1}
+        _excluded -> acc
       end
 
     {:noreply, acc}
@@ -36,7 +37,7 @@ defmodule Menard.ExUnitFormatter do
   def handle_cast({:suite_finished, _run_us, _load_us}, acc), do: finish(acc)
   def handle_cast(_event, acc), do: {:noreply, acc}
 
-  defp fresh, do: %{tests: 0, failed: 0, failures: []}
+  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, failures: []}
 
   defp failed(acc, failures),
     do: %{acc | tests: acc.tests + 1, failed: acc.failed + 1, failures: failures ++ acc.failures}

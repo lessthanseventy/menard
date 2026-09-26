@@ -225,10 +225,22 @@ defmodule Menard.Clause do
   # Take the blank line after the span too, but only when the span was blank-separated above as
   # well — otherwise removing the last clause of a run closes a gap that was never there.
   defp with_trailing_blank(lines, {first, last}) do
-    if Enum.at(lines, last + 1) == "" and (first == 0 or Enum.at(lines, first - 1) == ""),
-      do: {first, last + 1},
-      else: {first, last}
+    # a blank left against the block's own `… do` or `end` is a gap the format stage then closes:
+    # the one under the span goes when a blank, the file's start or the `do` is above it, and the
+    # one over it when the `end` is below
+    above = trimmed_at(lines, first - 1)
+    below = trimmed_at(lines, last + 1)
+
+    cond do
+      below == "" and (above == "" or String.ends_with?(above, " do")) -> {first, last + 1}
+      first > 0 and above == "" and below == "end" -> {first - 1, last}
+      true -> {first, last}
+    end
   end
+
+  # before the file's first line there is nothing, not its last (Enum.at counts back from the end)
+  defp trimmed_at(_lines, i) when i < 0, do: ""
+  defp trimmed_at(lines, i), do: lines |> Enum.at(i, "") |> String.trim()
 
   # A function's clauses sit together, so their spans are one block to a reader and to the
   # blank-line rule — applied per clause it never fires, and the gap the function left stays open.
