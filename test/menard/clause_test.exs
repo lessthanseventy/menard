@@ -22,24 +22,19 @@ defmodule Menard.ClauseTest do
 
   test "replace_body swaps one clause's body and keeps its form — do…end or do:" do
     out = Clause.replace_body(@src, "go/1", ":b", "20")
-    assert out =~ "def go(:b) do\n    20\n  end"
-    assert out =~ "# first\n  def go(:a), do: 1"
-    assert out =~ "def go(other), do: other"
+    assert out == String.replace(@src, "    2\n", "    20\n")
 
-    assert Clause.replace_body(@src, "go/1", ":a", "10") =~ "def go(:a), do: 10"
+    assert Clause.replace_body(@src, "go/1", ":a", "10") == String.replace(@src, "do: 1", "do: 10")
   end
 
   test "delete removes the clause (and the comment glued above it), nothing else" do
     out = Clause.delete(@src, "go/1", ":a")
-    refute out =~ "go(:a)"
-    refute out =~ "# first"
-    assert out =~ "# second\n  def go(:b) do"
-    assert out =~ "def go(other), do: other"
+    assert out == String.replace(@src, "  # first\n  def go(:a), do: 1\n\n", "")
   end
 
   test "insert_after adds a clause right after the addressed one" do
     out = Clause.insert_after(@src, "go/1", ":a", "def go(:c), do: 3")
-    assert out =~ "def go(:a), do: 1\n  def go(:c), do: 3\n"
+    assert out == String.replace(@src, "def go(:a), do: 1\n", "def go(:a), do: 1\n  def go(:c), do: 3\n")
   end
 
   test "insert_after and insert_before take code already at the clause's indent as it is, trailing newline and all" do
@@ -57,7 +52,7 @@ defmodule Menard.ClauseTest do
 
     # ABOVE the comment, not between it and the clause it describes: `# first` labels go(:a), and a
     # @doc in that position would not merely be mislabelled — it would ATTACH to the new clause.
-    assert out =~ "def go(nil), do: 0\n  # first\n  def go(:a), do: 1"
+    assert out == String.replace(@src, "  # first\n", "  def go(nil), do: 0\n  # first\n")
   end
 
   test "an unknown clause is an error naming the candidates" do
@@ -237,40 +232,52 @@ defmodule Menard.ClauseTest do
 
     test "a defp lands after the last private function" do
       out = Clause.insert_at(@mixed, nil, nil, "defp fresh, do: :f")
-      assert out =~ "defp helper, do: :h\n\n  defp fresh, do: :f"
+
+      assert out ==
+               String.replace(
+                 @mixed,
+                 "defp helper, do: :h\n",
+                 "defp helper, do: :h\n\n  defp fresh, do: :f\n"
+               )
     end
 
     test "a def lands after the last PUBLIC function, above the privates" do
       out = Clause.insert_at(@mixed, nil, nil, "def three, do: 3")
-      assert out =~ "def two, do: 2\n\n  def three, do: 3"
-      assert out =~ "def three, do: 3\n\n  defp helper"
+      assert out == String.replace(@mixed, "def two, do: 2\n", "def two, do: 2\n\n  def three, do: 3\n")
     end
 
     test ":top puts it before the module's first definition" do
       out = Clause.insert_at(@mixed, nil, :top, "def zero, do: 0")
-      assert out =~ "def zero, do: 0\n\n  def one, do: 1"
+      assert out == String.replace(@mixed, "  def one", "  def zero, do: 0\n\n  def one")
     end
 
     test ":bottom puts it after the module's last definition" do
       out = Clause.insert_at(@mixed, nil, :bottom, "def last, do: :l")
-      assert out =~ "defp helper, do: :h\n\n  def last, do: :l"
+
+      assert out ==
+               String.replace(@mixed, "defp helper, do: :h\n", "defp helper, do: :h\n\n  def last, do: :l\n")
     end
 
     test "an empty module takes the code just inside it" do
       out = Clause.insert_at("defmodule E do\nend\n", nil, nil, "def only, do: 1")
-      assert out =~ "defmodule E do\n  def only, do: 1\nend"
+      assert out == "defmodule E do\n  def only, do: 1\nend\n"
     end
 
     test "a @doc above the code doesn't get mistaken for the thing being inserted" do
       out = Clause.insert_at(@mixed, nil, nil, "@doc \"h\"\ndefp documented, do: :d")
-      assert out =~ "defp helper, do: :h\n\n  @doc \"h\"\n  defp documented, do: :d"
+
+      assert out ==
+               String.replace(
+                 @mixed,
+                 "defp helper, do: :h\n",
+                 "defp helper, do: :h\n\n  @doc \"h\"\n  defp documented, do: :d\n"
+               )
     end
 
     test "names the module in a file that has several" do
       src = "defmodule A do\n  def a, do: 1\nend\n\ndefmodule B do\n  def b, do: 2\nend\n"
       out = Clause.insert_at(src, "B", nil, "def added, do: 3")
-      assert out =~ "def b, do: 2\n\n  def added, do: 3"
-      refute out =~ "def a, do: 1\n\n  def added"
+      assert out == String.replace(src, "def b, do: 2\n", "def b, do: 2\n\n  def added, do: 3\n")
     end
 
     test "refuses an unnamed module when the file has several" do
@@ -303,9 +310,8 @@ defmodule Menard.ClauseTest do
     test "an @impl above a MIDDLE clause goes with it, or it re-attaches to the next one" do
       out = Clause.delete(@attrs, "go/1", ":b")
 
-      refute out =~ "go(:b)"
-      # exactly two @impl left, one per surviving clause — three would be the redefining warning
-      assert length(String.split(out, "@impl")) - 1 == 2
+      # an @impl per surviving clause — a third would be the redefining warning
+      assert out == String.replace(@attrs, "  @impl Panel\n  def go(:b), do: 2\n\n", "")
     end
 
     test "a @doc and @spec above the clause go with it" do
@@ -321,9 +327,7 @@ defmodule Menard.ClauseTest do
 
       out = Clause.delete(src, "go/1", ":a")
 
-      refute out =~ "@doc"
-      refute out =~ "@spec"
-      assert out =~ "def other, do: 2"
+      assert out == "defmodule A do\n  def other, do: 2\nend\n"
     end
 
     test "a comment written ABOVE the attribute goes too — the whole block is the clause" do
@@ -339,8 +343,7 @@ defmodule Menard.ClauseTest do
 
       out = Clause.delete(src, "go/1", ":a")
 
-      refute out =~ "why this exists"
-      refute out =~ "@impl"
+      assert out == "defmodule A do\n  def other, do: 2\nend\n"
     end
 
     test "only CONTIGUOUS attributes count — a @doc on the FIRST clause survives deleting a later one" do
@@ -354,9 +357,7 @@ defmodule Menard.ClauseTest do
 
       out = Clause.delete(src, "go/1", ":b")
 
-      assert out =~ ~s(@doc "documents go/1")
-      assert out =~ "def go(:a), do: 1"
-      refute out =~ "go(:b)"
+      assert out == String.replace(src, "  def go(:b), do: 2\n", "")
     end
 
     test "deleting ONE clause of several keeps the function's @doc and @spec for the clauses left" do
@@ -393,8 +394,7 @@ defmodule Menard.ClauseTest do
 
       out = Clause.delete(src, "go/1", ":a")
 
-      assert out =~ "@timeout 5_000"
-      refute out =~ "go(:a)"
+      assert out == String.replace(src, "  def go(:a), do: 1\n", "")
     end
   end
 
@@ -414,10 +414,11 @@ defmodule Menard.ClauseTest do
     test "privatize flips EVERY clause — a half-flipped function does not compile" do
       out = Clause.visibility(@multi, "go/1", :private)
 
-      assert length(String.split(out, "defp go(")) - 1 == 3
-      refute out =~ "\n  def go("
       # the untouched neighbour keeps its visibility
-      assert out =~ "def other, do: :ok"
+      assert out ==
+               @multi
+               |> String.replace("  @doc \"what it does\"\n", "")
+               |> String.replace("def go(", "defp go(")
     end
 
     test "privatize drops the @doc, which Elixir would discard with a warning" do
@@ -432,13 +433,12 @@ defmodule Menard.ClauseTest do
       private = Clause.visibility(@multi, "go/1", :private)
       out = Clause.visibility(private, "go/1", :public)
 
-      assert length(String.split(out, "\n  def go(")) - 1 == 3
-      refute out =~ "defp go("
+      assert out == String.replace(@multi, "  @doc \"what it does\"\n", "")
     end
 
     test "keeps the family — a defmacrop becomes a defmacro, not a def" do
       src = "defmodule A do\n  defmacrop m(x), do: x\nend\n"
-      assert Clause.visibility(src, "m/1", :public) =~ "defmacro m(x), do: x"
+      assert Clause.visibility(src, "m/1", :public) == "defmodule A do\n  defmacro m(x), do: x\nend\n"
     end
 
     test "already at the wanted visibility is a no-op, byte for byte" do
@@ -453,8 +453,7 @@ defmodule Menard.ClauseTest do
     test "only the named function moves" do
       out = Clause.visibility(@multi, "other/0", :private)
 
-      assert out =~ "defp other, do: :ok"
-      assert out =~ "def go(:a), do: 1"
+      assert out == String.replace(@multi, "def other", "defp other")
     end
 
     test "a zero-arity clause answers to its own name as a head" do
