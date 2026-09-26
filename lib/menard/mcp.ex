@@ -15,13 +15,13 @@ if Code.ensure_loaded?(Anubis.Server) do
       capabilities: [:tools],
       # an agent reads this before its first call: in the eval, 4 of 6 learned it from the guard instead
       instructions: """
-      Elixir by its structure: rename across files, find who calls what, a function moved with its
-      docs, one function read out of a big file. Each tool parses the file, changes the tree, formats it
-      and parse-checks what it writes; a plain Edit is fine for the rest. A big file: outline {file} instead of reading it, every
-      clause's name_arity and head, then clause {verb: "get"} for the one function you need; a file you
-      have already Read needs no outline. A clause is addressed by its head, a test or describe (a
-      block) by its label. A write's reply is every change it made: no need to Read the file back.
-      Finish on run {verb: "check"}: format, warnings-as-errors and the tests in one JSON line.
+      Use these only where grep, sed and Edit guess: a rename across files (rename), who calls a
+      function (find), a function moved with its docs (clause move), one function out of a file too
+      big to read (outline, then clause get). Any other edit is cheaper as a plain Edit or Write, and
+      every Elixir file written is formatted after: don't reach for these for it. A clause is addressed
+      by its head, a test or describe by its label. A write's reply is every change it made: no need
+      to Read the file back. Finish on run {verb: "check"}: format, warnings-as-errors and the tests
+      in one JSON line.
       """
 
     component(Menard.MCP.Write, name: "write")
