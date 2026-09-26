@@ -558,10 +558,55 @@ defmodule Menard.HooksTest do
 
     assert {"", 0} = commit_gate(commit, dir)
     assert gate_runs.() == []
+    assert gate_err(dir) == "commit gate: skipped, files already green\n"
 
     File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 2\nend\n")
     assert {"", 0} = commit_gate(commit, dir)
     assert gate_runs.() != []
+  end
+
+  @tag :tmp_dir
+  test "the gates leave one stderr line on every outcome, with timings, and nothing for the model", %{
+    tmp_dir: dir
+  } do
+    # a green gate was indistinguishable from one that never ran in the trace
+    host(dir)
+    green = stub_menard(dir, "green", ~s(echo '{"ok":true}'))
+    red = stub_menard(dir, "red", @red)
+    stop = fn root -> stop(%{hook_event_name: "Stop", session_id: "g3"}, dir, root) end
+
+    assert {"", 0} = stop.(green)
+    assert gate_err(dir) == "stop gate: nothing written this session\n"
+
+    File.write!(Path.join(dir, "menard-touched-g3"), dir <> "\n")
+    assert {"", 0} = stop.(green)
+
+    assert gate_err(dir) =~
+             ~r/\Astop gate: green in \d+s \(compile \d+s, credo --changed \d+s, test --stale \d+s\)\n\z/
+
+    assert {"", 0} = stop.(green)
+    assert gate_err(dir) == "stop gate: nothing new since green\n"
+
+    File.write!(Path.join(dir, "menard-touched-g3"), dir <> "\n" <> dir <> "\n")
+    {out, 0} = stop.(red)
+    assert JSON.decode!(out)["decision"] == "block"
+    assert gate_err(dir) =~ ~r/\Astop gate: red in \d+s \(compile \d+s\), refusal 1 of 3\n\z/
+
+    File.write!(Path.join(dir, "menard-stop-blocks-g3"), "3")
+    assert {"", 0} = stop.(red)
+    assert gate_err(dir) == "stop gate: let through after 3 refusals\n"
+
+    commit = fn cmd, session ->
+      commit_gate(%{session_id: session, tool_input: %{command: cmd}}, dir, green)
+    end
+
+    assert {"", 0} = commit.("git commit -m x", "g3")
+    assert gate_err(dir) =~ ~r/\Acommit gate: green in \d+s\n\z/
+    assert {"", 0} = commit.("git commit -m x", "none")
+    assert gate_err(dir) == "commit gate: nothing written this session\n"
+    # not a commit: no gate, no line
+    assert {"", 0} = commit.("git status", "g3")
+    assert gate_err(dir) == ""
   end
 
   defp bigread(payload, dir) do
@@ -585,11 +630,15 @@ defmodule Menard.HooksTest do
     Path.join(dir, name)
   end
 
+  # a gate's stdout and exit status, as the harness reads them; its stderr, which the harness keeps
+  # in the trace and does not give the model, is in gate_err/1
   defp stop(payload, dir, root \\ @root) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
 
-    System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/stop-gate.sh"), input],
+    System.cmd(
+      "bash",
+      ["-c", ~s(bash "$0" < "$1" 2>"$2"), Path.join(@root, "hooks/stop-gate.sh"), input, gate_err_file(dir)],
       env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}]
     )
   end
@@ -598,10 +647,21 @@ defmodule Menard.HooksTest do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(Map.put_new(payload, :cwd, dir)))
 
-    System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/commit-gate.sh"), input],
+    System.cmd(
+      "bash",
+      [
+        "-c",
+        ~s(bash "$0" < "$1" 2>"$2"),
+        Path.join(@root, "hooks/commit-gate.sh"),
+        input,
+        gate_err_file(dir)
+      ],
       env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}]
     )
   end
+
+  defp gate_err_file(dir), do: Path.join(dir, "menard-gate.err")
+  defp gate_err(dir), do: File.read!(gate_err_file(dir))
 
   defp report(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
