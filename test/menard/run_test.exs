@@ -521,4 +521,28 @@ defmodule Menard.RunTest do
     assert [%{kind: "error", at: "lib/shop/cart.ex:285", message: message}] = Run.parse_test(out, 1).failures
     assert message =~ "cannot set attribute @doc inside function/macro"
   end
+
+  @kinds File.read!(Path.expand("../fixtures/ex_unit/kinds.txt", __DIR__))
+
+  test "a failing doctest, a property and a setup_all are failures too, and count" do
+    # real `mix test` output (Elixir 1.19): only `N) test …` parsed, so these came back ok: false,
+    # failures: [] and the hooks had nothing to act on
+    r = Run.parse_test(@kinds, 2)
+
+    assert [
+             %{kind: "test", name: "ints are small", module: "BenchTest", at: "test/bench_test.exs:10"} =
+               property,
+             %{kind: "test", name: "plain", code: "assert 1 + 1 == 3", left: "2", right: "3"},
+             %{kind: "test", name: "Bench.one/0 (1)", at: "test/bench_test.exs:4", code: "Bench.one() === 2"},
+             %{kind: "test", name: "setup_all", module: "SetupAllTest", message: setup_all}
+           ] = r.failures
+
+    assert property.message =~ "Generated: 5"
+    assert setup_all =~ "(File.Error) could not read file"
+    # 1 doctest, 1 property, 2 tests: 3 failures and 1 invalid
+    assert {r.tests, r.failed} == {4, 4}
+    # and a run that left tests out says so after the counts
+    assert %{tests: 1, failed: 0} =
+             Run.parse_test("Finished in 0.9 seconds\n1 test, 0 failures (22 excluded)\n", 0)
+  end
 end
