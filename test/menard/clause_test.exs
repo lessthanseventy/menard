@@ -694,4 +694,12 @@ defmodule Menard.ClauseTest do
     assert {:ok, %{code: "def two(n), do: n * 2", lines: [7, 7]}} = Clause.get(src, "two/1", "n")
     assert {:error, _} = Clause.get(src, "nope/0", nil)
   end
+
+  test "naming a test macro as the function points at block, which reaches the tests" do
+    # bench3 move-function.B.sonnet: stmt list with name_arity "test/2", told only "have: none"
+    src = "defmodule ATest do\n  use ExUnit.Case\n\n  test \"a\" do\n    assert 1\n  end\nend\n"
+    assert {:error, message} = Clause.replace_body(src, "test/2", "", "x")
+    assert message =~ "block"
+    assert message =~ ~s(name: "test")
+  end
 end

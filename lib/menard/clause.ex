@@ -498,7 +498,12 @@ defmodule Menard.Clause do
       "no function #{name}/#{arity}: `#{macro} \"#{label}\"` is a macro call, not a function — " <>
         "reach it with `block replace FILE #{macro} --label \"#{label}\"` (or get, delete)"
     else
-      _ -> "no clause #{name}/#{arity} with head `#{head}` — have: none"
+      _ when name in [:test, :describe, :setup, :setup_all] ->
+        "no function #{name}/#{arity}: `#{name}` is a macro, and its blocks are reached with `block` — " <>
+          "`block {verb: \"get\", file, name: \"#{name}\"}` answers with every one, `label` picks one"
+
+      _ ->
+        "no clause #{name}/#{arity} with head `#{head}` — have: none"
     end
   end
 
