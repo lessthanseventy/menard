@@ -201,4 +201,18 @@ defmodule Menard.WriteReplyTest do
       refute File.exists?(dest)
     end
   end
+
+  describe "clause move at the CLI" do
+    test "answers in JSON, both files' replies, like every other writing verb", %{tmp_dir: dir} do
+      a = write_file(dir, "ma.ex", "defmodule MA do\n  def go, do: 1\n\n  def stay, do: 2\nend\n")
+      dest = Path.join(dir, "mb.ex")
+
+      out = ExUnit.CaptureIO.capture_io(fn -> Clause.run(["move", a, "go/0", "--to", dest, "--as", "MB"]) end)
+
+      assert %{"created" => "MB", "to" => %{"file" => ^dest, "version" => "sha256:" <> _}, "from" => from} =
+               JSON.decode!(out)
+
+      assert from["file"] == a
+    end
+  end
 end
