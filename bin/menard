@@ -137,4 +137,4 @@ cat "$err" >&2
 if ((status != 0)) && grep -qE "cannot compile module|CompileError" "$err"; then
   echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
 fi
-exit $status
+exit "$status"
