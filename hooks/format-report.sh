@@ -26,6 +26,11 @@ if [[ "$tool" == "Bash" ]]; then
   [[ -f "$mark" ]] || exit 0
   files=$(find "$root" \( -name _build -o -name deps -o -name .git -o -name node_modules \) -prune -o \
     \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print 2>/dev/null)
+  # what git ignores is no one's edit: menard's own test run writes fixtures under tmp/, broken on
+  # purpose, and each was named as a file the agent wrote and could not format
+  # -z: without it git prints a path with a non-ASCII byte quoted and escaped, which matches nothing
+  ignored=$(tr '\n' '\0' <<<"$files" | git -C "$root" check-ignore -z --stdin 2>/dev/null | tr '\0' '\n')
+  [[ -n "$ignored" ]] && files=$(grep -vxF -f <(printf '%s\n' "$ignored") <<<"$files")
 else
   files=$(jq -r '.tool_response.filePath // .tool_input.file_path // empty' <<<"$payload")
 fi
