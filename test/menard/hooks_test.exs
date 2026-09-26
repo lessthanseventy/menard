@@ -574,6 +574,15 @@ defmodule Menard.HooksTest do
     assert out =~ ~s("deny")
     assert {out, 0} = gate.(two, "git -C ../one commit -m x")
     assert out =~ ~s("deny")
+
+    # a leading cd moves the commit, in the command itself or inside bash -c
+    assert {out, 0} = gate.(two, "cd ../one && git commit -m x")
+    assert out =~ ~s("deny")
+    assert {"", 0} = gate.(one, "cd ../two; git commit -m x")
+    assert {out, 0} = gate.(dir, ~s(bash -c "cd one && git commit -m x"))
+    assert out =~ ~s("deny")
+    assert {out, 0} = gate.(dir, ~s(cd "#{one}" && git add -A && git commit -m x))
+    assert out =~ ~s("deny")
   end
 
   @tag :tmp_dir
