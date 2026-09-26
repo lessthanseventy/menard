@@ -24,11 +24,11 @@ defmodule Mix.Tasks.Menard.Module do
 
   defp verb(["add", file, code], flags) do
     file = Menard.resolve(file)
-    code = if code == "-", do: IO.read(:stdio, :eof), else: code
+    code = if code == "-", do: stdin(file), else: code
 
     write(
       file,
-      Menard.Module.add(File.read!(file), to_string(code)),
+      Menard.Module.add(File.read!(file), code),
       "module add in #{Path.basename(file)}",
       flags
     )
@@ -53,6 +53,14 @@ defmodule Mix.Tasks.Menard.Module do
         "       mix menard.module replace FILE Mod.Name CODE          one whole module, of several\n" <>
         "       mix menard.module comment FILE (Mod.Name|-) [TEXT] [--above]   (no TEXT removes it; --above: over defmodule)"
     )
+  end
+
+  # an empty stdin is a pipe that lost its input: IO.read's :eof became the CODE "eof"
+  defp stdin(file) do
+    case IO.read(:stdio, :eof) do
+      text when is_binary(text) and text != "" -> text
+      _empty -> Mix.raise("menard.module: stdin was empty — nothing added to #{file}")
+    end
   end
 
   defp write(_file, {:error, message}, _did, _flags), do: Mix.raise(message)
