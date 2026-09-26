@@ -303,7 +303,7 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "format-report starts menard once per project for a shell command's files, and not for git", %{
+  test "format-report starts menard once per project for a shell command's files", %{
     tmp_dir: dir
   } do
     # one start per file (format 0.46s, credo 1.2s): a checkout of 100 files took ~170s, past the
@@ -337,14 +337,80 @@ defmodule Menard.HooksTest do
     for f <- files, do: assert(File.read!(f) =~ "  def f(x), do: x\n")
     assert out =~ "lib/m3.ex was reformatted"
     assert formats.() == 1
+  end
 
-    # git put these files back as they were: no one's edit, and none to format or report
-    call = bash.("git checkout -- lib")
-    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting)
+  @tag :tmp_dir
+  test "format-report leaves what git wrote alone, behind a cd or a -C: a worktree, a stash, a checkout",
+       %{tmp_dir: dir} do
+    # `cd DIR && git worktree add …` got past a check for a command that starts with git, and every
+    # file git checked out was formatted: ~45 "Unknown dependency :phoenix" in a fixture with no deps
+    host(dir)
+
+    git = fn args ->
+      {_, 0} = System.cmd("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t" | args])
+    end
+
+    file = Path.join(dir, "lib/m.ex")
+    unformatted = "defmodule M do\n  def   f(x), do: x\nend\n"
+    File.write!(file, unformatted)
+    git.(["add", "-A"])
+    git.(["commit", "-qm", "m"])
+
+    counting =
+      stub_menard(
+        dir,
+        "counting",
+        ~s(echo "$*" >>"$\(dirname "$0"\)/../calls"\nexec "#{@root}/bin/menard" "$@")
+      )
+
+    shell = fn cmd ->
+      call = %{
+        tool_name: "Bash",
+        session_id: "t#{System.unique_integer([:positive])}",
+        tool_input: %{command: cmd}
+      }
+
+      {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting)
+      backdate_format_mark(call, dir)
+      {_, 0} = System.cmd("bash", ["-c", cmd], stderr_to_stdout: true)
+      report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
+    end
+
+    assert {"", 0} = shell.("cd #{dir} && git worktree add -q #{dir}/wt")
+    assert File.read!(Path.join(dir, "wt/lib/m.ex")) == unformatted
+
+    File.write!(file, "defmodule M do\n  def   g(x), do: x\nend\n")
+    git.(["stash", "-q"])
+    assert {"", 0} = shell.("cd #{dir} && git stash pop -q")
+    assert File.read!(file) =~ "def   g(x)"
+
+    assert {"", 0} = shell.("git -C #{dir} checkout -q -- lib")
+    assert File.read!(file) == unformatted
+    refute File.exists?(Path.join(counting, "calls"))
+  end
+
+  @tag :tmp_dir
+  test "format-report formats an edit a shell command made after a git command", %{tmp_dir: dir} do
+    # the git in front made the whole command no one's edit, the sed after it included
+    host(dir)
+    file = Path.join(dir, "lib/m.ex")
+    File.write!(file, "defmodule M do\n  def   f(x), do: x\nend\n")
+    {_, 0} = System.cmd("git", ["-C", dir, "add", "-A"])
+
+    cmd = "git -C #{dir} checkout -q -b x && sed -i 's/f(x)/g(x)/' #{file}"
+
+    call = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: cmd}
+    }
+
+    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir)
     backdate_format_mark(call, dir)
-    File.write!(hd(files), "defmodule M1 do\n  def   f(x), do: x\nend\n")
-    assert {"", 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
-    assert formats.() == 1
+    {_, 0} = System.cmd("bash", ["-c", cmd], stderr_to_stdout: true)
+    {out, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir)
+    assert out =~ "lib/m.ex was reformatted"
+    assert File.read!(file) =~ "  def g(x), do: x\n"
   end
 
   @tag :tmp_dir
