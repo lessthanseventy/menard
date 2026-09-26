@@ -285,14 +285,14 @@ defmodule Menard.BlockTest do
     code =
       "describe \"three\" do\n  @tag :tmp_dir\n  test \"c\", %{tmp_dir: dir} do\n    assert dir\n  end\nend"
 
-    for label <- ["three", nil] do
+    # a label that differs is the agent paraphrasing the block it wrote (long1 cart-refactor.B.sonnet),
+    # never a block to nest it in: a describe does not nest, nor a test in a test
+    for label <- ["three", nil, "four"] do
       out = Block.add(@src, "describe", label, code)
       assert out =~ "describe \"three\" do\n    @tag :tmp_dir\n    test \"c\""
       refute out =~ "describe \"three\" do\n    describe"
+      refute out =~ "four"
     end
-
-    assert {:error, message} = Block.add(@src, "describe", "four", code)
-    assert message =~ "BODY"
   end
 
   test "add handed a whole test keeps its context and every comment in its body" do
@@ -334,5 +334,14 @@ defmodule Menard.BlockTest do
     # bench3 new-component.B.sonnet: replace {label: "…"} with no name was told there was no such block
     out = Block.replace(@src, nil, "assert 9 == 9", label: "b")
     assert out =~ ~s(test "b" do\n      assert 9 == 9)
+  end
+
+  test "add handed a whole block names it by the block's own label, whatever label came with it" do
+    # long1 cart-refactor.B.sonnet: label "…and no placeholders", the test "…and leaves no placeholders";
+    # a block being added has nothing to be told apart from
+    code = "test \"c, as written\" do\n  assert 3 == 3\nend"
+    out = Block.add(@src, "test", "c, as asked", code)
+    assert out =~ ~s(test "c, as written" do)
+    refute out =~ "as asked"
   end
 end
