@@ -9,7 +9,10 @@ defmodule Menard do
   against the caller's directory (`MENARD_CWD`, else the cwd), and the run verbs act in
   `--in DIR` (default: the caller's directory).
   """
-  # Under load a host's own `mix format` through mise (its plugins will not load here) took past 30s; 60s still leaves the MCP door's 90s deadline room
+  alias Mix.Tasks.Format
+
+  # Under load a host's own `mix format` through mise (its plugins will not load here) took past
+  # 30s; 60s still leaves the MCP door's 90s deadline room
   @format_timeout 60_000
 
   @doc "The directory the caller stood in."
@@ -67,8 +70,7 @@ defmodule Menard do
 
     work = fn ->
       in_vm? =
-        Code.ensure_loaded?(Mix.Tasks.Format) and
-          function_exported?(Mix.Tasks.Format, :formatter_for_file, 2)
+        Code.ensure_loaded?(Format) and function_exported?(Format, :formatter_for_file, 2)
 
       case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
         {:ok, formatted, split} ->
@@ -119,7 +121,7 @@ defmodule Menard do
 
       in_host_dir(plugins, project, fn ->
         {formatter, formatter_opts} =
-          Mix.Tasks.Format.formatter_for_file(file,
+          Format.formatter_for_file(file,
             root: root,
             dot_formatter: dot,
             deps_paths: deps_paths,

@@ -9,6 +9,9 @@ if Code.ensure_loaded?(Anubis.Server) do
 
         claude mcp add menard -- /path/to/menard/bin/menard mcp
     """
+    alias Anubis.MCP.Error
+    alias Anubis.Server.Handlers
+
     use Anubis.Server,
       name: "menard",
       version: Mix.Project.config()[:version],
@@ -42,8 +45,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     # The same refusal as a tool error puts the why where the agent reads.
     @impl Anubis.Server
     def handle_request(%{"method" => "tools/call"} = request, frame) do
-      case Anubis.Server.Handlers.handle(request, __MODULE__, frame) do
-        {:error, %Anubis.MCP.Error{reason: :invalid_params, data: %{message: why}}, frame} ->
+      case Handlers.handle(request, __MODULE__, frame) do
+        {:error, %Error{reason: :invalid_params, data: %{message: why}}, frame} ->
           tool = get_in(request, ["params", "name"])
 
           {:reply, %{"content" => [%{"type" => "text", "text" => "#{tool}: #{why}"}], "isError" => true},
@@ -54,7 +57,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def handle_request(request, frame), do: Anubis.Server.Handlers.handle(request, __MODULE__, frame)
+    def handle_request(request, frame), do: Handlers.handle(request, __MODULE__, frame)
 
     @doc "The directory every path resolves under."
     def root, do: System.get_env("MENARD_ROOT") || Menard.caller_dir()
