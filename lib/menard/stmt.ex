@@ -77,10 +77,38 @@ defmodule Menard.Stmt do
         end
 
       case matching(all, Clause.squash(match)) do
-        [] -> :none
+        [] -> template_text(source, clause, match)
         [one] -> {:ok, one}
         many -> nth(many, match, opts[:nth])
       end
+    end
+  end
+
+  # Not one expression: any text of a template, a whole line of markup and all, found once as written
+  defp template_text(source, clause, match) do
+    want = String.trim(match)
+
+    found =
+      for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
+          %{start: [line: a, column: ca]} = range = Sourceror.get_range(node),
+          text = Menard.Source.slice(source, range),
+          want != "",
+          {at, _len} <- :binary.matches(text, want) do
+        {sl, sc} = Menard.Source.advance({a, ca}, binary_part(text, 0, at))
+        {el, ec} = Menard.Source.advance({sl, sc}, want)
+
+        %{
+          range: %{start: [line: sl, column: sc], end: [line: el, column: ec]},
+          text: want,
+          indent: String.duplicate(" ", sc - 1),
+          span: el - sl
+        }
+      end
+
+    case found do
+      [] -> :none
+      [one] -> {:ok, one}
+      many -> nth(many, match, nil)
     end
   end
 
@@ -134,8 +162,7 @@ defmodule Menard.Stmt do
       case matching(all, want) do
         [] ->
           {:error,
-           "no statement `#{match}` in #{name_arity} — have: #{Enum.map_join(all, " · ", &"`#{&1.text}`")}" <>
-             inside_string(all, match)}
+           "no statement `#{match}` in #{name_arity} — have: #{have(all)}" <> inside_string(all, match)}
 
         [one] ->
           {:ok, one}
@@ -144,6 +171,22 @@ defmodule Menard.Stmt do
           nth(many, match, opts[:nth])
       end
     end
+  end
+
+  # What a miss shows: the statement each line starts with, its first line only, and 20 at most.
+  # Every nested node in full ran a miss in a long case to thousands of characters.
+  defp have(all) do
+    lines =
+      all
+      |> Enum.group_by(&line_of/1)
+      |> Enum.sort()
+      |> Enum.map(fn {_line, here} ->
+        here |> Enum.min_by(&column_of/1) |> Map.fetch!(:text) |> String.split("\n") |> hd()
+      end)
+
+    {shown, rest} = Enum.split(lines, 20)
+    more = if rest == [], do: "", else: " · … #{length(rest)} more: `list` shows them"
+    Enum.map_join(shown, " · ", &"`#{&1}`") <> more
   end
 
   # A line of a ~H template or a heredoc is text, not a statement, and no verb reaches into it: an

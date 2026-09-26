@@ -308,8 +308,10 @@ defmodule Menard.StmtTest do
     end
     '''
 
-    # as the eval's agent tried it: a line of the template as a statement
-    assert {:error, message} = Stmt.replace(src, "render/1", "assigns", "<p>{Cart.total(@cart)}</p>", "x")
+    # replace reaches template text now; the other verbs still send it to Edit
+    assert {:error, message} =
+             Stmt.insert_after(src, "render/1", "assigns", "<p>{Cart.total(@cart)}</p>", "x")
+
     assert message =~ "inside a string"
     assert message =~ "Edit"
   end
@@ -346,5 +348,41 @@ defmodule Menard.StmtTest do
 
     assert {:error, message} = Stmt.insert_after(src, "render/1", "assigns", "Catalog.name(@p)", "x")
     assert message =~ "Edit"
+  end
+
+  test "replace reaches any text of a ~H template, a whole line of markup too" do
+    # bench2 change-signature.B.haiku matched a whole `<p :for=…>{…}</p>` line, two expressions and
+    # the markup around them
+    src = ~S'''
+    defmodule L do
+      def render(assigns) do
+        ~H"""
+        <p :for={line <- Cart.lines(@cart)}>{Cart.format_line(line)}</p>
+        """
+      end
+    end
+    '''
+
+    out =
+      Stmt.replace(
+        src,
+        "render/1",
+        "assigns",
+        "<p :for={line <- Cart.lines(@cart)}>{Cart.format_line(line)}</p>",
+        "<p :for={line <- Cart.lines(@cart, 0.1)}>{Money.format_line(line)}</p>"
+      )
+
+    assert out =~ "    <p :for={line <- Cart.lines(@cart, 0.1)}>{Money.format_line(line)}</p>\n"
+  end
+
+  test "a miss lists each line a statement starts on once, not every nested node in full" do
+    # a miss in a long case printed each arm, and each call inside each arm, in full: the reply ran
+    # to the whole clause many times over
+    arms = Enum.map_join(1..40, "\n", &"      #{&1} -> {:ok, Enum.map([#{&1}], fn x -> x * #{&1} end)}")
+    src = "defmodule A do\n  def f(x) do\n    case x do\n#{arms}\n    end\n  end\nend\n"
+
+    assert {:error, message} = Stmt.replace(src, "f/1", "x", "nope()", "1")
+    assert String.length(message) < 2_000
+    assert message =~ "more"
   end
 end
