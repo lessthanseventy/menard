@@ -162,3 +162,10 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
 - 18:23 bench3 started: pinned at 8aeaa4f (every fix so far), both models, 68 runs, one toolchain,
   the new-component hidden test formatted. Rule for this round (Andrew): fix as it runs, do not
   restart it; let it finish for one complete A/B round on both models.
+- 18:39 Fixed from bench3's haiku half as it ran (bench3 itself stays on 8aeaa4f):
+  8c4f051 write replies say "no need to Read the file back" + outline only for big, unread files
+  (bench1+2 haiku: B read after its last edit 31x in 24 runs vs A 14x in 26; B outlined 17 files it
+  had just Read whole), 5767d14 attr set takes a whole `@name value` (it wrote `@receipt @receipt`)
+  + attr replace = set, b13709c stmt takes a test's label as name_arity + says when a by-start
+  match took a whole statement, 0da39bf block get with no label returns every block.
+  new-component.A is clean for the first time: the hidden-test fix works (cases are read live).
