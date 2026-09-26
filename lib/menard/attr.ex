@@ -18,7 +18,7 @@ defmodule Menard.Attr do
   @doc "The attribute's value exactly as written, or `{:error, …}` if it is missing or ambiguous."
   @spec get(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def get(source, name, opts \\ []) do
-    with {:ok, node} <- one(source, name, opts), do: value_text(node, source)
+    with {:ok, node} <- located(source, name, opts), do: value_text(node, source)
   end
 
   @doc """
@@ -63,7 +63,7 @@ defmodule Menard.Attr do
   @spec delete(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def delete(source, name, opts \\ []) do
     with {:ok, body} <- body(source, opts),
-         {:ok, node} <- one(source, name, opts) do
+         {:ok, node} <- located(source, name, opts) do
       %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
       # Under a def's own @doc or @spec, the blank line after it would part them from the def they
       # belong to: it goes too. Anywhere else a blank on each side is the formatter's to fold.
@@ -71,19 +71,6 @@ defmodule Menard.Attr do
       next_blank? = source |> String.split("\n") |> Enum.at(b) |> Kernel.==("")
       b = if attr_name(above) in @per_definition and next_blank?, do: b + 1, else: b
       drop_lines(source, a, b)
-    end
-  end
-
-  @doc """
-  The `#` comment above `@name`: prose in, `#` added; no `text` removes it. The attribute twin of
-  `Menard.Clause.comment/5`.
-  """
-  @spec comment(String.t(), String.t() | atom(), String.t() | nil, keyword()) ::
-          String.t() | {:error, String.t()}
-  def comment(source, name, text, opts \\ []) do
-    with {:ok, node} <- one(source, name, opts) do
-      %{start: [line: line, column: col]} = Sourceror.get_range(node)
-      Clause.comment_at(source, line, col - 1, text)
     end
   end
 
@@ -96,6 +83,24 @@ defmodule Menard.Attr do
   end
 
   # -- locating ------------------------------------------------------------
+
+  # `one/3` with a missing attribute named: `set` adds one instead, and is the only caller that
+  # wants the bare `:missing`.
+  defp located(source, name, opts) do
+    with {:error, :missing} <- one(source, name, opts), do: {:error, missing(source, name)}
+  end
+
+  # `attr :product, …` in a component is Phoenix's declaration, not a module attribute: bench4
+  # new-component.B.haiku tried to delete one here and was told only that there was no @product
+  defp missing(source, name) do
+    name = name |> to_string() |> String.trim_leading("@")
+
+    if source =~ ~r/^\s*(attr|slot)\s+:#{Regex.escape(name)}\b/m,
+      do:
+        "no @#{name} in this module; `attr :#{name}` here is a Phoenix component declaration, which goes " <>
+          "with the def below it (clause get/delete/move carry it), and stmt reaches it as a statement of the module",
+      else: "no @#{name} in this module"
+  end
 
   defp one(source, name, opts) do
     want = key(name)

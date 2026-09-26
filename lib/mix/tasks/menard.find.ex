@@ -8,43 +8,35 @@ defmodule Mix.Tasks.Menard.Find do
       mix menard.find defs general/1 lib/**/*.ex
       mix menard.find aliases Server.Channels lib/**/*.ex
 
-  One line per hit (`file:line:column kind text`), or `--json`. Globs are expanded here.
+  One line per hit (`file:line:column kind text`), or `--json` for the reply as the MCP door gives
+  it (`hits`). Globs are expanded here.
   """
   use Mix.Task
 
-  alias Menard.Find
+  alias Menard.Verbs
+
+  import Menard.CLI
 
   @impl true
   def run(argv) do
     {opts, args, _} = OptionParser.parse(argv, strict: [json: :boolean])
 
-    {finder, files} =
-      case args do
-        ["calls", target | files] -> {&Find.calls(&1, target), files}
-        ["defs", name | files] -> {&Find.defs(&1, name), files}
-        ["aliases", mod | files] -> {&Find.aliases(&1, mod), files}
-        _ -> Mix.raise("usage: mix menard.find (calls TARGET|defs NAME[/ARITY]|aliases MOD) [--json] FILE...")
-      end
+    case args do
+      [kind, target | files] when files != [] ->
+        print(Verbs.Find.run(%{kind: kind, target: target, files: files}), opts[:json] == true)
 
-    hits =
-      files
-      |> Enum.map(&Menard.resolve/1)
-      |> Find.files()
-      |> case do
-        {:ok, found} -> found
-        {:error, message} -> Mix.raise(message)
-      end
-      |> Enum.flat_map(fn file ->
-        file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
-      end)
-
-    if opts[:json] == true,
-      do: Mix.shell().info(JSON.encode!(hits)),
-      else: Enum.each(hits, &Mix.shell().info("#{&1.file}:#{&1.line}:#{&1.column} #{line(&1)}"))
+      _ ->
+        usage("mix menard.find (calls TARGET|defs NAME[/ARITY]|aliases MOD) [--json] FILE...")
+    end
   end
 
+  defp print(result, true), do: answer(result)
+  defp print({:ok, %{hits: hits}}, false), do: Enum.each(hits, &Mix.shell().info(line(&1)))
+  defp print({:error, reason}, false), do: Mix.raise(reason)
+
   # A def's text is its head, which already starts with its kind: `def go(x)`, not `def def go(x)`.
-  defp line(%{kind: kind, text: text}) do
-    if String.starts_with?(text, "#{kind} "), do: text, else: "#{kind} #{text}"
+  defp line(%{file: file, line: l, column: c, kind: kind, text: text}) do
+    text = if String.starts_with?(text, "#{kind} "), do: text, else: "#{kind} #{text}"
+    "#{file}:#{l}:#{c} #{text}"
   end
 end

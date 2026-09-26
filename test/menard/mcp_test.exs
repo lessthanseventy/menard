@@ -159,28 +159,6 @@ defmodule Menard.MCPTest do
     refute out =~ ~s(test "one")
   end
 
-  test "stmt comment and module comment reach the comments no other verb can", %{root: root} do
-    File.write!(
-      Path.join(root, "lib/a.ex"),
-      "defmodule A do\n  use B\n\n  def go(x) do\n    step(x)\n  end\nend\n"
-    )
-
-    refute call(Menard.MCP.Stmt, %{
-             verb: "comment",
-             file: "lib/a.ex",
-             name_arity: "go/1",
-             head: "x",
-             match: "step(x)",
-             text: "why"
-           }).isError
-
-    refute call(Menard.MCP.Module, %{verb: "comment", file: "lib/a.ex", text: "what A is"}).isError
-
-    out = File.read!(Path.join(root, "lib/a.ex"))
-    assert out =~ "  # what A is\n  use B"
-    assert out =~ "    # why\n    step(x)"
-  end
-
   test "a root given with a trailing slash still admits paths under it", %{root: root} do
     System.put_env("MENARD_ROOT", root <> "/")
     assert {:ok, _} = Menard.MCP.resolve("lib/a.ex")
@@ -279,13 +257,6 @@ defmodule Menard.MCPTest do
 
     assert File.read!(file) =~ "defp zero, do: 0\n\n  def one, do: 1"
     assert File.read!(file) =~ "defp helper, do: :h\n\n  def last, do: 9"
-  end
-
-  test "attr comment writes the # line above an attribute", %{root: root} do
-    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
-
-    refute call(Menard.MCP.Attr, %{verb: "comment", file: "lib/a.ex", name: "t", text: "why"}).isError
-    assert File.read!(Path.join(root, "lib/a.ex")) =~ "  # why\n  @t 1"
   end
 
   test "block relabel renames a test", %{root: root} do
@@ -528,7 +499,9 @@ defmodule Menard.MCPTest do
       })
 
     reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
-    assert reply["changed"] == [Path.join(root, "lib/ok.ex")]
+    # each file changed carries its own write reply: the version for the next edit, and its stages
+    assert [%{"file" => changed, "version" => "sha256:" <> _, "stages" => [_ | _]}] = reply["changed"]
+    assert changed == Path.join(root, "lib/ok.ex")
     assert reply["unchanged"] == [Path.join(root, "lib/none.ex")]
     assert [%{"file" => broken, "why" => why}] = reply["skipped"]
     assert broken == Path.join(root, "lib/broken.ex")
@@ -578,15 +551,15 @@ defmodule Menard.MCPTest do
   test "a clause verb with no head takes a function's only clause, and among several names their heads", %{
     root: root
   } do
-    # the eval's haiku left `head` out of a `doc` on a one-clause function and got a KeyError back
+    # the eval's haiku left `head` out of an edit of a one-clause function and got a KeyError back
     File.write!(
       Path.join(root, "lib/a.ex"),
       "defmodule A do\n  def one(x), do: x\n\n  def two(1), do: 1\n  def two(n), do: n\nend\n"
     )
 
-    refute call(Menard.MCP.Clause, %{verb: "doc", file: "lib/a.ex", name_arity: "one/1", text: "The one."}).isError
+    refute call(Menard.MCP.Clause, %{verb: "replace", file: "lib/a.ex", name_arity: "one/1", code: "x + 0"}).isError
 
-    assert File.read!(Path.join(root, "lib/a.ex")) =~ "@doc \"\"\"\n  The one.\n  \"\"\"\n  def one(x)"
+    assert File.read!(Path.join(root, "lib/a.ex")) =~ "def one(x), do: x + 0"
 
     response = call(Menard.MCP.Clause, %{verb: "replace", file: "lib/a.ex", name_arity: "two/1", code: "0"})
     assert response.isError
@@ -651,13 +624,6 @@ defmodule Menard.MCPTest do
     assert got["lines"] == [4, 5]
     assert got["version"] =~ "sha256:"
     assert File.read!(file) == before
-  end
-
-  test "attr replace is set, as every other tool calls it", %{root: root} do
-    # bench3 bug-receipt-total.B.haiku: attr {verb: "replace"} was refused
-    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
-    refute call(Menard.MCP.Attr, %{verb: "replace", file: "lib/a.ex", name: "t", value: "2"}).isError
-    assert File.read!(Path.join(root, "lib/a.ex")) =~ "@t 2"
   end
 
   test "block get with no label, among several, answers with every one", %{root: root} do

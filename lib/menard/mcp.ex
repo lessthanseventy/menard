@@ -62,73 +62,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     @doc "The directory every path resolves under."
     def root, do: System.get_env("MENARD_ROOT") || Menard.caller_dir()
 
-    @doc "A path under the root, or a refusal — no edit escapes the launch directory."
-    def resolve(path) do
-      root = Path.expand(root())
-      resolve(path, root, real(root))
-    end
+    @doc "A path under the root, or a refusal — no edit escapes the launch directory (`Menard.Verbs.resolve/2`)."
+    def resolve(path), do: Menard.Verbs.resolve(path, %{root: root()})
 
-    # Under the root as written, and as the OS will follow it: a symlink under the root that points
-    # outside it passed the first test alone.
-    defp resolve(path, root, real_root) do
-      abs = Path.expand(path, root)
-
-      if under?(abs, root) and under?(real_below(abs, root, real_root), real_root),
-        do: {:ok, abs},
-        else: {:error, "refused: #{path} is outside #{root}"}
-    end
-
-    # only the part below the root is walked, from the root's own real path: each link looked up is a
-    # call to the file server, and resolve_all makes these for every file it is given
-    defp real_below(abs, root, real_root) do
-      abs |> Path.relative_to(root) |> Path.split() |> Enum.reduce(real_root, &follow(Path.join(&2, &1), 0))
-    end
-
-    defp under?(path, dir), do: path == dir or String.starts_with?(path, dir <> "/")
-
-    # `path` with each symlink in it followed, as far as it exists: a file about to be created is
-    # taken as written. A link loop stops following after 40 links, as the OS does.
-    defp real(path, hops \\ 0) do
-      path |> Path.split() |> Enum.reduce(&follow(Path.join(&2, &1), hops))
-    end
-
-    defp follow(path, hops) when hops > 40, do: path
-
-    defp follow(path, hops) do
-      case :file.read_link(path) do
-        {:ok, target} -> real(Path.expand(to_string(target), Path.dirname(path)), hops + 1)
-        {:error, _} -> path
-      end
-    end
-
-    @doc "Every path resolved, or the first refusal — no partial edits."
-    def resolve_all(paths) do
-      # a glob (`lib/**/*.ex`) is expanded under the root: agents pass them, and no shell is there to expand them
-      root = Path.expand(root())
-      glob? = &String.contains?(&1, ["*", "?", "[", "{"])
-
-      expanded =
-        Enum.flat_map(paths, fn p ->
-          if glob?.(p), do: Path.wildcard(Path.expand(p, root)), else: [p]
-        end)
-
-      # a glob that matches nothing beside others that do is dropped; only an empty whole is refused
-      case expanded do
-        [] -> {:error, "no file matches #{paths |> Enum.filter(glob?) |> Enum.join(", ")}"}
-        _ -> resolve_all_plain(expanded, root, real(root))
-      end
-    end
-
-    defp resolve_all_plain(paths, root, real_root) do
-      resolved =
-        Enum.reduce_while(paths, {:ok, []}, fn p, {:ok, acc} ->
-          case resolve(p, root, real_root) do
-            {:ok, abs} -> {:cont, {:ok, [abs | acc]}}
-            {:error, _} = e -> {:halt, e}
-          end
-        end)
-
-      with {:ok, reversed} <- resolved, do: {:ok, Enum.reverse(reversed)}
-    end
+    @doc "Every path resolved, globs expanded, or the first refusal — no partial edits."
+    def resolve_all(paths), do: Menard.Verbs.resolve_all(paths, %{root: root()})
   end
 end

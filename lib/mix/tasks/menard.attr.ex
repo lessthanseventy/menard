@@ -12,75 +12,23 @@ defmodule Mix.Tasks.Menard.Attr do
   """
   use Mix.Task
 
-  alias Menard.Attr
+  alias Menard.Verbs
+
+  import Menard.CLI
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
-    where = [module: opts[:module]]
-    did = did(args)
+    {flags, argv, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
 
-    case args do
-      ["get", file, name] ->
-        report(Attr.get(File.read!(Menard.resolve(file)), name, where), name)
-
-      ["list", file] ->
-        report(list(Attr.list(File.read!(Menard.resolve(file)), where)), nil)
-
-      ["set", file, name, value] ->
-        edit(file, name, did, opts, &Attr.set(&1, name, value, where))
-
-      ["replace", file, name, value] ->
-        edit(file, name, did, opts, &Attr.set(&1, name, value, where))
-
-      ["delete", file, name] ->
-        edit(file, name, did, opts, &Attr.delete(&1, name, where))
-
-      ["comment", file, name] ->
-        edit(file, name, did, opts, &Attr.comment(&1, name, nil, where))
-
-      ["comment", file, name, text] ->
-        edit(file, name, did, opts, &Attr.comment(&1, name, text, where))
-
-      _ ->
-        Mix.raise(
-          "usage: mix menard.attr (get|set|delete|comment) FILE NAME [VALUE|TEXT] | list FILE [--module Mod]"
-        )
+    case params(argv) do
+      :usage -> usage("mix menard.attr (get|set|delete) FILE NAME [VALUE] | list FILE [--module Mod]")
+      params -> answer(Verbs.Attr.run(Map.merge(Map.new(flags), params)))
     end
   end
 
-  defp list(found) when is_list(found),
-    do: Enum.map_join(found, "\n", fn {name, line} -> "@#{name} (line #{line})" end)
-
-  defp list(other), do: other
-
-  defp edit(file, name, did, opts, change) do
-    file = Menard.resolve(file)
-    did = "#{did} in #{Path.basename(file)}"
-
-    case change.(File.read!(file)) do
-      {:error, :missing} ->
-        Mix.raise(missing(name))
-
-      {:error, message} ->
-        Mix.raise(message)
-
-      out ->
-        case Menard.write(file, out, [did: did] ++ Keyword.take(opts, [:version, :force])) do
-          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-          {:error, message} -> Mix.raise(message)
-        end
-    end
-  end
-
-  # `:missing` before the general error: matched as `message`, the atom crashed Mix.raise/1.
-  defp report({:error, :missing}, name), do: Mix.raise(missing(name))
-  defp report({:error, message}, _name), do: Mix.raise(message)
-  defp report(text, _name), do: Mix.shell().info(text)
-
-  defp missing(name), do: "no @#{String.trim_leading(name, "@")} in this module"
-
-  # what the reply's `did` names: `set @colors`
-  defp did([verb, _file, name | _]), do: "#{verb} @#{String.trim_leading(name, "@")}"
-  defp did(_), do: nil
+  defp params(["get", file, name]), do: %{verb: "get", file: file, name: name}
+  defp params(["list", file]), do: %{verb: "list", file: file}
+  defp params(["set", file, name, value]), do: %{verb: "set", file: file, name: name, value: value}
+  defp params(["delete", file, name]), do: %{verb: "delete", file: file, name: name}
+  defp params(_argv), do: :usage
 end
