@@ -459,7 +459,11 @@ defmodule Menard do
         {:path, why} -> {mix, argv, "menard: #{why}\n"}
       end
 
-    {out, status} = bounded_cmd(exe, argv, opts, timeout, hd(args))
+    # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
+    # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;
+    # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
+    argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
+    {out, status} = bounded_cmd("sh", argv, opts, timeout, hd(args))
     {note <> out, status}
   end
 
