@@ -205,15 +205,38 @@ defmodule Menard.Clause do
     text |> String.split("\n") |> Enum.map_join("\n", &String.slice(&1, pad..-1//1))
   end
 
-  @doc "Delete the clause, the comment lines glued above it, and one blank line left behind."
+  @doc """
+  Delete the clause, the comment lines glued above it, and one blank line left behind. The function's
+  last clause takes its @doc/@spec too; one clause of several leaves them for the clauses left.
+  """
   @spec delete(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def delete(source, name_arity, head, opts \\ []) do
-    with {:ok, ast} <- parse(source),
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity),
          {:ok, clause} <- find(source, name_arity, head, opts) do
       lines = String.split(source, "\n")
-      span = attached_span(ast, lines, clause)
-      drop_spans(lines, [with_trailing_blank(lines, span)])
+
+      span =
+        case clauses(scope, name, arity) do
+          [_only] -> with_trailing_blank(lines, attached_span(ast, lines, clause))
+          _several -> own_span(ast, lines, clause)
+        end
+
+      drop_spans(lines, [span])
     end
+  end
+
+  # What ONE clause of several owns: its @impl and the comment above it. @doc, @spec and a
+  # component's attr/slot describe the function, so they stay — and when they stay above, the blank
+  # line after goes, or they sit apart from the clause they now attach to.
+  defp own_span(ast, lines, %{range: %{end: [line: b, column: _]}} = clause) do
+    a = attrs_start(ast, clause.range, &match?({:@, _, [{:impl, _, _}]}, &1))
+    first = a - 1 - comment_lines_above(lines, a - 1)
+
+    if attrs_start(ast, clause.range) < a and Enum.at(lines, b) == "",
+      do: {first, b},
+      else: with_trailing_blank(lines, {first, b - 1})
   end
 
   @doc """
@@ -932,10 +955,11 @@ defmodule Menard.Clause do
   # contiguous `@doc`/`@impl`/`@spec` siblings written above it, else the `def` line itself. Only
   # CONTIGUOUS ones count, so deleting the middle clause of a function takes the `@impl` written
   # above THAT clause and leaves the `@doc` written above the first one alone.
-  defp attrs_start(ast, %{start: [line: line, column: _]}) do
+  defp attrs_start(ast, %{start: [line: line, column: _]}, own? \\ fn _attr -> true end) do
     Enum.reduce(module_bodies(ast), line, fn statements, acc ->
       statements
       |> attached_above(line)
+      |> Enum.take_while(own?)
       |> Enum.map(&start_line/1)
       |> Enum.reject(&is_nil/1)
       |> Enum.min(fn -> acc end)

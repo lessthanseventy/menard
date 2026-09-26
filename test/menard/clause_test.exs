@@ -318,6 +318,28 @@ defmodule Menard.ClauseTest do
       refute out =~ "go(:b)"
     end
 
+    test "deleting ONE clause of several keeps the function's @doc and @spec for the clauses left" do
+      src = """
+      defmodule A do
+        @doc "documents go/1"
+        @spec go(atom()) :: integer()
+        # why :a
+        @impl true
+        def go(:a), do: 1
+
+        def go(:b), do: 2
+      end
+      """
+
+      assert Clause.delete(src, "go/1", ":a") == """
+             defmodule A do
+               @doc "documents go/1"
+               @spec go(atom()) :: integer()
+               def go(:b), do: 2
+             end
+             """
+    end
+
     test "an attribute that is NOT clause-attached is left where it is" do
       src = """
       defmodule A do
