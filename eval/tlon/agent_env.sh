@@ -18,3 +18,11 @@ echo "TLON_MCP_URL=http://127.0.0.1:9/mcp"
 echo "RELEASE_NODE=eval_$tag"
 echo "RELEASE_COOKIE=eval_$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 echo "TLON_DATABASE_URL="
+# tmux of the run's own: Tlön's tests start tmux servers, and its sandbox keeps /tmp (the default
+# socket dir) read-only, so they failed inside every agent's session. ~/.cache is writable in that
+# sandbox; the operator's own server (the live cockpit's, in /tmp) stays out of reach. Not in the
+# workspace: its snapshot for each step's check is a cp -a, and a live socket is no file to copy.
+# Short: a socket path has ~108 bytes.
+# tmux makes tmux-UID inside it, not the directory itself
+mkdir -p "$HOME/.cache/mt/$n"
+echo "TMUX_TMPDIR=$HOME/.cache/mt/$n"

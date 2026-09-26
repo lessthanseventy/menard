@@ -459,9 +459,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     diff, patch = diff_metrics(ws, allowed)
     (out_dir / "traces" / f"{rid}.diff").write_text(patch)
     code, check_out = check(case_dir, ws, env)
-    cleanup = case_dir.parent.parent / "cleanup.sh"
-    if cleanup.exists():
-        sh(["bash", str(cleanup), rid, str(ws)], ws, timeout=120, env=env)
+    cleanup(case_dir, rid, ws, env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
         "arm": arm, "model": model, "effort": EFFORT, "n": n, "wall_s": wall, "timed_out": timed_out,
@@ -507,10 +505,19 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         **lint(ws, env, out_dir, rid),
         "ci": ci,
     }
+    # after CI and lint, which need the run's databases: a long session left them all behind
+    cleanup(case_dir, rid, ws, env)
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     shutil.rmtree(ws, ignore_errors=True)
     return row
+
+
+def cleanup(case_dir, rid, ws, env):
+    """The suite's cleanup.sh (eval/tlon: the run's throwaway databases and tmux servers)."""
+    script = case_dir.parent.parent / "cleanup.sh"
+    if script.exists():
+        sh(["bash", str(script), rid, str(ws)], ws, timeout=120, env=env)
 
 
 def lint(ws, env, out_dir, rid):
