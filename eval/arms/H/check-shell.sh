@@ -24,7 +24,9 @@ changed=$(find "$dir" \( -name _build -o -name deps -o -name .git -o -name node_
 
 problems=""
 while IFS= read -r file; do
-  out=$("$CLAUDE_PLUGIN_ROOT/bin/menard" run format --in "$dir" "$file" 2>/dev/null)
+  # </dev/null: mix reads stdin, and took the rest of this loop's file list with it (only the first
+  # of six files a sed changed was formatted)
+  out=$("$CLAUDE_PLUGIN_ROOT/bin/menard" run format --in "$dir" "$file" 2>/dev/null </dev/null)
   [[ "$out" == *'"ok":true'* ]] && continue
   why=$(printf '%s' "$out" | jq -r '.failures[0].message // empty' 2>/dev/null | sed 's/; mix format failed:.*//')
   problems+="${file#$dir/} was written but ${why:-could not be formatted}"$'\n'
