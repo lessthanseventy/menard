@@ -45,6 +45,12 @@ defmodule Menard.RenameTest do
     assert Rename.run(@src, "nothing_here", "x") == @src
   end
 
+  test "a name the source never mentions makes no atom: the VM never collects one" do
+    name = "never_named_#{System.unique_integer([:positive])}"
+    assert Rename.run(@src, name, "x", atoms: true, comments: true) == @src
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "an unparseable source is an error, never a partial write" do
     assert {:error, _} = Rename.run("def (", "a", "b")
   end

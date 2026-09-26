@@ -27,6 +27,14 @@ defmodule Menard.FindTest do
     assert [%{line: 7}] = Find.calls(@src, "general")
   end
 
+  test "a name the source never mentions makes no atom: the VM never collects one" do
+    name = "never_found_#{System.unique_integer([:positive])}"
+    assert Find.calls(@src, name) == []
+    assert Find.calls(@src, "Server.Channels.#{name}") == []
+    assert Find.defs(@src, name <> "/1") == []
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "defs: by name, any arity or a given one" do
     assert [%{line: 6, kind: :defp, text: "defp general(x)"}] = Find.defs(@src, "general")
     assert [] = Find.defs(@src, "general/2")

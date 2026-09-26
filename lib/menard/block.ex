@@ -85,7 +85,7 @@ defmodule Menard.Block do
         {:error,
          "add needs the macro to write — `test`, `describe`, `setup` — as `name`; the label alone is not one"}
 
-      to_atom(name) == :defmodule ->
+      to_string(name) == "defmodule" ->
         {:error,
          "add a module with `menard.module add`, not `block add defmodule` (a --label would become a string module name)"}
 
@@ -98,10 +98,10 @@ defmodule Menard.Block do
              {:ok, ast} <- parse(source),
              {:ok, module} <- Clause.module_scope(ast, opts[:module]),
              {:ok, all} <- blocks(source, opts),
-             {:ok, where, anchor} <- placement(all, ast, module, to_atom(name), opts[:in]) do
+             {:ok, where, anchor} <- placement(all, ast, module, name, opts[:in]) do
           # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
           tags = opts[:tag] |> List.wrap() |> Enum.map_join(&"@tag #{&1}\n")
-          place(source, where, anchor, tags <> render(to_atom(name), label, body, opts[:args]))
+          place(source, where, anchor, tags <> render(name, label, body, opts[:args]))
         end
     end
   end
@@ -197,7 +197,7 @@ defmodule Menard.Block do
   @spec get_all(String.t(), String.t() | atom(), keyword()) :: [map()] | {:error, String.t()}
   def get_all(source, name, opts \\ []) do
     with {:ok, blocks} <- blocks(source, opts) do
-      for node <- blocks, call_name(node) == to_atom(name) do
+      for node <- blocks, same?(call_name(node), name) do
         %{
           label: label(node),
           line: start_line(node),
@@ -230,17 +230,16 @@ defmodule Menard.Block do
   # -- locating ------------------------------------------------------------
 
   defp one(source, name, opts) do
-    want = to_atom(name)
     wanted_label = opts[:label]
 
     with {:ok, blocks} <- blocks(source, opts) do
       blocks
       # no name, a label: the label alone says which (bench3 new-component.B.sonnet)
       |> Enum.filter(fn node ->
-        (name in [nil, ""] or call_name(node) == want) and
+        (name in [nil, ""] or same?(call_name(node), name)) and
           (is_nil(wanted_label) or label(node) == wanted_label)
       end)
-      |> pick(want, wanted_label)
+      |> pick(name, wanted_label)
     end
   end
 
@@ -321,8 +320,9 @@ defmodule Menard.Block do
     line
   end
 
-  defp to_atom(name) when is_atom(name), do: name
-  defp to_atom(name) when is_binary(name), do: String.to_atom(name)
+  # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the
+  # VM never collects one
+  defp same?(call, name), do: is_atom(call) and Atom.to_string(call) == to_string(name)
 
   @doc """
   Rename a block's label — `test "old"` to `test "new"`, or a `describe`. The label is a string
@@ -392,7 +392,7 @@ defmodule Menard.Block do
   end
 
   defp placement(all, _ast, module, name, _none) do
-    case Enum.filter(all, &(call_name(&1) == name)) do
+    case Enum.filter(all, &same?(call_name(&1), name)) do
       [] -> {:ok, :inside, module}
       siblings -> {:ok, :after, List.last(siblings)}
     end
@@ -410,7 +410,7 @@ defmodule Menard.Block do
   # that way more often than not. `{:whole, label, args, body}` with the texts as written, or `:body`.
   defp unwrap(name, code) do
     with {:ok, {call, meta, [_ | _] = args} = node} <- Sourceror.parse_string(code),
-         true <- call == to_atom(name),
+         true <- same?(call, name),
          %{} = range <- body_range(node) do
       ctx =
         case args do
@@ -476,7 +476,7 @@ defmodule Menard.Block do
   defp several(name, label, code) do
     with {:ok, {:__block__, _, [_, _ | _] = nodes}} <- Sourceror.parse_string(code),
          true <- Enum.all?(nodes, &match?({call, _, [_ | _]} when is_atom(call), &1)),
-         true <- Enum.all?(nodes, &(elem(&1, 0) == to_atom(name))),
+         true <- Enum.all?(nodes, &same?(elem(&1, 0), name)),
          true <- label in [nil, label(hd(nodes))] do
       Enum.map(nodes, &Menard.Source.slice(code, Sourceror.get_range(&1)))
     else
