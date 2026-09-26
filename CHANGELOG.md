@@ -58,6 +58,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `clause rewrite` with a leading comment put it between the clause's `@impl` and its `def`.
 - A `stmt` miss on text inside a template says to `Edit` it.
 - An MCP `files` glob that matches nothing beside ones that do is dropped, not refused.
+- The format hook blocked on a file whose formatter plugins will not load in menard's VM (a project
+  never built in place) even when it was formatted already. `run format` checks such a file with
+  the plugins left out, and passes it when it is formatted.
 
 ## 0.5.0
 

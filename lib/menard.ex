@@ -136,6 +136,44 @@ defmodule Menard do
     e -> {:fallback, Exception.message(e)}
   end
 
+  @doc """
+  Whether `file` is formatted already by its project's formatter with the plugins left out: the
+  check for a file `format/2` could not format (its plugins will not load here), where it is
+  checked instead of refused. Nothing is loaded or written; `import_deps` resolve as for a format,
+  and any that do not, like any error, answer false.
+  """
+  def formatted_without_plugins?(file) do
+    root = formatter_root(file)
+    project = find_up(root, "mix.exs") || root
+    dot = Path.join(root, ".formatter.exs")
+    dot_opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
+
+    case import_deps(dot_opts[:import_deps] || [], project, cache_dir(project)) do
+      {:ok, deps_paths} ->
+        # each dep's exported locals, as `mix format` imports them
+        exported =
+          for {_dep, path} <- deps_paths,
+              dep_dot = Path.join(path, ".formatter.exs"),
+              File.regular?(dep_dot),
+              local <- elem(Code.eval_file(dep_dot), 0)[:export][:locals_without_parens] || [],
+              do: local
+
+        opts =
+          dot_opts
+          |> Keyword.drop([:plugins, :inputs, :subdirectories, :import_deps, :export])
+          |> Keyword.update(:locals_without_parens, exported, &(&1 ++ exported))
+          |> Keyword.put(:file, file)
+
+        content = File.read!(file)
+        IO.iodata_to_binary([Code.format_string!(content, opts), ?\n]) == content
+
+      _missing ->
+        false
+    end
+  rescue
+    _ -> false
+  end
+
   # Every plugin must load here, or none is used: without one of them the formatter writes code the
   # host's own would rewrite, a diff on lines nobody touched. Decided BEFORE Mix sees the file, since
   # it loads every plugin .formatter.exs names when it picks one by extension, whatever a
