@@ -17,10 +17,6 @@ commit lands.
   11 s of `sleep` to hold stdin open; a Port and `assert_receive` instead); finding 12's
   duplicated comments at mcp_test.exs:227-228 and host_format_test.exs:213-218 (its
   run_test.exs:260-261 site shows no duplicate at this base).
-- clause_test.exs still holds 39 `=~` assertions on edited source (replace_body/rewrite
-  one-liners, the refusal-adjacent checks). The ones where placement or blank lines could hide a
-  diff are whole-output `==` now (and found two blank-line bugs); convert the rest as they are
-  touched.
 - `run check` gives no `skipped` count: `run test` reads it from menard's ExUnit formatter, but
   `check` runs the host's precommit and reads ExUnit's prose (`gate/4` via `counts/1`), which
   drops `N skipped`. A check whose tests all skipped reads like one that ran them.
