@@ -252,6 +252,7 @@ def diff_metrics(ws, allowed):
 
 
 EDITORS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+MENARD_READS = ("menard:outline", "menard:find", "menard:deps", "menard:run")
 # a shell command that WRITES an Elixir file: sed/perl in place, a redirect or tee onto one, or a
 # script (python, ruby, elixir -e) that opens one to write. `sed -n`, grep, cat to read are not.
 SHELL_EDIT = re.compile(
@@ -259,6 +260,70 @@ SHELL_EDIT = re.compile(
     r"|(>|\btee\s+(-a\s+)?)\s*\S+\.exs?\b"
     r"|\b(python3?|ruby|node|elixir)\b[\s\S]*\.exs?\b[\s\S]*(write|File\.write|\"w\"|'w')"
 )
+# a shell command that writes ANY file (the edit between two test runs, the edit a Read comes after):
+# sed/perl in place, a redirect or tee onto a path that is not /dev/null or a log under $TMPDIR, git
+# moving the tree; matched with heredoc bodies cut out, since `->` and `>` are code there
+SHELL_WRITE = re.compile(
+    r"\b(?:sed|perl)\s+(?:-\w*i|--in-place)\b"
+    r"|(?<![<>&\d=|-])>{1,2}\s*(?!/dev/|\$\{?TMPDIR|/tmp/)[\w./\"'$~-]+"
+    r"|\btee\s+(?:-a\s+)?(?!/dev/)\S+"
+    r"|\bgit\s+(?:mv|stash|checkout|apply|restore|revert|reset)\b"
+)
+# a script (the heredoc body included: that is the script) that opens a file to write
+SCRIPT_WRITE = re.compile(r"\b(?:python3?|ruby|node|elixir)\b[\s\S]*?(?:open\([^)]*['\"][wa]|File\.write|\.write_text\(|writeFile)")
+SHELL_READ = re.compile(r"\b(?:cat|head|tail|bat|less|sed\s+-n)\b")
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)")
+FILE = re.compile(r"[\w./~-]+\.(?:exs?|heex|eex|md|toml|sh|json|ya?ml|txt)\b")
+# the tests, through any door: mix (a -C app too), a wrapper in front (Tlön's scripts/cap.sh saves the
+# output to .logs/, and its agents grep the log instead of running again), a mise task, menard's run
+# verb as `bin/menard run`, `mise run menard -- run` (Tlön's AGENTS.md's form) or `mix menard.run`
+MENARD_RUN = r"\bmenard(?:\.sh)?\b(?:\s+--)?(?:\s+--frozen)?\s+run\s+"
+TEST_CMD = re.compile(r"\bmix\s+(?:-C\s+\S+\s+)?(?:test|precommit)\b|\bmix\s+menard\.run\s+(?:test|check)\b"
+                      r"|\bmise\s+run\s+[\w:-]*(?:test|check)\b|" + MENARD_RUN + r"(?:test|check)\b")
+# the project's gate: precommit or credo, a mise check task, menard's run check
+GATE_CMD = re.compile(r"\bmix\s+(?:-C\s+\S+\s+)?(?:precommit|credo)\b|\bmix\s+menard\.run\s+check\b"
+                      r"|\bmise\s+run\s+[\w:-]*check\b|" + MENARD_RUN + r"check\b")
+# a mix format by hand (the hook formats every file written, so it is a wasted turn); a --check is not
+FORMAT_CMD = re.compile(r"(?:^|\n|&&|;|\|\||\()\s*(?:mise exec -- )?mix\s+(?:-C\s+\S+\s+)?format\b(?!\s+--check)")
+
+
+def sans_heredocs(cmd):
+    """The command with its heredoc bodies cut out: a commit message naming `mix test` is not a run."""
+    return HEREDOC.sub("", cmd)
+
+
+def shell_edit(cmd):
+    """True when the command writes a file."""
+    return bool(SHELL_EDIT.search(cmd) or SHELL_WRITE.search(sans_heredocs(cmd)) or SCRIPT_WRITE.search(cmd))
+
+
+def classify(name, inp):
+    """What one tool call is, for the counts: an edit (the Edit tools, menard's write verbs, a shell
+    command that writes), a test run, a gate run, a hand format. Bash commands only for the last three:
+    a Read of .credo.exs or a grep for `precommit` is neither."""
+    short = re.sub(r"^mcp__plugin_[\w-]+?_menard__", "menard:", name)
+    c = {"short": short, "edit": False, "shell_edit": False, "test": False, "gate": False, "format": False, "cmd": ""}
+    if name == "Bash":
+        cmd = inp.get("command", "")
+        sans = sans_heredocs(cmd)
+        c.update(cmd=cmd, shell_edit=shell_edit(cmd), test=bool(TEST_CMD.search(sans)),
+                 gate=bool(GATE_CMD.search(sans)), format=bool(FORMAT_CMD.search(sans)))
+        c["edit"] = c["shell_edit"]
+    elif name in EDITORS or short.startswith("menard:") and short not in MENARD_READS:
+        c["edit"] = True
+    elif short == "menard:run" or name.endswith("__run"):
+        c["test"] = inp.get("verb") in ("test", "check")
+        c["gate"] = inp.get("verb") == "check"
+    return c
+
+
+# a test run's result that says red, whatever the exit code (piped through cap.sh or grep it is 0):
+# ExUnit's count, menard's reply, cap.sh's summary and exit line, a shell's `exit=N`
+RED = re.compile(r'(?<![\d.])[1-9]\d* failures?\b|"ok":\s*false|\bFailed:\s*[1-9]|\b[Ee]xit(?:=|\s+code[:=]?\s*|\s+)[1-9]')
+
+
+def same_file(a, b):
+    return a == b or a.endswith("/" + b) or b.endswith("/" + a)
 
 
 def paths_in(inp):
@@ -279,7 +344,7 @@ def norm(p, ws):
 
 def trace_metrics(trace_path, ws):
     calls, results, final, ctx = [], {}, {}, {}
-    for line in open(trace_path):
+    for line in Path(trace_path).read_text().splitlines():
         try:
             o = json.loads(line)
         except json.JSONDecodeError:
@@ -300,34 +365,45 @@ def trace_metrics(trace_path, ws):
                     if isinstance(text, list):
                         text = " ".join(x.get("text", "") for x in text if isinstance(x, dict))
                     text = str(text or "").replace(str(ws) + "/", "").replace(str(PLUGINS), "$PLUGINS")
-                    results[c["tool_use_id"]] = {"error": bool(c.get("is_error")), "text": text[:600]}
+                    results[c["tool_use_id"]] = {"error": bool(c.get("is_error")), "text": text[:600],
+                                                 "red": bool(RED.search(text))}
         elif o.get("type") == "result":
             final = o
 
     by_name, failures, gaps = {}, [], []
-    edited, rereads, retries, prev = set(), 0, 0, None
+    # a red test run is the agent's code failing, not the tool: apart from the calls the tool refused
+    # (only the arm that runs the tests unpiped exits non-zero when red), and a retry is a repeat
+    # after one of those
+    edited, rereads, retries, tool_errors, red_runs, prev = set(), 0, 0, 0, 0, None
     for c in calls:
         name, inp = c["name"], c["input"]
+        k = classify(name, inp)
         # the plugin's name is in the prefix: menard's once, manos' since the tools moved there
-        short = re.sub(r"^mcp__plugin_[\w-]+?_menard__", "menard:", name)
+        short = k["short"]
         by_name[short] = by_name.get(short, 0) + 1
         res = results.get(c["id"], {})
-        paths = [norm(p, ws) for p in paths_in(inp)]
-        if name == "Read" and any(p in edited for p in paths):
+        # the files a shell edit names count as edited; a Read, or a cat/sed -n through the shell, of
+        # one edited before is a reread (arm A edits and reads through the shell)
+        paths = [norm(p, ws) for p in (FILE.findall(k["cmd"]) if k["shell_edit"] else paths_in(inp))]
+        reads = paths if name == "Read" else \
+            [norm(p, ws) for p in FILE.findall(k["cmd"])] if name == "Bash" and not k["edit"] and SHELL_READ.search(k["cmd"]) else []
+        if any(same_file(r, e) for r in reads for e in edited):
             rereads += 1
-        if name in EDITORS or short.startswith("menard:") and short not in ("menard:outline", "menard:find", "menard:deps", "menard:run"):
+        if k["edit"]:
             edited.update(paths)
-        if res.get("error"):
+        red = k["test"] and (res.get("error") or res.get("red"))
+        red_runs += bool(red)
+        error = res.get("error") and not red
+        if error:
+            tool_errors += 1
             failures.append({"tool": short, "text": res["text"][:300]})
             if name in EDITORS and "menard" in res["text"]:
                 gaps.append({"kind": "guard_block", "tool": short, "path": paths[:1], "text": res["text"][:300]})
         if prev and prev[0] == name and prev[1]:
             retries += 1
-        prev = (name, res.get("error", False))
-        if name == "Bash":
-            cmd = inp.get("command", "")
-            if SHELL_EDIT.search(cmd):
-                gaps.append({"kind": "shell_edit_ex", "command": cmd[:300]})
+        prev = (name, bool(error))
+        if name == "Bash" and SHELL_EDIT.search(k["cmd"]):
+            gaps.append({"kind": "shell_edit_ex", "command": k["cmd"][:300]})
         if short == "menard:write":
             gaps.append({"kind": "whole_file_write", "path": paths[:1]})
 
@@ -349,7 +425,8 @@ def trace_metrics(trace_path, ws):
         "session_id": final.get("session_id"),
         "tool_calls": len(calls),
         "tools": by_name,
-        "failed_calls": len(failures),
+        "tool_errors": tool_errors,
+        "red_runs": red_runs,
         "failures": failures[:20],
         "rereads": rereads,
         "retries": retries,
@@ -527,13 +604,13 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         "is_error": any(s["is_error"] for s in steps), "stop": steps[-1]["stop"] if steps else None,
         "tokens": tokens, "peak_ctx": max((s["peak_ctx"] for s in steps), default=0),
         "ctx_curve": [c for s in steps for c in s["ctx_curve"]],
-        "tool_calls": total("tool_calls"), "failed_calls": total("failed_calls"),
+        "tool_calls": total("tool_calls"), "tool_errors": total("tool_errors"), "red_runs": total("red_runs"),
         "tools": {k: sum(s["tools"].get(k, 0) for s in steps) for s in steps for k in s["tools"]},
         "failures": [dict(f, step=s["step"]) for s in steps for f in s["failures"]][:40],
         "rereads": total("rereads"), "retries": total("retries"),
         "gaps": [dict(g, step=s["step"]) for s in steps for g in s["gaps"]],
         "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "tokens", "peak_ctx",
-                                      "failed_calls", "wall_s", "timed_out")} for s in steps],
+                                      "tool_errors", "red_runs", "wall_s", "timed_out")} for s in steps],
         **lint(ws, env, out_dir, rid),
         "ci": ci,
     }
@@ -569,18 +646,24 @@ def added_lines(ws):
     return added
 
 
-def lint(ws, env, out_dir, rid):
-    """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
-    each is the agent's), and whether the agent ran the gate itself before it stopped."""
+def traces_of(out_dir, rid):
+    """A run's traces: `{rid}.jsonl`, or a long run's steps and CI rounds (`{rid}.01.jsonl` …,
+    `{rid}.ci1.jsonl`), and never run 10's for run 1."""
+    d = out_dir / "traces"
+    return [t for t in [d / f"{rid}.jsonl"] if t.exists()] + sorted(d.glob(f"{rid}.*.jsonl"))
+
+
+def trace_habits(traces):
+    """How the agent worked, read off its traces: test and gate runs, and the runs with no edit between
+    (the operator's own sessions ran 40% of them again, to grep a different slice of the same failure);
+    hand `mix format`s (the hook formats every file written, so each is a wasted turn); whether it ran
+    the gate itself; and what each hook inside `all` did, each counted so the combined arm reads piece
+    by piece. A command that edits and then runs the tests is one run with an edit before it."""
     ran, runs, reruns, last, formats = 0, 0, 0, False, 0
     fired = {"big_read": 0, "compile_warned": 0, "stop_refused": 0, "commit_refused": 0, "credo_flagged": 0}
-    # anywhere in the command, a wrapper in front included (Tlön's scripts/cap.sh saves the output to
-    # .logs/, and its agents grep the log instead of running again); a heredoc'd script is not a run
-    test = re.compile(r"\bmix (?:test|precommit)\b|\bmise run [\w:]*(?:test|check)\b")
-    for trace in sorted((out_dir / "traces").glob(f"{rid}*.jsonl")):
-        for line in open(trace):
+    for trace in traces:
+        for line in trace.read_text().splitlines():
             if '"hook_response"' in line and line.startswith("{"):
-                # what the hooks inside `all` did: each counted, so the combined arm reads piece by piece
                 h = json.loads(line)
                 said = (h.get("output") or "") + (h.get("stderr") or "")
                 fired["big_read"] += "permissionDecision" in said and "offset and limit" in said
@@ -594,26 +677,26 @@ def lint(ws, env, out_dir, rid):
             for c in json.loads(line).get("message", {}).get("content", []):
                 if c.get("type") != "tool_use":
                     continue
-                inp = c.get("input", {})
-                if re.search(r'precommit|credo|run check|mise run [\w:]*:check\b|"verb": "check"', json.dumps(inp)):
-                    ran += 1
-                # a test or gate run, and whether it repeats one with no edit between: the operator's own
-                # sessions ran 40% of them again, to grep a different slice of the same failure
-                cmd = inp.get("command", "") if c["name"] == "Bash" else ""
-                if ("<<" not in cmd and test.search(cmd)) or re.search(r"menard\S* run (test|check)", cmd) or \
-                        (c["name"].endswith("__run") and inp.get("verb") in ("test", "check")):
+                k = classify(c["name"], c.get("input", {}))
+                ran += k["gate"]
+                formats += k["format"]
+                if k["edit"]:
+                    last = False
+                if k["test"]:
                     runs += 1
                     reruns += last
                     last = True
-                elif c["name"] in ("Edit", "Write", "MultiEdit") or re.search(r"sed -i|cat >|python3? -", cmd):
-                    last = False
-                # the hook formats every file written: a mix format by hand after it is a wasted turn
-                if "<<" not in cmd and re.search(r"(?:^|&&|;)\s*(?:mise exec -- )?mix format\b(?! --check)", cmd):
-                    formats += 1
+    return {"ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired}
+
+
+def lint(ws, env, out_dir, rid):
+    """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
+    each is the agent's), with the habits its traces show."""
+    habits = trace_habits(traces_of(out_dir, rid))
     # every app that lints with credo: the root, or each app of a repo of several (Tlön's server/, console/)
     apps = [d for d in [ws, *sorted(p.parent for p in ws.glob("*/mix.exs"))] if (d / "deps" / "credo").exists()]
     if not apps:
-        return {"credo": None, "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired}
+        return {"credo": None, **habits}
     issues = []
     for app in apps:
         _, out = sh("mix credo --format json", app, timeout=300, env=env)
@@ -623,7 +706,7 @@ def lint(ws, env, out_dir, rid):
     # only what the run added: Tlön's base already has 2 in console, which were not the agent's
     added = added_lines(ws)
     issues = [i for i in issues if i["line_no"] in added.get(i["filename"], ())]
-    return {"credo": len(issues), "ran_gate": ran, "test_runs": runs, "reruns": reruns, "hand_formats": formats, "fired": fired,
+    return {"credo": len(issues), **habits,
             "credo_issues": [f"{i['filename']}:{i['line_no']} {i['message']}" for i in issues][:20]}
 
 
@@ -679,7 +762,7 @@ def main():
                     row = run_one(case, arm, model, n, out_dir)
                     line = (f"{time.strftime('%H:%M')} {a.round} {rid}: {'PASS' if row['pass'] else 'FAIL'}"
                             f"{'' if row['clean'] or not row['pass'] else ' (noisy)'} turns={row['turns']}"
-                            f" cost={row['cost_usd']:.3f} wall={row['wall_s']}s failed_calls={row['failed_calls']}")
+                            f" cost={row['cost_usd']:.3f} wall={row['wall_s']}s tool_errors={row['tool_errors']} red_runs={row['red_runs']}")
                     print(line, f"tools={row['tools']}", flush=True)
                     # one file across rounds, one line per run: what a watcher tails
                     with open(EVAL / "results" / "live.log", "a") as f:
