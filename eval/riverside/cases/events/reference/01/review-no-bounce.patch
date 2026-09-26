@@ -1,0 +1,21 @@
+diff --git a/lib/ex_riverside_web/live/admin/event_live/review.ex b/lib/ex_riverside_web/live/admin/event_live/review.ex
+index 1c7a869..5d53c54 100644
+--- a/lib/ex_riverside_web/live/admin/event_live/review.ex
++++ b/lib/ex_riverside_web/live/admin/event_live/review.ex
+@@ -7,7 +7,6 @@ defmodule ExRiversideWeb.Admin.EventLive.Review do
+   """
+   use ExRiversideWeb, :live_view
+ 
+-  alias ExRiverside.Accounts.Permissions
+   alias ExRiverside.Events
+ 
+   @impl true
+@@ -15,7 +14,7 @@ defmodule ExRiversideWeb.Admin.EventLive.Review do
+     user = socket.assigns.current_scope.user
+     event = Events.get_event!(id)
+ 
+-    if Permissions.can?(user, :review_event_submissions, event) do
++    if user do
+       {:ok,
+        socket
+        |> assign(:page_title, "Review event")

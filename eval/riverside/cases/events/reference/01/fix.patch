@@ -1,0 +1,33 @@
+diff --git a/lib/ex_riverside/events.ex b/lib/ex_riverside/events.ex
+index a3cb81c..6c4b13f 100644
+--- a/lib/ex_riverside/events.ex
++++ b/lib/ex_riverside/events.ex
+@@ -203,7 +203,7 @@ defmodule ExRiverside.Events do
+   def list_pending_submissions_for(%User{role_level: reviewer_level}) do
+     Event
+     |> join(:inner, [e], u in assoc(e, :user))
+-    |> where([e, u], e.status == :submitted and u.role_level <= ^reviewer_level)
++    |> where([e, u], e.status == :submitted and u.role_level < ^reviewer_level)
+     |> order_by([e], asc: e.submitted_at)
+     |> preload([:tags, :user, :event_location])
+     |> Repo.all()
+diff --git a/test/ex_riverside/review_queue_level_test.exs b/test/ex_riverside/review_queue_level_test.exs
+new file mode 100644
+index 0000000..098575e
+--- /dev/null
++++ b/test/ex_riverside/review_queue_level_test.exs
+@@ -0,0 +1,14 @@
++defmodule ExRiverside.ReviewQueueLevelTest do
++  use ExRiverside.DataCase, async: true
++
++  import ExRiverside.AccountsFixtures
++
++  alias ExRiverside.Events
++
++  test "list_pending_submissions_for/1 leaves out submissions from the reviewer's own level" do
++    moderator = user_fixture_at_level(5)
++    peer = user_fixture_at_level(5)
++    {:ok, event} = Events.submit_event(peer, %{title: "Peer", description: "x", starts_at: ~U[2031-01-01 10:00:00Z]})
++    refute event.id in Enum.map(Events.list_pending_submissions_for(moderator), & &1.id)
++  end
++end

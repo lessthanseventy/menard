@@ -1,0 +1,13 @@
+diff --git a/lib/ex_riverside/accounts/permissions.ex b/lib/ex_riverside/accounts/permissions.ex
+index c37e1f6..cc9f933 100644
+--- a/lib/ex_riverside/accounts/permissions.ex
++++ b/lib/ex_riverside/accounts/permissions.ex
+@@ -57,7 +57,7 @@ defmodule ExRiverside.Accounts.Permissions do
+   end
+ 
+   def can?(user, :review_event_submissions, %Event{user: %User{role_level: submitter_level}}) do
+-    User.at_least?(user, User.level_participant()) and User.level(user) > submitter_level
++    User.at_least?(user, User.level_participant()) and User.level(user) >= submitter_level
+   end
+ 
+   def can?(_user, :review_event_submissions, %Event{user: %Ecto.Association.NotLoaded{}}) do

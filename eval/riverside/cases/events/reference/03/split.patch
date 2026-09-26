@@ -1,0 +1,1736 @@
+diff --git a/lib/ex_riverside/events.ex b/lib/ex_riverside/events.ex
+index a3cb81c..b935d20 100644
+--- a/lib/ex_riverside/events.ex
++++ b/lib/ex_riverside/events.ex
+@@ -6,8 +6,9 @@ defmodule ExRiverside.Events do
+   alias ExRiverside.Accounts.Permissions
+   alias ExRiverside.Accounts.User
+   alias ExRiverside.Events.Event
+-  alias ExRiverside.Events.EventSeries
+-  alias ExRiverside.Events.Recurrence
++  alias ExRiverside.Events.Listing
++  alias ExRiverside.Events.Review
++  alias ExRiverside.Events.Series
+   alias ExRiverside.Repo
+   alias ExRiverside.Tags.Tag
+ 
+@@ -19,259 +20,16 @@ defmodule ExRiverside.Events do
+     Phoenix.PubSub.subscribe(ExRiverside.PubSub, "admin:inbox")
+   end
+ 
+-  defp broadcast(message) do
++  @doc false
++  def broadcast(message) do
+     Phoenix.PubSub.broadcast(ExRiverside.PubSub, "events", message)
+   end
+ 
+-  defp broadcast_admin(message) do
++  @doc false
++  def broadcast_admin(message) do
+     Phoenix.PubSub.broadcast(ExRiverside.PubSub, "admin:inbox", message)
+   end
+ 
+-  def list_events do
+-    Event
+-    |> order_by([e], desc: e.starts_at)
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  @doc """
+-  Admin listing: one row per series plus standalone events, as display maps with
+-  `:kind` (`:series` | `:event`), `:entity_id`, and the fields the index renders.
+-  Series carry their occurrence `:count`, next `:when_at`, and `:frequency`.
+-  Newest first by effective date; dateless rows (TBA drafts) sink to the bottom.
+-  """
+-  def list_event_series(now \\ DateTime.utc_now()) do
+-    rows = series_rows(now) ++ standalone_rows()
+-    {dated, undated} = Enum.split_with(rows, & &1.sort_at)
+-    Enum.sort_by(dated, & &1.sort_at, {:desc, DateTime}) ++ undated
+-  end
+-
+-  defp series_rows(now) do
+-    counts = series_occurrence_counts()
+-    nexts = series_next_occurrences(now)
+-
+-    EventSeries
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-    |> Enum.map(fn s ->
+-      next_at = Map.get(nexts, s.id) || s.starts_at
+-
+-      %{
+-        id: "series-#{s.id}",
+-        kind: :series,
+-        entity_id: s.id,
+-        title: s.title,
+-        location: s.event_location && s.event_location.name,
+-        status: s.status,
+-        tags: s.tags,
+-        recurring?: true,
+-        frequency: s.recurrence_frequency,
+-        count: Map.get(counts, s.id, 0),
+-        when_at: next_at,
+-        sort_at: next_at
+-      }
+-    end)
+-  end
+-
+-  defp standalone_rows do
+-    Event
+-    |> where([e], is_nil(e.series_id))
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-    |> Enum.map(fn e ->
+-      %{
+-        id: "event-#{e.id}",
+-        kind: :event,
+-        entity_id: e.id,
+-        title: e.title,
+-        location: e.event_location && e.event_location.name,
+-        status: e.status,
+-        tags: e.tags,
+-        recurring?: false,
+-        frequency: :none,
+-        count: 1,
+-        when_at: e.starts_at,
+-        sort_at: e.starts_at
+-      }
+-    end)
+-  end
+-
+-  defp series_occurrence_counts do
+-    from(e in Event,
+-      where: not is_nil(e.series_id),
+-      group_by: e.series_id,
+-      select: {e.series_id, count(e.id)}
+-    )
+-    |> Repo.all()
+-    |> Map.new()
+-  end
+-
+-  defp series_next_occurrences(now) do
+-    from(e in Event,
+-      where: not is_nil(e.series_id) and e.starts_at > ^now,
+-      group_by: e.series_id,
+-      select: {e.series_id, min(e.starts_at)}
+-    )
+-    |> Repo.all()
+-    |> Map.new()
+-  end
+-
+-  @doc "A series' occurrence events, ordered by date."
+-  def list_series_occurrences(%EventSeries{id: id}), do: list_series_occurrences(id)
+-
+-  def list_series_occurrences(series_id) when is_integer(series_id) do
+-    Event
+-    |> where([e], e.series_id == ^series_id)
+-    |> order_by([e], asc: e.starts_at)
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  @doc """
+-  Public, live events (published-and-future or ongoing), optionally filtered by
+-  `:sector_id` and/or `:tag_slug` — the two facets combine (AND). Series are
+-  collapsed to their next occurrence.
+-  """
+-  def list_published_events(opts \\ []) do
+-    now = DateTime.utc_now()
+-
+-    Event
+-    |> where([e], (e.status == :published and e.starts_at > ^now) or e.status == :ongoing)
+-    |> filter_by_sector(opts[:sector_id])
+-    |> filter_by_tag(opts[:tag_slug])
+-    |> distinct(true)
+-    |> order_by([e], asc: e.starts_at)
+-    |> preload([:tags, :event_location, :series, :sector])
+-    |> Repo.all()
+-    |> collapse_series(now)
+-  end
+-
+-  defp filter_by_sector(query, nil), do: query
+-  defp filter_by_sector(query, sector_id), do: where(query, [e], e.sector_id == ^sector_id)
+-
+-  defp filter_by_tag(query, nil), do: query
+-
+-  defp filter_by_tag(query, tag_slug) do
+-    query
+-    |> join(:inner, [e], t in assoc(e, :tags))
+-    |> where([e, t], t.slug == ^tag_slug)
+-  end
+-
+-  @doc """
+-  Distinct approved tags that appear on a sector's currently-live events — the
+-  contextual refinements shown once a sector is chosen on the public index.
+-  """
+-  def list_tags_in_sector(sector_id) do
+-    now = DateTime.utc_now()
+-
+-    Tag
+-    |> join(:inner, [t], e in assoc(t, :events))
+-    |> where(
+-      [t, e],
+-      e.sector_id == ^sector_id and
+-        ((e.status == :published and e.starts_at > ^now) or e.status == :ongoing)
+-    )
+-    |> distinct(true)
+-    |> order_by([t], asc: t.name)
+-    |> Repo.all()
+-  end
+-
+-  def list_pending_submissions do
+-    Event
+-    |> where([e], e.status == :submitted)
+-    |> order_by([e], asc: e.submitted_at)
+-    |> preload([:tags, :user, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  @doc "Every event submitted by the user, regardless of status. Sorted newest first."
+-  def list_submissions_by(%User{id: user_id}) do
+-    Event
+-    |> where([e], e.user_id == ^user_id)
+-    |> order_by([e], desc: e.inserted_at)
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  def list_submissions_by(_), do: []
+-
+-  @doc """
+-  Pending submissions a specific reviewer is authorized to act on. Joins on
+-  `users.role_level` and applies the strict-above rule (reviewer level must
+-  exceed submitter level). Used by the personal /reviews page.
+-  """
+-  def list_pending_submissions_for(%User{role_level: reviewer_level}) do
+-    Event
+-    |> join(:inner, [e], u in assoc(e, :user))
+-    |> where([e, u], e.status == :submitted and u.role_level <= ^reviewer_level)
+-    |> order_by([e], asc: e.submitted_at)
+-    |> preload([:tags, :user, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  def list_pending_submissions_for(_), do: []
+-
+-  def count_pending_submissions do
+-    Repo.aggregate(from(e in Event, where: e.status == :submitted), :count)
+-  end
+-
+-  def count_pending_submissions_for(%User{role_level: reviewer_level}) do
+-    query =
+-      from e in Event,
+-        join: u in assoc(e, :user),
+-        where: e.status == :submitted and u.role_level < ^reviewer_level
+-
+-    Repo.aggregate(query, :count)
+-  end
+-
+-  def count_pending_submissions_for(_), do: 0
+-
+-  def list_events_by_tag(tag_slug) do
+-    now = DateTime.utc_now()
+-
+-    Event
+-    |> join(:inner, [e], t in assoc(e, :tags))
+-    |> where([e, t], ((e.status == :published and e.starts_at > ^now) or e.status == :ongoing) and t.slug == ^tag_slug)
+-    |> order_by([e], asc: e.starts_at)
+-    |> preload([:tags, :event_location, :series])
+-    |> Repo.all()
+-    |> collapse_series(now)
+-  end
+-
+-  def list_events_by_tag_ids(tag_ids) when is_list(tag_ids) do
+-    now = DateTime.utc_now()
+-
+-    Event
+-    |> join(:inner, [e], t in assoc(e, :tags))
+-    |> where([e, t], ((e.status == :published and e.starts_at > ^now) or e.status == :ongoing) and t.id in ^tag_ids)
+-    |> distinct(true)
+-    |> order_by([e], asc: e.starts_at)
+-    |> preload([:tags, :event_location, :series])
+-    |> Repo.all()
+-    |> collapse_series(now)
+-  end
+-
+-  def search_events(query_string) do
+-    now = DateTime.utc_now()
+-    pattern = "%#{escape_like(query_string)}%"
+-
+-    Event
+-    |> where([e], (e.status == :published and e.starts_at > ^now) or e.status == :ongoing)
+-    |> where([e], ilike(e.title, ^pattern) or ilike(e.description, ^pattern))
+-    |> order_by([e], asc: e.starts_at)
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  # Neutralize LIKE/ILIKE wildcards so user input matches literally. The
+-  # backslash must be escaped first or it would double-escape the others.
+-  defp escape_like(string) do
+-    string
+-    |> String.replace("\\", "\\\\")
+-    |> String.replace("%", "\\%")
+-    |> String.replace("_", "\\_")
+-  end
+-
+   def get_event!(id) do
+     Event |> preload([:tags, :user, :event_location, :series, :sector]) |> Repo.get!(normalize_id!(id))
+   end
+@@ -370,493 +128,50 @@ defmodule ExRiverside.Events do
+ 
+   ## Event series CRUD
+ 
+-  def get_series!(id), do: EventSeries |> preload([:tags, :event_location, :sector]) |> Repo.get!(id)
+-
+-  def change_series(%EventSeries{} = series, attrs \\ %{}), do: EventSeries.changeset(series, attrs)
+-
+-  @doc """
+-  Creates a series and materializes its occurrences. Returns `{:ok, series}` with
+-  tags + location preloaded, or `{:error, changeset}`.
+-  """
+-  def create_series(attrs, tag_ids \\ [], actor \\ nil) do
+-    changeset =
+-      %EventSeries{}
+-      |> EventSeries.changeset(attrs)
+-      |> Ecto.Changeset.put_assoc(:tags, load_tags(tag_ids))
+-
+-    with {:ok, series} <- Repo.insert(changeset) do
+-      {:ok, _occurrences} = generate_occurrences(series)
+-      series = Repo.preload(series, [:tags, :event_location])
+-      if actor, do: ExRiverside.Activities.log_event_created(series, actor)
+-      {:ok, series}
+-    end
+-  end
+-
+-  @doc """
+-  Updates a series and regenerates its occurrences from the new rule/template.
+-  """
+-  def update_series(%EventSeries{} = series, attrs, tag_ids \\ nil, actor \\ nil) do
+-    changeset = EventSeries.changeset(series, attrs)
+-
+-    changeset =
+-      if tag_ids,
+-        do: Ecto.Changeset.put_assoc(changeset, :tags, load_tags(tag_ids)),
+-        else: changeset
+-
+-    with {:ok, series} <- Repo.update(changeset) do
+-      {:ok, _occurrences} = generate_occurrences(series)
+-      series = Repo.preload(series, [:tags, :event_location], force: true)
+-      if actor, do: ExRiverside.Activities.log_event_updated(series, actor)
+-      {:ok, series}
+-    end
+-  end
+-
+-  @doc "Publishes a series and all of its occurrences."
+-  def publish_series(%EventSeries{} = series) do
+-    cascade_series_status(series, :published, %{published_at: now()})
+-  end
+-
+-  @doc "Cancels a series and all of its occurrences, recording the reason."
+-  def cancel_series(%EventSeries{} = series, reason) do
+-    cascade_series_status(series, :canceled, %{canceled_at: now(), rejection_reason: reason})
+-  end
+-
+-  defp cascade_series_status(series, status, extra) do
+-    now = now()
+-    series_attrs = Map.merge(%{status: status}, extra)
+-
+-    {:ok, series} =
+-      series
+-      |> Ecto.Changeset.change(series_attrs)
+-      |> Repo.update()
+-
+-    Repo.update_all(from(e in Event, where: e.series_id == ^series.id), set: [status: status, updated_at: now])
+-    {:ok, series}
+-  end
+-
+-  @doc "Converts a standalone event into a series (and removes the event)."
+-  def promote_event_to_series(%Event{} = event, attrs, tag_ids, actor \\ nil) do
+-    with {:ok, series} <- create_series(attrs, tag_ids, actor) do
+-      delete_event(event, actor)
+-      {:ok, series}
+-    end
+-  end
+-
+-  @doc "Converts a series back into a single standalone event (and removes the series)."
+-  def demote_series_to_event(%EventSeries{} = series, attrs, tag_ids, actor \\ nil) do
+-    with {:ok, event} <- create_event(attrs, tag_ids, actor) do
+-      delete_series(series, actor)
+-      {:ok, event}
+-    end
+-  end
+-
+-  def delete_series(%EventSeries{} = series, actor \\ nil) do
+-    with {:ok, series} <- Repo.delete(series) do
+-      if actor, do: ExRiverside.Activities.log_event_deleted(series, actor)
+-      {:ok, series}
+-    end
+-  end
+-
+-  defp load_tags([]), do: []
+-  defp load_tags(nil), do: []
+-  defp load_tags(tag_ids), do: Repo.all(from t in Tag, where: t.id in ^tag_ids)
+-
+-  defp now, do: DateTime.truncate(DateTime.utc_now(), :second)
+-
+-  @doc """
+-  Collapses recurring-series occurrences so each series appears once, represented
+-  by its next upcoming occurrence (relative to `now`). Standalone events pass
+-  through unchanged. The representative carries virtual `series_count` (how many
+-  occurrences were in the given list) and `series_frequency` (the parent's
+-  frequency, or `:none`) so views can render a "recurring" badge. Sorted by
+-  `starts_at` ascending so the soonest event leads.
+-
+-  Operates purely on the events handed to it — it does not query for occurrences
+-  outside the list — so a series is counted only by the occurrences that were
+-  already visible to the caller.
+-  """
+-  def collapse_series(events, now \\ DateTime.utc_now()) do
+-    {dated, undated} =
+-      events
+-      |> Enum.group_by(& &1.series_id)
+-      |> Enum.flat_map(fn
+-        {nil, standalone} -> Enum.map(standalone, &%{&1 | series_count: 1, series_frequency: :none})
+-        {_series_id, occurrences} -> [series_representative(occurrences, now)]
+-      end)
+-      |> Enum.split_with(& &1.starts_at)
+-
+-    # Dateless :ongoing events (the client's "TBA" listings) sort after
+-    # everything scheduled — DateTime can't compare a date against nil.
+-    Enum.sort_by(dated, & &1.starts_at, DateTime) ++ undated
+-  end
+-
+-  defp series_representative(occurrences, now) do
+-    rep = next_upcoming_occurrence(occurrences, now)
+-    %{rep | series_count: length(occurrences), series_frequency: representative_frequency(rep)}
+-  end
+-
+-  # The soonest occurrence that hasn't started yet; if the whole series is in the
+-  # past, fall back to the earliest so the row still renders deterministically.
+-  defp next_upcoming_occurrence(occurrences, now) do
+-    occurrences
+-    |> Enum.filter(&DateTime.after?(&1.starts_at, now))
+-    |> case do
+-      [] -> Enum.min_by(occurrences, & &1.starts_at, DateTime)
+-      upcoming -> Enum.min_by(upcoming, & &1.starts_at, DateTime)
+-    end
+-  end
+-
+-  # The badge frequency comes from the (preloaded) series; nil for standalone.
+-  defp representative_frequency(%Event{series: %EventSeries{recurrence_frequency: freq}}), do: freq
+-  defp representative_frequency(_event), do: :none
+-
+-  @doc """
+-  Materializes an `EventSeries` into occurrence `events`. The series itself is
+-  not an event — it's the rule + template. Every occurrence, including the first
+-  (the series' anchor `starts_at`), is generated as its own `event` with
+-  `series_id` and a denormalized copy of the template. Replaces any prior
+-  occurrences.
+-  """
+-  def generate_occurrences(%EventSeries{} = series) do
+-    series = Repo.preload(series, :tags)
+-    times = [series.starts_at | Recurrence.occurrences(series)]
+-    now = DateTime.utc_now()
+-
+-    Repo.transaction(fn ->
+-      Repo.delete_all(from e in Event, where: e.series_id == ^series.id)
+-      Enum.map(times, &insert_series_occurrence(series, &1, now))
+-    end)
+-  end
+-
+-  defp insert_series_occurrence(series, starts_at, now) do
+-    ends_at = occurrence_ends_at(series, starts_at)
+-
+-    attrs = %{
+-      title: series.title,
+-      description: series.description,
+-      starts_at: starts_at,
+-      ends_at: ends_at,
+-      capacity: series.capacity,
+-      status: occurrence_status(series.status, starts_at, ends_at, now),
+-      is_training: series.is_training,
+-      ticket_url: series.ticket_url,
+-      contact_note: series.contact_note,
+-      schedule_note: series.schedule_note,
+-      user_id: series.user_id,
+-      event_location_id: series.event_location_id,
+-      sector_id: series.sector_id,
+-      series_id: series.id
+-    }
+-
+-    %Event{}
+-    |> Event.changeset(attrs)
+-    |> Ecto.Changeset.put_assoc(:tags, series.tags)
+-    |> Repo.insert!()
+-  end
+-
+-  # An occurrence's status is derived from its own date — not blindly copied
+-  # from the series — so a live series whose first occurrence has already gone
+-  # :ongoing doesn't stamp :ongoing onto its still-future occurrences (which
+-  # would bypass the events page's date filter). Unpublished series
+-  # (draft/submitted/etc.) propagate as-is so an unapproved series stays hidden.
+-  # Mirrors the sweep in `transition_due_events/1`.
+-  @live_statuses [:published, :ongoing, :past]
+-
+-  defp occurrence_status(parent_status, _starts_at, _ends_at, _now) when parent_status not in @live_statuses,
+-    do: parent_status
+-
+-  defp occurrence_status(_parent_status, starts_at, ends_at, now) do
+-    cond do
+-      not is_nil(ends_at) and DateTime.compare(ends_at, now) != :gt -> :past
+-      DateTime.compare(starts_at, now) != :gt -> :ongoing
+-      true -> :published
+-    end
+-  end
+-
+-  # Preserve the seed's duration on each occurrence.
+-  defp occurrence_ends_at(%{ends_at: nil}, _starts_at), do: nil
+-
+-  defp occurrence_ends_at(%{starts_at: seed_start, ends_at: seed_end}, starts_at) do
+-    DateTime.add(starts_at, DateTime.diff(seed_end, seed_start, :second), :second)
+-  end
+-
+   ## Owner self-service editing
+ 
+-  @doc """
+-  Whether `user` may edit `event` themselves — true only for the owner while the
+-  event is still in their hands (`:draft`, `:submitted`, or `:rejected`). Once a
+-  reviewer publishes it, edits go through the admin path instead.
+-  """
+-  def owner_can_edit?(%User{id: user_id}, %Event{user_id: user_id, status: status}) do
+-    status in [:draft, :submitted, :rejected]
+-  end
+-
+-  def owner_can_edit?(_user, _event), do: false
+-
+-  @doc """
+-  Lets an event's owner edit their own draft/submitted/rejected event. Editing a
+-  **rejected** event resubmits it: status returns to `:submitted`, the reviewer
+-  note is cleared, and reviewers are notified again. Draft/submitted events keep
+-  their status. Returns `{:error, :unauthorized}` for non-owners or events past
+-  the owner-editable window.
+-  """
+-  def update_submission(user, event, attrs, tag_ids \\ [])
+-
+-  def update_submission(%User{id: user_id} = user, %Event{user_id: user_id, status: status} = event, attrs, tag_ids)
+-      when status in [:draft, :submitted, :rejected] do
+-    tags = if tag_ids == [], do: [], else: Repo.all(from t in Tag, where: t.id in ^tag_ids)
+-
+-    changeset =
+-      event
+-      |> Event.changeset(attrs)
+-      |> Ecto.Changeset.put_assoc(:tags, tags)
+-      |> maybe_resubmit(status)
+-
+-    with {:ok, updated} <- Repo.update(changeset) do
+-      updated = Repo.preload(updated, [:tags, :user, :event_location], force: true)
+-
+-      if status == :rejected do
+-        broadcast({:submitted, updated})
+-        broadcast_admin({:event_submitted, updated})
+-        ExRiverside.Notifier.event_submitted(updated)
+-        ExRiverside.Activities.log_event_submitted(updated, user)
+-      else
+-        broadcast({:updated, updated})
+-        ExRiverside.Activities.log_event_updated(updated, user)
+-      end
+-
+-      {:ok, updated}
+-    end
+-  end
+-
+-  def update_submission(_user, _event, _attrs, _tag_ids), do: {:error, :unauthorized}
+-
+-  # Resubmitting a rejected event: back to :submitted with the review state wiped.
+-  defp maybe_resubmit(changeset, :rejected) do
+-    now = DateTime.truncate(DateTime.utc_now(), :second)
+-
+-    changeset
+-    |> Ecto.Changeset.put_change(:status, :submitted)
+-    |> Ecto.Changeset.put_change(:submitted_at, now)
+-    |> Ecto.Changeset.put_change(:rejection_reason, nil)
+-    |> Ecto.Changeset.put_change(:reviewed_at, nil)
+-    |> Ecto.Changeset.put_change(:reviewed_by_user_id, nil)
+-  end
+-
+-  defp maybe_resubmit(changeset, _status), do: changeset
+-
+   ## State machine transitions
+ 
+-  @doc """
+-  Transitions a `:draft` event into `:submitted`. Submitter must be Registered
+-  (L2) or higher; the submitter is recorded as the event's owner.
+-  """
+-  def submit_event(submitter, attrs, tag_ids \\ [])
+-
+-  def submit_event(%User{} = submitter, attrs, tag_ids) do
+-    if Permissions.can?(submitter, :submit_event, nil) do
+-      now = DateTime.truncate(DateTime.utc_now(), :second)
+-      tags = if tag_ids == [], do: [], else: Repo.all(from t in Tag, where: t.id in ^tag_ids)
+-
+-      changeset =
+-        %Event{}
+-        |> Event.changeset(attrs)
+-        |> Ecto.Changeset.put_change(:user_id, submitter.id)
+-        |> Ecto.Changeset.put_change(:status, :submitted)
+-        |> Ecto.Changeset.put_change(:submitted_at, now)
+-        |> Ecto.Changeset.put_assoc(:tags, tags)
+-
+-      with {:ok, event} <- insert_submission(changeset, submitter) do
+-        broadcast({:submitted, event})
+-        broadcast_admin({:event_submitted, event})
+-        ExRiverside.Notifier.event_submitted(event)
+-        ExRiverside.Activities.log_event_submitted(event, submitter)
+-        {:ok, event}
+-      end
+-    else
+-      {:error, :unauthorized}
+-    end
+-  end
+-
+-  def submit_event(_, _, _), do: {:error, :unauthorized}
+-
+-  defp insert_submission(changeset, submitter) do
+-    Repo.transact(fn ->
+-      with {:ok, event} <- Repo.insert(changeset),
+-           {:ok, _user} <- ExRiverside.Accounts.auto_promote_to_participant(submitter) do
+-        {:ok, Repo.preload(event, [:tags, :user, :event_location])}
+-      end
+-    end)
+-  end
+-
+-  @doc """
+-  Publishes a `:submitted` event. Reviewer must be Moderator (L5) or higher.
+-  """
+-  def publish_event(%User{} = reviewer, %Event{status: :submitted} = event) do
+-    if Permissions.can?(reviewer, :review_event_submissions, event) do
+-      now = DateTime.truncate(DateTime.utc_now(), :second)
+-
+-      attrs = %{
+-        status: :published,
+-        published_at: now,
+-        reviewed_by_user_id: reviewer.id,
+-        reviewed_at: now,
+-        rejection_reason: nil
+-      }
+-
+-      with {:ok, published} <- event |> Event.changeset(attrs) |> Repo.update() do
+-        published = Repo.preload(published, [:tags, :user, :event_location], force: true)
+-        broadcast({:published, published})
+-        broadcast_admin({:event_published, published})
+-        ExRiverside.Notifier.event_approved(published)
+-        ExRiverside.Activities.log_event_approved(published, reviewer)
+-
+-        %{event_id: published.id}
+-        |> ExRiverside.Workers.MatchmakerEventWorker.new()
+-        |> Oban.insert()
+-
+-        {:ok, published}
+-      end
+-    else
+-      {:error, :unauthorized}
+-    end
+-  end
+-
+-  def publish_event(_, %Event{}), do: {:error, :invalid_state}
+-  def publish_event(_, _), do: {:error, :unauthorized}
+-
+-  @doc """
+-  Rejects a `:submitted` event with a reason. Reviewer must be Moderator+.
+-  """
+-  def reject_event(%User{} = reviewer, %Event{status: :submitted} = event, reason)
+-      when is_binary(reason) and reason != "" do
+-    if Permissions.can?(reviewer, :review_event_submissions, event) do
+-      now = DateTime.truncate(DateTime.utc_now(), :second)
+-
+-      attrs = %{
+-        status: :rejected,
+-        reviewed_by_user_id: reviewer.id,
+-        reviewed_at: now,
+-        rejection_reason: reason
+-      }
+-
+-      with {:ok, rejected} <- event |> Event.changeset(attrs) |> Repo.update() do
+-        rejected = Repo.preload(rejected, [:tags, :user, :event_location], force: true)
+-        broadcast({:rejected, rejected})
+-        broadcast_admin({:event_rejected, rejected})
+-        ExRiverside.Notifier.event_rejected(rejected)
+-        ExRiverside.Activities.log_event_rejected(rejected, reviewer, reason)
+-        {:ok, rejected}
+-      end
+-    else
+-      {:error, :unauthorized}
+-    end
+-  end
+-
+-  def reject_event(_, %Event{status: :submitted}, _), do: {:error, :reason_required}
+-  def reject_event(_, %Event{}, _), do: {:error, :invalid_state}
+-  def reject_event(_, _, _), do: {:error, :unauthorized}
+-
+-  @doc """
+-  Cancels a published event. Actor must own the event or be Admin+.
+-  """
+-  def cancel_event(%User{} = actor, %Event{status: status} = event, reason)
+-      when status in [:published, :ongoing] and (is_binary(reason) and reason != "") do
+-    do_cancel_event(actor, event, reason)
+-  end
+-
+-  def cancel_event(%User{} = actor, %Event{status: status} = event, _) when status in [:published, :ongoing] do
+-    do_cancel_event(actor, event, nil)
+-  end
+-
+-  def cancel_event(_, %Event{}, _), do: {:error, :invalid_state}
+-  def cancel_event(_, _, _), do: {:error, :unauthorized}
+-
+-  defp do_cancel_event(actor, event, reason) do
+-    if Permissions.can?(actor, :delete_event, event) do
+-      now = DateTime.truncate(DateTime.utc_now(), :second)
+-
+-      attrs = %{status: :canceled, canceled_at: now}
+-      attrs = if reason, do: Map.put(attrs, :rejection_reason, reason), else: attrs
+-
+-      with {:ok, canceled} <- event |> Event.changeset(attrs) |> Repo.update() do
+-        canceled = Repo.preload(canceled, [:tags, :user, :event_location], force: true)
+-        broadcast({:canceled, canceled})
+-        broadcast_admin({:event_canceled, canceled})
+-        ExRiverside.Notifier.event_canceled(canceled)
+-        ExRiverside.Activities.log_event_canceled(canceled, actor, reason)
+-        {:ok, canceled}
+-      end
+-    else
+-      {:error, :unauthorized}
+-    end
+-  end
+-
+-  @doc """
+-  Archives a past event. Actor must be Admin+.
+-  """
+-  def archive_event(%User{} = actor, %Event{status: :past} = event) do
+-    if Permissions.can?(actor, :delete_event, event) do
+-      now = DateTime.truncate(DateTime.utc_now(), :second)
+-
+-      attrs = %{status: :archived, archived_at: now}
+-
+-      with {:ok, archived} <- event |> Event.changeset(attrs) |> Repo.update() do
+-        archived = Repo.preload(archived, [:tags, :user, :event_location], force: true)
+-        broadcast({:archived, archived})
+-        broadcast_admin({:event_archived, archived})
+-        ExRiverside.Notifier.event_archived(archived)
+-        ExRiverside.Activities.log_event_archived(archived, actor)
+-        {:ok, archived}
+-      end
+-    else
+-      {:error, :unauthorized}
+-    end
+-  end
+-
+-  def archive_event(_, %Event{}), do: {:error, :invalid_state}
+-  def archive_event(_, _), do: {:error, :unauthorized}
+-
+-  @doc "Backward-compatible alias for publish_event/2."
+-  def approve_event(reviewer, event), do: publish_event(reviewer, event)
+-
+-  @doc """
+-  Lists past events for archive management.
+-  """
+-  def list_past_events do
+-    Event
+-    |> where([e], e.status in [:past, :archived])
+-    |> order_by([e], desc: e.starts_at)
+-    |> preload([:tags, :event_location])
+-    |> Repo.all()
+-  end
+-
+-  @doc """
+-  Advances time-based event statuses, intended to run periodically (Oban Cron):
+-
+-    * `:published`/`:ongoing` events whose `ends_at` has passed become `:past`
+-    * `:published` events whose `starts_at` has passed (and that haven't ended)
+-      become `:ongoing`
+-
+-  The "to past" pass runs first so an event that both started and ended since
+-  the last run lands on `:past` rather than `:ongoing`. Events without an
+-  `ends_at` move to `:ongoing` once started and stay there (no end to detect).
+-
+-  Returns `%{past: count, ongoing: count}`.
+-  """
+-  def transition_due_events(now \\ DateTime.utc_now()) do
+-    {past, _} =
+-      Event
+-      |> where([e], e.status in [:published, :ongoing])
+-      |> where([e], not is_nil(e.ends_at) and e.ends_at <= ^now)
+-      |> Repo.update_all(set: [status: :past, updated_at: now])
+-
+-    {ongoing, _} =
+-      Event
+-      |> where([e], e.status == :published and e.starts_at <= ^now)
+-      |> where([e], is_nil(e.ends_at) or e.ends_at > ^now)
+-      |> Repo.update_all(set: [status: :ongoing, updated_at: now])
+-
+-    %{past: past, ongoing: ongoing}
+-  end
++  ## Listings and queries (ExRiverside.Events.Listing)
++
++  defdelegate list_events(), to: Listing
++  defdelegate list_event_series(now \\ DateTime.utc_now()), to: Listing
++  defdelegate list_series_occurrences(series), to: Listing
++  defdelegate list_published_events(opts \\ []), to: Listing
++  defdelegate list_tags_in_sector(sector_id), to: Listing
++  defdelegate list_pending_submissions(), to: Listing
++  defdelegate list_submissions_by(user), to: Listing
++  defdelegate list_pending_submissions_for(user), to: Listing
++  defdelegate count_pending_submissions(), to: Listing
++  defdelegate count_pending_submissions_for(user), to: Listing
++  defdelegate list_events_by_tag(tag_slug), to: Listing
++  defdelegate list_events_by_tag_ids(tag_ids), to: Listing
++  defdelegate search_events(query_string), to: Listing
++  defdelegate list_past_events(), to: Listing
++
++  ## Series and their occurrences (ExRiverside.Events.Series)
++
++  defdelegate get_series!(id), to: Series
++  defdelegate change_series(series, attrs \\ %{}), to: Series
++  defdelegate create_series(attrs, tag_ids \\ [], actor \\ nil), to: Series
++  defdelegate update_series(series, attrs, tag_ids \\ nil, actor \\ nil), to: Series
++  defdelegate publish_series(series), to: Series
++  defdelegate cancel_series(series, reason), to: Series
++  defdelegate promote_event_to_series(event, attrs, tag_ids, actor \\ nil), to: Series
++  defdelegate demote_series_to_event(series, attrs, tag_ids, actor \\ nil), to: Series
++  defdelegate delete_series(series, actor \\ nil), to: Series
++  defdelegate collapse_series(events, now \\ DateTime.utc_now()), to: Series
++  defdelegate generate_occurrences(series), to: Series
++
++  ## Review and lifecycle (ExRiverside.Events.Review)
++
++  defdelegate owner_can_edit?(user, event), to: Review
++  defdelegate update_submission(user, event, attrs, tag_ids \\ []), to: Review
++  defdelegate submit_event(submitter, attrs, tag_ids \\ []), to: Review
++  defdelegate publish_event(reviewer, event), to: Review
++  defdelegate reject_event(reviewer, event, reason), to: Review
++  defdelegate cancel_event(actor, event, reason), to: Review
++  defdelegate archive_event(actor, event), to: Review
++  defdelegate approve_event(reviewer, event), to: Review
++  defdelegate transition_due_events(now \\ DateTime.utc_now()), to: Review
+ end
+diff --git a/lib/ex_riverside/events/calendar.ex b/lib/ex_riverside/events/calendar.ex
+new file mode 100644
+index 0000000..89a6cd4
+--- /dev/null
++++ b/lib/ex_riverside/events/calendar.ex
+@@ -0,0 +1,50 @@
++defmodule ExRiverside.Events.Calendar do
++  @moduledoc """
++  An event as an iCalendar (RFC 5545) file: one VCALENDAR holding one VEVENT, times in UTC, text
++  values escaped.
++  """
++
++  alias ExRiverside.Events.Event
++
++  @doc "The .ics body for `event`, CRLF line ends."
++  def ics(%Event{} = event) do
++    lines =
++      [
++        "BEGIN:VCALENDAR",
++        "VERSION:2.0",
++        "PRODID:-//ExRiverside//Events//EN",
++        "BEGIN:VEVENT",
++        "UID:event-#{event.id}@riverside",
++        "DTSTAMP:#{stamp(DateTime.utc_now())}",
++        "DTSTART:#{stamp(event.starts_at)}"
++      ] ++
++        optional("DTEND", event.ends_at && stamp(event.ends_at)) ++
++        [
++          "SUMMARY:#{escape(event.title)}",
++          "DESCRIPTION:#{escape(event.description || "")}"
++        ] ++
++        optional("LOCATION", Event.location_name(event) && escape(Event.location_name(event))) ++
++        [
++          "URL:#{ExRiversideWeb.Endpoint.url()}/events/#{event.id}",
++          "END:VEVENT",
++          "END:VCALENDAR"
++        ]
++
++    Enum.map_join(lines, "", &(&1 <> "\r\n"))
++  end
++
++  defp optional(_name, nil), do: []
++  defp optional(name, value), do: ["#{name}:#{value}"]
++
++  defp stamp(%DateTime{} = at) do
++    at |> DateTime.truncate(:second) |> Calendar.strftime("%Y%m%dT%H%M%SZ")
++  end
++
++  defp escape(text) do
++    text
++    |> String.replace("\\", "\\\\")
++    |> String.replace(";", "\\;")
++    |> String.replace(",", "\\,")
++    |> String.replace(~r/\r?\n/, "\\n")
++  end
++end
+diff --git a/lib/ex_riverside/events/listing.ex b/lib/ex_riverside/events/listing.ex
+new file mode 100644
+index 0000000..94e252a
+--- /dev/null
++++ b/lib/ex_riverside/events/listing.ex
+@@ -0,0 +1,268 @@
++defmodule ExRiverside.Events.Listing do
++  @moduledoc "Listings and queries over events and series: the public index, the admin lists, the review queue."
++
++  import Ecto.Query, warn: false
++
++  alias ExRiverside.Accounts.User
++  alias ExRiverside.Events.Event
++  alias ExRiverside.Events.EventSeries
++  alias ExRiverside.Events.Series
++  alias ExRiverside.Repo
++  alias ExRiverside.Tags.Tag
++
++  def list_events do
++    Event
++    |> order_by([e], desc: e.starts_at)
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++  end
++
++  @doc """
++  Admin listing: one row per series plus standalone events, as display maps with
++  `:kind` (`:series` | `:event`), `:entity_id`, and the fields the index renders.
++  Series carry their occurrence `:count`, next `:when_at`, and `:frequency`.
++  Newest first by effective date; dateless rows (TBA drafts) sink to the bottom.
++  """
++  def list_event_series(now \\ DateTime.utc_now()) do
++    rows = series_rows(now) ++ standalone_rows()
++    {dated, undated} = Enum.split_with(rows, & &1.sort_at)
++    Enum.sort_by(dated, & &1.sort_at, {:desc, DateTime}) ++ undated
++  end
++
++  @doc "A series' occurrence events, ordered by date."
++  def list_series_occurrences(%EventSeries{id: id}), do: list_series_occurrences(id)
++
++  def list_series_occurrences(series_id) when is_integer(series_id) do
++    Event
++    |> where([e], e.series_id == ^series_id)
++    |> order_by([e], asc: e.starts_at)
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++  end
++
++  @doc """
++  Public, live events (published-and-future or ongoing), optionally filtered by
++  `:sector_id` and/or `:tag_slug` — the two facets combine (AND). Series are
++  collapsed to their next occurrence.
++  """
++  def list_published_events(opts \\ []) do
++    now = DateTime.utc_now()
++
++    Event
++    |> where([e], (e.status == :published and e.starts_at > ^now) or e.status == :ongoing)
++    |> filter_by_sector(opts[:sector_id])
++    |> filter_by_tag(opts[:tag_slug])
++    |> distinct(true)
++    |> order_by([e], asc: e.starts_at)
++    |> preload([:tags, :event_location, :series, :sector])
++    |> Repo.all()
++    |> Series.collapse_series(now)
++  end
++
++  @doc """
++  Distinct approved tags that appear on a sector's currently-live events — the
++  contextual refinements shown once a sector is chosen on the public index.
++  """
++  def list_tags_in_sector(sector_id) do
++    now = DateTime.utc_now()
++
++    Tag
++    |> join(:inner, [t], e in assoc(t, :events))
++    |> where(
++      [t, e],
++      e.sector_id == ^sector_id and
++        ((e.status == :published and e.starts_at > ^now) or e.status == :ongoing)
++    )
++    |> distinct(true)
++    |> order_by([t], asc: t.name)
++    |> Repo.all()
++  end
++
++  def list_pending_submissions do
++    Event
++    |> where([e], e.status == :submitted)
++    |> order_by([e], asc: e.submitted_at)
++    |> preload([:tags, :user, :event_location])
++    |> Repo.all()
++  end
++
++  @doc "Every event submitted by the user, regardless of status. Sorted newest first."
++  def list_submissions_by(%User{id: user_id}) do
++    Event
++    |> where([e], e.user_id == ^user_id)
++    |> order_by([e], desc: e.inserted_at)
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++  end
++
++  def list_submissions_by(_), do: []
++
++  @doc """
++  Pending submissions a specific reviewer is authorized to act on. Joins on
++  `users.role_level` and applies the strict-above rule (reviewer level must
++  exceed submitter level). Used by the personal /reviews page.
++  """
++  def list_pending_submissions_for(%User{role_level: reviewer_level}) do
++    Event
++    |> join(:inner, [e], u in assoc(e, :user))
++    |> where([e, u], e.status == :submitted and u.role_level < ^reviewer_level)
++    |> order_by([e], asc: e.submitted_at)
++    |> preload([:tags, :user, :event_location])
++    |> Repo.all()
++  end
++
++  def list_pending_submissions_for(_), do: []
++
++  def count_pending_submissions do
++    Repo.aggregate(from(e in Event, where: e.status == :submitted), :count)
++  end
++
++  def count_pending_submissions_for(%User{role_level: reviewer_level}) do
++    query =
++      from e in Event,
++        join: u in assoc(e, :user),
++        where: e.status == :submitted and u.role_level < ^reviewer_level
++
++    Repo.aggregate(query, :count)
++  end
++
++  def count_pending_submissions_for(_), do: 0
++
++  def list_events_by_tag(tag_slug) do
++    now = DateTime.utc_now()
++
++    Event
++    |> join(:inner, [e], t in assoc(e, :tags))
++    |> where([e, t], ((e.status == :published and e.starts_at > ^now) or e.status == :ongoing) and t.slug == ^tag_slug)
++    |> order_by([e], asc: e.starts_at)
++    |> preload([:tags, :event_location, :series])
++    |> Repo.all()
++    |> Series.collapse_series(now)
++  end
++
++  def list_events_by_tag_ids(tag_ids) when is_list(tag_ids) do
++    now = DateTime.utc_now()
++
++    Event
++    |> join(:inner, [e], t in assoc(e, :tags))
++    |> where([e, t], ((e.status == :published and e.starts_at > ^now) or e.status == :ongoing) and t.id in ^tag_ids)
++    |> distinct(true)
++    |> order_by([e], asc: e.starts_at)
++    |> preload([:tags, :event_location, :series])
++    |> Repo.all()
++    |> Series.collapse_series(now)
++  end
++
++  def search_events(query_string) do
++    now = DateTime.utc_now()
++    pattern = "%#{escape_like(query_string)}%"
++
++    Event
++    |> where([e], (e.status == :published and e.starts_at > ^now) or e.status == :ongoing)
++    |> where([e], ilike(e.title, ^pattern) or ilike(e.description, ^pattern))
++    |> order_by([e], asc: e.starts_at)
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++  end
++
++  @doc """
++  Lists past events for archive management.
++  """
++  def list_past_events do
++    Event
++    |> where([e], e.status in [:past, :archived])
++    |> order_by([e], desc: e.starts_at)
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++  end
++
++  defp series_rows(now) do
++    counts = series_occurrence_counts()
++    nexts = series_next_occurrences(now)
++
++    EventSeries
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++    |> Enum.map(fn s ->
++      next_at = Map.get(nexts, s.id) || s.starts_at
++
++      %{
++        id: "series-#{s.id}",
++        kind: :series,
++        entity_id: s.id,
++        title: s.title,
++        location: s.event_location && s.event_location.name,
++        status: s.status,
++        tags: s.tags,
++        recurring?: true,
++        frequency: s.recurrence_frequency,
++        count: Map.get(counts, s.id, 0),
++        when_at: next_at,
++        sort_at: next_at
++      }
++    end)
++  end
++
++  defp standalone_rows do
++    Event
++    |> where([e], is_nil(e.series_id))
++    |> preload([:tags, :event_location])
++    |> Repo.all()
++    |> Enum.map(fn e ->
++      %{
++        id: "event-#{e.id}",
++        kind: :event,
++        entity_id: e.id,
++        title: e.title,
++        location: e.event_location && e.event_location.name,
++        status: e.status,
++        tags: e.tags,
++        recurring?: false,
++        frequency: :none,
++        count: 1,
++        when_at: e.starts_at,
++        sort_at: e.starts_at
++      }
++    end)
++  end
++
++  defp series_occurrence_counts do
++    from(e in Event,
++      where: not is_nil(e.series_id),
++      group_by: e.series_id,
++      select: {e.series_id, count(e.id)}
++    )
++    |> Repo.all()
++    |> Map.new()
++  end
++
++  defp series_next_occurrences(now) do
++    from(e in Event,
++      where: not is_nil(e.series_id) and e.starts_at > ^now,
++      group_by: e.series_id,
++      select: {e.series_id, min(e.starts_at)}
++    )
++    |> Repo.all()
++    |> Map.new()
++  end
++
++  defp filter_by_sector(query, nil), do: query
++  defp filter_by_sector(query, sector_id), do: where(query, [e], e.sector_id == ^sector_id)
++
++  defp filter_by_tag(query, nil), do: query
++
++  defp filter_by_tag(query, tag_slug) do
++    query
++    |> join(:inner, [e], t in assoc(e, :tags))
++    |> where([e, t], t.slug == ^tag_slug)
++  end
++
++  # Neutralize LIKE/ILIKE wildcards so user input matches literally. The
++  # backslash must be escaped first or it would double-escape the others.
++  defp escape_like(string) do
++    string
++    |> String.replace("\\", "\\\\")
++    |> String.replace("%", "\\%")
++    |> String.replace("_", "\\_")
++  end
++end
+diff --git a/lib/ex_riverside/events/review.ex b/lib/ex_riverside/events/review.ex
+new file mode 100644
+index 0000000..f4f456c
+--- /dev/null
++++ b/lib/ex_riverside/events/review.ex
+@@ -0,0 +1,277 @@
++defmodule ExRiverside.Events.Review do
++  @moduledoc "An event's way through review and its lifecycle: submit, publish, reject, cancel, archive, and the time-based transitions."
++
++  import Ecto.Query, warn: false
++
++  alias ExRiverside.Accounts.Permissions
++  alias ExRiverside.Accounts.User
++  alias ExRiverside.Events
++  alias ExRiverside.Events.Event
++  alias ExRiverside.Repo
++  alias ExRiverside.Tags.Tag
++
++  @doc """
++  Whether `user` may edit `event` themselves — true only for the owner while the
++  event is still in their hands (`:draft`, `:submitted`, or `:rejected`). Once a
++  reviewer publishes it, edits go through the admin path instead.
++  """
++  def owner_can_edit?(%User{id: user_id}, %Event{user_id: user_id, status: status}) do
++    status in [:draft, :submitted, :rejected]
++  end
++
++  def owner_can_edit?(_user, _event), do: false
++
++  @doc """
++  Lets an event's owner edit their own draft/submitted/rejected event. Editing a
++  **rejected** event resubmits it: status returns to `:submitted`, the reviewer
++  note is cleared, and reviewers are notified again. Draft/submitted events keep
++  their status. Returns `{:error, :unauthorized}` for non-owners or events past
++  the owner-editable window.
++  """
++  def update_submission(user, event, attrs, tag_ids \\ [])
++
++  def update_submission(%User{id: user_id} = user, %Event{user_id: user_id, status: status} = event, attrs, tag_ids)
++      when status in [:draft, :submitted, :rejected] do
++    tags = if tag_ids == [], do: [], else: Repo.all(from t in Tag, where: t.id in ^tag_ids)
++
++    changeset =
++      event
++      |> Event.changeset(attrs)
++      |> Ecto.Changeset.put_assoc(:tags, tags)
++      |> maybe_resubmit(status)
++
++    with {:ok, updated} <- Repo.update(changeset) do
++      updated = Repo.preload(updated, [:tags, :user, :event_location], force: true)
++
++      if status == :rejected do
++        Events.broadcast({:submitted, updated})
++        Events.broadcast_admin({:event_submitted, updated})
++        ExRiverside.Notifier.event_submitted(updated)
++        ExRiverside.Activities.log_event_submitted(updated, user)
++      else
++        Events.broadcast({:updated, updated})
++        ExRiverside.Activities.log_event_updated(updated, user)
++      end
++
++      {:ok, updated}
++    end
++  end
++
++  def update_submission(_user, _event, _attrs, _tag_ids), do: {:error, :unauthorized}
++
++  @doc """
++  Transitions a `:draft` event into `:submitted`. Submitter must be Registered
++  (L2) or higher; the submitter is recorded as the event's owner.
++  """
++  def submit_event(submitter, attrs, tag_ids \\ [])
++
++  def submit_event(%User{} = submitter, attrs, tag_ids) do
++    if Permissions.can?(submitter, :submit_event, nil) do
++      now = DateTime.truncate(DateTime.utc_now(), :second)
++      tags = if tag_ids == [], do: [], else: Repo.all(from t in Tag, where: t.id in ^tag_ids)
++
++      changeset =
++        %Event{}
++        |> Event.changeset(attrs)
++        |> Ecto.Changeset.put_change(:user_id, submitter.id)
++        |> Ecto.Changeset.put_change(:status, :submitted)
++        |> Ecto.Changeset.put_change(:submitted_at, now)
++        |> Ecto.Changeset.put_assoc(:tags, tags)
++
++      with {:ok, event} <- insert_submission(changeset, submitter) do
++        Events.broadcast({:submitted, event})
++        Events.broadcast_admin({:event_submitted, event})
++        ExRiverside.Notifier.event_submitted(event)
++        ExRiverside.Activities.log_event_submitted(event, submitter)
++        {:ok, event}
++      end
++    else
++      {:error, :unauthorized}
++    end
++  end
++
++  def submit_event(_, _, _), do: {:error, :unauthorized}
++
++  @doc """
++  Publishes a `:submitted` event. Reviewer must be Moderator (L5) or higher.
++  """
++  def publish_event(%User{} = reviewer, %Event{status: :submitted} = event) do
++    if Permissions.can?(reviewer, :review_event_submissions, event) do
++      now = DateTime.truncate(DateTime.utc_now(), :second)
++
++      attrs = %{
++        status: :published,
++        published_at: now,
++        reviewed_by_user_id: reviewer.id,
++        reviewed_at: now,
++        rejection_reason: nil
++      }
++
++      with {:ok, published} <- event |> Event.changeset(attrs) |> Repo.update() do
++        published = Repo.preload(published, [:tags, :user, :event_location], force: true)
++        Events.broadcast({:published, published})
++        Events.broadcast_admin({:event_published, published})
++        ExRiverside.Notifier.event_approved(published)
++        ExRiverside.Activities.log_event_approved(published, reviewer)
++
++        %{event_id: published.id}
++        |> ExRiverside.Workers.MatchmakerEventWorker.new()
++        |> Oban.insert()
++
++        {:ok, published}
++      end
++    else
++      {:error, :unauthorized}
++    end
++  end
++
++  def publish_event(_, %Event{}), do: {:error, :invalid_state}
++  def publish_event(_, _), do: {:error, :unauthorized}
++
++  @doc """
++  Rejects a `:submitted` event with a reason. Reviewer must be Moderator+.
++  """
++  def reject_event(%User{} = reviewer, %Event{status: :submitted} = event, reason)
++      when is_binary(reason) and reason != "" do
++    if Permissions.can?(reviewer, :review_event_submissions, event) do
++      now = DateTime.truncate(DateTime.utc_now(), :second)
++
++      attrs = %{
++        status: :rejected,
++        reviewed_by_user_id: reviewer.id,
++        reviewed_at: now,
++        rejection_reason: reason
++      }
++
++      with {:ok, rejected} <- event |> Event.changeset(attrs) |> Repo.update() do
++        rejected = Repo.preload(rejected, [:tags, :user, :event_location], force: true)
++        Events.broadcast({:rejected, rejected})
++        Events.broadcast_admin({:event_rejected, rejected})
++        ExRiverside.Notifier.event_rejected(rejected)
++        ExRiverside.Activities.log_event_rejected(rejected, reviewer, reason)
++        {:ok, rejected}
++      end
++    else
++      {:error, :unauthorized}
++    end
++  end
++
++  def reject_event(_, %Event{status: :submitted}, _), do: {:error, :reason_required}
++  def reject_event(_, %Event{}, _), do: {:error, :invalid_state}
++  def reject_event(_, _, _), do: {:error, :unauthorized}
++
++  @doc """
++  Cancels a published event. Actor must own the event or be Admin+.
++  """
++  def cancel_event(%User{} = actor, %Event{status: status} = event, reason)
++      when status in [:published, :ongoing] and (is_binary(reason) and reason != "") do
++    do_cancel_event(actor, event, reason)
++  end
++
++  def cancel_event(%User{} = actor, %Event{status: status} = event, _) when status in [:published, :ongoing] do
++    do_cancel_event(actor, event, nil)
++  end
++
++  def cancel_event(_, %Event{}, _), do: {:error, :invalid_state}
++  def cancel_event(_, _, _), do: {:error, :unauthorized}
++
++  @doc """
++  Archives a past event. Actor must be Admin+.
++  """
++  def archive_event(%User{} = actor, %Event{status: :past} = event) do
++    if Permissions.can?(actor, :delete_event, event) do
++      now = DateTime.truncate(DateTime.utc_now(), :second)
++
++      attrs = %{status: :archived, archived_at: now}
++
++      with {:ok, archived} <- event |> Event.changeset(attrs) |> Repo.update() do
++        archived = Repo.preload(archived, [:tags, :user, :event_location], force: true)
++        Events.broadcast({:archived, archived})
++        Events.broadcast_admin({:event_archived, archived})
++        ExRiverside.Notifier.event_archived(archived)
++        ExRiverside.Activities.log_event_archived(archived, actor)
++        {:ok, archived}
++      end
++    else
++      {:error, :unauthorized}
++    end
++  end
++
++  def archive_event(_, %Event{}), do: {:error, :invalid_state}
++  def archive_event(_, _), do: {:error, :unauthorized}
++
++  @doc "Backward-compatible alias for publish_event/2."
++  def approve_event(reviewer, event), do: publish_event(reviewer, event)
++
++  @doc """
++  Advances time-based event statuses, intended to run periodically (Oban Cron):
++
++    * `:published`/`:ongoing` events whose `ends_at` has passed become `:past`
++    * `:published` events whose `starts_at` has passed (and that haven't ended)
++      become `:ongoing`
++
++  The "to past" pass runs first so an event that both started and ended since
++  the last run lands on `:past` rather than `:ongoing`. Events without an
++  `ends_at` move to `:ongoing` once started and stay there (no end to detect).
++
++  Returns `%{past: count, ongoing: count}`.
++  """
++  def transition_due_events(now \\ DateTime.utc_now()) do
++    {past, _} =
++      Event
++      |> where([e], e.status in [:published, :ongoing])
++      |> where([e], not is_nil(e.ends_at) and e.ends_at <= ^now)
++      |> Repo.update_all(set: [status: :past, updated_at: now])
++
++    {ongoing, _} =
++      Event
++      |> where([e], e.status == :published and e.starts_at <= ^now)
++      |> where([e], is_nil(e.ends_at) or e.ends_at > ^now)
++      |> Repo.update_all(set: [status: :ongoing, updated_at: now])
++
++    %{past: past, ongoing: ongoing}
++  end
++
++  # Resubmitting a rejected event: back to :submitted with the review state wiped.
++  defp maybe_resubmit(changeset, :rejected) do
++    now = DateTime.truncate(DateTime.utc_now(), :second)
++
++    changeset
++    |> Ecto.Changeset.put_change(:status, :submitted)
++    |> Ecto.Changeset.put_change(:submitted_at, now)
++    |> Ecto.Changeset.put_change(:rejection_reason, nil)
++    |> Ecto.Changeset.put_change(:reviewed_at, nil)
++    |> Ecto.Changeset.put_change(:reviewed_by_user_id, nil)
++  end
++
++  defp maybe_resubmit(changeset, _status), do: changeset
++
++  defp insert_submission(changeset, submitter) do
++    Repo.transact(fn ->
++      with {:ok, event} <- Repo.insert(changeset),
++           {:ok, _user} <- ExRiverside.Accounts.auto_promote_to_participant(submitter) do
++        {:ok, Repo.preload(event, [:tags, :user, :event_location])}
++      end
++    end)
++  end
++
++  defp do_cancel_event(actor, event, reason) do
++    if Permissions.can?(actor, :delete_event, event) do
++      now = DateTime.truncate(DateTime.utc_now(), :second)
++
++      attrs = %{status: :canceled, canceled_at: now}
++      attrs = if reason, do: Map.put(attrs, :rejection_reason, reason), else: attrs
++
++      with {:ok, canceled} <- event |> Event.changeset(attrs) |> Repo.update() do
++        canceled = Repo.preload(canceled, [:tags, :user, :event_location], force: true)
++        Events.broadcast({:canceled, canceled})
++        Events.broadcast_admin({:event_canceled, canceled})
++        ExRiverside.Notifier.event_canceled(canceled)
++        ExRiverside.Activities.log_event_canceled(canceled, actor, reason)
++        {:ok, canceled}
++      end
++    else
++      {:error, :unauthorized}
++    end
++  end
++end
+diff --git a/lib/ex_riverside/events/series.ex b/lib/ex_riverside/events/series.ex
+new file mode 100644
+index 0000000..655b4c3
+--- /dev/null
++++ b/lib/ex_riverside/events/series.ex
+@@ -0,0 +1,222 @@
++defmodule ExRiverside.Events.Series do
++  @moduledoc "Recurring series: their CRUD, their occurrences, and how listings collapse them to one row."
++
++  import Ecto.Query, warn: false
++
++  alias ExRiverside.Events
++  alias ExRiverside.Events.Event
++  alias ExRiverside.Events.EventSeries
++  alias ExRiverside.Events.Recurrence
++  alias ExRiverside.Repo
++  alias ExRiverside.Tags.Tag
++
++  def get_series!(id), do: EventSeries |> preload([:tags, :event_location, :sector]) |> Repo.get!(id)
++
++  def change_series(%EventSeries{} = series, attrs \\ %{}), do: EventSeries.changeset(series, attrs)
++
++  @doc """
++  Creates a series and materializes its occurrences. Returns `{:ok, series}` with
++  tags + location preloaded, or `{:error, changeset}`.
++  """
++  def create_series(attrs, tag_ids \\ [], actor \\ nil) do
++    changeset =
++      %EventSeries{}
++      |> EventSeries.changeset(attrs)
++      |> Ecto.Changeset.put_assoc(:tags, load_tags(tag_ids))
++
++    with {:ok, series} <- Repo.insert(changeset) do
++      {:ok, _occurrences} = generate_occurrences(series)
++      series = Repo.preload(series, [:tags, :event_location])
++      if actor, do: ExRiverside.Activities.log_event_created(series, actor)
++      {:ok, series}
++    end
++  end
++
++  @doc """
++  Updates a series and regenerates its occurrences from the new rule/template.
++  """
++  def update_series(%EventSeries{} = series, attrs, tag_ids \\ nil, actor \\ nil) do
++    changeset = EventSeries.changeset(series, attrs)
++
++    changeset =
++      if tag_ids,
++        do: Ecto.Changeset.put_assoc(changeset, :tags, load_tags(tag_ids)),
++        else: changeset
++
++    with {:ok, series} <- Repo.update(changeset) do
++      {:ok, _occurrences} = generate_occurrences(series)
++      series = Repo.preload(series, [:tags, :event_location], force: true)
++      if actor, do: ExRiverside.Activities.log_event_updated(series, actor)
++      {:ok, series}
++    end
++  end
++
++  @doc "Publishes a series and all of its occurrences."
++  def publish_series(%EventSeries{} = series) do
++    cascade_series_status(series, :published, %{published_at: now()})
++  end
++
++  @doc "Cancels a series and all of its occurrences, recording the reason."
++  def cancel_series(%EventSeries{} = series, reason) do
++    cascade_series_status(series, :canceled, %{canceled_at: now(), rejection_reason: reason})
++  end
++
++  @doc "Converts a standalone event into a series (and removes the event)."
++  def promote_event_to_series(%Event{} = event, attrs, tag_ids, actor \\ nil) do
++    with {:ok, series} <- create_series(attrs, tag_ids, actor) do
++      Events.delete_event(event, actor)
++      {:ok, series}
++    end
++  end
++
++  @doc "Converts a series back into a single standalone event (and removes the series)."
++  def demote_series_to_event(%EventSeries{} = series, attrs, tag_ids, actor \\ nil) do
++    with {:ok, event} <- Events.create_event(attrs, tag_ids, actor) do
++      delete_series(series, actor)
++      {:ok, event}
++    end
++  end
++
++  def delete_series(%EventSeries{} = series, actor \\ nil) do
++    with {:ok, series} <- Repo.delete(series) do
++      if actor, do: ExRiverside.Activities.log_event_deleted(series, actor)
++      {:ok, series}
++    end
++  end
++
++  @doc """
++  Collapses recurring-series occurrences so each series appears once, represented
++  by its next upcoming occurrence (relative to `now`). Standalone events pass
++  through unchanged. The representative carries virtual `series_count` (how many
++  occurrences were in the given list) and `series_frequency` (the parent's
++  frequency, or `:none`) so views can render a "recurring" badge. Sorted by
++  `starts_at` ascending so the soonest event leads.
++
++  Operates purely on the events handed to it — it does not query for occurrences
++  outside the list — so a series is counted only by the occurrences that were
++  already visible to the caller.
++  """
++  def collapse_series(events, now \\ DateTime.utc_now()) do
++    {dated, undated} =
++      events
++      |> Enum.group_by(& &1.series_id)
++      |> Enum.flat_map(fn
++        {nil, standalone} -> Enum.map(standalone, &%{&1 | series_count: 1, series_frequency: :none})
++        {_series_id, occurrences} -> [series_representative(occurrences, now)]
++      end)
++      |> Enum.split_with(& &1.starts_at)
++
++    # Dateless :ongoing events (the client's "TBA" listings) sort after
++    # everything scheduled — DateTime can't compare a date against nil.
++    Enum.sort_by(dated, & &1.starts_at, DateTime) ++ undated
++  end
++
++  @doc """
++  Materializes an `EventSeries` into occurrence `events`. The series itself is
++  not an event — it's the rule + template. Every occurrence, including the first
++  (the series' anchor `starts_at`), is generated as its own `event` with
++  `series_id` and a denormalized copy of the template. Replaces any prior
++  occurrences.
++  """
++  def generate_occurrences(%EventSeries{} = series) do
++    series = Repo.preload(series, :tags)
++    times = [series.starts_at | Recurrence.occurrences(series)]
++    now = DateTime.utc_now()
++
++    Repo.transaction(fn ->
++      Repo.delete_all(from e in Event, where: e.series_id == ^series.id)
++      Enum.map(times, &insert_series_occurrence(series, &1, now))
++    end)
++  end
++
++  defp cascade_series_status(series, status, extra) do
++    now = now()
++    series_attrs = Map.merge(%{status: status}, extra)
++
++    {:ok, series} =
++      series
++      |> Ecto.Changeset.change(series_attrs)
++      |> Repo.update()
++
++    Repo.update_all(from(e in Event, where: e.series_id == ^series.id), set: [status: status, updated_at: now])
++    {:ok, series}
++  end
++
++  defp load_tags([]), do: []
++  defp load_tags(nil), do: []
++  defp load_tags(tag_ids), do: Repo.all(from t in Tag, where: t.id in ^tag_ids)
++
++  defp now, do: DateTime.truncate(DateTime.utc_now(), :second)
++
++  defp series_representative(occurrences, now) do
++    rep = next_upcoming_occurrence(occurrences, now)
++    %{rep | series_count: length(occurrences), series_frequency: representative_frequency(rep)}
++  end
++
++  # The soonest occurrence that hasn't started yet; if the whole series is in the
++  # past, fall back to the earliest so the row still renders deterministically.
++  defp next_upcoming_occurrence(occurrences, now) do
++    occurrences
++    |> Enum.filter(&DateTime.after?(&1.starts_at, now))
++    |> case do
++      [] -> Enum.min_by(occurrences, & &1.starts_at, DateTime)
++      upcoming -> Enum.min_by(upcoming, & &1.starts_at, DateTime)
++    end
++  end
++
++  # The badge frequency comes from the (preloaded) series; nil for standalone.
++  defp representative_frequency(%Event{series: %EventSeries{recurrence_frequency: freq}}), do: freq
++  defp representative_frequency(_event), do: :none
++
++  defp insert_series_occurrence(series, starts_at, now) do
++    ends_at = occurrence_ends_at(series, starts_at)
++
++    attrs = %{
++      title: series.title,
++      description: series.description,
++      starts_at: starts_at,
++      ends_at: ends_at,
++      capacity: series.capacity,
++      status: occurrence_status(series.status, starts_at, ends_at, now),
++      is_training: series.is_training,
++      ticket_url: series.ticket_url,
++      contact_note: series.contact_note,
++      schedule_note: series.schedule_note,
++      user_id: series.user_id,
++      event_location_id: series.event_location_id,
++      sector_id: series.sector_id,
++      series_id: series.id
++    }
++
++    %Event{}
++    |> Event.changeset(attrs)
++    |> Ecto.Changeset.put_assoc(:tags, series.tags)
++    |> Repo.insert!()
++  end
++
++  # An occurrence's status is derived from its own date — not blindly copied
++  # from the series — so a live series whose first occurrence has already gone
++  # :ongoing doesn't stamp :ongoing onto its still-future occurrences (which
++  # would bypass the events page's date filter). Unpublished series
++  # (draft/submitted/etc.) propagate as-is so an unapproved series stays hidden.
++  # Mirrors the sweep in `transition_due_events/1`.
++  @live_statuses [:published, :ongoing, :past]
++
++  defp occurrence_status(parent_status, _starts_at, _ends_at, _now) when parent_status not in @live_statuses,
++    do: parent_status
++
++  defp occurrence_status(_parent_status, starts_at, ends_at, now) do
++    cond do
++      not is_nil(ends_at) and DateTime.compare(ends_at, now) != :gt -> :past
++      DateTime.compare(starts_at, now) != :gt -> :ongoing
++      true -> :published
++    end
++  end
++
++  # Preserve the seed's duration on each occurrence.
++  defp occurrence_ends_at(%{ends_at: nil}, _starts_at), do: nil
++
++  defp occurrence_ends_at(%{starts_at: seed_start, ends_at: seed_end}, starts_at) do
++    DateTime.add(starts_at, DateTime.diff(seed_end, seed_start, :second), :second)
++  end
++end
+diff --git a/lib/ex_riverside_web/controllers/event_calendar_controller.ex b/lib/ex_riverside_web/controllers/event_calendar_controller.ex
+new file mode 100644
+index 0000000..f937918
+--- /dev/null
++++ b/lib/ex_riverside_web/controllers/event_calendar_controller.ex
+@@ -0,0 +1,20 @@
++defmodule ExRiversideWeb.EventCalendarController do
++  @moduledoc "The \"Add to calendar\" file of a live event."
++  use ExRiversideWeb, :controller
++
++  alias ExRiverside.Events
++  alias ExRiverside.Events.Calendar
++
++  def show(conn, %{"id" => id}) do
++    event = Events.get_event!(id)
++
++    if event.status in [:published, :ongoing] do
++      conn
++      |> put_resp_content_type("text/calendar")
++      |> put_resp_header("content-disposition", ~s(attachment; filename="event-#{event.id}.ics"))
++      |> send_resp(200, Calendar.ics(event))
++    else
++      raise Ecto.NoResultsError, queryable: ExRiverside.Events.Event
++    end
++  end
++end
+diff --git a/lib/ex_riverside_web/live/public/event_live/show.ex b/lib/ex_riverside_web/live/public/event_live/show.ex
+index 58b8178..553c9a1 100644
+--- a/lib/ex_riverside_web/live/public/event_live/show.ex
++++ b/lib/ex_riverside_web/live/public/event_live/show.ex
+@@ -44,6 +44,15 @@ defmodule ExRiversideWeb.Public.EventLive.Show do
+           </:item>
+         </.list>
+ 
++        <p :if={@event.status in [:published, :ongoing]} class="mt-4">
++          <.link
++            href={~p"/events/#{@event}/calendar.ics"}
++            class="text-sm font-medium text-indigo-600 hover:underline"
++          >
++            Add to calendar
++          </.link>
++        </p>
++
+         <div class="mt-6">
+           <%= cond do %>
+             <% @current_scope && @registered? -> %>
+diff --git a/lib/ex_riverside_web/router.ex b/lib/ex_riverside_web/router.ex
+index 4492374..6d3db55 100644
+--- a/lib/ex_riverside_web/router.ex
++++ b/lib/ex_riverside_web/router.ex
+@@ -44,6 +44,8 @@ defmodule ExRiversideWeb.Router do
+   scope "/", ExRiversideWeb do
+     pipe_through :browser
+ 
++    get "/events/:id/calendar.ics", EventCalendarController, :show
++
+     live_session :public, on_mount: [{ExRiversideWeb.UserAuth, :mount_current_scope}] do
+       live "/", Public.HomeLive, :index
+       live "/events", Public.EventLive.Index, :index
+diff --git a/test/ex_riverside/review_queue_level_test.exs b/test/ex_riverside/review_queue_level_test.exs
+new file mode 100644
+index 0000000..098575e
+--- /dev/null
++++ b/test/ex_riverside/review_queue_level_test.exs
+@@ -0,0 +1,14 @@
++defmodule ExRiverside.ReviewQueueLevelTest do
++  use ExRiverside.DataCase, async: true
++
++  import ExRiverside.AccountsFixtures
++
++  alias ExRiverside.Events
++
++  test "list_pending_submissions_for/1 leaves out submissions from the reviewer's own level" do
++    moderator = user_fixture_at_level(5)
++    peer = user_fixture_at_level(5)
++    {:ok, event} = Events.submit_event(peer, %{title: "Peer", description: "x", starts_at: ~U[2031-01-01 10:00:00Z]})
++    refute event.id in Enum.map(Events.list_pending_submissions_for(moderator), & &1.id)
++  end
++end

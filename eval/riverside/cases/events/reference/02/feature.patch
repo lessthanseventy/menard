@@ -1,0 +1,145 @@
+diff --git a/lib/ex_riverside/events.ex b/lib/ex_riverside/events.ex
+index a3cb81c..6c4b13f 100644
+--- a/lib/ex_riverside/events.ex
++++ b/lib/ex_riverside/events.ex
+@@ -203,7 +203,7 @@ defmodule ExRiverside.Events do
+   def list_pending_submissions_for(%User{role_level: reviewer_level}) do
+     Event
+     |> join(:inner, [e], u in assoc(e, :user))
+-    |> where([e, u], e.status == :submitted and u.role_level <= ^reviewer_level)
++    |> where([e, u], e.status == :submitted and u.role_level < ^reviewer_level)
+     |> order_by([e], asc: e.submitted_at)
+     |> preload([:tags, :user, :event_location])
+     |> Repo.all()
+diff --git a/lib/ex_riverside/events/calendar.ex b/lib/ex_riverside/events/calendar.ex
+new file mode 100644
+index 0000000..89a6cd4
+--- /dev/null
++++ b/lib/ex_riverside/events/calendar.ex
+@@ -0,0 +1,50 @@
++defmodule ExRiverside.Events.Calendar do
++  @moduledoc """
++  An event as an iCalendar (RFC 5545) file: one VCALENDAR holding one VEVENT, times in UTC, text
++  values escaped.
++  """
++
++  alias ExRiverside.Events.Event
++
++  @doc "The .ics body for `event`, CRLF line ends."
++  def ics(%Event{} = event) do
++    lines =
++      [
++        "BEGIN:VCALENDAR",
++        "VERSION:2.0",
++        "PRODID:-//ExRiverside//Events//EN",
++        "BEGIN:VEVENT",
++        "UID:event-#{event.id}@riverside",
++        "DTSTAMP:#{stamp(DateTime.utc_now())}",
++        "DTSTART:#{stamp(event.starts_at)}"
++      ] ++
++        optional("DTEND", event.ends_at && stamp(event.ends_at)) ++
++        [
++          "SUMMARY:#{escape(event.title)}",
++          "DESCRIPTION:#{escape(event.description || "")}"
++        ] ++
++        optional("LOCATION", Event.location_name(event) && escape(Event.location_name(event))) ++
++        [
++          "URL:#{ExRiversideWeb.Endpoint.url()}/events/#{event.id}",
++          "END:VEVENT",
++          "END:VCALENDAR"
++        ]
++
++    Enum.map_join(lines, "", &(&1 <> "\r\n"))
++  end
++
++  defp optional(_name, nil), do: []
++  defp optional(name, value), do: ["#{name}:#{value}"]
++
++  defp stamp(%DateTime{} = at) do
++    at |> DateTime.truncate(:second) |> Calendar.strftime("%Y%m%dT%H%M%SZ")
++  end
++
++  defp escape(text) do
++    text
++    |> String.replace("\\", "\\\\")
++    |> String.replace(";", "\\;")
++    |> String.replace(",", "\\,")
++    |> String.replace(~r/\r?\n/, "\\n")
++  end
++end
+diff --git a/lib/ex_riverside_web/controllers/event_calendar_controller.ex b/lib/ex_riverside_web/controllers/event_calendar_controller.ex
+new file mode 100644
+index 0000000..f937918
+--- /dev/null
++++ b/lib/ex_riverside_web/controllers/event_calendar_controller.ex
+@@ -0,0 +1,20 @@
++defmodule ExRiversideWeb.EventCalendarController do
++  @moduledoc "The \"Add to calendar\" file of a live event."
++  use ExRiversideWeb, :controller
++
++  alias ExRiverside.Events
++  alias ExRiverside.Events.Calendar
++
++  def show(conn, %{"id" => id}) do
++    event = Events.get_event!(id)
++
++    if event.status in [:published, :ongoing] do
++      conn
++      |> put_resp_content_type("text/calendar")
++      |> put_resp_header("content-disposition", ~s(attachment; filename="event-#{event.id}.ics"))
++      |> send_resp(200, Calendar.ics(event))
++    else
++      raise Ecto.NoResultsError, queryable: ExRiverside.Events.Event
++    end
++  end
++end
+diff --git a/lib/ex_riverside_web/live/public/event_live/show.ex b/lib/ex_riverside_web/live/public/event_live/show.ex
+index 58b8178..ae02ee2 100644
+--- a/lib/ex_riverside_web/live/public/event_live/show.ex
++++ b/lib/ex_riverside_web/live/public/event_live/show.ex
+@@ -44,6 +44,12 @@ defmodule ExRiversideWeb.Public.EventLive.Show do
+           </:item>
+         </.list>
+ 
++        <p :if={@event.status in [:published, :ongoing]} class="mt-4">
++          <.link href={~p"/events/#{@event}/calendar.ics"} class="text-sm font-medium text-indigo-600 hover:underline">
++            Add to calendar
++          </.link>
++        </p>
++
+         <div class="mt-6">
+           <%= cond do %>
+             <% @current_scope && @registered? -> %>
+diff --git a/lib/ex_riverside_web/router.ex b/lib/ex_riverside_web/router.ex
+index 4492374..6d3db55 100644
+--- a/lib/ex_riverside_web/router.ex
++++ b/lib/ex_riverside_web/router.ex
+@@ -44,6 +44,8 @@ defmodule ExRiversideWeb.Router do
+   scope "/", ExRiversideWeb do
+     pipe_through :browser
+ 
++    get "/events/:id/calendar.ics", EventCalendarController, :show
++
+     live_session :public, on_mount: [{ExRiversideWeb.UserAuth, :mount_current_scope}] do
+       live "/", Public.HomeLive, :index
+       live "/events", Public.EventLive.Index, :index
+diff --git a/test/ex_riverside/review_queue_level_test.exs b/test/ex_riverside/review_queue_level_test.exs
+new file mode 100644
+index 0000000..098575e
+--- /dev/null
++++ b/test/ex_riverside/review_queue_level_test.exs
+@@ -0,0 +1,14 @@
++defmodule ExRiverside.ReviewQueueLevelTest do
++  use ExRiverside.DataCase, async: true
++
++  import ExRiverside.AccountsFixtures
++
++  alias ExRiverside.Events
++
++  test "list_pending_submissions_for/1 leaves out submissions from the reviewer's own level" do
++    moderator = user_fixture_at_level(5)
++    peer = user_fixture_at_level(5)
++    {:ok, event} = Events.submit_event(peer, %{title: "Peer", description: "x", starts_at: ~U[2031-01-01 10:00:00Z]})
++    refute event.id in Enum.map(Events.list_pending_submissions_for(moderator), & &1.id)
++  end
++end
