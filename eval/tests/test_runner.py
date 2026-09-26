@@ -32,5 +32,23 @@ class TestWorkspace(unittest.TestCase):
             self.assertTrue((home / ".claude" / "projects").exists())
 
 
+class TestSchedule(unittest.TestCase):
+    def test_arms_are_shuffled_within_each_case_and_run_and_the_seed_reproduces_it(self):
+        cases, arms, models = ["c1", "c2", "c3", "c4"], ["A", "all"], ["m"]
+        s1 = run.schedule(cases, arms, models, 3, seed=7)
+        s2 = run.schedule(cases, arms, models, 3, seed=7)
+        self.assertEqual(s1, s2)
+        self.assertEqual(len(s1), 24)
+        # every (case, model, n) has both arms next to each other, in one order or the other
+        pairs = [s1[i:i + 2] for i in range(0, 24, 2)]
+        for pair in pairs:
+            self.assertEqual(len({(c, m, n) for c, _, m, n in pair}), 1)
+            self.assertEqual(sorted(a for _, a, _, _ in pair), ["A", "all"])
+        firsts = [pair[0][1] for pair in pairs]
+        self.assertIn("A", firsts)
+        self.assertIn("all", firsts)
+        self.assertNotEqual(s1, run.schedule(cases, arms, models, 3, seed=8))
+
+
 if __name__ == "__main__":
     unittest.main()
