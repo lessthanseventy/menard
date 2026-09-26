@@ -1,12 +1,17 @@
 defmodule Menard.BinTest do
   # bin/menard's stdout is the verb's answer and nothing else: tools read it (`attr get` → a value,
-  # `run` → one JSON line). Not async: it rebuilds menard's dev build.
+  # `run` → one JSON line). Not async: it deletes and rebuilds a build of menard's, its own env's.
   use ExUnit.Case, async: false
 
   @root Path.expand("../..", __DIR__)
   @bin Path.join(@root, "bin/menard")
 
-  defp fresh_build!, do: File.rm_rf!(Path.join(@root, "_build/dev/lib/menard"))
+  # A build of its own to delete: the dev build is the one the hooks, the agent's verbs and the gate
+  # running this suite all run from, and deleting it under them printed "redefining module" warnings
+  # into the gate's reply and "The task menard.run could not be found" (reproduced: a gate while the
+  # dev build was deleted and rebuilt beside it)
+  @fresh [{"MIX_ENV", "bintest"}]
+  defp fresh_build!, do: File.rm_rf!(Path.join(@root, "_build/bintest/lib/menard"))
 
   @tag :tmp_dir
   test "--stdin passes the last argument on stdin, quotes and backslashes intact", %{tmp_dir: dir} do
@@ -32,7 +37,7 @@ defmodule Menard.BinTest do
     # just its manifest — stale beams left behind get loaded and then "redefined", 43 warnings.
     fresh_build!()
 
-    {out, 0} = System.cmd(@bin, ["attr", "get", file, "limit"], env: [{"MIX_ENV", "dev"}])
+    {out, 0} = System.cmd(@bin, ["attr", "get", file, "limit"], env: @fresh)
     assert out == "5_000\n"
   end
 
@@ -61,9 +66,7 @@ defmodule Menard.BinTest do
     fresh_build!()
 
     {_out, 0} =
-      System.cmd("sh", ["-c", "printf 'defmodule Z do\\nend\\n' | #{@bin} write #{file} -"],
-        env: [{"MIX_ENV", "dev"}]
-      )
+      System.cmd("sh", ["-c", "printf 'defmodule Z do\\nend\\n' | #{@bin} write #{file} -"], env: @fresh)
 
     assert File.read!(file) == "defmodule Z do\nend\n"
   end
