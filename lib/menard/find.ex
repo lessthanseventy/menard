@@ -12,7 +12,7 @@ defmodule Menard.Find do
 
   @type hit :: %{line: pos_integer(), column: pos_integer(), kind: atom(), text: String.t()}
 
-  @doc "Call sites of `target`: `\"fun\"` (local) or `\"Mod.Sub.fun\"` (remote, alias-aware)."
+  @doc ~s|Call sites of `target`: `"fun"` (local) or `"Mod.Sub.fun"` (remote, alias-aware).|
   @spec calls(String.t(), String.t()) :: [hit()]
   def calls(source, target) do
     {mod, fun} = split_target(target)

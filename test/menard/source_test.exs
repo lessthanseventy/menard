@@ -28,8 +28,8 @@ defmodule Menard.SourceTest do
       assert Source.reindent(call, "                  ") == call
 
       # the code around a literal still moves
-      assert Source.reindent("foo(\n\"\"\"\nkept\n\"\"\",\n:x)", "  ") ==
-               "foo(\n  \"\"\"\nkept\n\"\"\",\n  :x)"
+      assert Source.reindent(~s|foo(\n"""\nkept\n""",\n:x)|, "  ") ==
+               ~s|foo(\n  """\nkept\n""",\n  :x)|
     end
 
     test "a -> arm's literal lines stay too" do
