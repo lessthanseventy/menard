@@ -180,10 +180,20 @@ defmodule Menard.MCPTest do
   end
 
   test "resolving many files costs each once" do
-    paths = for n <- 1..20_000, do: "lib/m#{n}.ex"
-    {us, {:ok, resolved}} = :timer.tc(fn -> Menard.MCP.resolve_all(paths) end)
-    assert length(resolved) == 20_000
-    assert us < 2_000_000
+    # counted in reductions, the VM's own measure of work done, not by the clock: a wall-clock
+    # bound failed on a loaded host with the code linear (3-4 s against 2 s)
+    cost = fn n ->
+      paths = for i <- 1..n, do: "lib/m#{i}.ex"
+      {:reductions, before} = Process.info(self(), :reductions)
+      {:ok, resolved} = Menard.MCP.resolve_all(paths)
+      {:reductions, done} = Process.info(self(), :reductions)
+      assert length(resolved) == n
+      done - before
+    end
+
+    # eight times the files is about eight times the work (8.4 measured); an append or a
+    # membership test per file, what took 20,000 paths to 6 s, grows it past 12
+    assert cost.(20_000) / cost.(2_500) < 12
   end
 
   test "clause move carries a function to another file", %{root: root} do
