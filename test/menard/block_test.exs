@@ -41,8 +41,9 @@ defmodule Menard.BlockTest do
     name = "never_block_#{System.unique_integer([:positive])}"
     assert {:error, _} = Block.get(@src, name)
     assert Block.get_all(@src, name) == []
-    assert Block.add(@src, name, "x", "assert true") =~ ~s(#{name} "x" do)
     assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+    # adding one writes the name into the source, and the write parse-checks it: that makes the atom
+    assert Block.add(@src, name, "x", "assert true") =~ ~s(#{name} "x" do)
   end
 
   test "a label addresses one of several blocks sharing a name" do
@@ -411,5 +412,28 @@ defmodule Menard.BlockTest do
              String.replace(src, "assert x", "assert !x")
 
     assert Block.replace(src, "test", "assert 2", label: "a") == String.replace(src, "assert 1", "assert 2")
+  end
+
+  test "add keeps a blank line in the body blank, no trailing spaces" do
+    out = Block.add(@src, "test", "c", "x = 3\n\nassert x == 3", in: "two")
+
+    assert out ==
+             String.replace(
+               @src,
+               "      assert 2 == 2\n    end\n",
+               "      assert 2 == 2\n    end\n\n    test \"c\" do\n      x = 3\n\n      assert x == 3\n    end\n"
+             )
+  end
+
+  test "add keeps a multi-line string in the body at its value" do
+    # the string's second line is part of its value: indenting it would change what it says
+    out = Block.add(@src, "test", "c", "assert \"one\ntwo\" =~ \"t\"", in: "two")
+
+    assert out ==
+             String.replace(
+               @src,
+               "      assert 2 == 2\n    end\n",
+               "      assert 2 == 2\n    end\n\n    test \"c\" do\n      assert \"one\ntwo\" =~ \"t\"\n    end\n"
+             )
   end
 end

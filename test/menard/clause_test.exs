@@ -294,6 +294,25 @@ defmodule Menard.ClauseTest do
       assert message =~ "no module Nope"
       assert message =~ "M"
     end
+
+    test "a blank line inside the new function stays blank, no trailing spaces" do
+      code = "def spaced do\n  x = 1\n\n  x\nend"
+      out = Clause.insert_at("defmodule E do\nend\n", nil, nil, code)
+      assert out == "defmodule E do\n  def spaced do\n    x = 1\n\n    x\n  end\nend\n"
+    end
+
+    test "a multi-line string inside the new function keeps its value" do
+      # the string's second line is part of its value: indenting it would change what it says
+      code = "def two_lines do\n  \"one\ntwo\"\nend"
+      out = Clause.insert_at(@mixed, nil, :bottom, code)
+
+      assert out ==
+               String.replace(
+                 @mixed,
+                 "defp helper, do: :h\n",
+                 "defp helper, do: :h\n\n  def two_lines do\n    \"one\ntwo\"\n  end\n"
+               )
+    end
   end
 
   describe "delete takes the attributes attached to the clause" do
