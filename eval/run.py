@@ -123,21 +123,25 @@ def build_plugins(force=False):
         # `cli` teaches the CLI in a few lines, `grep` answers a grep with each hit's function, `map`
         # gives a map of the project at the start, `lazy-mcp` keeps the MCP tools but deferred behind
         # ToolSearch. `hook` is B under a name that says what it is
-        # `stop` runs the project's gate when the agent ends its turn, and refuses the stop while it is
-        # red; `map-mcp` is the map and manos together, which neither alone would show
+        # `stop` checks what the agent changed when it ends its turn (compile, credo on its lines, the
+        # stale tests) and refuses the stop while that is red, and a `git commit` waits for the whole
+        # gate; `map-mcp` is the map and manos together, which neither alone would show
         extra = {"cli": [("SessionStart", None, "session-cli.sh")], "grep": [("PostToolUse", "Bash", "grep-where.sh")],
                  "map": [("SessionStart", None, "session-map.sh")], "map-mcp": [("SessionStart", None, "session-map.sh")],
-                 "stop": [("Stop", None, "stop-gate.sh")], "run-cli": [("SessionStart", None, "session-run.sh")],
+                 "stop": [("Stop", None, "stop-gate.sh"), ("PreToolUse", "Bash", "commit-gate.sh")], "run-cli": [("SessionStart", None, "session-run.sh")],
                  "big-read": [("PreToolUse", "Read", "big-read.sh")],
                  # everything the hook-side arms add, together
                  "all": [("SessionStart", None, "session-run.sh"), ("PreToolUse", "Read", "big-read.sh"),
-                         ("Stop", None, "stop-gate.sh")]}.get(arm, [])
+                         ("Stop", None, "stop-gate.sh"), ("PreToolUse", "Bash", "commit-gate.sh")]}.get(arm, [])
         for event, matcher, script in extra:
             hooks_json = dest / "hooks" / "hooks.json"
             d = json.loads(hooks_json.read_text())
             hook = {"type": "command", "command": f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}"'}
-            if event == "Stop":
-                hook["timeout"] = 900
+            # the gates run a suite, past the default hook timeout, and a hook that times out lets the stop
+            # or the commit through. Tlön measured (fresh workspace): run check 52 s server + 15 s console,
+            # a first test --stale 56 s; 300 is ~4x the worst, room for a loaded machine
+            if script in ("stop-gate.sh", "commit-gate.sh"):
+                hook["timeout"] = 300
             entry = {"hooks": [hook]}
             if matcher:
                 entry["matcher"] = matcher
@@ -559,7 +563,7 @@ def lint(ws, env, out_dir, rid):
     """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
     each is the agent's), and whether the agent ran the gate itself before it stopped."""
     ran, runs, reruns, last, formats = 0, 0, 0, False, 0
-    fired = {"big_read": 0, "compile_warned": 0, "stop_refused": 0, "credo_flagged": 0}
+    fired = {"big_read": 0, "compile_warned": 0, "stop_refused": 0, "commit_refused": 0, "credo_flagged": 0}
     # anywhere in the command, a wrapper in front included (Tlön's scripts/cap.sh saves the output to
     # .logs/, and its agents grep the log instead of running again); a heredoc'd script is not a run
     test = re.compile(r"\bmix (?:test|precommit)\b|\bmise run [\w:]*(?:test|check)\b")
@@ -572,6 +576,7 @@ def lint(ws, env, out_dir, rid):
                 fired["big_read"] += "permissionDecision" in said and "offset and limit" in said
                 fired["compile_warned"] += "the compiler, on files you changed" in said
                 fired["stop_refused"] += (h.get("hook_name") or "").startswith("Stop") and '"block"' in said
+                fired["commit_refused"] += "Not committed: the project's gate" in said
                 fired["credo_flagged"] += "credo, on lines you changed" in said
                 continue
             if '"tool_use"' not in line or not line.startswith("{"):

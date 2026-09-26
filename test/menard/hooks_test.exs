@@ -108,12 +108,20 @@ defmodule Menard.HooksTest do
         })
       )
 
-      System.cmd("bash", ["-c", "bash #{@root}/hooks/shell-edits.sh < #{input}"], stderr_to_stdout: true)
+      System.cmd("bash", ["-c", "bash #{@root}/hooks/shell-edits.sh < #{input}"],
+        env: [{"TMPDIR", dir}],
+        stderr_to_stdout: true
+      )
+    end
+
+    # the hook's mark, dated back: a write after it is newer without waiting out find's second
+    backdate_mark = fn ->
+      File.touch!(Path.join(dir, "menard-shell-edits-#{session}"), System.os_time(:second) - 10)
     end
 
     # a command that changes a module
     {_, 0} = hook.("PreToolUse", "sed -i s/A/B/ lib/a.ex")
-    Process.sleep(1100)
+    backdate_mark.()
     File.write!(module, "defmodule B do\nend\n")
     assert {out, 2} = hook.("PostToolUse", "sed -i s/A/B/ lib/a.ex")
     assert out =~ "lib/a.ex"
@@ -125,7 +133,7 @@ defmodule Menard.HooksTest do
 
     # menard's own door, and the formatter, rewrite modules by design
     {_, 0} = hook.("PreToolUse", "mix format")
-    Process.sleep(1100)
+    backdate_mark.()
     File.write!(module, "defmodule C do\nend\n")
     assert {_, 0} = hook.("PostToolUse", "mix format")
   end
@@ -214,7 +222,7 @@ defmodule Menard.HooksTest do
     }
 
     {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir)
-    Process.sleep(1100)
+    backdate_format_mark(bash, dir)
 
     files = for n <- 1..3, do: Path.join(dir, "lib/m#{n}.ex")
 
@@ -243,7 +251,7 @@ defmodule Menard.HooksTest do
     }
 
     {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir)
-    Process.sleep(1100)
+    backdate_format_mark(bash, dir)
     File.write!(Path.join(dir, "tmp/a — b/bad.ex"), "defmodule Bad do\n  def f(x, do: x\nend\n")
     File.write!(Path.join(dir, "lib/ok.ex"), "defmodule Ok do\n  def   f(x), do: x\nend\n")
 
@@ -260,7 +268,7 @@ defmodule Menard.HooksTest do
     host(dir)
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def big, do: 999999\nend\n")
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
     File.write!(Path.join(dir, "menard-touched-s1"), dir <> "\n")
 
     {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s1"}, dir)
@@ -268,8 +276,104 @@ defmodule Menard.HooksTest do
     assert reply["decision"] == "block"
     assert reply["reason"] =~ "lib/n.ex"
 
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def big, do: 999_999\nend\n")
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x), do: x\nend\n")
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s1"}, dir)
+  end
+
+  @tag :tmp_dir
+  test "stop-gate runs the tests the change made stale, not the suite", %{tmp_dir: dir} do
+    host(dir)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 1\nend\n")
+    File.write!(Path.join(dir, "lib/o.ex"), "defmodule O do\n  def g, do: 1\nend\n")
+
+    File.write!(
+      Path.join(dir, "test/n_test.exs"),
+      "defmodule NTest do\n  use ExUnit.Case\n  test \"f\", do: assert(N.f() == 1)\nend\n"
+    )
+
+    # red by a file no module depends on, so no change makes it stale: a suite run would refuse the stop
+    File.write!(
+      Path.join(dir, "test/o_test.exs"),
+      "defmodule OTest do\n  use ExUnit.Case\n  test \"g\", do: refute(File.exists?(\"red\"))\nend\n"
+    )
+
+    # mix tells stale by mtime, to the second: sources older than the build, the build older than
+    # the edit, with no wait for the clock
+    now = System.os_time(:second)
+
+    backdate = fn glob, t ->
+      for f <- Path.wildcard(Path.join(dir, glob), match_dot: true), do: File.touch!(f, t)
+    end
+
+    backdate.("**", now - 20)
+
+    # green once: mix records what is fresh only after a green `--stale` run
+    {_, 0} = System.cmd("mix", ["test", "--stale"], cd: dir, stderr_to_stdout: true)
+    backdate.("_build/**", now - 10)
+    File.write!(Path.join(dir, "red"), "")
+
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 2\nend\n")
+    File.write!(Path.join(dir, "menard-touched-s3"), dir <> "\n")
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s3"}, dir)
+    reason = JSON.decode!(out)["reason"]
+    assert reason =~ "test/n_test.exs"
+    refute reason =~ "test/o_test.exs"
+  end
+
+  @tag :tmp_dir
+  test "stop-gate passes a stop with nothing written since it was last green", %{tmp_dir: dir} do
+    host(dir)
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x), do: x\nend\n")
+    File.write!(Path.join(dir, "menard-touched-s4"), dir <> "\n")
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s4"}, dir)
+
+    # red now, but not by a write this session made since: the gate already passed it
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s4"}, dir)
+
+    File.write!(Path.join(dir, "menard-touched-s4"), dir <> "\n" <> dir <> "\n")
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s4"}, dir)
+    assert JSON.decode!(out)["decision"] == "block"
+  end
+
+  @tag :tmp_dir
+  test "commit-gate refuses a git commit while a project the session wrote into fails its whole gate", %{
+    tmp_dir: dir
+  } do
+    host(dir)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 1\nend\n")
+
+    File.write!(
+      Path.join(dir, "test/o_test.exs"),
+      "defmodule OTest do\n  use ExUnit.Case\n  test \"g\", do: assert(N.f() == 2)\nend\n"
+    )
+
+    File.write!(Path.join(dir, "menard-touched-c1"), dir <> "\n")
+
+    commit = %{hook_event_name: "PreToolUse", tool_name: "Bash", session_id: "c1"}
+    {out, 0} = commit_gate(put_in(commit[:tool_input], %{command: "git add -A && git commit -qm wip"}), dir)
+    denied = JSON.decode!(out)["hookSpecificOutput"]
+    assert denied["permissionDecision"] == "deny"
+    assert denied["permissionDecisionReason"] =~ "test/o_test.exs"
+
+    assert {"", 0} = commit_gate(put_in(commit[:tool_input], %{command: "git log --grep=commit"}), dir)
+
+    assert {"", 0} =
+             commit_gate(
+               Map.merge(commit, %{session_id: "c2", tool_input: %{command: "git commit -m x"}}),
+               dir
+             )
+
+    File.write!(
+      Path.join(dir, "test/o_test.exs"),
+      "defmodule OTest do\n  use ExUnit.Case\n  test \"g\", do: assert(N.f() == 1)\nend\n"
+    )
+
+    assert {"", 0} = commit_gate(put_in(commit[:tool_input], %{command: "git commit -m x"}), dir)
   end
 
   @tag :tmp_dir
@@ -360,14 +464,28 @@ defmodule Menard.HooksTest do
     )
   end
 
+  defp commit_gate(payload, dir) do
+    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
+    File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
+
+    System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/commit-gate.sh"), input],
+      env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}]
+    )
+  end
+
   defp report(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
 
     # paths as arguments, never inside the -c string: a tmp_dir holds the test's name, quotes and all
     System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/format-report.sh"), input],
-      env: [{"CLAUDE_PLUGIN_ROOT", @root}],
+      env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}],
       stderr_to_stdout: true
     )
   end
+
+  # the mark a shell command's PreToolUse left, dated back: what the command writes is newer without
+  # waiting out find's second
+  defp backdate_format_mark(%{session_id: session}, dir),
+    do: File.touch!(Path.join(dir, "menard-format-#{session}"), System.os_time(:second) - 10)
 end
