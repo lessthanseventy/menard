@@ -88,7 +88,8 @@ def build_template(suite, force=False):
 def build_plugins(force=False):
     """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
     loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
-    for arm in ["B", "C", "L", "H"]:
+    # L (the tools always loaded) is gone: manos loads them up front, and menard has none
+    for arm in ["B", "C", "H", "M"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -155,6 +156,9 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd += [] if persist else ["--no-session-persistence"]
     if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
+    # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`
+    if arm == "M":
+        cmd += ["--plugin-dir", str(PLUGINS / arm / "manos")]
     return cmd
 
 
@@ -229,7 +233,8 @@ def trace_metrics(trace_path, ws):
     edited, rereads, retries, prev = set(), 0, 0, None
     for c in calls:
         name, inp = c["name"], c["input"]
-        short = name.replace("mcp__plugin_menard_menard__", "menard:")
+        # the plugin's name is in the prefix: menard's once, manos' since the tools moved there
+        short = re.sub(r"^mcp__plugin_[\w-]+?_menard__", "menard:", name)
         by_name[short] = by_name.get(short, 0) + 1
         res = results.get(c["id"], {})
         paths = [norm(p, ws) for p in paths_in(inp)]

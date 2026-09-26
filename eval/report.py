@@ -12,7 +12,7 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "H", "L", "C"]
+ARMS = ["A", "B", "M", "H", "L", "C"]
 MODELS = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]
 
 
@@ -96,7 +96,7 @@ def habits(r, rounds):
                 ctx[o["message"].get("id")] = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
                 for c in o["message"].get("content", []):
                     if c.get("type") == "tool_use":
-                        calls.append((c["name"].replace("mcp__plugin_menard_menard__", "m:"), c.get("input", {})))
+                        calls.append((re.sub(r"^mcp__plugin_[\w-]+?_menard__", "m:", c["name"]), c.get("input", {})))
         edits = [i for i, (n, inp) in enumerate(calls)
                  if n in WRITES or (n.startswith("m:") and n[2:] in MENARD_WRITES and inp.get("verb") not in ("get", "list"))]
         after = sum(1 for n, _ in calls[edits[-1] + 1:] if n == "Read") if edits else 0
