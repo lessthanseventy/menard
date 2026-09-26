@@ -353,4 +353,14 @@ defmodule Menard.BlockTest do
     out = Block.replace(@src, "", "test \"b\" do\n  assert 9 == 9\nend", label: "b")
     assert out =~ ~s(test "b" do\n      assert 9 == 9)
   end
+
+  test "a whole test with its @tag above is added whole, the tag above it" do
+    # an agent writes a tmp_dir test as it reads in a file, @tag and all: that was taken for a body
+    # and wrapped in a bare `test do`, which parses and does not compile
+    code = ~s|@tag :tmp_dir\ntest "d", %{tmp_dir: dir} do\n  assert File.dir?(dir)\nend|
+    out = Block.add(@src, "test", nil, code, in: "two")
+
+    assert out =~ ~s|    @tag :tmp_dir\n    test "d", %{tmp_dir: dir} do\n      assert File.dir?(dir)|
+    refute out =~ "test do"
+  end
 end
