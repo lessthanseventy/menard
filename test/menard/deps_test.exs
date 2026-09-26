@@ -65,4 +65,27 @@ defmodule Menard.DepsTest do
 
     assert %{remotes: ["__MODULE__.Inner.x/0"], modules: ["__MODULE__.Inner"]} = Deps.of(src, "go/0")
   end
+
+  test "a pipeline's step and a capture are calls at their real arity" do
+    # `x |> step()` read as step/0 and `&step/1` not at all, so a helper two functions share looked
+    # free to move
+    src = """
+    defmodule A do
+      def go(x), do: x |> step() |> Enum.map(&twice/1) |> Enum.map(&String.trim/1)
+      def other(x), do: step(x) + twice(x)
+
+      defp step(x), do: x
+      defp twice(x), do: x * 2
+    end
+    """
+
+    report = Deps.of(src, "go/1")
+
+    assert [%{call: "step/1", shared_with: ["other/1"]}, %{call: "twice/1", shared_with: ["other/1"]}] =
+             report.locals
+
+    assert "Enum.map/2" in report.remotes
+    assert "String.trim/1" in report.remotes
+    refute "String.trim/0" in report.remotes
+  end
 end
