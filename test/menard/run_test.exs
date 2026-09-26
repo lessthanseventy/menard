@@ -38,7 +38,7 @@ defmodule Menard.RunTest do
 
   test "parses counts and each failure's name, location, assertion and error" do
     r = Run.parse_test(@out, 2)
-    assert r.tests == 5 and r.failed == 2 and r.ok == false
+    assert %{tests: 5, failed: 2, ok: false} = r
 
     # an assertion and an exception, one shape: kind, message, at — then what only a test has
     assert [
@@ -84,7 +84,7 @@ defmodule Menard.RunTest do
 
   test "a green run has no failures and a one-line tail" do
     r = Run.parse_test("....\n\nFinished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed\n", 0)
-    assert r.ok and r.tests == 4 and r.failed == 0 and r.failures == []
+    assert %{ok: true, tests: 4, failed: 0, failures: []} = r
     assert r.tail == "Finished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed"
   end
 
@@ -122,7 +122,6 @@ defmodule Menard.RunTest do
              r.failures
   end
 
-  @tag :tmp_dir
   test "compile reports a warning left by an earlier compile", %{tmp_dir: dir} do
     Host.mix_project(dir, :warm)
 
@@ -136,7 +135,6 @@ defmodule Menard.RunTest do
     assert message =~ "x"
   end
 
-  @tag :tmp_dir
   @pinned "1.20.4-otp-29"
   @tag skip:
          !(System.find_executable("mise") &&
@@ -157,7 +155,6 @@ defmodule Menard.RunTest do
     assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
   end
 
-  @tag :tmp_dir
   test "format works on a host whose mix.exs does not parse, and says what changed", %{tmp_dir: dir} do
     File.write!(Path.join(dir, "mix.exs"), "defmodule Broken do\n  this does not parse (\n")
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")
@@ -170,7 +167,6 @@ defmodule Menard.RunTest do
     assert File.read!(messy) =~ "def go, do: 1"
   end
 
-  @tag :tmp_dir
   test "hunts a flake: repeats until it fails, and answers with that run, its seed and the run count", %{
     tmp_dir: dir
   } do
@@ -376,7 +372,6 @@ defmodule Menard.RunTest do
     assert source =~ "assert Plain.go() == 2"
   end
 
-  @tag :tmp_dir
   test "a red run keeps its whole output in a log and names it; a green one names none", %{tmp_dir: dir} do
     # cap.sh's rule, Tlön's: run once, read the log; never run again with another grep to see more
     Host.mix_project(dir, :logged)

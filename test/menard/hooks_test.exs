@@ -380,7 +380,8 @@ defmodule Menard.HooksTest do
       Path.join(linting, "calls") |> File.read!() |> String.split("\n") |> Enum.filter(&(&1 =~ "run credo"))
 
     assert [line] = credo
-    assert line =~ "lib/m1.ex" and line =~ "lib/m2.ex"
+    assert line =~ "lib/m1.ex"
+    assert line =~ "lib/m2.ex"
   end
 
   @tag :tmp_dir

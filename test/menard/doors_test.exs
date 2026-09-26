@@ -143,8 +143,8 @@ defmodule Menard.DoorsTest do
     for path <- verbs do
       module = Module.concat(Menard.Verbs, path |> Path.basename(".ex") |> Macro.camelize())
 
-      assert Code.ensure_loaded?(module) and function_exported?(module, :run, 1),
-             "#{inspect(module)} has no run/1"
+      assert Code.ensure_loaded?(module), "no module #{inspect(module)}"
+      assert function_exported?(module, :run, 1), "#{inspect(module)} has no run/1"
     end
 
     for task <- Path.wildcard(Path.expand("../../lib/mix/tasks/menard.*.ex", __DIR__)),
