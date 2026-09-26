@@ -11,10 +11,19 @@ defmodule Menard.Clause do
   sibling.)
   """
 
-  import Menard.Source, only: [comment_lines_above: 2, parse: 1, reindent: 2]
+  import Menard.Source,
+    only: [comment_lines_above: 2, dedent: 1, delete_lines: 3, parse: 1, patch: 2, patch: 3, reindent: 2]
+
+  import Menard.Tree,
+    only: [definitions: 1, module_bodies: 1, module_scope: 2, modules: 1, start_line: 1]
+
   alias Sourceror.Zipper
 
-  @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
+  @kinds Menard.Tree.def_kinds()
+
+  # A guard or a delegate has no body to replace: written as `defguard … do … end` it parses and
+  # does not compile, the one thing these verbs must never leave behind.
+  @bodiless [:defguard, :defguardp, :defdelegate]
 
   # Attributes written directly above a clause belong TO that clause, not to the file: delete the
   # clause and leave them behind and they re-attach to whatever follows — "redefining @impl
@@ -44,10 +53,16 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def replace_body(source, name_arity, head, code, opts \\ []) do
     with :ok <- body_only(code),
-         {:ok, clause} <- find(source, name_arity, head, opts) do
+         {:ok, clause} <- find(source, name_arity, head, opts),
+         :ok <- has_body(clause) do
       body_edit(source, clause, code, name_arity, opts)
     end
   end
+
+  defp has_body(%{kind: kind, name: name}) when kind in @bodiless,
+    do: {:error, "`#{kind} #{name}` has no body to replace — `rewrite` replaces the whole #{kind}"}
+
+  defp has_body(_clause), do: :ok
 
   # Only the body's bytes move, so a clause keeps its form. `do … end` holds anything. `, do:` holds
   # the new body only if it reads back as itself there — `do: if a, do: b, else: c` hands `else:` to
@@ -153,14 +168,7 @@ defmodule Menard.Clause do
         leading_attrs(code) ->
           {first, _last} = attached_span(ast, String.split(source, "\n"), clause)
           range = %{clause.range | start: [line: first + 1, column: 1]}
-
-          Sourceror.patch_string(source, [
-            %{
-              range: range,
-              change: clause.indent <> reindent(code, clause.indent),
-              preserve_indentation: false
-            }
-          ])
+          patch(source, range, clause.indent <> reindent(code, clause.indent))
 
         # A comment over a clause with @impl/@doc/@spec goes above THOSE, as `comment/5` puts it: written
         # at the `def`, it would sit between the attributes and what they describe
@@ -197,10 +205,7 @@ defmodule Menard.Clause do
     range = with_comments_above(source, clause.range, code)
     # a range widened to the comments above starts at column 1, so the text brings its own indent
     indent = if range.start[:column] == 1, do: clause.indent, else: ""
-
-    Sourceror.patch_string(source, [
-      %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
-    ])
+    patch(source, range, indent <> reindent(code, clause.indent))
   end
 
   # The lines a clause OWNS: its `def`, the @doc/@spec/@impl written above it, and the comment above
@@ -211,12 +216,9 @@ defmodule Menard.Clause do
     {a - 1 - comment_lines_above(lines, a - 1), b - 1}
   end
 
-  defp drop_spans(lines, spans) do
-    lines
-    |> Enum.with_index()
-    |> Enum.reject(fn {_l, i} -> Enum.any?(spans, fn {a, b} -> i >= a and i <= b end) end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
+  # spans are zero-based, as `attached_span/3` counts them
+  defp drop_spans(source, spans),
+    do: Menard.Source.delete_lines(source, for({a, b} <- spans, do: {a + 1, b + 1}))
 
   defp span_text(lines, {a, b}), do: lines |> Enum.slice(a..b) |> Enum.join("\n")
 
@@ -241,17 +243,6 @@ defmodule Menard.Clause do
     |> Enum.reverse()
   end
 
-  defp dedent(text) do
-    pad =
-      text
-      |> String.split("\n")
-      |> Enum.reject(&(String.trim(&1) == ""))
-      |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
-      |> Enum.min(fn -> 0 end)
-
-    text |> String.split("\n") |> Enum.map_join("\n", &String.slice(&1, pad..-1//1))
-  end
-
   @doc """
   Delete the clause, the comment lines glued above it, and one blank line left behind. The function's
   last clause takes its @doc/@spec too; one clause of several leaves them for the clauses left.
@@ -270,7 +261,7 @@ defmodule Menard.Clause do
           _several -> own_span(ast, lines, clause)
         end
 
-      drop_spans(lines, [span])
+      drop_spans(source, [span])
     end
   end
 
@@ -303,7 +294,7 @@ defmodule Menard.Clause do
 
         all ->
           spans = all |> Enum.map(&attached_span(ast, lines, &1)) |> merge_spans()
-          drop_spans(lines, Enum.map(spans, &with_trailing_blank(lines, &1)))
+          drop_spans(source, Enum.map(spans, &with_trailing_blank(lines, &1)))
       end
     end
   end
@@ -351,7 +342,7 @@ defmodule Menard.Clause do
       %{range: %{end: [line: b, column: c]}, indent: indent} = clause
       body = indent <> reindent(code, indent)
       at = %{start: [line: b, column: c], end: [line: b, column: c]}
-      Sourceror.patch_string(source, [%{range: at, change: gap <> body, preserve_indentation: false}])
+      patch(source, at, gap <> body)
     end
   end
 
@@ -369,7 +360,7 @@ defmodule Menard.Clause do
       a = a - comment_lines_above(lines, a - 1)
       body = indent <> reindent(code, indent)
       at = %{start: [line: a, column: 1], end: [line: a, column: 1]}
-      Sourceror.patch_string(source, [%{range: at, change: body <> gap, preserve_indentation: false}])
+      patch(source, at, body <> gap)
     end
   end
 
@@ -457,7 +448,8 @@ defmodule Menard.Clause do
 
           moved = insert_into(dest, dest_module, nil, code)
 
-          {:ok, drop_spans(lines, spans |> merge_spans() |> Enum.map(&with_trailing_blank(lines, &1))), moved}
+          {:ok, drop_spans(source, spans |> merge_spans() |> Enum.map(&with_trailing_blank(lines, &1))),
+           moved}
       end
     end
   end
@@ -478,8 +470,16 @@ defmodule Menard.Clause do
          {:ok, ast} <- parse(source),
          {:ok, scope} <- scope(ast, mod, name, arity) do
       case clauses(scope, name, arity) do
-        [] -> {:error, "no #{name}/#{arity} in this file"}
-        found -> source |> flip(found, want) |> drop_docs(name_arity, want)
+        [] ->
+          {:error, "no #{name}/#{arity} in this file"}
+
+        # no defdelegatep exists: a silent no-op read as done
+        [%{kind: :defdelegate} | _] ->
+          {:error,
+           "#{name}/#{arity} is a defdelegate, which is always public — `rewrite` it as a def to change that"}
+
+        found ->
+          source |> flip(found, want) |> drop_docs(name_arity, want)
       end
     end
   end
@@ -541,9 +541,6 @@ defmodule Menard.Clause do
     indent = String.duplicate(" ", col - 1)
     code |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
   end
-
-  defp patch(source, range, change),
-    do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
 
   # -- locating a clause ----------------------------------------------------
 
@@ -758,66 +755,6 @@ defmodule Menard.Clause do
     module_scope(ast, mod)
   end
 
-  # Every `defmodule` in the file as `{"Full.Name", node}` — a nested one by the name Elixir gives it
-  # (`Outer.Inner`), the name `outline` shows.
-  def modules(ast), do: modules_in(ast, nil)
-
-  defp modules_in({:defmodule, _, [{:__aliases__, _, parts} | _] = args} = node, parent) do
-    name =
-      case {parts, parent} do
-        {[{:__MODULE__, _, _} | _], _} -> Menard.Source.alias_name(parts, parent)
-        {_, nil} -> Menard.Source.alias_name(parts)
-        _ -> parent <> "." <> Menard.Source.alias_name(parts)
-      end
-
-    [{name, node} | modules_in(args, name)]
-  end
-
-  defp modules_in({form, _meta, args}, parent), do: modules_in(form, parent) ++ modules_in(args, parent)
-  defp modules_in({a, b}, parent), do: modules_in(a, parent) ++ modules_in(b, parent)
-  defp modules_in(list, parent) when is_list(list), do: Enum.flat_map(list, &modules_in(&1, parent))
-  defp modules_in(_leaf, _parent), do: []
-
-  # The module to act in: named, or — unnamed — the file's one module. Several unnamed is refused,
-  # the same discipline as an unqualified name/arity two modules define.
-  @doc false
-  def module_scope(ast, nil) do
-    case modules(ast) do
-      [{_name, node}] -> {:ok, node}
-      [] -> {:error, "no module in this file"}
-      many -> {:error, "several modules here — name one: #{Enum.map_join(many, ", ", &elem(&1, 0))}"}
-    end
-  end
-
-  def module_scope(ast, module) do
-    case for {^module, node} <- modules(ast), do: node do
-      [node] ->
-        {:ok, node}
-
-      [] ->
-        {:error,
-         "no module #{module} in this file — have: #{Enum.map_join(modules(ast), ", ", &elem(&1, 0))}"}
-
-      # `if Code.ensure_loaded?(X) do defmodule M … else defmodule M … end`: an edit went to the first
-      # whichever was meant
-      many ->
-        lines = Enum.map_join(many, ", ", &"line #{start_line(&1)}")
-
-        {:error,
-         "#{module} is defined #{length(many)} times here (#{lines}), which no verb can tell apart — `write` the file whole"}
-    end
-  end
-
-  # The module's own top-level definitions, in source order — a def nested inside another is not one.
-  defp definitions(node) do
-    node |> module_body() |> Enum.filter(&match?({kind, _meta, _args} when kind in @kinds, &1))
-  end
-
-  @doc false
-  def module_body({:defmodule, _, [_alias, [{_do, {:__block__, _, statements}}]]}), do: statements
-  def module_body({:defmodule, _, [_alias, [{_do, statement}]]}), do: [statement]
-  def module_body(_node), do: []
-
   defp parse_name_arity(spec) do
     with [path, arity] <- String.split(spec, "/"),
          {arity, ""} <- Integer.parse(arity) do
@@ -869,14 +806,14 @@ defmodule Menard.Clause do
     }
   end
 
-  defp name_arity({:when, _, [call | _]}), do: name_arity(call)
   # The name as text, as `parse_name_arity` gives it: an input name is never made an atom.
-  defp name_arity({name, _, args}) when is_list(args), do: {name_text(name), length(args)}
-  defp name_arity({name, _, _}), do: {name_text(name), 0}
-
-  # `def unquote(name)(…)` has no name to read, and matches no name asked for
-  defp name_text(name) when is_atom(name), do: Atom.to_string(name)
-  defp name_text(name), do: name
+  # `def unquote(name)(…)` has no name to read, and matches no name asked for.
+  defp name_arity(head) do
+    case Menard.Tree.name_arity(head) do
+      {name, arity} when is_atom(name) -> {Atom.to_string(name), arity}
+      other -> other
+    end
+  end
 
   # The head as written: `{args_text, guard_text | nil}`.
   defp split_head({:when, _, [call, guard]}), do: {elem(split_head(call), 0), Sourceror.to_string(guard)}
@@ -1014,18 +951,6 @@ defmodule Menard.Clause do
     end
   end
 
-  @doc """
-  The top-level statements of each module in : what Menard.Stmt's module fallback may reach.
-  """
-  def module_bodies(ast), do: Enum.map(modules(ast), fn {_name, node} -> module_body(node) end)
-
-  defp start_line(node) do
-    case Sourceror.get_range(node) do
-      %{start: [line: line, column: _]} -> line
-      _ -> nil
-    end
-  end
-
   defp attached_attr?({:@, _meta, [{name, _inner, _args}]}) when is_atom(name), do: name in @attached
   # A Phoenix component's `attr`/`slot` declarations belong to the def below as its @doc does: a
   # clause inserted before one landed between them and it (bench4 new-component.B.haiku), and a
@@ -1053,14 +978,13 @@ defmodule Menard.Clause do
                 start: [line: line, column: col],
                 end: [line: line, column: col + String.length(Atom.to_string(clause.kind))]
               },
-              change: Atom.to_string(new),
-              preserve_indentation: false
+              change: Atom.to_string(new)
             }
           ]
         end
       end)
 
-    if patches == [], do: source, else: Sourceror.patch_string(source, patches)
+    patch(source, patches)
   end
 
   defp kind_for(:def, :private), do: :defp
@@ -1134,7 +1058,7 @@ defmodule Menard.Clause do
     case {attached_lines(ast, first.range, :spec), rendered} do
       {nil, nil} -> source
       {nil, _} -> insert_at_line(source, line, rendered)
-      {{a, b}, nil} -> delete_line_range(source, a, b)
+      {{a, b}, nil} -> delete_lines(source, a, b)
       {{a, b}, _} -> replace_line_range(source, a, b, rendered)
     end
   end
@@ -1162,14 +1086,6 @@ defmodule Menard.Clause do
     end
   end
 
-  defp delete_line_range(source, a, b) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index(1)
-    |> Enum.reject(fn {_text, i} -> i >= a and i <= b end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
-
   defp replace_line_range(source, a, b, text) do
     lines = String.split(source, "\n")
 
@@ -1185,7 +1101,7 @@ defmodule Menard.Clause do
     case {above, text} do
       {0, nil} -> source
       {0, _} -> insert_at_line(source, anchor, comment_text(text, indent))
-      {n, nil} -> delete_line_range(source, anchor - n, anchor - 1)
+      {n, nil} -> delete_lines(source, anchor - n, anchor - 1)
       {n, _} -> replace_line_range(source, anchor - n, anchor - 1, comment_text(text, indent))
     end
   end

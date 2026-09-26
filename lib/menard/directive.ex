@@ -13,7 +13,7 @@ defmodule Menard.Directive do
   never duplicates a line. One that is there with other options is refused: `replace` changes those.
   """
 
-  import Menard.Source, only: [parse: 1]
+  import Menard.Source, only: [parse: 1, patch: 3]
   # in the order they are written; a test module's doctest line comes last, as Quokka places it
   @kinds [:use, :import, :alias, :require, :doctest]
 
@@ -32,8 +32,8 @@ defmodule Menard.Directive do
     line = directive_line(kind, target, opts[:args])
 
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      body = Menard.Clause.module_body(node)
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      body = Menard.Tree.module_body(node)
 
       case Enum.find(body, &({kind, target} in directives(&1))) do
         nil ->
@@ -49,12 +49,13 @@ defmodule Menard.Directive do
   @spec remove(String.t(), atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def remove(source, kind, target, opts \\ []) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      body = Menard.Clause.module_body(node)
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      body = Menard.Tree.module_body(node)
 
       cond do
         found = Enum.find(body, &match(&1, kind, target)) ->
-          drop_lines(source, Sourceror.get_range(found))
+          {a, b} = Menard.Tree.line_span(found)
+          Menard.Source.delete_lines(source, a, b)
 
         # dropping the line would take its siblings with it
         multi = Enum.find(body, &({kind, target} in directives(&1))) ->
@@ -70,8 +71,8 @@ defmodule Menard.Directive do
   @spec list(String.t(), keyword()) :: [{atom(), String.t()}] | {:error, String.t()}
   def list(source, opts \\ []) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      node |> Menard.Clause.module_body() |> Enum.flat_map(&directives/1)
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      node |> Menard.Tree.module_body() |> Enum.flat_map(&directives/1)
     end
   end
 
@@ -83,8 +84,8 @@ defmodule Menard.Directive do
   @spec replace(String.t(), atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, kind, target, opts) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      case Enum.find(Menard.Clause.module_body(node), &match(&1, kind, target)) do
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      case Enum.find(Menard.Tree.module_body(node), &match(&1, kind, target)) do
         nil -> {:error, "no #{kind} #{target} in this module"}
         found -> patch(source, Sourceror.get_range(found), directive_line(kind, target, opts[:args]))
       end
@@ -152,14 +153,6 @@ defmodule Menard.Directive do
     patch(source, at, String.duplicate(" ", col - 1) <> line <> "\n")
   end
 
-  defp drop_lines(source, %{start: [line: a, column: _], end: [line: b, column: _]}) do
-    source
-    |> String.split("\n")
-    |> Enum.with_index()
-    |> Enum.reject(fn {_text, i} -> i >= a - 1 and i <= b - 1 end)
-    |> Enum.map_join("\n", &elem(&1, 0))
-  end
-
   # -- reading directives ---------------------------------------------------
 
   defp directive({kind, _meta, [{:__aliases__, _alias_meta, parts} | _rest]}) when kind in @kinds,
@@ -224,7 +217,4 @@ defmodule Menard.Directive do
   defp directive_line(kind, target, nil), do: "#{kind} #{target}"
   defp directive_line(kind, target, ""), do: "#{kind} #{target}"
   defp directive_line(kind, target, args), do: "#{kind} #{target}, #{args}"
-
-  defp patch(source, range, change),
-    do: Sourceror.patch_string(source, [%{range: range, change: change, preserve_indentation: false}])
 end

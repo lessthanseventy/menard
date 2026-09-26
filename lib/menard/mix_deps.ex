@@ -8,7 +8,7 @@ defmodule Menard.MixDeps do
   `lock_diff/2` compares two `mix.lock` texts by version, read as data and never evaluated.
   """
 
-  import Menard.Source, only: [parse: 1]
+  import Menard.Source, only: [parse: 1, patch: 2]
 
   alias Menard.Clause
 
@@ -174,9 +174,6 @@ defmodule Menard.MixDeps do
 
   defp insert(line, column, text),
     do: %{range: %{start: [line: line, column: column], end: [line: line, column: column]}, change: text}
-
-  defp patch(source, patches),
-    do: Sourceror.patch_string(source, Enum.map(patches, &Map.put(&1, :preserve_indentation, false)))
 
   # -- mix.lock ---------------------------------------------------------------
 
