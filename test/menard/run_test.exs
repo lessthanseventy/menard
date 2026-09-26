@@ -144,23 +144,24 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  @pinned "1.20.4-otp-29"
+  @tag skip:
+         !(System.find_executable("mise") &&
+             File.dir?(Path.expand("~/.local/share/mise/installs/elixir/#{@pinned}")) &&
+             System.version() != "1.20.4") &&
+           "needs mise with elixir #{@pinned} installed, menard on another elixir"
   test "the host's mix runs on the host's toolchain, not menard's", %{tmp_dir: dir} do
-    pinned = "1.20.4-otp-29"
-    installed = Path.expand("~/.local/share/mise/installs/elixir/#{pinned}")
+    File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{@pinned}\"\nerlang = \"29\"\n")
 
-    if System.find_executable("mise") && File.dir?(installed) && System.version() != "1.20.4" do
-      File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{pinned}\"\nerlang = \"29\"\n")
-
-      File.write!(Path.join(dir, "mix.exs"), """
-      defmodule Pin.MixProject do
-        use Mix.Project
-        def project, do: [app: :pin, version: "0.1.0", aliases: [precommit: ["run --no-start -e \\"IO.puts(System.version())\\""]]]
-      end
-      """)
-
-      System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
-      assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Pin.MixProject do
+      use Mix.Project
+      def project, do: [app: :pin, version: "0.1.0", aliases: [precommit: ["run --no-start -e \\"IO.puts(System.version())\\""]]]
     end
+    """)
+
+    System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
+    assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
   end
 
   @tag :tmp_dir

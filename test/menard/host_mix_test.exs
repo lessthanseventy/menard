@@ -6,19 +6,18 @@ defmodule Menard.HostMixTest do
 
   @moduletag :tmp_dir
 
+  @tag skip: !System.find_executable("mise") && "needs mise"
   test "a pinned toolchain that is not installed is never built: the mix on PATH runs, and says so",
        %{tmp_dir: dir} do
-    if System.find_executable("mise") do
-      File.write!(Path.join(dir, ".tool-versions"), "erlang 26.2.3\nelixir 1.16.2-otp-26\n")
+    File.write!(Path.join(dir, ".tool-versions"), "erlang 26.2.3\nelixir 1.16.2-otp-26\n")
 
-      {us, {out, status}} = :timer.tc(fn -> Menard.host_mix(dir, ["--version"]) end)
+    {us, {out, status}} = :timer.tc(fn -> Menard.host_mix(dir, ["--version"]) end)
 
-      assert status == 0
-      assert out =~ "Mix"
-      assert out =~ "erlang 26.2.3"
-      assert out =~ "not installed"
-      assert us < 20_000_000
-    end
+    assert status == 0
+    assert out =~ "Mix"
+    assert out =~ "erlang 26.2.3"
+    assert out =~ "not installed"
+    assert us < 20_000_000
   end
 
   test "the host's mix reads no stdin: a prompt gets end of input, not a wait", %{tmp_dir: dir} do
