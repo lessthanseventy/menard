@@ -423,6 +423,7 @@ def run_one(case_dir, arm, model, n, out_dir):
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
         "clean": code == 0 and not diff["noise_files"] and "NOTE: unformatted" not in check_out, **diff, **trace_metrics(trace, ws),
+        **lint(ws, env, out_dir, rid),
     }
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
@@ -456,13 +457,35 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         "failures": [dict(f, step=s["step"]) for s in steps for f in s["failures"]][:40],
         "rereads": total("rereads"), "retries": total("retries"),
         "gaps": [dict(g, step=s["step"]) for s in steps for g in s["gaps"]],
-        "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "cost_usd", "peak_ctx",
+        "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "tokens", "peak_ctx",
                                       "failed_calls", "wall_s", "timed_out")} for s in steps],
+        **lint(ws, env, out_dir, rid),
     }
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     shutil.rmtree(ws, ignore_errors=True)
     return row
+
+
+def lint(ws, env, out_dir, rid):
+    """What a run left for CI beyond its check: credo's issues (a project with none at its base, so
+    each is the agent's), and whether the agent ran the gate itself before it stopped."""
+    ran = 0
+    for trace in (out_dir / "traces").glob(f"{rid}*.jsonl"):
+        for line in open(trace):
+            if '"tool_use"' not in line or not line.startswith("{"):
+                continue
+            for c in json.loads(line).get("message", {}).get("content", []):
+                if c.get("type") == "tool_use" and re.search(r'precommit|credo|run check|"verb": "check"',
+                                                             json.dumps(c.get("input", {}))):
+                    ran += 1
+    if not (ws / "deps" / "credo").exists():
+        return {"credo": None, "ran_gate": ran}
+    _, out = sh("mix credo --format json", ws, timeout=300, env=env)
+    at = out.find('{\n  "issues"')
+    issues = json.loads(out[at:])["issues"] if at >= 0 else []
+    return {"credo": len(issues), "ran_gate": ran,
+            "credo_issues": [f"{i['filename']}:{i['line_no']} {i['message']}" for i in issues][:20]}
 
 
 def main():
