@@ -76,11 +76,19 @@ def build_template(suite, force=False):
     if TEMPLATE.exists():
         subprocess.run(["chmod", "-R", "u+w", str(TEMPLATE)], check=True)
     shutil.rmtree(TEMPLATE, ignore_errors=True)
-    shutil.copytree(suite / "fixture", TEMPLATE)
-    for cmd in ["mix deps.get", "mix compile", "MIX_ENV=test mix compile", "mix test"]:
-        code, out = sh(cmd, TEMPLATE, timeout=1200)
+    # a real project builds its own (eval/tlon: a clone at HEAD with its deps, on its toolchain)
+    if (suite / "build.sh").exists():
+        TEMPLATE.parent.mkdir(parents=True, exist_ok=True)
+        code, out = sh(["bash", str(suite / "build.sh")], TEMPLATE.parent, timeout=3600,
+                       env=dict(os.environ, TEMPLATE=str(TEMPLATE)))
         if code != 0:
-            sys.exit(f"template: `{cmd}` failed:\n{out[-3000:]}")
+            sys.exit(f"template: build.sh failed:\n{out[-3000:]}")
+    else:
+        shutil.copytree(suite / "fixture", TEMPLATE)
+        for cmd in ["mix deps.get", "mix compile", "MIX_ENV=test mix compile", "mix test"]:
+            code, out = sh(cmd, TEMPLATE, timeout=1200)
+            if code != 0:
+                sys.exit(f"template: `{cmd}` failed:\n{out[-3000:]}")
     # nothing may write into the copy every run starts from, an agent that wandered here included
     subprocess.run(["chmod", "-R", "a-w", str(TEMPLATE)], check=True)
 
@@ -282,6 +290,18 @@ def trace_metrics(trace_path, ws):
     }
 
 
+def suite_env(case_dir, rid, ws):
+    """What a suite's agent_env.sh prints, KEY=VALUE per line: eval/tlon's isolation from the live
+    service and its databases. Empty for a suite without one."""
+    script = case_dir.parent.parent / "agent_env.sh"
+    if not script.exists():
+        return {}
+    code, out = sh(["bash", str(script), rid, str(ws)], ws, timeout=120)
+    if code != 0:
+        sys.exit(f"{script}: {out}")
+    return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+
 def run_agent(cmd, ws, out, env):
     """The agent, in a process group of its own: at TIMEOUT all of it goes, the mix it started too.
     True when it timed out."""
@@ -299,14 +319,14 @@ def run_agent(cmd, ws, out, env):
         LIVE.discard(p)
 
 
-def check(check_dir, ws):
-    """check.sh in check_dir, run in ws after its hidden/ files are copied in."""
+def check(check_dir, ws, run_env=None):
+    """check.sh in check_dir, run in ws after its hidden/ files are copied in, under the run's env."""
     hidden = check_dir / "hidden"
     if hidden.exists():
         shutil.copytree(hidden, ws, dirs_exist_ok=True)
-    code, out = sh(["bash", str(check_dir / "check.sh")], ws, timeout=600,
-                   env=dict(os.environ, CASE_DIR=str(check_dir), EVAL_COMMON=str(EVAL / "cases" / "common.sh"),
-                            MIX_ENV="test"))
+    code, out = sh(["bash", str(check_dir / "check.sh")], ws, timeout=1800,
+                   env=dict(run_env or os.environ, CASE_DIR=str(check_dir),
+                            EVAL_COMMON=str(EVAL / "cases" / "common.sh"), MIX_ENV="test"))
     return code, out
 
 
@@ -350,6 +370,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     # A runner started from a Claude Code shell inherits its plugins' bin/ dirs, and an installed
     # menard there (0.3.0 once) answered every `menard` the agents ran through Bash. The arm's own
     # --plugin-dir is the only menard a run may see.
+    env.update(suite_env(case_dir, rid, ws))
     env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
                                   if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
     if (case_dir / "steps").exists():
@@ -366,7 +387,10 @@ def run_one(case_dir, arm, model, n, out_dir):
         if (case_dir / "allowed").exists() else []
     diff, patch = diff_metrics(ws, allowed)
     (out_dir / "traces" / f"{rid}.diff").write_text(patch)
-    code, check_out = check(case_dir, ws)
+    code, check_out = check(case_dir, ws, env)
+    cleanup = case_dir.parent.parent / "cleanup.sh"
+    if cleanup.exists():
+        sh(["bash", str(cleanup), rid, str(ws)], ws, timeout=120, env=env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
         "arm": arm, "model": model, "n": n, "wall_s": wall, "timed_out": timed_out,
@@ -430,6 +454,11 @@ def main():
         signal.signal(sig, stop)
 
     suite = Path(a.suite).resolve()
+    # a real project's tickets run longer than the fixture's cases (eval/tlon/settings.json)
+    global MAX_TURNS, TIMEOUT
+    if (suite / "settings.json").exists():
+        limits = json.loads((suite / "settings.json").read_text())
+        MAX_TURNS, TIMEOUT = limits.get("max_turns", MAX_TURNS), limits.get("timeout", TIMEOUT)
     build_template(suite, a.rebuild)
     build_plugins(a.rebuild)
     for arm in a.arms.split(","):

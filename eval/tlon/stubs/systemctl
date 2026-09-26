@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "systemctl: not available here — this is an isolated copy of tlon for an evaluation; the live service is out of reach" >&2
+exit 1
