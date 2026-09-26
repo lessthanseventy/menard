@@ -65,8 +65,12 @@ set -- ${args[@]+"${args[@]}"}
 # tool locks itself out of finishing its own edit. Args ride System.argv, so multi-line CODE with
 # quotes in it survives.
 if ((frozen)); then
+  # MIX_ENV's build only, as mix would run: with the docs and test builds on the path too, the
+  # glob's order picked which build's modules loaded
   pa=()
-  for ebin in _build/*/lib/*/ebin; do pa+=(-pa "$PWD/$ebin"); done
+  for ebin in _build/"${MIX_ENV:-dev}"/lib/*/ebin; do
+    if [[ -d "$ebin" ]]; then pa+=(-pa "$PWD/$ebin"); fi
+  done
   [[ ${#pa[@]} -gt 0 ]] || { echo "menard --frozen: nothing built yet — run a plain verb once" >&2; exit 2; }
   # Mix.raise is how every task reports a miss ("no clause go/1 with head … — have: …"), and only
   # the `mix` CLI turns that into a message; raised here it would print as a bare stack trace and
