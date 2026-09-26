@@ -342,6 +342,11 @@ def same_file(a, b):
     return a == b or a.endswith("/" + b) or b.endswith("/" + a)
 
 
+def files_in(cmd):
+    """The source files a shell command names; a scratch copy under $TMPDIR or /tmp is not one."""
+    return [p for p in FILE.findall(cmd) if not p.startswith(("TMPDIR/", "/tmp/", "tmp/"))]
+
+
 def paths_in(inp):
     out = []
     for k in ("file_path", "file", "path", "files"):
@@ -400,9 +405,9 @@ def trace_metrics(trace_path, ws):
         res = results.get(c["id"], {})
         # the files a shell edit names count as edited; a Read, or a cat/sed -n through the shell, of
         # one edited before is a reread (arm A edits and reads through the shell)
-        paths = [norm(p, ws) for p in (FILE.findall(k["cmd"]) if k["shell_edit"] else paths_in(inp))]
+        paths = [norm(p, ws) for p in (files_in(k["cmd"]) if k["shell_edit"] else paths_in(inp))]
         reads = paths if name == "Read" else \
-            [norm(p, ws) for p in FILE.findall(k["cmd"])] if name == "Bash" and not k["edit"] and SHELL_READ.search(k["cmd"]) else []
+            [norm(p, ws) for p in files_in(k["cmd"])] if name == "Bash" and not k["edit"] and SHELL_READ.search(k["cmd"]) else []
         if any(same_file(r, e) for r in reads for e in edited):
             rereads += 1
         if k["edit"]:

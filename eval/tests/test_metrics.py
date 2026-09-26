@@ -149,6 +149,12 @@ class TestRereads(unittest.TestCase):
         t.call("Read", {"file_path": "/ws/server/lib/server/a.ex"})
         self.assertEqual(metrics(t)["rereads"], 1)
 
+    def test_a_scratch_copy_under_tmpdir_is_not_a_source_file(self):
+        t = Trace().call(*bash("cp lib/a.ex $TMPDIR/a.orig.ex; sed -i 's/x/y/' lib/a.ex")) \
+            .call(*bash("grep -n def $TMPDIR/a.orig.ex | head")) \
+            .call(*bash("cat lib/a.ex"))
+        self.assertEqual(metrics(t)["rereads"], 1)
+
     def test_a_shell_read_is_not_an_edit(self):
         t = Trace().call(*bash("sed -n 1,20p lib/a.ex; cat lib/b.ex | head")).call("Read", {"file_path": "/ws/lib/a.ex"})
         self.assertEqual(metrics(t)["rereads"], 0)
