@@ -12,7 +12,16 @@ defmodule Menard.Clause do
   """
 
   import Menard.Source,
-    only: [comment_lines_above: 2, dedent: 1, delete_lines: 3, parse: 1, patch: 2, patch: 3, reindent: 2]
+    only: [
+      comment_lines_above: 2,
+      dedent: 1,
+      delete_lines: 3,
+      indented: 2,
+      parse: 1,
+      patch: 2,
+      patch: 3,
+      reindent: 2
+    ]
 
   import Menard.Tree,
     only: [definitions: 1, module_bodies: 1, module_scope: 2, modules: 1, start_line: 1]
@@ -547,11 +556,6 @@ defmodule Menard.Clause do
     %{start: [line: _, column: col], end: [line: line, column: _]} = Sourceror.get_range(node)
     at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
     patch(source, at, indented(code, col + 2) <> "\n")
-  end
-
-  defp indented(code, col) do
-    indent = String.duplicate(" ", col - 1)
-    code |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &(indent <> &1))
   end
 
   # -- locating a clause ----------------------------------------------------

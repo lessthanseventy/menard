@@ -334,6 +334,15 @@ defmodule Menard.Source do
     end
   end
 
+  @doc """
+  `code` placed at column `col`, its first line too: `reindent/2` with the indent in front, so a blank
+  line stays blank and the lines of a multi-line string stay where its value has them.
+  """
+  def indented(code, col) do
+    indent = String.duplicate(" ", col - 1)
+    indent <> reindent(code, indent)
+  end
+
   defp heex_regions([], _state, _start, acc), do: Enum.reverse(acc)
   defp heex_regions([{"<", i}, {"%", _} | rest], :markup, _, acc), do: heex_regions(rest, :eex, i + 2, acc)
   defp heex_regions([{"{", i} | rest], :markup, _, acc), do: heex_regions(rest, {:brace, 1}, i + 1, acc)

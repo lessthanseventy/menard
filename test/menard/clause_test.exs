@@ -92,8 +92,8 @@ defmodule Menard.ClauseTest do
   test "a guard is part of the head" do
     src = "defmodule G do\n  def f(x) when is_integer(x), do: x\n  def f(x), do: 0\nend\n"
 
-    assert Clause.replace_body(src, "f/1", "x when is_integer(x)", "x * 2") =~
-             "def f(x) when is_integer(x), do: x * 2"
+    assert Clause.replace_body(src, "f/1", "x when is_integer(x)", "x * 2") ==
+             "defmodule G do\n  def f(x) when is_integer(x), do: x * 2\n  def f(x), do: 0\nend\n"
 
     assert Clause.delete(src, "f/1", "x") == "defmodule G do\n  def f(x) when is_integer(x), do: x\nend\n"
   end
@@ -106,13 +106,18 @@ defmodule Menard.ClauseTest do
 
     test "adds a guard, keeping the rest of the file" do
       out = Clause.rewrite(@src, "go/1", "other", "def go(other) when is_integer(other), do: other")
-      assert out =~ "def go(other) when is_integer(other), do: other"
-      assert out =~ "def go(:a), do: 1"
+
+      assert out ==
+               String.replace(
+                 @src,
+                 "def go(other), do: other",
+                 "def go(other) when is_integer(other), do: other"
+               )
     end
 
     test "a multi-line clause is shifted out to the clause's own column" do
       out = Clause.rewrite(@src, "go/1", ":a", "def go(:a) do\n  1 + 1\nend")
-      assert out =~ "  def go(:a) do\n    1 + 1\n  end"
+      assert out == String.replace(@src, "  def go(:a), do: 1", "  def go(:a) do\n    1 + 1\n  end")
     end
 
     test "refuses one clause of several turned into another kind, name or arity — the module stops compiling" do
@@ -147,13 +152,13 @@ defmodule Menard.ClauseTest do
 
   describe "head matching tolerates the parens people copy off the def line" do
     test "`(:b)` finds the clause whose head is `:b`" do
-      assert Clause.replace_body(@src, "go/1", "(:b)", "20") =~ "def go(:b) do\n    20\n  end"
+      assert Clause.replace_body(@src, "go/1", "(:b)", "20") == String.replace(@src, "    2\n", "    20\n")
     end
 
     test "the parens may wrap the args of a GUARDED head, with the guard left outside" do
       src = "defmodule D do\n  def only(x) when is_integer(x), do: x\nend\n"
       out = Clause.replace_body(src, "only/1", "(x) when is_integer(x)", ":int")
-      assert out =~ "def only(x) when is_integer(x), do: :int"
+      assert out == "defmodule D do\n  def only(x) when is_integer(x), do: :int\nend\n"
     end
 
     test "parens that are not a wrapper stay put — and the miss names the real head" do
@@ -163,19 +168,23 @@ defmodule Menard.ClauseTest do
     end
 
     test "the whole def line, or the call, finds the clause too" do
-      assert Clause.replace_body(@src, "go/1", "def go(:b)", "20") =~ "def go(:b) do\n    20\n  end"
-      assert Clause.replace_body(@src, "go/1", "go(:b)", "20") =~ "def go(:b) do\n    20\n  end"
+      assert Clause.replace_body(@src, "go/1", "def go(:b)", "20") ==
+               String.replace(@src, "    2\n", "    20\n")
+
+      assert Clause.replace_body(@src, "go/1", "go(:b)", "20") == String.replace(@src, "    2\n", "    20\n")
 
       src = "defmodule D do\n  defp only(x) when is_integer(x), do: x\nend\n"
-      assert Clause.replace_body(src, "only/1", "defp only(x) when is_integer(x)", ":int") =~ ":int"
+
+      assert Clause.replace_body(src, "only/1", "defp only(x) when is_integer(x)", ":int") ==
+               "defmodule D do\n  defp only(x) when is_integer(x), do: :int\nend\n"
     end
 
     test "an empty head is the function's only clause, and refused among several" do
       # with only one clause there is nothing to tell apart: an empty head means that one
       one = "defmodule D do\n  def pct(done, total), do: done / total\nend\n"
 
-      assert Clause.replace_body(one, "pct/2", "", "done * 100 / total") =~
-               "def pct(done, total), do: done * 100 / total"
+      assert Clause.replace_body(one, "pct/2", "", "done * 100 / total") ==
+               "defmodule D do\n  def pct(done, total), do: done * 100 / total\nend\n"
 
       # with two, it still names the heads to choose from
       two = "defmodule D do\n  def pct(0, _), do: 0\n  def pct(done, total), do: done / total\nend\n"
@@ -185,13 +194,18 @@ defmodule Menard.ClauseTest do
     end
 
     test "the def line copied with its do finds the clause" do
-      assert Clause.replace_body(@src, "go/1", "def go(:b) do", "20") =~ "def go(:b) do\n    20\n  end"
-      assert Clause.replace_body(@src, "go/1", "def go(:a), do:", "10") =~ "def go(:a), do: 10"
+      assert Clause.replace_body(@src, "go/1", "def go(:b) do", "20") ==
+               String.replace(@src, "    2\n", "    20\n")
+
+      assert Clause.replace_body(@src, "go/1", "def go(:a), do:", "10") ==
+               String.replace(@src, "do: 1", "do: 10")
     end
 
     test "the guard may be left off when it is not what tells the clauses apart" do
       src = "defmodule D do\n  def only(x) when is_integer(x), do: x\n  def only(y), do: y\nend\n"
-      assert Clause.replace_body(src, "only/1", "x", ":int") =~ "def only(x) when is_integer(x), do: :int"
+
+      assert Clause.replace_body(src, "only/1", "x", ":int") ==
+               String.replace(src, "is_integer(x), do: x", "is_integer(x), do: :int")
 
       # the guard is what tells these two apart: left off, the exact head wins, and a tie is refused
       tie = "defmodule D do\n  def f(x) when is_integer(x), do: x\n  def f(x) when is_atom(x), do: x\nend\n"
@@ -204,10 +218,11 @@ defmodule Menard.ClauseTest do
       # one clause has nothing to tell apart, so a head that misses (the NEW one, on a rewrite) still means it
       one = "defmodule D do\n  def total(%{} = cart), do: cart\nend\n"
 
-      assert Clause.rewrite(one, "total/1", "cart, rate", "def total(cart, rate), do: {cart, rate}") =~
-               "def total(cart, rate)"
+      assert Clause.rewrite(one, "total/1", "cart, rate", "def total(cart, rate), do: {cart, rate}") ==
+               "defmodule D do\n  def total(cart, rate), do: {cart, rate}\nend\n"
 
-      assert Clause.replace_body(one, "total/1", "whatever", ":ok") =~ "def total(%{} = cart), do: :ok"
+      assert Clause.replace_body(one, "total/1", "whatever", ":ok") ==
+               "defmodule D do\n  def total(%{} = cart), do: :ok\nend\n"
     end
 
     test "a test named as a function is refused with the block call that reaches it" do
@@ -293,6 +308,25 @@ defmodule Menard.ClauseTest do
       assert {:error, message} = Clause.insert_at(@mixed, "Nope", nil, "def x, do: 1")
       assert message =~ "no module Nope"
       assert message =~ "M"
+    end
+
+    test "a blank line inside the new function stays blank, no trailing spaces" do
+      code = "def spaced do\n  x = 1\n\n  x\nend"
+      out = Clause.insert_at("defmodule E do\nend\n", nil, nil, code)
+      assert out == "defmodule E do\n  def spaced do\n    x = 1\n\n    x\n  end\nend\n"
+    end
+
+    test "a multi-line string inside the new function keeps its value" do
+      # the string's second line is part of its value: indenting it would change what it says
+      code = "def two_lines do\n  \"one\ntwo\"\nend"
+      out = Clause.insert_at(@mixed, nil, :bottom, code)
+
+      assert out ==
+               String.replace(
+                 @mixed,
+                 "defp helper, do: :h\n",
+                 "defp helper, do: :h\n\n  def two_lines do\n    \"one\ntwo\"\n  end\n"
+               )
     end
   end
 
@@ -427,9 +461,11 @@ defmodule Menard.ClauseTest do
     test "privatize drops the @doc, which Elixir would discard with a warning" do
       out = Clause.visibility(@multi, "go/1", :private)
 
-      refute out =~ "@doc"
       # @spec is legal on a defp and stays
-      assert out =~ "@spec go(atom()) :: integer()"
+      assert out ==
+               @multi
+               |> String.replace("  @doc \"what it does\"\n", "")
+               |> String.replace("def go(", "defp go(")
     end
 
     test "publicize flips them back" do
@@ -467,12 +503,10 @@ defmodule Menard.ClauseTest do
       """
 
       # a zero-arity clause has no head at all, so the name is the head a caller would write
-      for head <- ["", "bg", "bg()", "def bg"] do
-        assert Clause.replace_body(src, "bg/0", head, "1") =~ "def bg, do: 1"
-      end
-
       # and it stays paren-free: rewriting `def bg` as `def bg()` is a diff nobody asked for
-      refute Clause.replace_body(src, "bg/0", "bg", "1") =~ "def bg()"
+      for head <- ["", "bg", "bg()", "def bg"] do
+        assert Clause.replace_body(src, "bg/0", head, "1") == String.replace(src, "do: 0", "do: 1")
+      end
     end
 
     test "replace_body never nests a def inside itself" do
@@ -581,11 +615,11 @@ defmodule Menard.ClauseTest do
     end
     """
 
-    assert Clause.replace_body(src, "Outer.foo/1", "x", ":outer") =~
-             "def foo(x), do: :outer\n\n  defmodule Inner do\n    def foo(x), do: x + 1"
+    assert Clause.replace_body(src, "Outer.foo/1", "x", ":outer") ==
+             String.replace(src, "def foo(x), do: x\n", "def foo(x), do: :outer\n")
 
-    assert Clause.replace_body(src, "Outer.Inner.foo/1", "x", ":inner") =~
-             "def foo(x), do: x\n\n  defmodule Inner do\n    def foo(x), do: :inner"
+    assert Clause.replace_body(src, "Outer.Inner.foo/1", "x", ":inner") ==
+             String.replace(src, "do: x + 1", "do: :inner")
 
     assert {:error, message} = Clause.replace_body(src, "foo/1", "x", ":any")
     assert message =~ "Outer, Outer.Inner"
@@ -625,7 +659,7 @@ defmodule Menard.ClauseTest do
     end
     """
 
-    assert Clause.replace_body(src, "x?/1", "_node", "true") =~ "do: true\n\n  defp y"
+    assert Clause.replace_body(src, "x?/1", "_node", "true") == String.replace(src, "do: false", "do: true")
   end
 
   test "a body carrying its own rescue into a clause that has one is refused, not doubled" do
@@ -654,11 +688,10 @@ defmodule Menard.ClauseTest do
     """
 
     after_out = Clause.insert_after(src, "a/1", "1", "defp helper, do: :h")
-    assert after_out =~ "def a(1), do: 1\n  def a(2), do: 2\n"
-    assert after_out =~ ~r/def a\(2\), do: 2\n\n?  defp helper/
+    assert after_out == String.replace(src, "def a(2), do: 2\n", "def a(2), do: 2\n\n  defp helper, do: :h\n")
 
     before_out = Clause.insert_before(src, "a/1", "2", "defp helper, do: :h")
-    assert before_out =~ ~r/defp helper, do: :h\n\n?  def a\(1\), do: 1\n  def a\(2\)/
+    assert before_out == String.replace(src, "  def a(1)", "  defp helper, do: :h\n\n  def a(1)")
   end
 
   test "a head with defaults answers without them too" do
@@ -668,16 +701,19 @@ defmodule Menard.ClauseTest do
     end
     """
 
-    assert Clause.replace_body(src, "go/2", "a, opts", ":bare") =~ "def go(a, opts \\\\ []), do: :bare"
-    assert Clause.replace_body(src, "go/2", "a, opts \\\\ []", ":full") =~ "do: :full"
+    assert Clause.replace_body(src, "go/2", "a, opts", ":bare") ==
+             String.replace(src, "do: {a, opts}", "do: :bare")
+
+    assert Clause.replace_body(src, "go/2", "a, opts \\\\ []", ":full") ==
+             String.replace(src, "do: {a, opts}", "do: :full")
   end
 
   test "a body starting with x not in y is replaced from its first byte" do
     # Sourceror starts `name not in [...]` at `not`; the patch left `name ` in front of the new body
     src = "defmodule B do\n  defp keep?(name) do\n    name not in [:def] and\n      ok?(name)\n  end\nend\n"
 
-    assert Clause.replace_body(src, "keep?/1", "name", "name in [:x]") =~
-             "defp keep?(name) do\n    name in [:x]\n  end"
+    assert Clause.replace_body(src, "keep?/1", "name", "name in [:x]") ==
+             String.replace(src, "name not in [:def] and\n      ok?(name)", "name in [:x]")
   end
 
   test "a module defined twice is refused by name, not edited in the first" do
@@ -705,7 +741,7 @@ defmodule Menard.ClauseTest do
   test "rewrite's leading comment lands above the clause's @impl, where clause comment puts one" do
     src = "defmodule T do\n  @impl true\n  def run(argv), do: argv\nend\n"
     out = Clause.rewrite(src, "run/1", "argv", "# why\ndef run(args), do: args")
-    assert out =~ "  # why\n  @impl true\n  def run(args), do: args"
+    assert out == "defmodule T do\n  # why\n  @impl true\n  def run(args), do: args\nend\n"
   end
 
   test "replace handed a whole clause is refused toward rewrite, the function's own or another's" do
@@ -781,9 +817,9 @@ defmodule Menard.ClauseTest do
     code = "@doc \"New.\"\n@spec f(integer()) :: integer()\ndef f(x) do\n  x + 1\nend"
 
     out = Clause.rewrite(src, "f/1", "x", code)
-    assert out =~ ~s|  @doc "New."\n  @spec f(integer()) :: integer()\n  def f(x) do\n    x + 1\n  end|
-    refute out =~ "Old."
-    assert out =~ "def g, do: 1"
+
+    assert out ==
+             "defmodule A do\n  @doc \"New.\"\n  @spec f(integer()) :: integer()\n  def f(x) do\n    x + 1\n  end\n\n  def g, do: 1\nend\n"
   end
 
   test "rewrite takes the clause and whatever the code adds after it: a new function beside it" do
@@ -792,7 +828,9 @@ defmodule Menard.ClauseTest do
     src = "defmodule A do\n  def card(x), do: x\nend\n"
     code = "def card(x), do: badge(x)\n\n@doc \"The badge.\"\ndef badge(x), do: x"
     out = Clause.rewrite(src, "card/1", "x", code)
-    assert out =~ "  def card(x), do: badge(x)\n\n  @doc \"The badge.\"\n  def badge(x), do: x\nend"
+
+    assert out ==
+             "defmodule A do\n  def card(x), do: badge(x)\n\n  @doc \"The badge.\"\n  def badge(x), do: x\nend\n"
   end
 
   test "a component's attr and slot lines belong to its def: insert_before goes above them, delete takes them" do
@@ -809,10 +847,14 @@ defmodule Menard.ClauseTest do
         "attr :product, :map\n\ndef badge(assigns) do\n  ~H\"y\"\nend"
       )
 
-    assert out =~
-             ~r/def badge\(assigns\) do\n.*\n  end\n\n  attr :product, :map, required: true\n  slot :inner_block\n\n  def card/s
+    assert out ==
+             String.replace(
+               src,
+               "  attr :product, :map, required: true\n",
+               "  attr :product, :map\n\n  def badge(assigns) do\n    ~H\"y\"\n  end\n\n  attr :product, :map, required: true\n"
+             )
 
-    refute Clause.delete(src, "card/1", "assigns") =~ "attr :product"
+    assert Clause.delete(src, "card/1", "assigns") == "defmodule C do\n  use Phoenix.Component\nend\n"
   end
 
   test "a head that is part of exactly one clause's head names that clause" do
@@ -821,8 +863,8 @@ defmodule Menard.ClauseTest do
     src =
       "defmodule D do\n  def apply_code(cents, \"TENOFF\"), do: div(cents * 9, 10)\n  def apply_code(cents, \"FIVE\"), do: max(cents - 500, 0)\n  def apply_code(_cents, _code), do: :error\nend\n"
 
-    assert Clause.replace_body(src, "apply_code/2", ~s|"TENOFF"|, "cents") =~
-             ~s|def apply_code(cents, "TENOFF"), do: cents|
+    assert Clause.replace_body(src, "apply_code/2", ~s|"TENOFF"|, "cents") ==
+             String.replace(src, "do: div(cents * 9, 10)", "do: cents")
 
     # a part that fits several is still refused
     assert {:error, _} = Clause.replace_body(src, "apply_code/2", "cents", "0")
@@ -849,9 +891,11 @@ defmodule Menard.ClauseTest do
     assert message =~ "rewrite"
 
     out = Clause.rewrite(src, "summary/1", "assigns", code)
-    assert out =~ "  attr :region, :atom, default: :home\n\n  @doc \"New.\"\n  def summary(assigns) do"
-    refute out =~ "Old."
-    assert length(Regex.scan(~r/attr :cart/, out)) == 1
+
+    assert out ==
+             "defmodule C do\n  use Phoenix.Component\n\n" <>
+               "  attr :cart, :map, required: true\n  attr :region, :atom, default: :home\n\n" <>
+               "  @doc \"New.\"\n  def summary(assigns) do\n    ~H\"new\"\n  end\nend\n"
   end
 
   test "a defguard or a defdelegate has no body: replace_body is refused toward rewrite, never written as `do … end`" do
@@ -866,7 +910,7 @@ defmodule Menard.ClauseTest do
     assert {:error, message} = Clause.replace_body(src, "d/1", "x", "x")
     assert message =~ "defdelegate"
 
-    assert Clause.rewrite(src, "is_x/1", "x", "defguard is_x(x) when is_atom(x)") =~
-             "defguard is_x(x) when is_atom(x)\n  defdelegate"
+    assert Clause.rewrite(src, "is_x/1", "x", "defguard is_x(x) when is_atom(x)") ==
+             String.replace(src, "when is_integer(x)", "when is_atom(x)")
   end
 end
