@@ -93,16 +93,21 @@ defmodule Menard.SourceTest do
 
     test "a node full of strings costs its strings, not the rest of the file for each" do
       # every interpolated string was read from its opening quote to the END of the file, grapheme
-      # by grapheme: a long table of them took seconds per range
+      # by grapheme: a long table of them took seconds per range. Counted in reductions, not timed:
+      # a clock measures the host's load as much as the walk
       src =
         "x = [\n" <> String.duplicate(~S(  "a #{b} ) <> String.duplicate("c", 60) <> ~s(",\n), 1_000) <> "]\n"
 
       {:ok, {:=, _, [_, list]}} = Sourceror.parse_string(src)
 
-      {us, range} = :timer.tc(fn -> Menard.Source.range(list, src) end)
+      {:reductions, start} = Process.info(self(), :reductions)
+      range = Menard.Source.range(list, src)
+      {:reductions, done} = Process.info(self(), :reductions)
 
       assert range.end == [line: 1_002, column: 2]
-      assert us < 1_000_000
+      # about 3_700_000 here; one pass over the file's graphemes is 300_000, and the rest of the file
+      # per string is 500 passes
+      assert done - start < 20_000_000
     end
   end
 end
