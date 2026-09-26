@@ -36,6 +36,23 @@ A thin wrapper over one mix task adds surface and nothing else. That's why `insp
 | `deps doctor` | a `_build` from another toolchain (1.19 vs 1.20, OTP 27 vs 29), deps stale or unfetched: menard knows the host toolchain now, so it can say so and offer the clean rebuild |
 | `check` on touched lines | credo and dialyzer as data, filtered to the lines an edit changed |
 | `xref` | callers and the dependency graph as data (was `inspect callers`, cut for being a bare wrapper; comes back only with structure) |
+| `find` with the enclosing function | every eval trace starts with `grep`, then a Read to see which function each hit sits in: a hit that carries its `name_arity` and head saves that Read, which grep cannot |
+| a signature change across its callers | change-signature took haiku 26 turns in every round, one call per call site, and a haiku that had to do it by hand made the new argument optional to dodge 13 callers: the def and every call site in one call is what an AST can do and `sed` cannot |
+
+## What the evals taught (2026-09-25, bench1-4, long1-2)
+
+- **Agents learn menard from its refusals and its tool descriptions, not from the skill**, which was
+  loaded in a handful of runs. The gains came from taking the agent's first guess (a label where
+  a head goes, `attr replace`, a whole clause handed to `replace`) and from refusals that say what
+  to do instead. A new verb is judged by what an agent reaches for first.
+- **The dangerous bugs are the ones that still parse.** A range one column short put an insert
+  inside a string; a `@doc` nested in a function body; a test inside a test. The parse check
+  cannot see them, so every verb that places code needs a test that the result says what was meant.
+- **grep and sed are hard to beat on cost.** A capable model edits with them in a few turns;
+  menard's per-call tools cost a turn per edit site and ~5-9k tokens of schema on every call. Its
+  wins were clean output (formatted, the project's plugins applied) and structural edits (a rename
+  across files). Whether the clean output needs the tools at all is what arm H measures.
+- **One run per cell cannot judge a model at length**: the same long session went 1/6 then 6/6.
 
 ## Count
 
