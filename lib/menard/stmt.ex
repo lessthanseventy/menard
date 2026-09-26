@@ -58,7 +58,7 @@ defmodule Menard.Stmt do
   # The `{…}` and `<%= … %>` expressions of the ~H templates in the clause, matched as a statement
   # is: whitespace-insensitive, the whole expression or its start
   defp in_template(source, name_arity, head, match, opts) do
-    with {:ok, clause} <- Clause.find(source, name_arity, head, opts) do
+    with {:ok, clause} <- scope(source, name_arity, head, opts) do
       all =
         for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
             {line, column, code} <- Menard.Source.heex_expressions(source, node),
@@ -134,7 +134,7 @@ defmodule Menard.Stmt do
   """
   @spec list(String.t(), String.t(), String.t(), keyword()) :: [String.t()] | {:error, String.t()}
   def list(source, name_arity, head, opts \\ []) do
-    with {:ok, clause} <- Clause.find(source, name_arity, head, opts) do
+    with {:ok, clause} <- scope(source, name_arity, head, opts) do
       source |> candidates(clause) |> Enum.map(& &1.text)
     end
   end
@@ -154,8 +154,21 @@ defmodule Menard.Stmt do
 
   # -- locating a statement -------------------------------------------------
 
+  # The clause named, or, when that names none, the test or describe whose label is in `head`: an
+  # agent reaches for a line of a test the way it reaches for one of a function
+  defp scope(source, name_arity, head, opts) do
+    with {:error, _} = miss <- Clause.find(source, name_arity, head, opts) do
+      label = head |> to_string() |> String.trim() |> String.trim(~s("))
+
+      case label != "" && Menard.Block.labelled(source, label) do
+        {:ok, node} -> {:ok, %{node: node, range: Menard.Source.range(node, source)}}
+        _ -> miss
+      end
+    end
+  end
+
   defp locate(source, name_arity, head, match, opts) do
-    with {:ok, clause} <- Clause.find(source, name_arity, head, opts) do
+    with {:ok, clause} <- scope(source, name_arity, head, opts) do
       want = Clause.squash(match)
       all = candidates(source, clause)
 
