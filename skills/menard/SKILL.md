@@ -23,10 +23,10 @@ Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.f
 
 ## Which tool
 
-Start with `outline {file}`: every module, and every clause's `name_arity`, `head`, lines and doc,
-in far fewer tokens than reading the file. `clause {verb: "get", file, name_arity}` answers with one
-function as written; `Read` only the lines you need past that. Then match the
-SHAPE of the change, not its size:
+A big file: `outline {file}` instead of reading it — every module, and every clause's
+`name_arity`, `head`, lines and doc, in far fewer tokens — then `clause {verb: "get", file,
+name_arity}` for the one function you need. A file you have already Read needs no outline: its
+heads are in what you read. Then match the SHAPE of the change, not its size:
 
 | changing | call |
 |---|---|

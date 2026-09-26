@@ -17,10 +17,11 @@ if Code.ensure_loaded?(Anubis.Server) do
       instructions: """
       An existing .ex/.exs holding a defmodule is edited with these tools, not Edit/Write or sed: they
       parse the file, change the tree, format it and parse-check what they write (Edit may still change
-      text inside a string or a ~H template). Start with outline {file}: every clause's name_arity and
-      head, in far fewer tokens than reading the file; a clause is addressed by that head. A test or
-      describe is a block, by label. Finish on run {verb: "check"}: format, warnings-as-errors and the
-      tests in one JSON line.
+      text inside a string or a ~H template). A big file: outline {file} instead of reading it, every
+      clause's name_arity and head, then clause {verb: "get"} for the one function you need; a file you
+      have already Read needs no outline. A clause is addressed by its head, a test or describe (a
+      block) by its label. A write's reply is every change it made: no need to Read the file back.
+      Finish on run {verb: "check"}: format, warnings-as-errors and the tests in one JSON line.
       """
 
     component(Menard.MCP.Write, name: "write")
