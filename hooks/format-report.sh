@@ -53,7 +53,10 @@ while IFS= read -r file; do
   out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run format --in "$dir" "$file" 2>/dev/null </dev/null)
 
   if [[ "$out" == *'"ok":true'* ]]; then
-    change=$(diff -U0 "$before" "$file" | grep -v '^---\|^+++' | head -40)
+    # past the two header lines by position: a removed `-- x` reads `--- x`, and a filter took it for one
+    change=$(diff -U0 "$before" "$file" | tail -n +3)
+    lines=$(wc -l <<<"$change")
+    ((lines > 40)) && change=$(head -40 <<<"$change")$'\n'"… $((lines - 40)) more lines of the diff"
     [[ -n "$change" ]] && report+="${file#"$dir"/} was reformatted:"$'\n'"$change"$'\n' && moved=1
     # credo on what this session changed in the file, when the project lints with it: found at write
     # time it is one edit; found in CI it is a round trip. Its default level; --strict is the project's.

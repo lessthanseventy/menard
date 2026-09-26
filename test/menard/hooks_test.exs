@@ -191,6 +191,25 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "format-report's diff keeps a line that starts with --, and says when it is cut short", %{tmp_dir: dir} do
+    host(dir)
+    file = Path.join(dir, "lib/n.ex")
+    edit = %{hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: %{file_path: file}}
+
+    # a removed `-- [1]` reads `--- [1]` in the diff, which the header filter took for a header
+    File.write!(file, "defmodule N do\n  def f(x) do\n    x\n-- [1]\n  end\nend\n")
+    {out, 0} = report(edit, dir)
+    assert JSON.decode!(out)["hookSpecificOutput"]["additionalContext"] =~ "--- [1]\n"
+
+    defs = Enum.map_join(1..30, "\n", &"  def f#{&1}, do: 999999")
+    File.write!(file, "defmodule N do\n#{defs}\nend\n")
+    {out, 0} = report(edit, dir)
+    context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
+    assert context =~ "def f1, do: 999_999"
+    assert context =~ ~r/… \d+ more lines of the diff/
+  end
+
+  @tag :tmp_dir
   test "format-report names a file that does not parse, with the compiler's why", %{tmp_dir: dir} do
     host(dir)
     file = Path.join(dir, "lib/bad.ex")
