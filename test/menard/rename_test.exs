@@ -143,4 +143,32 @@ defmodule Menard.RenameTest do
     # renaming variables leaves ~H alone
     assert Rename.run(src, "is_editable?", "editable?", only: :variables) =~ ":if={is_editable?(@x)}"
   end
+
+  test "a rename reaches the docs: a mention and a doctest in @moduledoc and @doc, not other strings" do
+    # long1 cart-refactor.B.haiku renamed price_with_tax and left it in the @moduledoc; a doctest
+    # left behind calls a function that is no longer there
+    src = ~S"""
+    defmodule A do
+      @moduledoc "Prices go through `old/1`."
+
+      @doc \"""
+      The old way.
+
+          iex> A.old(1)
+          1
+      \"""
+      def old(x), do: x
+
+      def label, do: "old"
+    end
+    """
+
+    out = Menard.Rename.run(src, "old", "fresh")
+    assert out =~ "Prices go through `fresh/1`."
+    assert out =~ "iex> A.fresh(1)"
+    assert out =~ "The old way."
+    assert out =~ ~s(def label, do: "old")
+    assert out =~ "def fresh(x)"
+    refute Menard.Rename.run(src, "old", "fresh", docs: false) =~ "`fresh/1`"
+  end
 end

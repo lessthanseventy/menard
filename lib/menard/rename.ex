@@ -28,7 +28,8 @@ defmodule Menard.Rename do
           source,
           patches ++
             comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
-            heex_patches(ast, source, old, new, opts[:only])
+            heex_patches(ast, source, old, new, opts[:only]) ++
+            doc_patches(ast, source, old, new, Keyword.get(opts, :docs, true) and opts[:only] != :variables)
         )
 
       {:error, reason} ->
@@ -80,6 +81,42 @@ defmodule Menard.Rename do
     |> String.split("\n")
     |> Enum.with_index(1)
     |> Enum.flat_map(fn {line, no} -> line_comment_patches(line, no, word, new) end)
+  end
+
+  # @doc/@moduledoc/@typedoc text is prose ABOUT the code, and a doctest in it is code: a rename that
+  # left `old/1` there (long1 cart-refactor.B.haiku) or `iex> A.old(1)` (a doctest that no longer
+  # runs) is half done. Only mentions that read as code: before `(` or `/arity`, or inside backticks;
+  # "the old way" is a word, not the function.
+  defp doc_patches(_ast, _source, _old, _new, false), do: []
+
+  defp doc_patches(ast, source, old, new, true) do
+    lines = String.split(source, "\n")
+    name = Regex.escape(old)
+    code_like = ~r/(?<![A-Za-z0-9_])#{name}(?=\(|\/\d)/
+    in_ticks = ~r/`[^`\n]*`/
+    word = ~r/(?<![A-Za-z0-9_])#{name}(?![A-Za-z0-9_?!])/
+
+    for {:@, _, [{doc, _, [value]}]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+        doc in [:doc, :moduledoc, :typedoc],
+        %{start: [line: a, column: _], end: [line: b, column: _]} <- [Sourceror.get_range(value)],
+        no <- a..b,
+        line = Enum.at(lines, no - 1, ""),
+        offset <- doc_mentions(line, code_like, in_ticks, word),
+        uniq: true do
+      c = String.length(binary_part(line, 0, offset)) + 1
+      %{range: %{start: [line: no, column: c], end: [line: no, column: c + String.length(old)]}, change: new}
+    end
+  end
+
+  defp doc_mentions(line, code_like, in_ticks, word) do
+    calls = for [{off, _}] <- Regex.scan(code_like, line, return: :index), do: off
+
+    ticked =
+      for [{t, len}] <- Regex.scan(in_ticks, line, return: :index),
+          [{off, _}] <- Regex.scan(word, binary_part(line, t, len), return: :index),
+          do: t + off
+
+    Enum.uniq(calls ++ ticked)
   end
 
   defp line_comment_patches(line, no, word, new) do

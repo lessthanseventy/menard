@@ -47,7 +47,9 @@ if Code.ensure_loaded?(Anubis.Server) do
   defmodule Menard.MCP.Rename do
     @moduledoc """
     Rename an identifier across files, AST-aware: every def head, call (local or remote), capture and
-    variable named `old` becomes `new`; strings stay. `only` narrows it to `functions` or `variables`;
+    variable named `old` becomes `new`; strings stay, except the docs: in `@doc`/`@moduledoc` a mention
+    that reads as code (`old/1`, `A.old(x)` in a doctest, `` `old` ``) is renamed too, unless `docs`
+    is false. `only` narrows it to `functions` or `variables`;
     `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
     identifier's bytes move. `files` are paths or globs (`lib/**/*.ex`) under the launch root.
     """
@@ -67,6 +69,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:only, :enum, values: ["functions", "variables"])
       field(:atoms, :boolean)
       field(:comments, :boolean)
+      field(:docs, :boolean)
     end
 
     def call(params, frame) do
@@ -75,6 +78,7 @@ if Code.ensure_loaded?(Anubis.Server) do
         opts = [
           atoms: params[:atoms] == true,
           comments: params[:comments] == true,
+          docs: params[:docs] != false,
           only: params[:only] && String.to_existing_atom(params[:only])
         ]
 
