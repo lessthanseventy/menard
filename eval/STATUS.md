@@ -169,3 +169,7 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   + attr replace = set, b13709c stmt takes a test's label as name_arity + says when a by-start
   match took a whole statement, 0da39bf block get with no label returns every block.
   new-component.A is clean for the first time: the hidden-test fix works (cases are read live).
+- 18:40 HARNESS BUG: not-compiling's setup.sh sed ran a catalog.ex line past the formatter's
+  width, so every run started unformatted: A's "unformatted" on this case in bench1-3 is the setup,
+  and bench3 not-compiling.B.haiku ran `run format` on catalog.ex, which made it noise. Clean on
+  this case is void in every round so far, both arms. setup.sh now formats what it changed.
