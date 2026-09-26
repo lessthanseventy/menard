@@ -225,9 +225,38 @@ defmodule Menard.HooksTest do
     for f <- files, do: assert(File.read!(f) =~ "  def f(x), do: x\n")
   end
 
+  @tag :tmp_dir
+  test "format-report leaves what git ignores alone: a test run's fixtures are no agent's edit", %{
+    tmp_dir: dir
+  } do
+    # menard's own `run check` wrote broken-on-purpose fixtures under tmp/, and the hook named every
+    # one as a file the agent had written and could not format
+    host(dir)
+    File.write!(Path.join(dir, ".gitignore"), "/tmp/\n")
+    # a name git would print quoted and escaped, as menard's own test dirs are (`skipped silently — the`)
+    File.mkdir_p!(Path.join(dir, "tmp/a — b"))
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "mix test"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir)
+    Process.sleep(1100)
+    File.write!(Path.join(dir, "tmp/a — b/bad.ex"), "defmodule Bad do\n  def f(x, do: x\nend\n")
+    File.write!(Path.join(dir, "lib/ok.ex"), "defmodule Ok do\n  def   f(x), do: x\nend\n")
+
+    {out, 0} = report(Map.put(bash, :hook_event_name, "PostToolUse"), dir)
+    refute out =~ "bad.ex"
+    assert File.read!(Path.join(dir, "lib/ok.ex")) =~ "  def f(x), do: x\n"
+  end
+
   # A host menard can format: a mix.exs and a formatter, nothing fetched
   defp host(dir) do
     File.mkdir_p!(Path.join(dir, "lib"))
+    # its own repo: the tmp_dir sits under menard's tmp/, which git ignores
+    {_, 0} = System.cmd("git", ["init", "-q", dir])
 
     File.write!(
       Path.join(dir, "mix.exs"),
