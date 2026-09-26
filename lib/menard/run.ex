@@ -373,7 +373,7 @@ defmodule Menard.Run do
 
   # `check`'s reply, whichever way it ran: `test`'s counts and summary, and every kind of failure
   defp gate(out, status, fetched, dir) do
-    {tests, failed} = counts(out)
+    {tests, failed, skipped} = counts(out)
 
     with_sources(
       %{
@@ -381,6 +381,7 @@ defmodule Menard.Run do
         exit: status,
         tests: tests,
         failed: failed,
+        skipped: skipped,
         failures: problems(out, dir),
         tail: summary(out),
         fetched: fetched
@@ -462,7 +463,7 @@ defmodule Menard.Run do
     runs = out |> String.split(~r/Running ExUnit with seed: /)
     last = List.last(runs)
     # the formatter's counts and failures when it wrote them, else what the prose says
-    {tests, failed} = if held, do: {held.tests, held.failed}, else: counts(last)
+    {tests, failed, skipped} = if held, do: {held.tests, held.failed, held[:skipped]}, else: counts(last)
     # the compile before the first run: its warnings, which a green run went on to hide, or, with no
     # run at all, a test file's errors
     compile = diagnostics(hd(runs))
@@ -473,7 +474,7 @@ defmodule Menard.Run do
       exit: status,
       tests: tests,
       failed: failed,
-      skipped: if(held, do: held[:skipped]),
+      skipped: skipped,
       failures: if(failures == [] and status != 0, do: refusal(out), else: failures),
       tail: summary(last),
       runs: length(runs) - 1,
@@ -581,16 +582,17 @@ defmodule Menard.Run do
   # ExUnit ≥ 1.20 prints `Result: 5 passed` / `Result: 3/5 passed`; older prints `5 tests, 2 failures`.
   defp counts(out) do
     cond do
-      m = Regex.run(~r/Result: (\d+)\/(\d+) passed/, out) ->
-        [_, passed, total] = m
-        {String.to_integer(total), String.to_integer(total) - String.to_integer(passed)}
+      m = Regex.run(~r/Result: (\d+)\/(\d+) passed.*/, out) ->
+        [line, passed, total] = m
+        {String.to_integer(total), String.to_integer(total) - String.to_integer(passed), skipped(line)}
 
-      m = Regex.run(~r/Result: (\d+) passed/, out) ->
-        [_, passed] = m
-        {String.to_integer(passed), 0}
+      m = Regex.run(~r/Result: (\d+) passed.*/, out) ->
+        [line, passed] = m
+        {String.to_integer(passed), 0, skipped(line)}
 
       # `1 doctest, 1 property, 2 tests, 3 failures, 1 invalid`: every kind of test counts, and a test
-      # a failed setup_all invalidated did not pass
+      # a failed setup_all invalidated did not pass. `N tests` counts the skipped too: out, as 1.20
+      # and the formatter leave them.
       line =
           ~r/^\d+ [a-z]+(?:, \d+ [a-z]+)*/m
           |> Regex.scan(out)
@@ -600,10 +602,19 @@ defmodule Menard.Run do
         counted = for [_, n, word] <- Regex.scan(~r/(\d+) ([a-z]+)/, line), do: {word, String.to_integer(n)}
         failed = for {word, n} <- counted, word in ~w(failure failures invalid), do: n
         tests = for {word, n} <- counted, word not in ~w(failure failures invalid excluded skipped), do: n
-        {Enum.sum(tests), Enum.sum(failed)}
+        {Enum.sum(tests) - skipped(line), Enum.sum(failed), skipped(line)}
 
       true ->
-        {nil, nil}
+        {nil, nil, nil}
+    end
+  end
+
+  # `N skipped` in a summary line. An excluded test is the project's own filter and no count, as in
+  # the formatter: a skip is a test that did not run when it was asked to.
+  defp skipped(line) do
+    case Regex.run(~r/(\d+) skipped/, line) do
+      [_, n] -> String.to_integer(n)
+      nil -> 0
     end
   end
 
