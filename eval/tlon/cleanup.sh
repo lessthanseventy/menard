@@ -6,7 +6,8 @@
 status=0
 for db in "${TLON_DATABASE:-}" "${TLON_TEST_DATABASE:-}"; do
   [[ "$db" == ev[dt]_* ]] || continue
-  dropdb -h /run/postgresql --force --if-exists "$db" || status=1
+  # no NOTICE for a database that is not there (the usual case before a run); a failure still prints
+  PGOPTIONS="-c client_min_messages=warning" dropdb -h /run/postgresql --force --if-exists "$db" || status=1
 done
 # the run's tmux servers (agent_env.sh), then their directory
 if [[ "${TMUX_TMPDIR:-}" == "$HOME/.cache/mt/"* ]]; then
