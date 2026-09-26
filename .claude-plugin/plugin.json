@@ -1,17 +1,16 @@
 {
   "name": "menard",
   "version": "0.5.0",
-  "description": "AST-aware editing for Elixir. Verbs that parse the file, change the tree and parse-check the result, plus the hooks that stop an agent reaching for sed on a module instead.",
-  "author": { "name": "Andrew Moore" },
+  "description": "Elixir, formatted as it is written: every file an agent's edit or shell command writes is formatted with the project's own formatter and plugins, the change reported back, a file that does not parse named. The AST-aware MCP tools are the separate plugin manos.",
+  "author": {
+    "name": "Andrew Moore"
+  },
   "license": "MIT",
-  "keywords": ["elixir", "ast", "refactoring", "sourceror", "code-editing"],
-  "mcpServers": {
-    "menard": {
-      "command": "${CLAUDE_PLUGIN_ROOT}/bin/menard",
-      "args": ["mcp"],
-      "timeout": 620000,
-      "env": { "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}" },
-      "alwaysLoad": true
-    }
-  }
+  "keywords": [
+    "elixir",
+    "ast",
+    "refactoring",
+    "sourceror",
+    "code-editing"
+  ]
 }

@@ -15,9 +15,9 @@ if Code.ensure_loaded?(Anubis.Server) do
       capabilities: [:tools],
       # an agent reads this before its first call: in the eval, 4 of 6 learned it from the guard instead
       instructions: """
-      An existing .ex/.exs holding a defmodule is edited with these tools, not Edit/Write or sed: they
-      parse the file, change the tree, format it and parse-check what they write (Edit may still change
-      text inside a string or a ~H template). A big file: outline {file} instead of reading it, every
+      Elixir by its structure: rename across files, find who calls what, a function moved with its
+      docs, one function read out of a big file. Each tool parses the file, changes the tree, formats it
+      and parse-checks what it writes; a plain Edit is fine for the rest. A big file: outline {file} instead of reading it, every
       clause's name_arity and head, then clause {verb: "get"} for the one function you need; a file you
       have already Read needs no outline. A clause is addressed by its head, a test or describe (a
       block) by its label. A write's reply is every change it made: no need to Read the file back.

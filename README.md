@@ -132,31 +132,27 @@ self-located from `import.meta.url`: pi loads an extension as a `data:` URL, whe
 `mise run install:pi` wires the extension, the MCP server, and the skill into `~/.pi/agent/`.
 Idempotent — re-running updates paths without duplicating. No ficciones, no Nix required.
 
-## Claude Code plugin
+## Claude Code plugins
 
-`.claude-plugin/plugin.json` and `hooks/hooks.json` make this directory a plugin. Its MCP tools
-load up front (`alwaysLoad`), so an agent's first edit costs no ToolSearch round trip; the price
-is their schemas, ~3.7k tokens, in every turn. The hooks:
+Two plugins ship from this repo's marketplace, and the first is enough on its own.
 
-- **`menard-only.sh`** (`PreToolUse`) blocks `Edit`/`Write` on any `.ex`/`.exs` holding a
-  `defmodule`. It passes new files, `_build/`, `deps/`, `config/*.exs` and `.formatter.exs` —
-  menard has no verbs for a bare keyword list, so those are edited directly — and an edit that
-  only changes text inside a string or sigil (a heredoc, a `~H` template), which no verb reaches
-  into: the file it would leave must parse to the same tree, strings aside. It does not watch
-  `Bash`: a shell command has no structured target, and matching the command text blocks anything
-  that merely quotes the pattern. Precision over coverage — a guard that fires on innocent
-  commands gets switched off.
-- **`format-elixir.sh`** (`PostToolUse`) formats whatever was written with the file's *own*
-  project formatter, plugins included, so the formatter's output is what the next read shows.
-- **`prefer-menard-run.sh`** (`PostToolUse`) points a bare `mix test`/`compile`/`format` at
-  `menard run`, which answers in one structured line. Advisory — the command has already run, and
-  that is what lets the match stay loose.
-- **`shell-edits.sh`** (`PreToolUse` and `PostToolUse` on `Bash`) names any module a shell
-  command changed (a `sed -i`, a script), and points at `run check`: it marks the time before, and
-  lists the modules newer than the mark after. It judges what changed on disk, never the command
-  text. Advisory.
-- **`read-hint.sh`** (`PostToolUse` on `Read`) points a whole-file read of a module over 300 lines
-  at `outline` and a ranged read. Advisory.
+**`menard`** (this directory: `.claude-plugin/plugin.json`, `hooks/hooks.json`) is one hook,
+`hooks/format-report.sh`. Every `.ex`/`.exs` an `Edit`/`Write` or a shell command writes is
+formatted with its *own* project's formatter, plugins included (Styler, the HEEx formatter). What
+the formatter changed goes back to the agent as context, so its next `Edit` is written against the
+file as it is now; a file that does not parse is named, with the compiler's why. For a shell
+command it marks the time before and formats every Elixir file newer than the mark after, on
+`PostToolUseFailure` too, since Claude Code runs `PostToolUse` only when a tool succeeds.
 
-The guard exists because the rule "use menard for Elixir" was written down and then broken inside
-the hour. A rule an agent has to remember is a rule it breaks.
+**`manos`** (`manos/`) is menard's hands: the MCP tools and the skill that says which fits
+(`manos/skills/menard/SKILL.md`). Install it beside `menard` for what an edit by hand does badly:
+a rename across files, who calls what, one function read out of a big module, a function moved
+with its docs. Its schemas cost ~3.7k tokens in every turn, so it earns its place on projects
+where those edits are common.
+
+Why this split: the eval (`eval/STATUS.md`, bench5) measured menard as it used to ship, tools
+plus a guard blocking `Edit` on modules, against the formatting hook alone. The hook gave the
+same clean output at the cost of no menard at all; the tools cost 46% more for sonnet and paid
+only on renames and big-file reads. The guard is gone from Claude Code: its blocks were a turn
+each and bought nothing measurable over the hook. `hooks/menard-only.sh`, `shell-edits.sh`,
+`read-hint.sh` and `prefer-menard-run.sh` stay for the pi adapter.

@@ -11,7 +11,7 @@ pi_dir="${PI_AGENT_DIR:-$HOME/.pi/agent}"
 settings="$pi_dir/settings.json"
 mcp="$pi_dir/mcp.json"
 ext="$repo/pi/extension.ts"
-skill="$repo/skills/menard"
+skill="$repo/manos/skills/menard"
 bin="$repo/bin/menard"
 
 command -v jq >/dev/null 2>&1 || { echo "install-pi: jq is required" >&2; exit 1; }

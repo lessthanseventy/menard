@@ -1,6 +1,8 @@
 {
   "name": "menard",
-  "owner": { "name": "Andrew Moore" },
+  "owner": {
+    "name": "Andrew Moore"
+  },
   "metadata": {
     "description": "AST-aware editing for Elixir",
     "version": "0.5.0"
@@ -9,9 +11,27 @@
     {
       "name": "menard",
       "source": "./",
-      "description": "AST-aware editing for Elixir. Verbs that parse the file, change the tree and parse-check the result, plus a hook that blocks Edit/Write on a module so an agent cannot fall back to text substitution.",
+      "description": "Elixir, formatted as it is written: every file an agent's edit or shell command writes is formatted with the project's own formatter and plugins, the change reported back, a file that does not parse named. The AST-aware MCP tools are the separate plugin manos.",
       "category": "development",
-      "tags": ["elixir", "ast", "refactoring", "sourceror", "code-editing"]
+      "tags": [
+        "elixir",
+        "ast",
+        "refactoring",
+        "sourceror",
+        "code-editing"
+      ]
+    },
+    {
+      "name": "manos",
+      "source": "./manos",
+      "description": "menard's hands: its AST-aware Elixir tools over MCP, and the skill that says which fits. For a rename across files, finding callers, reading one function of a big module. Install beside menard, the formatting hook.",
+      "category": "development",
+      "tags": [
+        "elixir",
+        "ast",
+        "refactoring",
+        "mcp"
+      ]
     }
   ]
 }

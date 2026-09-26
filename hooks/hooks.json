@@ -1,23 +1,13 @@
 {
-  "description": "Elixir modules are edited with menard's verbs, not with text substitution; whatever is written is formatted with its own project's formatter before anyone reads it back; a bare `mix test` is pointed at the structured door; and a module changed by a shell command, or read whole when large, is named.",
+  "description": "Every Elixir file an edit or a shell command writes is formatted with its own project's formatter, plugins included; what the formatter changed goes back to the agent, and a file that does not parse is named. The MCP tools are a separate plugin, manos.",
   "hooks": {
     "PreToolUse": [
-      {
-        "matcher": "Edit|MultiEdit|Write|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/menard-only.sh\"",
-            "statusMessage": "menard guard"
-          }
-        ]
-      },
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shell-edits.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\""
           }
         ]
       }
@@ -28,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-elixir.sh\"",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\"",
             "statusMessage": "mix format"
           }
         ]
@@ -38,21 +28,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/prefer-menard-run.sh\"",
-            "statusMessage": "menard run"
-          },
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shell-edits.sh\""
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/read-hint.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\"",
+            "statusMessage": "mix format"
           }
         ]
       }
@@ -63,7 +40,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/shell-edits.sh\""
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\"",
+            "statusMessage": "mix format"
           }
         ]
       }
