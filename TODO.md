@@ -27,9 +27,7 @@ commit lands.
   one-liners, the refusal-adjacent checks). The ones where placement or blank lines could hide a
   diff are whole-output `==` now (and found two blank-line bugs); convert the rest as they are
   touched.
-- hooks/format-report.sh:30 skips a Bash command only when it STARTS with `git`: `cd DIR && git
-  worktree add …` (or a checkout after a `cd`) is taken for an edit of every file git wrote, and the
-  hook formats each one; in a worktree whose eval fixture has no deps fetched, that was ~45
-  "Unknown dependency :phoenix" errors back to the agent (2026-09-26). Matching `git` anywhere is
-  wrong too (`git checkout x && sed -i a.ex` is a real edit): skip only files git itself wrote, e.g.
-  those whose content matches the index/HEAD after the command.
+- hooks/format-report.sh skips a shell-written file whose content its repo already holds, which is
+  what git writes, except a conflicted merge's (`git merge`, `stash pop`, `rebase`): the markers are
+  new content, so the file is formatted and named back as not parsing. The agent knows the merge
+  conflicted; skip what `git ls-files -u` lists if that noise shows up.
