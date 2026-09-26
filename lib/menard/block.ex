@@ -152,6 +152,18 @@ defmodule Menard.Block do
     end
   end
 
+  @doc "The one do-block (`test`, `describe`, …) labelled `label`, as its node, or why not."
+  @spec labelled(String.t(), String.t()) :: {:ok, Macro.t()} | {:error, String.t()}
+  def labelled(source, label) do
+    with {:ok, blocks} <- blocks(source, []) do
+      case Enum.filter(blocks, &(label(&1) == label)) do
+        [node] -> {:ok, node}
+        [] -> {:error, "no block labelled #{inspect(label)}"}
+        many -> {:error, "#{length(many)} blocks labelled #{inspect(label)}"}
+      end
+    end
+  end
+
   # -- locating ------------------------------------------------------------
 
   defp one(source, name, opts) do

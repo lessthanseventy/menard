@@ -385,4 +385,30 @@ defmodule Menard.StmtTest do
     assert String.length(message) < 2_000
     assert message =~ "more"
   end
+
+  test "a statement in a test, the test named by its label where the head goes" do
+    # bench2 move-function.B.haiku: stmt {name_arity: "-", head: "formats a line", match: …}
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+
+      test "formats a line" do
+        [line] = lines()
+        assert Cart.format_line(line) == "1 x Mug"
+      end
+    end
+    """
+
+    out =
+      Stmt.replace(
+        src,
+        "-",
+        "formats a line",
+        ~s|assert Cart.format_line(line) == "1 x Mug"|,
+        ~s|assert Money.format_line(line) == "1 x Mug"|
+      )
+
+    assert out =~ ~s|    [line] = lines()\n    assert Money.format_line(line) == "1 x Mug"\n|
+    assert {:error, _} = Stmt.replace(src, "-", "no such test", "x", "y")
+  end
 end
