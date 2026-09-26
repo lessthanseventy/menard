@@ -674,4 +674,24 @@ defmodule Menard.ClauseTest do
 
     assert {:error, _} = Clause.delete_function(src, "nope/1")
   end
+
+  test "get: one clause by its head, or with no head the whole function, as written" do
+    # bench2 bug-receipt-total.B.haiku asked clause for "get": reading one function, not the file
+    src = """
+    defmodule A do
+      def keep, do: 1
+
+      # why two
+      @doc "Two."
+      def two(1), do: 1
+      def two(n), do: n * 2
+    end
+    """
+
+    assert {:ok, %{code: "# why two\n@doc \"Two.\"\ndef two(1), do: 1\ndef two(n), do: n * 2", lines: [4, 7]}} =
+             Clause.get(src, "two/1", nil)
+
+    assert {:ok, %{code: "def two(n), do: n * 2", lines: [7, 7]}} = Clause.get(src, "two/1", "n")
+    assert {:error, _} = Clause.get(src, "nope/0", nil)
+  end
 end

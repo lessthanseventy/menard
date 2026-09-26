@@ -37,6 +37,18 @@ defmodule Mix.Tasks.Menard.Clause do
           flags
         )
 
+      ["get", file, na | head] when length(head) <= 1 ->
+        file = Menard.resolve(file)
+        source = File.read!(file)
+
+        case Clause.get(source, na, List.first(head), nth: flags[:nth]) do
+          {:ok, got} ->
+            Mix.shell().info(JSON.encode!(Map.merge(got, %{file: file, version: Menard.remember(source)})))
+
+          {:error, message} ->
+            Mix.raise(message)
+        end
+
       ["delete", file, na] ->
         file = Menard.resolve(file)
         source = File.read!(file)
@@ -151,6 +163,7 @@ defmodule Mix.Tasks.Menard.Clause do
         Mix.raise(
           "usage: mix menard.clause (replace|rewrite|delete|insert-after|insert-before) FILE name/arity HEAD [CODE] [--nth N]\n" <>
             "       mix menard.clause delete FILE name/arity                (no HEAD: the whole function, every clause)\n" <>
+            "       mix menard.clause get FILE name/arity [HEAD]            (the function as written; a HEAD: that clause)\n" <>
             "       mix menard.clause insert-at FILE (Mod.Name|-) [top|bottom] CODE\n" <>
             "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
             "       mix menard.clause doc FILE name/arity HEAD [TEXT]       (no TEXT deletes it)\n" <>

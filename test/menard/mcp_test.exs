@@ -472,4 +472,37 @@ defmodule Menard.MCPTest do
     assert "lib/a.ex:2: two(1)" in left
     assert ~s(test/a_test.exs:5, in test "two": A.two(2\)) in left
   end
+
+  test "a call the schema refuses answers with why, as a tool error the agent can read", %{root: root} do
+    # bench2 bug-receipt-total.B.haiku asked clause for verb "get" (none then) and got "Invalid params": the
+    # detail rides in the error's data, which Claude Code does not show
+    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def a, do: 1\nend\n")
+
+    request = %{
+      "method" => "tools/call",
+      "params" => %{"name" => "clause", "arguments" => %{"file" => "lib/a.ex", "verb" => "fetch"}}
+    }
+
+    assert {:reply, %{"isError" => true, "content" => [%{"text" => text}]}, _frame} =
+             Menard.MCP.handle_request(request, Frame.new())
+
+    assert text =~ "verb"
+    assert text =~ "replace"
+  end
+
+  test "clause get answers with the function as written and the file's version, and writes nothing", %{
+    root: root
+  } do
+    file = Path.join(root, "lib/a.ex")
+    File.write!(file, "defmodule A do\n  def keep, do: 1\n\n  def two(1), do: 1\n  def two(n), do: n\nend\n")
+    before = File.read!(file)
+
+    response = call(Menard.MCP.Clause, %{verb: "get", file: "lib/a.ex", name_arity: "two/1"})
+    refute response.isError
+    got = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
+    assert got["code"] == "def two(1), do: 1\ndef two(n), do: n"
+    assert got["lines"] == [4, 5]
+    assert got["version"] =~ "sha256:"
+    assert File.read!(file) == before
+  end
 end
