@@ -220,18 +220,19 @@ defmodule Menard.Rename do
     ast
     |> Macro.prewalker()
     |> Enum.flat_map(fn
-      {:sigil_H, _meta, _args} = node ->
-        %{start: [line: a, column: ca], end: [line: b, column: cb]} = Sourceror.get_range(node)
+      {:sigil_H, _meta, _args} = node -> sigil_patches(node, lines, call, new)
+      _node -> []
+    end)
+  end
 
-        Enum.flat_map(a..b, fn no ->
-          line = Enum.at(lines, no - 1, "")
-          from = if no == a, do: ca, else: 1
-          to = if no == b, do: cb, else: String.length(line) + 1
-          line |> String.slice(from - 1, to - from) |> mention_patches(no, from - 1, call, new)
-        end)
+  defp sigil_patches(node, lines, call, new) do
+    %{start: [line: a, column: ca], end: [line: b, column: cb]} = Sourceror.get_range(node)
 
-      _node ->
-        []
+    Enum.flat_map(a..b, fn no ->
+      line = Enum.at(lines, no - 1, "")
+      from = if no == a, do: ca, else: 1
+      to = if no == b, do: cb, else: String.length(line) + 1
+      line |> String.slice(from - 1, to - from) |> mention_patches(no, from - 1, call, new)
     end)
   end
 end

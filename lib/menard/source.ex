@@ -89,13 +89,14 @@ defmodule Menard.Source do
         rest =
           if shift >= String.length(indent),
             do: rest,
-            else:
-              Enum.map(lines, fn
-                {line, i} -> if i in content, do: line, else: move(line, shift, indent)
-              end)
+            else: Enum.map(lines, &move_code(&1, content, shift, indent))
 
         Enum.join([first | rest], "\n")
     end
+  end
+
+  defp move_code({line, i}, content, shift, indent) do
+    if i in content, do: line, else: move(line, shift, indent)
   end
 
   defp move(line, shift, indent) do
@@ -114,16 +115,17 @@ defmodule Menard.Source do
       {:ok, ast} ->
         ast
         |> Macro.prewalker()
-        |> Enum.flat_map(fn node ->
-          with true <- literal?(node),
-               %{start: [line: a, column: _], end: [line: b, column: _]} when b > a <-
-                 Sourceror.get_range(node) do
-            Enum.to_list((a + 1)..b)
-          else
-            _ -> []
-          end
-        end)
+        |> Enum.flat_map(&inner_lines/1)
         |> MapSet.new()
+    end
+  end
+
+  defp inner_lines(node) do
+    with true <- literal?(node),
+         %{start: [line: a, column: _], end: [line: b, column: _]} when b > a <- Sourceror.get_range(node) do
+      Enum.to_list((a + 1)..b)
+    else
+      _ -> []
     end
   end
 

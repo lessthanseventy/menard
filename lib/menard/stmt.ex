@@ -284,12 +284,14 @@ defmodule Menard.Stmt do
         text
         |> String.split("\n")
         |> Enum.with_index(1)
-        |> Enum.map_join("\n", fn {line, i} -> if at[i], do: String.slice(line, 0, at[i] - 1), else: line end)
+        |> Enum.map_join("\n", &cut_comment(&1, at))
 
       _ ->
         text
     end
   end
+
+  defp cut_comment({line, i}, at), do: if(at[i], do: String.slice(line, 0, at[i] - 1), else: line)
 
   defp nth(many, match, nil) do
     # each by its first line as written, not a line number alone: which is which is the question
