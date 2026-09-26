@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""A stand-in for `claude -p` in the runner's tests: it plays a recorded stream from
+../fixtures/limits and does to the workspace, the session transcript and the hooks' TMPDIR state what
+a real session's step would, a little. What each call does is FAKE_CLAUDE_STATE/plan.json's:
+{"<prompt text>": ["limit", "ok", ...]}, one mode per call with that prompt (then "ok"):
+
+  ok        the step's work, and a finished result
+  limit     part of the work, then the account's 429 (usage_429.jsonl), exit 1
+  stderr    part of the work, then a 429 on stderr and no result (usage_stderr.txt), exit 1
+  overload  part of the work, then a 529 (overloaded_529.jsonl), exit 1
+  hang      part of the work, then waits to be killed
+
+Each call first records the state it starts from (FAKE_CLAUDE_STATE/observed.jsonl): the workspace's
+work.txt, the session's files and the hook state, so a test can say a redo started where the first
+attempt did."""
+
+import json
+import os
+import re
+import sys
+import time
+from pathlib import Path
+
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "limits"
+args = sys.argv[1:]
+prompt = args[args.index("-p") + 1]
+resume = args[args.index("--resume") + 1] if "--resume" in args else None
+state = Path(os.environ["FAKE_CLAUDE_STATE"])
+plan = json.loads((state / "plan.json").read_text()) if (state / "plan.json").exists() else {}
+key = next((k for k in plan if k in prompt), prompt.splitlines()[0][:40])
+calls = [json.loads(line) for line in open(state / "calls.jsonl")] if (state / "calls.jsonl").exists() else []
+attempt = sum(c["key"] == key for c in calls)
+modes = plan.get(key, [])
+mode = modes[attempt] if attempt < len(modes) else "ok"
+sid = resume or f"sess{sum(not c['resume'] for c in calls) + 1}"
+with open(state / "calls.jsonl", "a") as f:
+    f.write(json.dumps({"key": key, "attempt": attempt, "mode": mode, "resume": resume, "sid": sid, "args": args}) + "\n")
+
+cwd = Path.cwd()
+persist = "--no-session-persistence" not in args
+sessions = Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(cwd))
+tmp = Path(os.environ.get("TMPDIR") or "/tmp")
+
+
+def files(d, pattern="**/*"):
+    return {str(p.relative_to(d)): p.read_text() for p in sorted(d.glob(pattern)) if p.is_file()} if d.exists() else {}
+
+
+work = cwd / "work.txt"
+observed = {"key": key, "attempt": attempt, "mode": mode, "sid": sid,
+            "work": work.read_text() if work.exists() else None,
+            "session": files(sessions), "tmp": files(tmp, "menard-*")}
+with open(state / "observed.jsonl", "a") as f:
+    f.write(json.dumps(observed) + "\n")
+
+# the step's work: a line in the workspace, the prompt in the transcript, the hooks' state
+with open(work, "a") as f:
+    f.write(key + "\n")
+if persist:
+    sessions.mkdir(parents=True, exist_ok=True)
+    with open(sessions / f"{sid}.jsonl", "a") as f:
+        f.write(json.dumps({"type": "user", "sessionId": sid, "content": key}) + "\n")
+    (sessions / sid / "tool-results").mkdir(parents=True, exist_ok=True)
+    (sessions / sid / "tool-results" / f"{key[:8]}.txt").write_text(key)
+with open(tmp / f"menard-touched-{sid}", "a") as f:
+    f.write(key + "\n")
+
+
+def play(name):
+    text = (FIXTURES / name).read_text().replace("SESSION", sid).replace("CWD", str(cwd))
+    for line in text.splitlines():
+        (sys.stdout if line.startswith("{") else sys.stderr).write(line + "\n")
+    sys.stdout.flush()
+
+
+if mode == "ok":
+    if persist:
+        with open(sessions / f"{sid}.jsonl", "a") as f:
+            f.write(json.dumps({"type": "assistant", "sessionId": sid, "content": "done " + key}) + "\n")
+    play("ok.jsonl")
+    sys.exit(0)
+
+# cut short: more work than the step would leave, which a clean redo must not see
+with open(work, "a") as f:
+    f.write("PARTIAL " + key + "\n")
+if persist:
+    with open(sessions / f"{sid}.jsonl", "a") as f:
+        f.write(json.dumps({"type": "assistant", "sessionId": sid, "content": "partial " + key}) + "\n")
+(tmp / f"menard-stop-blocks-{sid}").write_text("1\n")
+(tmp / f"menard-format-{sid}-toolu01").write_text("")
+if mode == "hang":
+    (state / "hanging").write_text(str(os.getpid()))
+    time.sleep(600)
+play({"limit": "usage_429.jsonl", "stderr": "usage_stderr.txt", "overload": "overloaded_529.jsonl"}[mode])
+sys.exit(1)

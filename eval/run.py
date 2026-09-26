@@ -72,6 +72,10 @@ def stop(signum, _frame):
         case_dir, rid, ws, env = CURRENT
         cleanup(case_dir, rid, ws, env)
         remove_workspace(ws)
+        # a long run's checkpoint stays: the same command resumes the run from it
+        if not resume_point(ws):
+            rm(pre(ws))
+            rm(ws.parent / f"{ws.name}.pre.new")
     sys.exit(128 + signum)
 
 
@@ -510,6 +514,309 @@ def kill_stragglers(ws):
     return killed
 
 
+# --- The account's usage limit. A session can die mid-step on the API's 429 ("You've hit your … limit
+# · … resets 9:20am (America/Denver)"): that is not the agent failing, and every run after it would
+# die the same way. The step is kept aside, the limit waited out, the workspace, the session's
+# transcript and its hook state put back as they were before the step, and the step run again.
+
+class RoundStop(Exception):
+    """The round cannot go on (a step the limit ended MAX_REDOS times, a probe failing on something
+    else). What it finished is kept, and the same command resumes it."""
+
+
+MAX_REDOS = 5
+# past the stated reset (a clock apart, a window that opens late), and the back-off without one
+RESET_MARGIN = 120
+BACKOFF, BACKOFF_CAP, TRANSIENT_BACKOFF = 600, 3600, 60
+PROBE_MODEL = "claude-haiku-4-5"
+# the tests put their own clock, sleep and probe here
+CLOCK, SLEEP = time.time, time.sleep
+USAGE_TEXT = re.compile(r"hit your [\w -]*limit|usage limit|rate[ _-]?limit|\b429\b", re.I)
+TRANSIENT_TEXT = re.compile(r"overloaded|\b529\b|server error|\b50[0234]\b", re.I)
+RESET_AT = re.compile(r"resets\s+(?:at\s+)?(?:(?P<mon>[A-Z][a-z]{2})[a-z]*\s+(?P<day>\d{1,2}),?\s+(?:at\s+)?)?"
+                      r"(?P<h>\d{1,2})(?::(?P<m>\d{2}))?\s*(?P<ap>[ap]m)?\s*\((?P<tz>[\w/+-]+)\)", re.I)
+RESET_IN = re.compile(r"(?:resets?|try again|retry)\s+(?:in|after)\s+((?:\d+\s*[a-z]+[\s,]*(?:and\s+)?)+)", re.I)
+UNITS = {"d": 86400, "h": 3600, "m": 60, "s": 1}
+
+
+def json_lines(text):
+    """(the JSON objects, the other non-blank lines: stderr) of an agent's output."""
+    objs, other = [], []
+    for line in text.splitlines():
+        try:
+            o = json.loads(line)
+        except json.JSONDecodeError:
+            o = None
+        if isinstance(o, dict):
+            objs.append(o)
+        elif line.strip():
+            other.append(line)
+    return objs, other
+
+
+def limit_death(text):
+    """None when the call ended on its own (done, out of turns, the agent's own error, a timeout);
+    else how the API ended it: {"kind": "usage" (429, a spend or session limit) or "transient" (529
+    overloaded, a 5xx), "reason", "reset" (epoch seconds, or None), "session_id"}. Only the API's own
+    words count: the last top-level assistant message when it is an API error, the result when it is
+    an error, stderr when there is no result. A tool's output that says "rate limit" is not one."""
+    objs, other = json_lines(text)
+    result = next((o for o in reversed(objs) if o.get("type") == "result"), None)
+    asst = next((o for o in reversed(objs) if o.get("type") == "assistant" and not o.get("parent_tool_use_id")), None)
+    said, statuses, errors = [], [], []
+    if asst and (asst.get("error") or asst.get("isApiErrorMessage") or asst.get("message", {}).get("model") == "<synthetic>"):
+        said += [c.get("text", "") for c in asst.get("message", {}).get("content", []) if isinstance(c, dict)]
+        statuses.append(asst.get("apiErrorStatus") or asst.get("api_error_status"))
+        errors.append(asst.get("error"))
+    if result is None or result.get("is_error"):
+        said += [str(result.get("result") or "")] if result else []
+        statuses.append((result or {}).get("api_error_status"))
+        said += other
+    rejected = [q.get("resetsAt") for o in objs for q in [o.get("rate_limit_info") or o.get("quotaLimits") or {}]
+                if q.get("status") == "rejected"]
+    words = " ".join(s for s in said if s).strip()
+    if 429 in statuses or "rate_limit" in errors or USAGE_TEXT.search(words) or rejected and said:
+        kind = "usage"
+    elif any(s in (500, 502, 503, 504, 529) for s in statuses) or {"overloaded", "server_error"} & set(errors) \
+            or TRANSIENT_TEXT.search(words):
+        kind = "transient"
+    else:
+        return None
+    reset = next((r for r in reversed(rejected) if r), None) or parse_reset(words, CLOCK())
+    sid = next((o["session_id"] for o in reversed(objs) if o.get("session_id")), None)
+    reason = words[:300] or f"API error {[e for e in errors if e]} status {[s for s in statuses if s]}"
+    return {"kind": kind, "reason": reason, "reset": reset, "session_id": sid}
+
+
+def parse_reset(text, now):
+    """When the limit says it resets, epoch seconds: "resets 9:20am (America/Denver)" (the next such
+    time in that zone), "resets Oct 3, 5pm (UTC)", "resets in 2h 30m", "try again in 5 minutes"."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    m = RESET_AT.search(text)
+    if m:
+        try:
+            local = datetime.fromtimestamp(now, ZoneInfo(m["tz"]))
+        except (ZoneInfoNotFoundError, ValueError):
+            local = None
+        if local:
+            h = int(m["h"])
+            if m["ap"]:
+                h = h % 12 + (12 if m["ap"].lower() == "pm" else 0)
+            at = local.replace(hour=h, minute=int(m["m"] or 0), second=0, microsecond=0)
+            if m["mon"]:
+                at = at.replace(month=time.strptime(m["mon"].title(), "%b").tm_mon, day=int(m["day"]))
+                at = at if at > local else at.replace(year=at.year + 1)
+            elif at <= local:
+                at += timedelta(days=1)
+            return at.timestamp()
+    m = RESET_IN.search(text)
+    if m:
+        return now + sum(int(n) * UNITS.get(u[0].lower(), 0) for n, u in re.findall(r"(\d+)\s*([a-z]+)", m[1], re.I))
+    return None
+
+
+def stamp(ts):
+    return time.strftime("%Y-%m-%d %H:%M:%S %Z", time.localtime(ts))
+
+
+def probe():
+    """One tiny call, to see whether the limit has lifted: ("ok", None), ("limited", the limit),
+    or ("error", what it said). The cheapest model, one turn, no session kept, nothing loaded."""
+    d = WORK / "probe"
+    d.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env.pop("CLAUDECODE", None)
+    _, out = sh(["claude", "-p", "Reply with the word ok.", "--model", PROBE_MODEL, "--output-format", "stream-json",
+                 "--verbose", "--setting-sources", "project", "--max-turns", "1", "--no-session-persistence"],
+                d, timeout=300, env=env)
+    hit = limit_death(out)
+    if hit:
+        return "limited", hit
+    if any(o.get("type") == "result" and not o.get("is_error") for o in json_lines(out)[0]):
+        return "ok", None
+    return "error", out.strip()[-300:]
+
+
+PROBE = probe
+
+
+def wait_out(hit, out_dir, label):
+    """Sleep until the limit resets (and RESET_MARGIN), or back off when it names no time, then probe
+    until a call goes through. Every wait is logged and kept in results/ROUND/waits.jsonl; the waits."""
+    waits, reset, failed = [], hit["reset"], 0
+    backoff = TRANSIENT_BACKOFF if hit["kind"] == "transient" else BACKOFF
+    while True:
+        now = CLOCK()
+        if reset and reset > now:
+            until, why = reset + RESET_MARGIN, f"resets {stamp(reset)}"
+        else:
+            until, why = now + backoff, f"no reset time given, backing off {backoff}s"
+            backoff = min(backoff * 2, BACKOFF_CAP)
+        w = {"step": label, "kind": hit["kind"], "reason": hit["reason"][:200], "why": why,
+             "at": stamp(now), "until": stamp(until), "seconds": round(until - now)}
+        waits.append(w)
+        with open(out_dir / "waits.jsonl", "a") as f:
+            f.write(json.dumps(w) + "\n")
+        log(f"{time.strftime('%H:%M')} {out_dir.name} {label}: {hit['kind']} limit, waiting until {w['until']}"
+            f" ({w['seconds']}s, {why}): {w['reason'][:120]}")
+        SLEEP(max(0, until - now))
+        status, said = PROBE()
+        if status == "ok":
+            log(f"{time.strftime('%H:%M')} {out_dir.name} {label}: the probe went through, redoing the step")
+            return waits
+        if status == "limited":
+            hit, reset, failed = said, said["reset"], 0
+            continue
+        failed += 1
+        if failed >= 3:
+            raise RoundStop(f"{label}: the probe failed {failed} times, and not on a limit: {said}")
+
+
+def attempt_usage(text):
+    """An attempt's tokens and turns: its result's, or, cut off before one, its messages' summed."""
+    objs, _ = json_lines(text)
+    result = next((o for o in reversed(objs) if o.get("type") == "result"), None)
+    if result:
+        u, turns = result.get("usage", {}), result.get("num_turns")
+    else:
+        msgs = {o["message"].get("id"): o["message"].get("usage", {}) for o in objs
+                if o.get("type") == "assistant" and not o.get("parent_tool_use_id") and o.get("message")}
+        u = {k: sum(m.get(k, 0) for m in msgs.values()) for k in
+             ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+        turns = len(msgs)
+    return {"tokens": {"input": u.get("input_tokens", 0), "output": u.get("output_tokens", 0),
+                       "cache_read": u.get("cache_read_input_tokens", 0),
+                       "cache_write": u.get("cache_creation_input_tokens", 0)}, "turns": turns}
+
+
+def pre(ws):
+    """Where a run's snapshot of the moment before its next agent call lives."""
+    return ws.parent / f"{ws.name}.pre"
+
+
+def session_dir(ws):
+    return Path.home() / ".claude" / "projects" / session_key(ws)
+
+
+def hook_files(env, sid):
+    """The hooks' per-session state (hooks/lib.sh session_file: touched, stop-blocks, stop-green,
+    bigread, shell-edits, each call's format mark; arm H's menard-h-shell-)."""
+    if not sid:
+        return []
+    return sorted(Path(env.get("TMPDIR") or "/tmp").glob(f"menard-*{re.sub(r'[^A-Za-z0-9_-]', '', sid)}*"))
+
+
+def rm(path):
+    shutil.rmtree(path, ignore_errors=True)
+    if path.exists():
+        subprocess.run(["chmod", "-R", "u+w", str(path)], check=False)
+        shutil.rmtree(path)
+
+
+def new_progress(resumable):
+    return {"resumable": resumable, "point": None, "steps": [], "sid": None, "spent": 0.0, "wall_s": 0.0,
+            "interrupted": [], "waits": [], "resumes": [], "_mark": time.time(), "_paused": 0.0}
+
+
+def save_progress(snap, progress):
+    if progress["resumable"]:
+        (snap / "progress.json.tmp").write_text(json.dumps({k: v for k, v in progress.items() if not k.startswith("_")}))
+        (snap / "progress.json.tmp").rename(snap / "progress.json")
+
+
+def checkpoint(ws, env, progress, point):
+    """Snapshot the moment before an agent call: the workspace (reflinked, as the check snapshot), the
+    session's files under ~/.claude/projects and its hook state in TMPDIR, with the run's progress
+    (resumable runs) written last. Built beside the last one and swapped in, so a kill at any moment
+    leaves one whole."""
+    progress["wall_s"] += time.time() - progress["_mark"] - progress["_paused"]
+    progress["point"] = point
+    snap, new = pre(ws), ws.parent / f"{ws.name}.pre.new"
+    rm(new)
+    new.mkdir(parents=True)
+    subprocess.run(["cp", "-a", "--reflink=auto", str(ws), str(new / "ws")], check=True)
+    if session_dir(ws).exists():
+        subprocess.run(["cp", "-a", "--reflink=auto", str(session_dir(ws)), str(new / "session")], check=True)
+    (new / "tmp").mkdir()
+    for f in hook_files(env, progress["sid"]):
+        shutil.copy2(f, new / "tmp" / f.name)
+    save_progress(new, progress)
+    rm(snap)
+    new.rename(snap)
+    progress["_mark"], progress["_paused"] = time.time(), 0.0
+    return snap
+
+
+def restore(snap, ws, env, sids):
+    """Put the workspace, the session files and the hook state of `sids` back as `snap` holds them."""
+    kill_stragglers(ws)
+    rm(ws)
+    subprocess.run(["cp", "-a", "--reflink=auto", str(snap / "ws"), str(ws)], check=True)
+    rm(session_dir(ws))
+    if (snap / "session").exists():
+        session_dir(ws).parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["cp", "-a", "--reflink=auto", str(snap / "session"), str(session_dir(ws))], check=True)
+    for sid in set(filter(None, sids)):
+        for f in hook_files(env, sid):
+            f.unlink()
+    tmp = Path(env.get("TMPDIR") or "/tmp")
+    for f in (snap / "tmp").iterdir():
+        shutil.copy2(f, tmp / f.name)
+
+
+def resume_point(ws):
+    """(snapshot, progress) a killed runner left for this run, or None. The newer one first: a kill
+    between writing it and swapping it in leaves both."""
+    for snap in (ws.parent / f"{ws.name}.pre.new", pre(ws)):
+        if (snap / "progress.json").exists():
+            progress = json.loads((snap / "progress.json").read_text())
+            return snap, dict(progress, _mark=time.time(), _paused=0.0)
+    return None
+
+
+def drop_stale_traces(out_dir, rid, point):
+    """The traces a killed runner wrote at or past `point` (steps sort by name, then CI rounds)."""
+    for t in (out_dir / "traces").glob(f"{rid}.*.jsonl"):
+        part = t.name[len(rid) + 1:-len(".jsonl")]
+        if part.startswith("ci"):
+            stale = not point.startswith("ci") or int(part[2:]) >= int(point[2:])
+        else:
+            stale = point != "post" and not point.startswith("ci") and part >= point
+        if stale:
+            t.unlink()
+
+
+def agent_turn(cmd, ws, trace, env, snap, label, progress, out_dir):
+    """run_agent, and when the API's limit rather than the agent ended it: the attempt kept aside as
+    `<trace>.interruptedN.log` with its tokens under progress["interrupted"] (not the step's), the
+    limit waited out, the run put back as `snap` holds it (the suite's cleanup too: its databases and
+    tmux, as a resumed run starts), and the same call again, MAX_REDOS times at most.
+    (timed_out, start) of the attempt that counts."""
+    for attempt in range(1, MAX_REDOS + 1):
+        started = time.time()
+        with open(trace, "w") as f:
+            timed_out = run_agent(cmd, ws, f, env)
+        hit = limit_death(trace.read_text())
+        if not hit:
+            return timed_out, started
+        kept = trace.with_name(f"{trace.name.removesuffix('.jsonl')}.interrupted{len(progress['interrupted']) + 1}.log")
+        trace.rename(kept)
+        progress["interrupted"].append({"step": label, **attempt_usage(kept.read_text()), "at": stamp(CLOCK()),
+                                        "kind": hit["kind"], "reason": hit["reason"][:200], "trace": kept.name})
+        save_progress(snap, progress)
+        if attempt == MAX_REDOS:
+            break
+        progress["waits"] += wait_out(hit, out_dir, label)
+        if CURRENT:
+            cleanup(*CURRENT)
+        restore(snap, ws, env, [hit["session_id"], progress["sid"]])
+        progress["_paused"] += time.time() - started
+        save_progress(snap, progress)
+    raise RoundStop(f"{label}: the API's limit ended it {MAX_REDOS} times ({hit['reason'][:150]});"
+                    f" the round stops here, and the same command resumes it")
+
+
 def check(check_dir, ws, run_env=None):
     """check.sh in check_dir, run in ws after its hidden/ files are copied in, under the run's env."""
     hidden = check_dir / "hidden"
@@ -521,23 +828,25 @@ def check(check_dir, ws, run_env=None):
     return code, out
 
 
-def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
+def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
     """A long case: steps/NN/prompt.md, each resuming the session the step before left, each with
-    its own check.sh, run on a copy of the workspace so its hidden files never reach the agent."""
-    steps, sid, spent = [], None, 0.0
-    for step in sorted(p for p in (case_dir / "steps").iterdir() if (p / "prompt.md").exists()):
+    its own check.sh, run on a copy of the workspace so its hidden files never reach the agent. Each
+    starts from a checkpoint (the steps before it in `progress`), which a limit's redo and a
+    killed runner's resume both start from."""
+    steps, sid, spent = progress["steps"], progress["sid"], progress["spent"]
+    for step in sorted(p for p in (case_dir / "steps").iterdir() if (p / "prompt.md").exists())[len(steps):]:
         trace = out_dir / "traces" / f"{rid}.{step.name}.jsonl"
-        t0, timed_out = time.time(), False
-        with open(trace, "w") as f:
-            timed_out = run_agent(claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid,
-                                             persist=True), ws, f, env)
+        before = checkpoint(ws, env, progress, step.name)
+        cmd = claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid, persist=True)
+        timed_out, t0 = agent_turn(cmd, ws, trace, env, before, step.name, progress, out_dir)
         # the agent's own wall, apart from the grading after it (~200 s a session in focus2)
         agent_wall = round(time.time() - t0, 1)
         m = trace_metrics(trace, ws)
-        sid = m["session_id"] or sid
+        sid = progress["sid"] = m["session_id"] or sid
         # a resumed session's total_cost_usd is the whole session's so far; turns and tokens are this call's
         if m["cost_usd"] is not None:
             m["cost_usd"], spent = m["cost_usd"] - spent, m["cost_usd"]
+            progress["spent"] = spent
         snap = ws.parent / f"{ws.name}.check"
         shutil.rmtree(snap, ignore_errors=True)
         subprocess.run(["cp", "-a", "--reflink=auto", str(ws), str(snap)], check=True)
@@ -552,27 +861,35 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
     return steps, sid
 
 
-def ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps):
+def ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps, progress):
     """CI as the project runs it (the case's `ci` file), once the agent says it is done. Red, the
     failure goes back to the same session, twice at most: the tokens to a mergeable change, not to
-    the agent's stop. An agent that left files unformatted "finished" cheaper than it was."""
-    ci = {"green_first": None, "green": None, "rounds": 0, "turns": 0,
-          "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}}
+    the agent's stop. An agent that left files unformatted "finished" cheaper than it was. Each turn
+    back starts from a checkpoint, as a step does; resumed at one (`ci_next`: its round and the
+    failure it was told), CI is not run again for it."""
+    ci = progress.get("ci") or {"green_first": None, "green": None, "rounds": 0, "turns": 0,
+                                "tokens": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0}}
     if not (case_dir / "ci").exists() or not sid or not steps or steps[-1]["timed_out"]:
         return ci
-    for attempt in range(3):
-        code, out = sh((case_dir / "ci").read_text().strip(), ws, timeout=900, env=env)
-        ci["green_first"] = code == 0 if attempt == 0 else ci["green_first"]
-        ci["green"] = code == 0
-        if code == 0 or attempt == 2:
-            break
-        failed = "\n".join(out.strip().splitlines()[-60:])
+    resumed = progress.pop("ci_next", None)
+    for attempt in range(resumed[0] if resumed else 0, 3):
+        if resumed:
+            failed, resumed = resumed[1], None
+        else:
+            code, out = sh((case_dir / "ci").read_text().strip(), ws, timeout=900, env=env)
+            ci["green_first"] = code == 0 if attempt == 0 else ci["green_first"]
+            ci["green"] = code == 0
+            if code == 0 or attempt == 2:
+                break
+            failed = "\n".join(out.strip().splitlines()[-60:])
+        progress["ci"], progress["ci_next"] = ci, [attempt, failed]
+        before = checkpoint(ws, env, progress, f"ci{attempt + 1}")
         trace = out_dir / "traces" / f"{rid}.ci{attempt + 1}.jsonl"
-        with open(trace, "w") as f:
-            run_agent(claude_cmd(f"CI failed on your change:\n\n{failed}\n\nFix it so CI passes.", model, arm,
-                                 resume=sid, persist=True), ws, f, env)
+        agent_turn(claude_cmd(f"CI failed on your change:\n\n{failed}\n\nFix it so CI passes.", model, arm,
+                              resume=sid, persist=True), ws, trace, env, before, f"ci{attempt + 1}", progress, out_dir)
+        del progress["ci_next"]
         m = trace_metrics(trace, ws)
-        sid = m["session_id"] or sid
+        sid = progress["sid"] = m["session_id"] or sid
         ci["rounds"] += 1
         ci["turns"] += m["turns"] or 0
         for k in ci["tokens"]:
@@ -583,8 +900,21 @@ def ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps):
 def run_one(case_dir, arm, model, n, out_dir):
     rid = f"{case_dir.name}.{arm}.{model}.{n}"
     ws = WORK / "runs" / out_dir.name / rid
-    prepare(case_dir, ws, arm)
     (out_dir / "traces").mkdir(parents=True, exist_ok=True)
+    # a long run a killed runner left half done goes on from its last checkpoint; anything else anew
+    long = (case_dir / "steps").exists()
+    got = resume_point(ws) if long else None
+    if got:
+        snap, progress = got
+        restore(snap, ws, os.environ, [progress["sid"]])
+        drop_stale_traces(out_dir, rid, progress["point"])
+        progress["resumes"].append({"at": stamp(time.time()), "point": progress["point"]})
+        log(f"{time.strftime('%H:%M')} {out_dir.name} {rid}: resumed at {progress['point']}")
+    else:
+        if long and traces_of(out_dir, rid):
+            log(f"{time.strftime('%H:%M')} {out_dir.name} {rid}: no checkpoint left to resume from, redone from the start")
+        prepare(case_dir, ws, arm)
+        progress = new_progress(long)
     # no CLAUDE_CODE_DISABLE_CLAUDE_MDS: it kept the user's own ~/.claude/CLAUDE.md out, which
     # --setting-sources project already does (tried in a bench), and the project's CLAUDE.md with it:
     # focus1's fixture said CI runs precommit, and no agent was ever told
@@ -601,14 +931,12 @@ def run_one(case_dir, arm, model, n, out_dir):
     cleanup(case_dir, rid, ws, env)
     global CURRENT
     CURRENT = (case_dir, rid, ws, env)
-    if (case_dir / "steps").exists():
-        return run_long(case_dir, arm, model, n, rid, ws, out_dir, env)
+    if long:
+        return run_long(case_dir, arm, model, n, rid, ws, out_dir, env, progress)
     prompt = (case_dir / "prompt.md").read_text().strip()
     trace = out_dir / "traces" / f"{rid}.jsonl"
-    t0 = time.time()
-    timed_out = False
-    with open(trace, "w") as f:
-        timed_out = run_agent(claude_cmd(prompt, model, arm), ws, f, env)
+    before = checkpoint(ws, env, progress, "agent")
+    timed_out, t0 = agent_turn(claude_cmd(prompt, model, arm), ws, trace, env, before, "agent", progress, out_dir)
     wall = round(time.time() - t0, 1)
 
     allowed = [g.strip() for g in (case_dir / "allowed").read_text().splitlines() if g.strip()] \
@@ -624,26 +952,33 @@ def run_one(case_dir, arm, model, n, out_dir):
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
         "clean": code == 0 and not diff["noise_files"] and "NOTE: unformatted" not in check_out, **diff, **trace_metrics(trace, ws),
-        **lint(ws, env, out_dir, rid),
+        **lint(ws, env, out_dir, rid), "interrupted": progress["interrupted"], "waits": progress["waits"],
     }
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     remove_workspace(ws)
+    rm(pre(ws))
     return row
 
 
-def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
+def run_long(case_dir, arm, model, n, rid, ws, out_dir, env, progress):
     """One row for a whole session: its steps' sums, and each step under `steps`. The diff, credo
     and the habits are the agent's, taken as it stopped and before the CI loop, like pass and clean;
-    what CI's rounds changed on top is under `ci.after`."""
-    t0 = time.time()
-    steps, sid = run_steps(case_dir, arm, model, rid, ws, out_dir, env)
+    what CI's rounds changed on top is under `ci.after`. Resumed, it goes on from `progress`."""
+    if not progress.get("steps_done"):
+        run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress)
+        progress["steps_done"] = True
+    steps, sid = progress["steps"], progress["sid"]
     allowed = [g.strip() for g in (case_dir / "allowed").read_text().splitlines() if g.strip()] \
         if (case_dir / "allowed").exists() else []
-    diff, patch = diff_metrics(ws, allowed)
-    (out_dir / "traces" / f"{rid}.diff").write_text(patch)
-    linted = lint(ws, env, out_dir, rid)
-    ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps)
+    # the agent's diff and lint as it stopped, kept for a resume inside the CI loop, which changes both
+    if "post" not in progress:
+        checkpoint(ws, env, progress, "post")
+        diff, patch = diff_metrics(ws, allowed)
+        (out_dir / "traces" / f"{rid}.diff").write_text(patch)
+        progress["post"] = {"diff": diff, "linted": lint(ws, env, out_dir, rid)}
+    diff, linted = progress["post"]["diff"], progress["post"]["linted"]
+    ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps, progress)
     if ci["rounds"]:
         after, patch = diff_metrics(ws, allowed)
         (out_dir / "traces" / f"{rid}.ci.diff").write_text(patch)
@@ -654,7 +989,9 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
     row = {
         "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n,
-        "wall_s": round(time.time() - t0, 1), "agent_wall_s": round(total("agent_wall_s"), 1),
+        # the runner's own time on it: no limit's wait, no attempt it cut short, no checkpoint's copy
+        "wall_s": round(progress["wall_s"] + time.time() - progress["_mark"] - progress["_paused"], 1),
+        "agent_wall_s": round(total("agent_wall_s"), 1),
         "timed_out": any(s["timed_out"] for s in steps),
         "pass": last_ok, "steps_passed": sum(s["pass"] for s in steps), "steps_total": len(steps),
         "check": steps[-1]["check"] if steps else "no step ran", "formatted": bool(steps) and steps[-1]["formatted"],
@@ -671,13 +1008,14 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
         "steps": [{k: s[k] for k in ("step", "pass", "check", "formatted", "turns", "tokens", "peak_ctx",
                                       "tool_errors", "red_runs", "wall_s", "agent_wall_s", "timed_out")} for s in steps],
         **linted,
-        "ci": ci,
+        "ci": ci, "interrupted": progress["interrupted"], "waits": progress["waits"], "resumes": progress["resumes"],
     }
     # after CI and lint, which need the run's databases: a long session left them all behind
     cleanup(case_dir, rid, ws, env)
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
     remove_workspace(ws)
+    rm(pre(ws))
     return row
 
 
@@ -826,7 +1164,15 @@ def main():
         if a.stop_at and time.strftime("%H:%M") >= a.stop_at:
             print(f"stop-at {a.stop_at} reached", flush=True)
             return
-        row = run_one(case, arm, model, n, out_dir)
+        try:
+            row = run_one(case, arm, model, n, out_dir)
+        except RoundStop as e:
+            # its databases and workspace go as a finished run's do; its checkpoint stays to resume from
+            case_dir, rid, ws, env = CURRENT
+            cleanup(case_dir, rid, ws, env)
+            remove_workspace(ws)
+            log(f"{time.strftime('%H:%M')} {a.round} STOPPED: {e}")
+            sys.exit(75)
         line = (f"{time.strftime('%H:%M')} {a.round} {rid}: {'PASS' if row['pass'] else 'FAIL'}"
                 f"{'' if row['clean'] or not row['pass'] else ' (noisy)'} turns={row['turns']}"
                 f" cost={row['cost_usd']:.3f} wall={row['wall_s']}s tool_errors={row['tool_errors']} red_runs={row['red_runs']}")
