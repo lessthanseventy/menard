@@ -60,7 +60,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     that reads as code (`old/1`, `A.old(x)` in a doctest, `` `old` ``) is renamed too, unless `docs`
     is false. `only` narrows it to `functions` or `variables`;
     `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
-    identifier's bytes move. `files` are paths or globs (`lib/**/*.ex`) under the launch root.
+    identifier's bytes move. `files` are paths or globs (`lib/**/*.ex`) under the launch root. The
+    reply lists the files `changed`, `unchanged`, and `skipped` (not parseable or not written, with why).
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
@@ -91,8 +92,13 @@ if Code.ensure_loaded?(Anubis.Server) do
           only: params[:only] && String.to_existing_atom(params[:only])
         ]
 
-        {changed, unchanged} = Enum.split_with(files, &renamed?(&1, params, opts))
-        ok(frame, %{"changed" => changed, "unchanged" => unchanged})
+        results = Enum.map(files, &{&1, rename(&1, params, opts)})
+
+        ok(frame, %{
+          "changed" => for({file, :changed} <- results, do: file),
+          "unchanged" => for({file, :unchanged} <- results, do: file),
+          "skipped" => for({file, {:skipped, why}} <- results, do: %{"file" => file, "why" => why})
+        })
       else
         {:error, message} -> fail(frame, message)
       end
@@ -113,18 +119,23 @@ if Code.ensure_loaded?(Anubis.Server) do
       MatchError -> {:error, "versions are FILE=SHA, each FILE under the root"}
     end
 
-    defp renamed?(file, params, opts) do
+    # a file it could not parse or write is neither: "unchanged" told the agent the old name was
+    # not in a file it never looked into
+    defp rename(file, params, opts) do
       source = File.read!(file)
 
       case Menard.Rename.run(source, params.old, params.new, opts) do
-        out when is_binary(out) and out != source ->
-          match?(
-            {:ok, _reply},
-            Menard.write(file, out, did: "rename #{params.old} → #{params.new} in #{Path.basename(file)}")
-          )
+        ^source ->
+          :unchanged
 
-        _ ->
-          false
+        {:error, reason} ->
+          {:skipped, "not parseable — #{inspect(reason)}"}
+
+        out ->
+          case Menard.write(file, out, did: "rename #{params.old} → #{params.new} in #{Path.basename(file)}") do
+            {:ok, _reply} -> :changed
+            {:error, message} -> {:skipped, message}
+          end
       end
     end
   end
