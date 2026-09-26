@@ -385,7 +385,8 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
         snap = ws.parent / f"{ws.name}.check"
         shutil.rmtree(snap, ignore_errors=True)
         subprocess.run(["cp", "-a", "--reflink=auto", str(ws), str(snap)], check=True)
-        code, out = check(step, snap)
+        # the run's env: a real project's check needs its throwaway databases (eval/tlon), not the defaults
+        code, out = check(step, snap, env)
         shutil.rmtree(snap, ignore_errors=True)
         steps.append({"step": step.name, "pass": code == 0, "check": out.strip()[-400:],
                       "formatted": "NOTE: unformatted" not in out, "wall_s": round(time.time() - t0, 1),
