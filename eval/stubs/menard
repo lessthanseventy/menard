@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# first on every agent's PATH: a menard installed for the user (~/.local/bin) is not one a run may
+# see. An arm that has menard reaches it by its plugin's path.
+echo "menard: command not found" >&2
+exit 127
