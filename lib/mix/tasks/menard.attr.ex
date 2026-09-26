@@ -30,6 +30,9 @@ defmodule Mix.Tasks.Menard.Attr do
       ["set", file, name, value] ->
         edit(file, name, did, opts, &Attr.set(&1, name, value, where))
 
+      ["replace", file, name, value] ->
+        edit(file, name, did, opts, &Attr.set(&1, name, value, where))
+
       ["delete", file, name] ->
         edit(file, name, did, opts, &Attr.delete(&1, name, where))
 

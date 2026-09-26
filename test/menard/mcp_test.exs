@@ -505,4 +505,11 @@ defmodule Menard.MCPTest do
     assert got["version"] =~ "sha256:"
     assert File.read!(file) == before
   end
+
+  test "attr replace is set, as every other tool calls it", %{root: root} do
+    # bench3 bug-receipt-total.B.haiku: attr {verb: "replace"} was refused
+    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
+    refute call(Menard.MCP.Attr, %{verb: "replace", file: "lib/a.ex", name: "t", value: "2"}).isError
+    assert File.read!(Path.join(root, "lib/a.ex")) =~ "@t 2"
+  end
 end
