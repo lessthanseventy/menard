@@ -2,6 +2,7 @@ defmodule Menard.MixDepsTest do
   use ExUnit.Case, async: true
 
   alias Menard.MixDeps
+  alias Mix.Tasks.Menard.Deps
 
   @fn_deps """
   defmodule A.MixProject do
@@ -166,7 +167,7 @@ defmodule Menard.MixDepsTest do
   test "mix menard.deps refuses an option it does not know, before it touches anything", %{tmp_dir: dir} do
     # swallowed, `upgrade --in DIR --tp 2.0` ran an upgrade of an app named "2.0", with no --to
     assert_raise OptionParser.ParseError, ~r/--tp/, fn ->
-      Mix.Tasks.Menard.Deps.run(["upgrade", "--in", dir, "--tp", "2.0"])
+      Deps.run(["upgrade", "--in", dir, "--tp", "2.0"])
     end
   end
 end
