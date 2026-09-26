@@ -269,6 +269,29 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "format-report keeps each shell command's own mark: a second call in flight does not move it", %{
+    tmp_dir: dir
+  } do
+    host(dir)
+    session = "t#{System.unique_integer([:positive])}"
+
+    call = fn id ->
+      %{tool_name: "Bash", session_id: session, tool_use_id: id, tool_input: %{command: "sed"}}
+    end
+
+    {_, 0} = report(Map.put(call.("a"), :hook_event_name, "PreToolUse"), dir)
+    backdate_format_mark(call.("a"), dir)
+    file = Path.join(dir, "lib/m.ex")
+    File.write!(file, "defmodule M do\n  def   f(x), do: x\nend\n")
+    File.touch!(file, System.os_time(:second) - 5)
+    # call b starts after a wrote the file, before a ends
+    {_, 0} = report(Map.put(call.("b"), :hook_event_name, "PreToolUse"), dir)
+
+    {_, 0} = report(Map.put(call.("a"), :hook_event_name, "PostToolUse"), dir)
+    assert File.read!(file) =~ "  def f(x), do: x\n"
+  end
+
+  @tag :tmp_dir
   test "format-report leaves what git ignores alone: a test run's fixtures are no agent's edit", %{
     tmp_dir: dir
   } do
@@ -728,6 +751,8 @@ defmodule Menard.HooksTest do
 
   # the mark a shell command's PreToolUse left, dated back: what the command writes is newer without
   # waiting out find's second
-  defp backdate_format_mark(%{session_id: session}, dir),
-    do: File.touch!(Path.join(dir, "menard-format-#{session}"), System.os_time(:second) - 10)
+  defp backdate_format_mark(%{session_id: session} = call, dir) do
+    mark = "menard-format-#{session}-#{Map.get(call, :tool_use_id, "none")}"
+    File.touch!(Path.join(dir, mark), System.os_time(:second) - 10)
+  end
 end

@@ -13,7 +13,10 @@ event=$(jq -r '.hook_event_name // empty' <<<"$payload")
 tool=$(jq -r '.tool_name // empty' <<<"$payload")
 session=$(jq -r '.session_id // "none"' <<<"$payload")
 cwd=$(jq -r '.cwd // empty' <<<"$payload")
-mark="${TMPDIR:-/tmp}/menard-format-${session//[^A-Za-z0-9_-]/}"
+# one mark per call: per session, a second Bash call in flight moved the first one's mark past the
+# files it had written, and they went unformatted
+call=$(jq -r '.tool_use_id // "none"' <<<"$payload")
+mark="${TMPDIR:-/tmp}/menard-format-${session//[^A-Za-z0-9_-]/}-${call//[^A-Za-z0-9_-]/}"
 
 # A shell command: a mark before it, and after it every Elixir file newer than the mark
 if [[ "$tool" == "Bash" && "$event" == "PreToolUse" ]]; then
@@ -26,6 +29,7 @@ if [[ "$tool" == "Bash" ]]; then
   [[ -f "$mark" ]] || exit 0
   files=$(find "$root" \( -name _build -o -name deps -o -name .git -o -name node_modules \) -prune -o \
     \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print 2>/dev/null)
+  rm -f "$mark"
   # what git ignores is no one's edit: menard's own test run writes fixtures under tmp/, broken on
   # purpose, and each was named as a file the agent wrote and could not format
   # -z: without it git prints a path with a non-ASCII byte quoted and escaped, which matches nothing
