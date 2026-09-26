@@ -43,6 +43,25 @@ defmodule Menard.FindTest do
     assert [%{line: 5, column: 34}] = Find.calls(src, "A.Inner.Deep.x")
   end
 
+  test "calls parses the source once: its passes share the parse cache" do
+    # traced in a fresh process, whose parse cache is cold; a process cannot be its own tracer
+    src = @src
+    task = Task.async(fn -> receive(do: (:go -> Find.calls(src, "Server.Channels.general"))) end)
+    Code.ensure_loaded!(Sourceror)
+    :erlang.trace_pattern({Sourceror, :parse_string, 1}, true, [])
+    :erlang.trace(task.pid, true, [:call])
+    send(task.pid, :go)
+    assert [_, _] = Task.await(task)
+    ref = :erlang.trace_delivered(task.pid)
+    assert_receive {:trace_delivered, _, ^ref}
+    :erlang.trace_pattern({Sourceror, :parse_string, 1}, false, [])
+
+    parses =
+      Stream.repeatedly(fn -> receive(do: ({:trace, _, :call, {_, _, [^src]}} -> 1), after: (0 -> nil)) end)
+
+    assert parses |> Enum.take_while(& &1) |> length() == 1
+  end
+
   test "a name the source never mentions makes no atom: the VM never collects one" do
     name = "never_found_#{System.unique_integer([:positive])}"
     assert Find.calls(@src, name) == []
