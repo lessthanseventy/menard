@@ -63,7 +63,7 @@ def plan(b, p):
 
 
 def observed(b):
-    return [json.loads(line) for line in open(b.state / "observed.jsonl")]
+    return [json.loads(line) for line in (b.state / "observed.jsonl").read_text().splitlines()]
 
 
 def start_of(b, key, attempt=0):
@@ -73,7 +73,7 @@ def start_of(b, key, attempt=0):
 
 
 def calls(b, key):
-    return [c for c in map(json.loads, open(b.state / "calls.jsonl")) if c["key"] == key]
+    return [c for c in map(json.loads, (b.state / "calls.jsonl").read_text().splitlines()) if c["key"] == key]
 
 
 @contextlib.contextmanager
@@ -155,7 +155,7 @@ class TestWaiting(unittest.TestCase):
             b.out.mkdir(parents=True)
             with patched(b, probe=lambda: answers.pop(0)) as p:
                 waits = run.wait_out(hit, b.out, "02")
-            kept = [json.loads(line) for line in open(b.out / "waits.jsonl")]
+            kept = [json.loads(line) for line in (b.out / "waits.jsonl").read_text().splitlines()]
         return waits, kept, p
 
     def test_a_stated_reset_is_slept_to_with_its_margin_then_probed(self):
@@ -359,7 +359,7 @@ class TestResume(unittest.TestCase):
                 for _ in range(20):
                     os.kill(fake, 0)
                     time.sleep(0.05)
-                    if open(f"/proc/{fake}/stat").read().split()[2] == "Z":
+                    if Path(f"/proc/{fake}/stat").read_text().split()[2] == "Z":
                         raise ProcessLookupError
             with tempfile.TemporaryDirectory() as c:
                 control = bench(c, ci=True)

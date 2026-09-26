@@ -24,7 +24,7 @@ def alive(pid):
         return False
     # killed but not yet reaped is dead for our purposes
     try:
-        return open(f"/proc/{pid}/stat").read().split()[2] != "Z"
+        return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
     except OSError:
         return False
 

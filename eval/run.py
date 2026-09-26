@@ -1149,7 +1149,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     done = set()
     if (out_dir / "runs.jsonl").exists():
-        done = {json.loads(l)["id"] for l in open(out_dir / "runs.jsonl") if l.strip()}
+        done = {json.loads(l)["id"] for l in (out_dir / "runs.jsonl").read_text().splitlines() if l.strip()}
 
     # the round's seed: given, kept from its first start (a resumed round keeps its order), or drawn
     global SEED
