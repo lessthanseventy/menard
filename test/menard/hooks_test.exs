@@ -489,7 +489,9 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "format-report with MENARD_HOOK_COMPILE names a compiler warning in the file written", %{tmp_dir: dir} do
+  test "format-report with MENARD_HOOK_COMPILE names a compiler warning in the file written", %{tmp_dir: tmp} do
+    # a project path with a regex's characters in it: `[x]` matched no path, and every warning dropped
+    dir = Path.join(tmp, "p[x]")
     host(dir)
     file = Path.join(dir, "lib/w.ex")
     File.write!(file, "defmodule W do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
