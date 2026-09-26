@@ -51,4 +51,42 @@ defmodule Menard.RunCredoTest do
 
     assert Enum.map(Run.only_changed(issues, dir), & &1.at) == ~w(a.ex:2 a.ex:5 new.ex:1)
   end
+
+  @tag :tmp_dir
+  test "check --strict over a precommit alias runs credo --strict too, not nothing", %{tmp_dir: dir} do
+    # the alias ran and `--strict` was dropped without a word. The host's credo is a stand-in: a
+    # task of its own named credo, and a lock that names it, so no real credo is compiled
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Lint.MixProject do
+      use Mix.Project
+      def project, do: [app: :lint, version: "0.1.0", aliases: [precommit: ["compile"]]]
+    end
+    """)
+
+    File.write!(
+      Path.join(dir, "mix.lock"),
+      ~s|%{\n  "credo": {:hex, :credo, "1.7.12", "x", [:mix], [], "hexpm", "y"},\n}\n|
+    )
+
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(Path.join(dir, "lib/credo.ex"), """
+    defmodule Mix.Tasks.Credo do
+      use Mix.Task
+      def run(args) do
+        issues =
+          if "--strict" in args,
+            do: [%{"check" => "Credo.Check.Readability.Specs", "filename" => "lib/credo.ex", "line_no" => 3, "message" => "no spec"}],
+            else: []
+
+        IO.puts(JSON.encode!(%{"issues" => issues}))
+      end
+    end
+    """)
+
+    assert %{ok: true} = Run.result(dir, "check", [])
+
+    assert %{ok: false, failures: [%{kind: "credo", message: "no spec (Specs)"}]} =
+             Run.result(dir, "check", ["--strict"])
+  end
 end
