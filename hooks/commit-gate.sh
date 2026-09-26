@@ -7,8 +7,11 @@ set -uo pipefail
 
 payload=$(cat)
 cmd=$(jq -r '.tool_input.command // empty' <<<"$payload")
-# git, its -C/-c options, then commit, at the start of the command or after && ; | (
-grep -qE '(^|[;&|(])[[:space:]]*git([[:space:]]+-[Cc][[:space:]]+[^[:space:]]+)*[[:space:]]+commit([[:space:]]|$)' <<<"$cmd" || exit 0
+# git, its global options (-C/-c and theirs, quoted too; --no-pager, --git-dir=x, --git-dir x), then
+# commit; git after a separator, a quote, a slash or any word (then, env A=1, time, bash -c "…")
+arg="(\"[^\"]*\"|'[^']*'|[^[:space:]]+)"
+opts="([[:space:]]+(-[Cc][[:space:]]+$arg|--(git-dir|work-tree|namespace)[[:space:]]+$arg|-[^[:space:]]+))*"
+grep -qE "(^|[[:space:];&|(\`\"'/])git$opts[[:space:]]+commit([[:space:];&|)\`\"']|\$)" <<<"$cmd" || exit 0
 
 session=$(jq -r '.session_id // "none"' <<<"$payload")
 touched="${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"

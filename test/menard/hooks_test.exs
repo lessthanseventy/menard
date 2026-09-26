@@ -362,6 +362,35 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "commit-gate knows a git commit behind git's global options, a shell keyword or a wrapper", %{
+    tmp_dir: dir
+  } do
+    host(dir)
+    File.mkdir_p!(Path.join(dir, "my dir"))
+    File.write!(Path.join(dir, "menard-touched-c4"), dir <> "\n")
+    red = stub_menard(dir, "red", @red)
+    gate = fn cmd -> commit_gate(%{session_id: "c4", tool_input: %{command: cmd}}, dir, red) end
+
+    for cmd <- [
+          ~s(git -C "my dir" commit -m x),
+          "git --no-pager commit -m x",
+          "git --git-dir=.git commit -m x",
+          "git -c user.name=x commit -m x",
+          "if true; then git commit -m x; fi",
+          "env A=1 git commit -m x",
+          "time git commit -m x",
+          ~s(bash -c "git commit -m x"),
+          "/usr/bin/git commit -m x"
+        ] do
+      {out, 0} = gate.(cmd)
+      assert out =~ ~s("deny"), "not gated: #{cmd}"
+    end
+
+    for cmd <- ["git log --grep=commit", "git commit-tree HEAD^{tree}", "legit commit"],
+        do: assert({"", 0} = gate.(cmd))
+  end
+
+  @tag :tmp_dir
   test "stop-gate lets a session end that wrote nothing, or was refused three times", %{tmp_dir: dir} do
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "none-written"}, dir)
 
@@ -509,12 +538,12 @@ defmodule Menard.HooksTest do
     )
   end
 
-  defp commit_gate(payload, dir) do
+  defp commit_gate(payload, dir, root \\ @root) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
-    File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
+    File.write!(input, JSON.encode!(Map.put_new(payload, :cwd, dir)))
 
     System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/commit-gate.sh"), input],
-      env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}]
+      env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}]
     )
   end
 
