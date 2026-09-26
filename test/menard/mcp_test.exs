@@ -6,7 +6,7 @@ defmodule Menard.MCPTest do
   alias Menard.MCP.Reply
 
   setup do
-    root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(root, "lib"))
     previous = System.get_env("MENARD_ROOT")
     System.put_env("MENARD_ROOT", root)
@@ -65,7 +65,7 @@ defmodule Menard.MCPTest do
 
     response = call(Menard.MCP.Deps, %{verb: "add", spec: ~s({:dep, path: "dep"})})
 
-    refute response.isError
+    refute response.isError, inspect(response.content)
     assert File.read!(Path.join(root, "mix.exs")) =~ ~s({:dep, path: "dep"})
   end
 
@@ -186,6 +186,28 @@ defmodule Menard.MCPTest do
     assert {:ok, _} = Menard.MCP.resolve("lib/a.ex")
   end
 
+  test "a symlink under the root that points outside it is refused", %{root: root} do
+    outside =
+      Path.join(System.tmp_dir!(), "menard-outside-#{System.pid()}-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(outside)
+    on_exit(fn -> File.rm_rf!(outside) end)
+    File.ln_s!(outside, Path.join(root, "lib/out"))
+
+    assert {:error, "refused: lib/out/x.ex" <> _} = Menard.MCP.resolve("lib/out/x.ex")
+    assert {:error, "refused: lib/out" <> _} = Menard.MCP.resolve_all(["lib/a.ex", "lib/out"])
+    # a link that stays inside is as good as its target
+    File.ln_s!(Path.join(root, "lib"), Path.join(root, "src"))
+    assert {:ok, _} = Menard.MCP.resolve("src/a.ex")
+  end
+
+  test "resolving many files costs each once" do
+    paths = for n <- 1..20_000, do: "lib/m#{n}.ex"
+    {us, {:ok, resolved}} = :timer.tc(fn -> Menard.MCP.resolve_all(paths) end)
+    assert length(resolved) == 20_000
+    assert us < 2_000_000
+  end
+
   test "clause move carries a function to another file", %{root: root} do
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def go, do: 1\n\n  def stay, do: 2\nend\n")
 
@@ -195,6 +217,51 @@ defmodule Menard.MCPTest do
     refute response.isError
     refute File.read!(Path.join(root, "lib/a.ex")) =~ "def go"
     assert File.read!(Path.join(root, "lib/b.ex")) =~ "defmodule B do\n  def go, do: 1"
+
+    # both files' replies, as any write gives: the version for the next edit, and what changed
+    reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
+    assert %{"created" => "B", "to" => to, "from" => from} = reply
+    assert to["file"] == Path.join(root, "lib/b.ex")
+    assert from["file"] == Path.join(root, "lib/a.ex")
+
+    for {one, path} <- [{to, "lib/b.ex"}, {from, "lib/a.ex"}] do
+      assert one["version"] == Menard.remember(File.read!(Path.join(root, path)))
+      assert [%{"stage" => "patch", "hunks" => [_ | _]} | _] = one["stages"]
+    end
+  end
+
+  test "a move with no `to`, or refs with no `file`, is refused by name, not read as the root", %{
+    root: root
+  } do
+    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
+    text = &(&1.content |> hd() |> Map.fetch!("text"))
+
+    moved = call(Menard.MCP.Clause, %{verb: "move", file: "lib/a.ex", name_arity: "go/0"})
+    assert moved.isError
+    assert text.(moved) =~ "clause move needs to"
+
+    refs = call(Menard.MCP.Deps, %{verb: "refs", name_arity: "go/0"})
+    assert refs.isError
+    assert text.(refs) =~ "deps refs needs file"
+  end
+
+  test "stmt and attr get answer through the door", %{root: root} do
+    file = Path.join(root, "lib/s.ex")
+    File.write!(file, "defmodule S do\n  @limit 5\n\n  def go(x) do\n    y = x + 1\n    y\n  end\nend\n")
+
+    refute call(Menard.MCP.Stmt, %{
+             verb: "insert_after",
+             file: "lib/s.ex",
+             name_arity: "go/1",
+             head: "x",
+             match: "y = x + 1",
+             code: "IO.inspect(y)"
+           }).isError
+
+    assert File.read!(file) =~ "    IO.inspect(y)\n    y\n"
+
+    value = call(Menard.MCP.Attr, %{verb: "get", file: "lib/s.ex", name: "limit"})
+    assert value.content |> hd() |> Map.fetch!("text") |> JSON.decode!() == %{"value" => "5"}
   end
 
   test "attr comment writes the # line above an attribute", %{root: root} do
@@ -318,6 +385,34 @@ defmodule Menard.MCPTest do
     assert us < 2_000_000
   end
 
+  test "a tool that exits, or loses a process it linked, answers why; the door lives on" do
+    # the tool ran in a Task linked to the server: an exit it did not catch took the server's process
+    # with it, and one that was caught was reported as a timeout
+    defmodule Exits do
+      def call(%{how: :exit}, _frame), do: exit(:gave_up)
+
+      def call(%{how: :link}, _frame) do
+        spawn_link(fn -> exit(:helper_died) end)
+        Process.sleep(:infinity)
+      end
+
+      def call(%{how: :raise}, _frame), do: raise("menard bug")
+    end
+
+    text = &(&1.content |> hd() |> Map.fetch!("text"))
+
+    for {how, why} <- [exit: "gave_up", link: "helper_died", raise: "menard bug"] do
+      {:reply, response, _frame} = Reply.bounded(Exits, %{how: how}, Frame.new(), 2_000)
+      assert response.isError
+      assert text.(response) =~ why
+      refute text.(response) =~ "did not finish"
+    end
+
+    # a raise keeps where it came from: the trace is what fixes a bug in menard
+    {:reply, raised, _frame} = Reply.bounded(Exits, %{how: :raise}, Frame.new(), 2_000)
+    assert text.(raised) =~ "Exits.call/2"
+  end
+
   test "every tool answers through the deadline" do
     # every tool answers through bounded/4: its body is call/2, and execute/2 only puts a deadline on it
     for %{handler: tool} <- Menard.MCP.__components__(:tool) do
@@ -388,6 +483,40 @@ defmodule Menard.MCPTest do
       assert text =~ "set @t in a.ex"
       refute text =~ "@@"
     end
+  end
+
+  test "rename's versions: a path outside the root is refused as that, not as a bad FILE=SHA", %{
+    root: root
+  } do
+    File.write!(Path.join(root, "lib/r.ex"), "defmodule R do\n  def old, do: 1\nend\n")
+    text = &(&1.content |> hd() |> Map.fetch!("text"))
+    rename = &call(Menard.MCP.Rename, %{old: "old", new: "fresh", files: ["lib/r.ex"], versions: [&1]})
+
+    assert text.(rename.("../elsewhere.ex=sha256:00")) =~ "refused: ../elsewhere.ex is outside"
+    assert text.(rename.("lib/r.ex")) =~ "versions are FILE=SHA"
+  end
+
+  test "rename names a file it could not parse, apart from the ones it had nothing to do in", %{
+    root: root
+  } do
+    # both were "unchanged": an agent took a file with the old name still in it for one without
+    File.write!(Path.join(root, "lib/ok.ex"), "defmodule Ok do\n  def old, do: 1\nend\n")
+    File.write!(Path.join(root, "lib/none.ex"), "defmodule None do\nend\n")
+    File.write!(Path.join(root, "lib/broken.ex"), "defmodule Broken do\n  def old, do: (\nend\n")
+
+    response =
+      call(Menard.MCP.Rename, %{
+        old: "old",
+        new: "fresh",
+        files: ["lib/ok.ex", "lib/none.ex", "lib/broken.ex"]
+      })
+
+    reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
+    assert reply["changed"] == [Path.join(root, "lib/ok.ex")]
+    assert reply["unchanged"] == [Path.join(root, "lib/none.ex")]
+    assert [%{"file" => broken, "why" => why}] = reply["skipped"]
+    assert broken == Path.join(root, "lib/broken.ex")
+    assert why =~ "not parseable"
   end
 
   test "rename takes globs in files, and a glob that matches nothing is refused by name", %{root: root} do

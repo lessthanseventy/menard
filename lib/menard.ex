@@ -30,7 +30,7 @@ defmodule Menard do
   (`cache:` overrides the cache directory). A dep with neither leaves the file UNformatted with the
   reason: without its exports the formatter would add parens to every DSL call in the file.
 
-  Where Mix is not loaded (a release), it shells out to the host's `mix format` instead. Either way it
+  Where a plugin will not load in this VM, it shells out to the host's `mix format` instead. Either way it
   is bounded — over stdio an unbounded wait is an MCP tool that never answers — and `{:error, reason}`
   means "written but not formatted", never "not written".
   """
@@ -67,40 +67,41 @@ defmodule Menard do
   def format_staged(file, content, opts \\ []) do
     parent = self()
     ms = opts[:timeout] || @format_timeout
-    task = Task.async(fn -> format_somewhere(file, content, opts, parent) end)
+    task = Task.async(fn -> format_somewhere(file, content, Keyword.put(opts, :timeout, ms), parent) end)
 
-    case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
+    done = Task.yield(task, ms) || Task.shutdown(task, :brutal_kill)
+
+    # taken whether it is needed or not: left in the mailbox, the MCP server kept one per format
+    waiting_on =
+      receive do
+        {__MODULE__, :waiting_on, what} -> what
+      after
+        0 -> "the formatter in menard's VM"
+      end
+
+    case done do
       {:ok, result} ->
         result
 
       # Which formatter ran out the time is the thing to know: under load, a host's plugins that do
       # not load here send it to its own `mix format` through mise, a whole VM of its own.
       _timeout ->
-        waiting_on =
-          receive do
-            {__MODULE__, :waiting_on, what} -> what
-          after
-            0 -> "the formatter in menard's VM"
-          end
-
         {:error, "format did not finish in #{ms / 1000}s, in #{waiting_on} — file written UNFORMATTED"}
     end
   end
 
   defp format_somewhere(file, content, opts, parent) do
-    in_vm? = Code.ensure_loaded?(Format) and function_exported?(Format, :formatter_for_file, 2)
-
-    case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
+    case in_process(file, content, opts) do
       {:ok, formatted, split} -> {:ok, formatted, split}
-      {:fallback, why} -> format_in_shell(file, content, why, parent)
+      {:fallback, why} -> format_in_shell(file, content, why, parent, opts[:timeout])
     end
   end
 
-  defp format_in_shell(file, content, why, parent) do
+  defp format_in_shell(file, content, why, parent, ms) do
     send(parent, {__MODULE__, :waiting_on, "the host's own `mix format` (#{why})"})
     File.write!(file, content)
 
-    case shell_format(file) do
+    case shell_format(file, ms) do
       :ok -> {:ok, File.read!(file), nil}
       {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
     end
@@ -204,13 +205,15 @@ defmodule Menard do
         Integer.to_string(:erlang.phash2(project))
       ])
 
-  defp shell_format(file) do
+  # `ms` is the format's own deadline: killing the task that waits on the host's mix does not stop
+  # the OS process, which then wrote the file after menard had handed out its version
+  defp shell_format(file, ms) do
     # the host's own toolchain — a plugin built by a newer OTP loads there and not here. `loadpaths
     # --no-deps-check` first puts its last build on the path without checking deps, so the `format`
     # after it finds its plugins loaded and neither checks nor compiles anything.
     args = ["do", "loadpaths", "--no-deps-check", "+", "format", file]
 
-    case host_mix(formatter_root(file), args) do
+    case host_mix(formatter_root(file), args, timeout: ms) do
       {_out, 0} ->
         :ok
 
@@ -301,8 +304,10 @@ defmodule Menard do
     File.write!(path, content)
     week_ago = System.os_time(:second) - 7 * 24 * 3600
 
+    # a copy another menard pruned between the listing and the stat is already gone, not an error
     for old <- Path.wildcard(Path.join(Path.dirname(path), "*")),
-        File.stat!(old, time: :posix).mtime < week_ago,
+        {:ok, %{mtime: mtime}} <- [File.stat(old, time: :posix)],
+        mtime < week_ago,
         do: File.rm(old)
 
     version
@@ -496,8 +501,14 @@ defmodule Menard do
   # reason. MISE_EXEC_AUTO_INSTALL=false did not stop it (mise 2026.8). So ask first: a host that pins
   # a toolchain that is not installed gets the mix on PATH, and is told why.
   defp host_toolchain(dir) do
-    with mise when is_binary(mise) <- System.find_executable("mise"),
-         {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
+    case System.find_executable("mise") do
+      nil -> {:path, nil}
+      mise -> mise_toolchain(mise, dir)
+    end
+  end
+
+  defp mise_toolchain(mise, dir) do
+    with {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
          {:ok, %{} = tools} <- JSON.decode(out) do
       # pinned by the host: a config in its dir or above it. mise's global default is not the host's,
       # and the mix on PATH is the one the agent's own `mix` runs: two toolchains in one _build
@@ -510,20 +521,19 @@ defmodule Menard do
 
       missing = for {tool, %{"installed" => false} = v} <- pinned, do: "#{tool} #{v["version"]}"
 
-      case missing do
-        _ when pinned == [] ->
+      cond do
+        pinned == [] ->
           {:path, nil}
 
-        [] ->
+        missing == [] ->
           {:mise, mise}
 
-        missing ->
+        true ->
           {:path, "#{Enum.join(missing, ", ")} pinned here is not installed, so this ran the mix on PATH"}
       end
     else
-      nil -> {:path, nil}
       # mise could not say: let `exec` decide, as before
-      _ -> {:mise, System.find_executable("mise")}
+      _ -> {:mise, mise}
     end
   end
 

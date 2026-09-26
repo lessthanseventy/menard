@@ -29,7 +29,8 @@ if [[ ! -d deps/sourceror ]]; then
   "${run[@]}" mix compile >&2 </dev/null
 fi
 
-verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp"
+# every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
+verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|version"
 
 # menard building ITSELF (a first fetch, a compile after an update) is menard's business, not the
 # caller's: its log goes nowhere unless it fails. stderr then carries only the verb's own refusals
@@ -46,6 +47,8 @@ frozen=0
 
 verb="${1:-}"
 [[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
+# refused here, not by mix's "task could not be found" after a compile
+[[ "|$verbs|" == *"|$verb|"* ]] || { echo "menard: no verb $verb — usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
 shift
 
 # `--stdin`: the LAST argument comes from stdin — multi-line CODE full of quotes and backslashes,
@@ -62,8 +65,12 @@ set -- ${args[@]+"${args[@]}"}
 # tool locks itself out of finishing its own edit. Args ride System.argv, so multi-line CODE with
 # quotes in it survives.
 if ((frozen)); then
+  # MIX_ENV's build only, as mix would run: with the docs and test builds on the path too, the
+  # glob's order picked which build's modules loaded
   pa=()
-  for ebin in _build/*/lib/*/ebin; do pa+=(-pa "$PWD/$ebin"); done
+  for ebin in _build/"${MIX_ENV:-dev}"/lib/*/ebin; do
+    if [[ -d "$ebin" ]]; then pa+=(-pa "$PWD/$ebin"); fi
+  done
   [[ ${#pa[@]} -gt 0 ]] || { echo "menard --frozen: nothing built yet — run a plain verb once" >&2; exit 2; }
   # Mix.raise is how every task reports a miss ("no clause go/1 with head … — have: …"), and only
   # the `mix` CLI turns that into a message; raised here it would print as a bare stack trace and

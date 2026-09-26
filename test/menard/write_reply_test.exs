@@ -147,6 +147,18 @@ defmodule Menard.WriteReplyTest do
       assert File.read!(file) =~ ":a"
     end
 
+    test "a kept copy gone mid-prune does not fail the write that kept the next", %{tmp_dir: dir} do
+      # another menard pruning the same directory removes a copy between the listing and its stat;
+      # a link to nowhere is a copy that listed and will not stat
+      kept = Path.join([:filename.basedir(:user_cache, "menard"), "versions"])
+      File.mkdir_p!(kept)
+      gone = Path.join(kept, "gone-#{System.os_time()}")
+      File.ln_s!(Path.join(dir, "nowhere"), gone)
+      on_exit(fn -> File.rm(gone) end)
+
+      assert "sha256:" <> _ = Menard.remember("defmodule Gone do\nend\n")
+    end
+
     test "rename and move check every version before writing any file", %{tmp_dir: dir} do
       # rename and move write several files: every version is checked before any file is written
       a = write_file(dir, "ra.ex", "defmodule RA do\n  def old, do: 1\nend\n")
@@ -187,6 +199,26 @@ defmodule Menard.WriteReplyTest do
       end
 
       refute File.exists?(dest)
+    end
+  end
+
+  describe "clause move at the CLI" do
+    test "answers in JSON, both files' replies, like every other writing verb", %{tmp_dir: dir} do
+      a = write_file(dir, "ma.ex", "defmodule MA do\n  def go, do: 1\n\n  def stay, do: 2\nend\n")
+      dest = Path.join(dir, "mb.ex")
+
+      out = ExUnit.CaptureIO.capture_io(fn -> Clause.run(["move", a, "go/0", "--to", dest, "--as", "MB"]) end)
+
+      assert %{"created" => "MB", "to" => %{"file" => ^dest, "version" => "sha256:" <> _}, "from" => from} =
+               JSON.decode!(out)
+
+      assert from["file"] == a
+    end
+
+    test "with no --to is refused with the usage, not a stack trace", %{tmp_dir: dir} do
+      a = write_file(dir, "mc.ex", "defmodule MC do\n  def go, do: 1\nend\n")
+
+      assert_raise Mix.Error, ~r/move FILE name\/arity --to DEST/, fn -> Clause.run(["move", a, "go/0"]) end
     end
   end
 end
