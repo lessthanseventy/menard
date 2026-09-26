@@ -24,6 +24,17 @@ defmodule Menard.RunCredoTest do
     assert Run.credo_issues("** (Mix) The task \"credo\" could not be found") == :error
   end
 
+  test "reads the report however it is laid out, after output that has braces of its own" do
+    # keyed on the bytes `{\n  "issues"`, a report written any other way was "credo gave no report"
+    out = """
+    Compiling 1 file (.ex)
+    {:noisy, "a dep printing a term"}
+    {"issues": [{"check": "Credo.Check.Design.TagTODO", "filename": "lib/a.ex", "line_no": 3, "message": "Found a TODO tag."}]}
+    """
+
+    assert {:ok, [%{at: "lib/a.ex:3", message: "Found a TODO tag. (TagTODO)"}]} = Run.credo_issues(out)
+  end
+
   @tag :tmp_dir
   test "--changed keeps the issues on lines changed since the last commit, all of an untracked file", %{
     tmp_dir: dir
