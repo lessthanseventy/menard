@@ -35,7 +35,7 @@ defmodule Menard.HooksTest do
       |> Enum.join(":")
 
     payload = JSON.encode!(%{tool_name: "Bash", tool_input: %{command: "mix test"}})
-    tmp = Path.join(System.tmp_dir!(), "menard-hooks-#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "menard-hooks-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(tmp)
     input = Path.join(tmp, "payload.json")
     File.write!(input, payload)

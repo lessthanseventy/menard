@@ -5,7 +5,7 @@ defmodule Menard.FormatTest do
 
   test "returns within its own timeout rather than blocking forever" do
     # a REAL directory with no mix project: mix fails fast instead of the spawn erroring on cd
-    file = Path.join(System.tmp_dir!(), "menard_format_probe.ex")
+    file = Path.join(System.tmp_dir!(), "menard_format_probe-#{System.pid()}.ex")
     File.write!(file, "defmodule P do\nend\n")
     on_exit(fn -> File.rm_rf!(file) end)
 

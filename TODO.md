@@ -18,8 +18,3 @@ commit lands.
   ExUnit's 60s twice under the full gate (2026-09-26 ~04:45 and ~05:08, load average ~40 from
   parallel agents) and passed alone (320 identity tests green) and in the next gate. It is the
   slowest identity case; it has no margin under a loaded machine.
-- `find_test`, `run_test` and `hooks_test` still name scratch dirs `System.tmp_dir!()/menard-X-N`
-  with N from `System.unique_integer`, which restarts in every VM: test runs in two checkouts at
-  once (the review's agents, 2026-09-26) share `/tmp/menard-X-1…` and one's `on_exit` removes the
-  other's dir mid-test (mcp_test failed that way, three different tests, until its dirs took the
-  OS pid). Add `System.pid()` to each name, as mcp/outline/host_toolchain/format_shell tests do.
