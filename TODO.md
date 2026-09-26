@@ -8,12 +8,6 @@ commit lands.
   clause given there was taken as a `rewrite`; that fallback is removed (2026-09-26, with the
   prose verbs), so on upgrading tlon must send a whole clause to `Menard.Clause.rewrite/5` itself,
   or the call is refused toward `rewrite`. Not edited from here: tlon's change, when it upgrades.
-- `indented/2` in lib/menard/block.ex and lib/menard/clause.ex (identical copies) prefixes EVERY line
-  of the text with the indent: a blank line inside a block or definition comes out as trailing
-  spaces, and the lines of a heredoc or multi-line string inside it are shifted, changing the
-  string's value. `Menard.Source.reindent/2` already handles both (blank stays blank, literal lines
-  stay put); `indent <> reindent(text, indent)` is the likely fix, with a test for each case. Left
-  out of the Menard.Source consolidation because it changes behaviour.
 - docs/review/2026-09-26-fable.md, Tests, the sites left in files another agent was editing
   (2026-09-26): finding 2 at host_format_test.exs:56 and bin_test.exs:91 (a body inside
   `if mise && installed` is green with zero assertions on a box without them: make it a
@@ -36,3 +30,9 @@ commit lands.
   "Unknown dependency :phoenix" errors back to the agent (2026-09-26). Matching `git` anywhere is
   wrong too (`git checkout x && sed -i a.ex` is a real edit): skip only files git itself wrote, e.g.
   those whose content matches the index/HEAD after the command.
+- `bin/menard --frozen` is only as good as `_build`: one verb run WITHOUT `--frozen` while the tree
+  does not compile (a half-applied edit) fails the compile, and the compiler has already removed the
+  beams of the modules it was recompiling (Menard.Source, Menard.Block, Menard.Clause gone from
+  `_build/dev/lib/menard/ebin`, 2026-09-26). Every later `--frozen` verb then dies on "module
+  Menard.Source is not available", and the edit has to be finished by hand. A frozen copy of the
+  last good build (or compiling into a scratch build path) would keep `--frozen` working.
