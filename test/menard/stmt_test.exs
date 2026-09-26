@@ -431,4 +431,17 @@ defmodule Menard.StmtTest do
     assert message =~ "whole statement"
     assert message =~ "lines 3-6"
   end
+
+  test "a statement of the module itself, when no clause or test is named: defstruct, @type" do
+    # bench3 not-compiling.B.haiku: nothing reached `defstruct […]` or `@type t :: …`; it tried
+    # clause t/0, stmt t/0, two Edits, then replaced the whole module
+    src = "defmodule P do\n  defstruct [:sku, stock: 0]\n\n  @type t :: %__MODULE__{sku: String.t()}\nend\n"
+    out = Stmt.replace(src, "-", "", "defstruct [:sku, stock: 0]", "defstruct [:sku, stock: 0, weight: 0]")
+    assert out =~ "  defstruct [:sku, stock: 0, weight: 0]\n"
+
+    out =
+      Stmt.replace(src, "t/0", "", "@type t ::", "@type t :: %__MODULE__{sku: String.t(), weight: integer()}")
+
+    assert out =~ "  @type t :: %__MODULE__{sku: String.t(), weight: integer()}\n"
+  end
 end
