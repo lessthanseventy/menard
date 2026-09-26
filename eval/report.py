@@ -2,6 +2,10 @@
 """Aggregate eval/results/ROUND*/runs.jsonl into eval/REPORT.md.
 
     eval/report.py round1 [round2 …]
+
+A cell is a few runs, so a mean alone misleads (at n=3 one step moves an arm's mean 30%): every
+number is the median with its range, a rate is k/n, and the arms are compared PAIRED on the same
+(case, model, n), where the sign of the delta is the evidence.
 """
 
 import json
@@ -45,46 +49,113 @@ def load(rounds):
     return rows
 
 
-def ctx_tokens(r):
-    t = r["tokens"]
-    return t["input"] + t["cache_read"] + t["cache_write"]
+def to_green(r):
+    """New input + output until CI was green, the rounds of fixing it included; None without a CI."""
+    ci = r.get("ci") or {}
+    if ci.get("green_first") is None:
+        return None
+    t, c = r["tokens"], ci["tokens"]
+    return t["input"] + t["cache_write"] + t["output"] + c["input"] + c["cache_write"] + c["output"]
 
 
-def mean(xs):
+# the numbers a run has, each (column label, value of a row, format). Tokens, not dollars: on a
+# subscription the meter is usage. Kept apart because a cache read costs a tenth of new input on any
+# meter, and one total would hide which one grew
+METRICS = {
+    "new": ("new in tok", lambda r: r["tokens"]["input"] + r["tokens"]["cache_write"], "{:,.0f}"),
+    "cached": ("cached in tok", lambda r: r["tokens"]["cache_read"], "{:,.0f}"),
+    "out": ("out tok", lambda r: r["tokens"]["output"], "{:,.0f}"),
+    "turns": ("turns", lambda r: r["turns"], "{:.0f}"),
+    "wall": ("wall s", lambda r: r["wall_s"], "{:.0f}"),
+    # the agent's own wall, apart from the grading (rows before 2026-09-26 have only wall_s)
+    "agent": ("agent s", lambda r: r.get("agent_wall_s"), "{:.0f}"),
+    # calls the tool refused; rows before 2026-09-26 counted red test runs in (`failed_calls`)
+    "failed": ("tool errors", lambda r: r.get("tool_errors", r.get("failed_calls")), "{:.0f}"),
+    "red": ("red runs", lambda r: r.get("red_runs"), "{:.0f}"),
+    "rereads": ("rereads", lambda r: r.get("rereads"), "{:.0f}"),
+    # what CI would still catch: credo issues left (None where the fixture has no credo)
+    "credo": ("credo left", lambda r: r.get("credo"), "{:.0f}"),
+    "reruns": ("reruns", lambda r: r.get("reruns"), "{:.0f}"),
+    "to_green": ("tok to green", to_green, "{:,.0f}"),
+}
+# the yes/no a run has, shown as k/n
+FLAGS = {"pass": "pass", "clean": "clean", "ran_gate": "ran gate", "ci_first": "CI green 1st"}
+TABLE = ["new", "cached", "out", "turns", "wall", "agent", "failed", "red", "credo", "reruns", "to_green"]
+
+
+def flag(r, key):
+    if key == "ci_first":
+        return (r.get("ci") or {}).get("green_first")
+    return r.get(key)
+
+
+def spread(xs, fmt="{:.1f}"):
+    """The median with its range over the runs, `m (lo–hi)`, or the one value there is."""
     xs = [x for x in xs if x is not None]
-    return st.mean(xs) if xs else None
+    if not xs:
+        return "–"
+    if len(xs) == 1:
+        return fmt.format(xs[0])
+    return f"{fmt.format(st.median(xs))} ({fmt.format(min(xs))}–{fmt.format(max(xs))})"
 
 
-def stats(rows):
-    return {
-        "n": len(rows),
-        "pass": mean([1.0 if r["pass"] else 0.0 for r in rows]),
-        "clean": mean([1.0 if r["clean"] else 0.0 for r in rows]),
-        # tokens, not dollars: on a subscription the meter is usage. Kept apart because a cache read
-        # costs a tenth of new input on any meter, and one total would hide which one grew
-        "new": mean([r["tokens"]["input"] + r["tokens"]["cache_write"] for r in rows]),
-        "cached": mean([r["tokens"]["cache_read"] for r in rows]),
-        "out": mean([r["tokens"]["output"] for r in rows]),
-        "turns": mean([r["turns"] for r in rows]),
-        "wall": mean([r["wall_s"] for r in rows]),
-        # calls the tool refused; rows before 2026-09-26 counted red test runs in (`failed_calls`)
-        "failed": mean([r.get("tool_errors", r.get("failed_calls")) for r in rows]),
-        "red_runs": mean([r.get("red_runs") for r in rows]),
-        "rereads": mean([r["rereads"] for r in rows]),
-        # what CI would still catch: credo issues left (None where the fixture has no credo), and
-        # whether the agent ran the gate itself before it stopped
-        "credo": mean([r.get("credo") for r in rows]),
-        # CI after the agent stopped: green the first time, and the tokens (new in + out) to a green CI,
-        # the rounds it took included
-        "ci_first": mean([None if (r.get("ci") or {}).get("green_first") is None else float(r["ci"]["green_first"])
-                          for r in rows]),
-        "to_green": mean([None if not r.get("ci") or r["ci"]["green_first"] is None else
-                          r["tokens"]["input"] + r["tokens"]["cache_write"] + r["tokens"]["output"]
-                          + r["ci"]["tokens"]["input"] + r["ci"]["tokens"]["cache_write"] + r["ci"]["tokens"]["output"]
-                          for r in rows]),
-        "reruns": mean([r.get("reruns") for r in rows]),
-        "ran_gate": mean([None if "ran_gate" not in r else 1.0 if r["ran_gate"] else 0.0 for r in rows]),
-    }
+def kofn(rows, key):
+    """`k/n` of the rows where `key` holds, over the rows that have it."""
+    have = [r for r in rows if flag(r, key) is not None]
+    return f"{sum(1 for r in have if flag(r, key))}/{len(have)}" if have else "–"
+
+
+def unbalanced(rows):
+    """The (case, model) cells whose arms ran a different number of times: a mean over them
+    compares different tasks. [(cell, {arm: n})]."""
+    counts = defaultdict(lambda: defaultdict(int))
+    for r in rows:
+        counts[(r["case"], r["model"])][r["arm"]] += 1
+    return [(key, dict(c)) for key, c in sorted(counts.items()) if len(set(c.values())) > 1]
+
+
+def paired(rows, base="A"):
+    """Each arm against `base` on the same (case, model, n), the run that differs only by the arm:
+    per metric the cells where the arm was lower / higher and the delta's median and range, and
+    the pass outcomes side by side. An unmatched run pairs with nothing."""
+    cells = defaultdict(dict)
+    for r in rows:
+        cells[(r["case"], r["model"], r["n"])][r["arm"]] = r
+    out = {}
+    for arm in sorted({r["arm"] for r in rows} - {base}, key=lambda a: ARMS.index(a) if a in ARMS else 99):
+        pairs = [(c[arm], c[base]) for c in cells.values() if arm in c and base in c]
+        if not pairs:
+            continue
+        metrics = {}
+        for key in ("new", "out", "turns", "wall", "agent", "red", "reruns"):
+            f = METRICS[key][1]
+            ds = [f(a) - f(b) for a, b in pairs if f(a) is not None and f(b) is not None]
+            if ds:
+                metrics[key] = {"n": len(ds), "lower": sum(d < 0 for d in ds), "higher": sum(d > 0 for d in ds),
+                                "median": st.median(ds), "min": min(ds), "max": max(ds)}
+        passes = {"arm_only": 0, "base_only": 0, "both": 0, "neither": 0}
+        for a, b in pairs:
+            passes[{(True, False): "arm_only", (False, True): "base_only", (True, True): "both", (False, False): "neither"}
+                   [(bool(a["pass"]), bool(b["pass"]))]] += 1
+        out[arm] = {"pairs": len(pairs), "metrics": metrics, "pass": passes}
+    return out
+
+
+def paired_table(rows, base="A"):
+    p = paired(rows, base)
+    if not p:
+        return f"(no arm shares a (case, model, n) with {base})"
+    out = [f"| arm vs {base} | pairs | pass: arm only / {base} only / both / neither | metric | arm lower / higher | median Δ | min–max Δ |",
+           "|---|---|---|---|---|---|---|"]
+    for arm, d in p.items():
+        ps = d["pass"]
+        first = f"| {arm} | {d['pairs']} | {ps['arm_only']} / {ps['base_only']} / {ps['both']} / {ps['neither']} |"
+        for key, m in d["metrics"].items():
+            label, _, fmt = METRICS[key]
+            sign = lambda x: ("+" if x > 0 else "") + fmt.format(x)
+            out.append(f"{first} {label} | {m['lower']} / {m['higher']} | {sign(m['median'])} | {sign(m['min'])}…{sign(m['max'])} |")
+            first = "| | | |"
+    return "\n".join(out)
 
 
 def usage(r, rounds):
@@ -120,8 +191,10 @@ MENARD_WRITES = {"clause", "stmt", "block", "attr", "directive", "module", "rena
 
 
 def habits(r, rounds):
-    """Two costs a trace shows and a row does not: Reads after the run's last edit, and outline on a
-    file already Read whole. And the peak context one model call read."""
+    """Two costs a trace shows and a row does not: Reads after the run's last edit (an edit through
+    the shell too, which is how A edits), and outline on a file already Read whole. And the peak
+    context one model call read."""
+    import run
     for rd in rounds:
         d = EVAL / "results" / rd / "traces"
         traces = [t for t in [d / f"{r['id']}.jsonl"] if t.exists()] + sorted(d.glob(f"{r['id']}.[0-9][0-9].jsonl"))
@@ -139,7 +212,8 @@ def habits(r, rounds):
                     if c.get("type") == "tool_use":
                         calls.append((re.sub(r"^mcp__plugin_[\w-]+?_menard__", "m:", c["name"]), c.get("input", {})))
         edits = [i for i, (n, inp) in enumerate(calls)
-                 if n in WRITES or (n.startswith("m:") and n[2:] in MENARD_WRITES and inp.get("verb") not in ("get", "list"))]
+                 if n in WRITES or (n.startswith("m:") and n[2:] in MENARD_WRITES and inp.get("verb") not in ("get", "list"))
+                 or (n == "Bash" and run.shell_edit(inp.get("command", "")))]
         after = sum(1 for n, _ in calls[edits[-1] + 1:] if n == "Read") if edits else 0
         seen, dup = set(), 0
         for n, inp in calls:
@@ -155,22 +229,23 @@ def pct(x):
     return "–" if x is None else f"{x * 100:.0f}%"
 
 
-def num(x, fmt="{:.1f}"):
-    return "–" if x is None else fmt.format(x)
+def mean(xs):
+    xs = [x for x in xs if x is not None]
+    return st.mean(xs) if xs else None
 
 
 def table(groups, key_label):
-    out = [f"| {key_label} | arm | n | pass | clean | new in tok | cached in tok | out tok | turns | wall s | failed calls | credo left | reruns | ran gate | CI green 1st | tok to green |",
-           "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    out = [f"| {key_label} | arm | n | " + " | ".join(FLAGS[k] for k in ("pass", "clean")) + " | "
+           + " | ".join(METRICS[k][0] for k in TABLE) + " | ran gate | CI green 1st |",
+           "|---|---|---|" + "---|" * (len(TABLE) + 4)]
     for key, by_arm in groups:
         for arm in ARMS + sorted(a for a in by_arm if a not in ARMS):
             rows = by_arm.get(arm, [])
             if not rows:
                 continue
-            s = stats(rows)
-            out.append(f"| {key} | {arm} | {s['n']} | {pct(s['pass'])} | {pct(s['clean'])} | {num(s['new'], '{:,.0f}')} | "
-                       f"{num(s['cached'], '{:,.0f}')} | {num(s['out'], '{:,.0f}')} | {num(s['turns'])} | {num(s['wall'])} | {num(s['failed'])} | "
-                       f"{num(s['credo'])} | {num(s['reruns'])} | {pct(s['ran_gate'])} | {pct(s['ci_first'])} | {num(s['to_green'], '{:,.0f}')} |")
+            cells = [spread([METRICS[k][1](r) for r in rows], METRICS[k][2]) for k in TABLE]
+            out.append(f"| {key} | {arm} | {len(rows)} | {kofn(rows, 'pass')} | {kofn(rows, 'clean')} | " + " | ".join(cells)
+                       + f" | {kofn(rows, 'ran_gate')} | {kofn(rows, 'ci_first')} |")
     return "\n".join(out)
 
 
@@ -181,24 +256,56 @@ def grouped(rows, keyf):
     return sorted(g.items())
 
 
-def main():
-    rounds = sys.argv[1:] or ["round1"]
-    rows = load(rounds)
+def step_table(rows):
+    """A long case step by step: each (case, model, step, arm) over its runs, so a step where the
+    arms part is visible under a session total that hides it."""
+    g = defaultdict(lambda: defaultdict(list))
+    for r in rows:
+        for s in r.get("steps") or []:
+            g[(f"{r['case']} · {r['model']}", s["step"])][r["arm"]].append(s)
+    if not g:
+        return "(no long runs)"
+    out = ["| case · model | step | arm | n | pass | turns | new in tok | out tok | agent s | red runs |", "|---|---|---|---|---|---|---|---|---|---|"]
+    for (cell, step), by_arm in sorted(g.items()):
+        for arm in ARMS + sorted(a for a in by_arm if a not in ARMS):
+            ss = by_arm.get(arm, [])
+            if not ss:
+                continue
+            out.append(f"| {cell} | {step} | {arm} | {len(ss)} | {kofn(ss, 'pass')} | {spread([s['turns'] for s in ss], '{:.0f}')} | "
+                       f"{spread([s['tokens']['input'] + s['tokens']['cache_write'] for s in ss], '{:,.0f}')} | "
+                       f"{spread([s['tokens']['output'] for s in ss], '{:,.0f}')} | "
+                       f"{spread([s.get('agent_wall_s') for s in ss], '{:.0f}')} | {spread([s.get('red_runs') for s in ss], '{:.0f}')} |")
+    return "\n".join(out)
+
+
+def render(rows, rounds):
     md = [f"# menard eval report\n\nRounds: {', '.join(rounds)}. {len(rows)} runs. Arms: "
           + ", ".join(f"{a} {ARM_TEXT[a]}" for a in ARMS if any(r["arm"] == a for r in rows)) + ".\n\n"
+          "Every number is the median over the cell's runs with its range in brackets; a rate is k/n. "
           "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
           "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
           "Tokens are per run, summed over its model calls: `new in` is input the model had not seen (uncached input + cache writes), "
-          "`cached in` is input read from the prompt cache, `out` is output. `credo left`: credo issues in the "
-          "project after the run, whose base has none; `ran gate`: runs where the agent ran precommit, credo or "
-          "`run check` itself. `CI green 1st`: the project's CI passed as the agent left it; "
-          "`tok to green`: new input + output until CI was green, the rounds of fixing it included.\n"]
+          "`cached in` is input read from the prompt cache, `out` is output. `wall s` is the run's whole wall, `agent s` the agent's "
+          "own (without the grading). `tool errors`: calls the tool refused; `red runs`: test or gate runs that came back red. "
+          "`credo left`: credo issues in the project after the run, whose base has none; `reruns`: test runs with no edit since the "
+          "one before; `ran gate`: runs where the agent ran precommit, credo or `run check` itself. `CI green 1st`: the project's "
+          "CI passed as the agent left it; `tok to green`: new input + output until CI was green, the rounds of fixing it included.\n"]
 
+    bad = unbalanced(rows)
+    if bad:
+        md.append("**WARNING: unbalanced cells** (an arm ran more times than another on the same case and model; "
+                  "the by-arm rows mix tasks unevenly, read the paired deltas):\n")
+        md += [f"- {case} · {model}: " + ", ".join(f"{a} {n}" for a, n in sorted(c.items())) for (case, model), c in bad]
+        md.append("")
+
+    md.append("## Paired deltas vs A\n\nEach arm against A on the same (case, model, n): the sign is the evidence, the count of "
+              "cells where the arm was lower / higher; Δ = arm − A.\n\n" + paired_table(rows, "A") + "\n")
     md.append("## By arm\n\n" + table(grouped(rows, lambda r: "all"), "") + "\n")
     md.append("## By model\n\n" + table(sorted(grouped(rows, lambda r: r["model"]), key=lambda kv: MODELS.index(kv[0]) if kv[0] in MODELS else 9), "model") + "\n")
     md.append("## By task kind\n\n" + table(grouped(rows, lambda r: r["kind"]), "kind") + "\n")
     md.append("## By task kind and model\n\n" + table(grouped(rows, lambda r: f"{r['kind']} · {r['model']}"), "kind · model") + "\n")
     md.append("## By case\n\n" + table(grouped(rows, lambda r: r["case"]), "case") + "\n")
+    md.append("## By step\n\n" + step_table(rows) + "\n")
 
     fails = [r for r in rows if not r["pass"]]
     md.append("## Failed runs\n")
@@ -233,15 +340,15 @@ def main():
         md.append(f"| {arm} · {model} | {len(rs)} | {share('mcp')} | {share('cli')} | {share('skill')} | {share('shell_edit')} | {share('guard')} | {share('edit_ex')} |")
 
     md.append("\n## Habits (from the traces)\n")
-    md.append("Reads after last edit: Read calls after the run's last edit. Outline of a Read file: `outline` on a "
-              "file the run had already Read whole. Peak context: the most one model call read.\n")
+    md.append("Reads after last edit: Read calls after the run's last edit (by a tool or through the shell). Outline of a Read file: "
+              "`outline` on a file the run had already Read whole. Peak context: the most one model call read.\n")
     md.append("| arm · model | n | Reads after last edit /run | outline of a Read file /run | peak context |")
     md.append("|---|---|---|---|---|")
     for (arm, model), rs in sorted(g.items(), key=lambda kv: (kv[0][0], MODELS.index(kv[0][1]) if kv[0][1] in MODELS else 9)):
         hs = [h for h in (habits(r, rounds) for r in rs) if h]
         if hs:
-            md.append(f"| {arm} · {model} | {len(hs)} | {mean([h['reads_after'] for h in hs]):.2f} | "
-                      f"{mean([h['outline_dup'] for h in hs]):.2f} | {mean([h['peak'] for h in hs]):,.0f} |")
+            md.append(f"| {arm} · {model} | {len(hs)} | {spread([h['reads_after'] for h in hs])} | "
+                      f"{spread([h['outline_dup'] for h in hs])} | {spread([h['peak'] for h in hs], '{:,.0f}')} |")
 
     md.append("\n## Gap signals (menard arms)\n")
     kinds = defaultdict(list)
@@ -261,8 +368,13 @@ def main():
             for f in r["failures"]:
                 if f["tool"].startswith("menard:"):
                     md.append(f"- `{r['id']}` {f['tool']}: {f['text'][:220].replace(chr(10), ' ⏎ ')}")
+    return "\n".join(md) + "\n"
 
-    (EVAL / "REPORT.md").write_text("\n".join(md) + "\n")
+
+def main():
+    rounds = sys.argv[1:] or ["round1"]
+    rows = load(rounds)
+    (EVAL / "REPORT.md").write_text(render(rows, rounds))
     print(f"wrote {EVAL / 'REPORT.md'} from {len(rows)} runs")
 
 
