@@ -472,6 +472,16 @@ model on renames across files, not for a capable one on everyday edits.
   template, so credo left counts only what an agent adds.
 - 03:00 focus3 cancelled by choice before it started (the queue killed, no plugin re-pinned), to be
   started on purpose once there is more to add.
+- 2026-09-26 16:45 focus3 step 1 re-planted: the old plant (the fuzzy filter dropping every match
+  scoring 0 or below) was caught by Tlön's own picker_test.exs:82, so both arms would have started
+  on a red test naming the fault. The new plant drops such a match only for a query of one or two
+  bytes (`rr` against `Machine · Tlön · rail redesign` scores -5, +2 with no project). Validated
+  with `cases/focus3/reference/validate.py` on the hidden-menard template, arm-A workspaces:
+  planted tree, the case's `ci` (both apps' precommit) PASS, 922 console tests; planted, step 1
+  check FAIL (the 2 hidden initials tests); `reference/01/fix.patch` (the guard gone, a filter test
+  added) PASS, 926; `title-first.patch` (the title first in the row's text, so the switcher finds
+  `rr` but the filter still drops it) FAIL (1 hidden test: the filter's). 4 of 4 as expected,
+  3.8 min; no model run.
 
 ### focus2 (02:21-02:51): Tlön focus case, sonnet, all vs A, one run each
 

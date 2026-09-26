@@ -1,0 +1,13 @@
+diff --git a/console/lib/console/picker.ex b/console/lib/console/picker.ex
+index d9481ac..16acc2a 100644
+--- a/console/lib/console/picker.ex
++++ b/console/lib/console/picker.ex
+@@ -139,7 +139,7 @@ defmodule Console.Picker do
+       keys: nil,
+       label: title,
+       context: where,
+-      text: "#{where} · #{title}",
++      text: "#{title} · #{where}",
+       workspace_id: workspace[:id],
+       thread_id: thread[:id]
+     }

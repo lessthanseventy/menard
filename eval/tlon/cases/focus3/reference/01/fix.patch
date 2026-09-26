@@ -1,0 +1,31 @@
+diff --git a/console/lib/console/fuzzy.ex b/console/lib/console/fuzzy.ex
+index 61771a4..b9eaa75 100644
+--- a/console/lib/console/fuzzy.ex
++++ b/console/lib/console/fuzzy.ex
+@@ -98,7 +98,6 @@ defmodule Console.Fuzzy do
+ 
+       case match(text, query) do
+         nil -> []
+-        score when score <= 0 and byte_size(query) <= 2 -> []
+         score -> [{-score, String.length(text), i, entry}]
+       end
+     end)
+diff --git a/console/test/console/fuzzy_test.exs b/console/test/console/fuzzy_test.exs
+index 955bed0..1075abd 100644
+--- a/console/test/console/fuzzy_test.exs
++++ b/console/test/console/fuzzy_test.exs
+@@ -5,6 +5,14 @@ defmodule Console.FuzzyTest do
+ 
+   doctest Console.Fuzzy
+ 
++  describe "filter/3" do
++    test "keeps a match however low it scores: initials far down a long path still find it" do
++      assert Fuzzy.match("Machine · Tlön · rail redesign", "rr") < 0
++      assert Fuzzy.filter(["Machine · Tlön · rail redesign"], "rr") == ["Machine · Tlön · rail redesign"]
++      assert Fuzzy.filter(["Machine · Tlön · rail redesign"], "r") == ["Machine · Tlön · rail redesign"]
++    end
++  end
++
+   describe "match/2" do
+     test "a subsequence matches, a non-subsequence does not" do
+       assert Fuzzy.match("cockpit slice", "cps")
