@@ -212,10 +212,6 @@ defmodule Menard.HostFormatTest do
   test "a plugin's cached config is the host's, not the last host's", %{tmp_dir: dir} do
     # Quokka and Styler keep their config in :persistent_term and read it only when it is unset, so a
     # long-running menard (the MCP server) formatted every host with the first host's config
-    # Quokka and Styler keep their config in :persistent_term and read it only when it is unset, so a
-    # long-running menard (the MCP server) formatted every host with the first host's config
-    # Quokka and Styler keep their config in :persistent_term and read it only when it is unset, so a
-    # long-running menard (the MCP server) formatted every host with the first host's config
     plugin =
       plug(Path.join(dir, "one"), "Cached", ~S"""
       seen =
