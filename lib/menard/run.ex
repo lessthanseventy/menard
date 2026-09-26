@@ -52,8 +52,23 @@ defmodule Menard.Run do
   end
 
   defp verb(run, "test", args) do
-    {out, status, fetched} = mix_fetching(run, ["test" | args])
-    out |> parse_test(status) |> with_sources(run.dir) |> Map.put(:fetched, fetched)
+    # ExUnit's failures as data, from a formatter required into the host's VM beside its CLI one: read
+    # from the prose, a `left:` that did not fit one line came back as its first line. The prose
+    # still says what no formatter sees (a test file that does not compile, mix refusing an option).
+    held = run.log <> ".exunit"
+    formatters = ["--formatter", "Menard.ExUnitFormatter", "--formatter", "ExUnit.CLIFormatter"]
+
+    host = [
+      require: Application.app_dir(:menard, "priv/ex_unit_formatter.exs"),
+      env: [{"MENARD_EXUNIT_OUT", held}]
+    ]
+
+    {out, status, fetched} = mix_fetching(run, ["test" | formatters ++ args], host)
+
+    out
+    |> parse_test(status, read_held(held))
+    |> with_sources(run.dir)
+    |> Map.put(:fetched, fetched)
   end
 
   defp verb(%{dir: dir}, "format", files) do
@@ -84,6 +99,18 @@ defmodule Menard.Run do
     if credo?(run.dir),
       do: credo(run, args),
       else: %{ok: true, failures: [], skipped: "no credo in this project"}
+  end
+
+  # what the formatter wrote at the suite's end; nil when no suite ran
+  defp read_held(path) do
+    case File.read(path) do
+      {:ok, bin} ->
+        File.rm(path)
+        :erlang.binary_to_term(bin, [:safe])
+
+      _ ->
+        nil
+    end
   end
 
   # A precommit that failed in credo printed its report as text: the same report as data puts each
@@ -272,13 +299,13 @@ defmodule Menard.Run do
   # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
   # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
   # and name what came.
-  defp mix_fetching(run, args) do
-    {out, status} = mix(run, args)
+  defp mix_fetching(run, args, host \\ []) do
+    {out, status} = mix(run, args, host)
 
     if status != 0 and out =~ ~s(run "mix deps.get") do
       {got, _status} = mix(run, ["deps.get"])
       fetched = ~r/\* Getting (\S+)/ |> Regex.scan(got) |> Enum.map(&List.last/1)
-      {out, status} = mix(run, args)
+      {out, status} = mix(run, args, host)
       {out, status, fetched}
     else
       {out, status, []}
@@ -301,9 +328,10 @@ defmodule Menard.Run do
   # every test/support module read as "not loaded" — first under `run test`, then again under
   # `run check`. nil unsets, so menard's own MIX_ENV cannot leak into the target either, which is
   # what the pin was for.
-  defp mix(run, args) do
+  defp mix(run, args, host \\ []) do
     left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
-    {out, status} = Menard.host_mix(run.dir, args, env: [{"MIX_ENV", nil}], timeout: left)
+    {env, host} = Keyword.pop(host, :env, [])
+    {out, status} = Menard.host_mix(run.dir, args, [env: [{"MIX_ENV", nil} | env], timeout: left] ++ host)
     File.write!(run.log, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
     # uncoloured, once, for every parser: `config :elixir, :ansi_enabled, true` colours ExUnit's
     # report even into this pipe, and `mix format --check-formatted` colours its list anyway
@@ -327,18 +355,23 @@ defmodule Menard.Run do
 
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
-  @doc "Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, failures, tail}`."
-  def parse_test(out, status) do
+  @doc """
+  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, failures, tail}`.
+  `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
+  run had it; output menard does not run itself (a precommit alias) is read from its prose.
+  """
+  def parse_test(out, status, held \\ nil) do
     # `--repeat-until-failure N` prints one run after another, and only the LAST run says anything:
     # the one that failed, or the Nth that passed. Its counts, failures and tail are the answer; the
     # seed is how to reproduce it, and the run count is how long it hid.
     runs = out |> String.split(~r/Running ExUnit with seed: /)
     last = List.last(runs)
-    {tests, failed} = counts(last)
+    # the formatter's counts and failures when it wrote them, else what the prose says
+    {tests, failed} = if held, do: {held.tests, held.failed}, else: counts(last)
     # the compile before the first run: its warnings, which a green run went on to hide, or, with no
     # run at all, a test file's errors
     compile = diagnostics(hd(runs))
-    failures = failures(last) ++ compile
+    failures = if(held, do: held.failures, else: failures(last)) ++ compile
 
     %{
       ok: status == 0,
@@ -427,7 +460,10 @@ defmodule Menard.Run do
     with true <- File.exists?(path),
          lines <- File.read!(path) |> String.split("\n"),
          {start, _} <- Integer.parse(line),
-         [head | rest] <- Enum.drop(lines, start - 1) do
+         [head | rest] <- Enum.drop(lines, start - 1),
+         # a line that opens no block (`doctest Mod`, a one-line test) is the whole source: read
+         # down to the next `end` at its indent, it was the rest of the module
+         true <- String.ends_with?(String.trim_trailing(head), " do") || head do
       indent = String.length(head) - String.length(String.trim_leading(head))
 
       body =
@@ -440,6 +476,7 @@ defmodule Menard.Run do
       closer = Enum.at(rest, length(body))
       Enum.join([head | body] ++ List.wrap(closer), "\n")
     else
+      head when is_binary(head) -> head
       _ -> nil
     end
   end
