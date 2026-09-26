@@ -3,6 +3,10 @@ defmodule Menard.BinTest do
   # `run` → one JSON line). Not async: it deletes and rebuilds a build of menard's, its own env's.
   use ExUnit.Case, async: false
 
+  # A verb run without --frozen compiles menard first, and in a fresh worktree every dep with it:
+  # 28 s cold at load average 17, past ExUnit's 60 s default on a host loaded 60 and more
+  @moduletag timeout: 300_000
+
   @root Path.expand("../..", __DIR__)
   @bin Path.join(@root, "bin/menard")
 
