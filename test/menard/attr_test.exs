@@ -44,40 +44,38 @@ defmodule Menard.AttrTest do
   test "set replaces the value and leaves everything else alone" do
     out = Attr.set(@src, "kinds", "[:a, :b, :c]")
 
-    assert out =~ "@kinds [:a, :b, :c]"
-    assert out =~ ~s(@moduledoc "docs")
-    assert out =~ "def go(:a), do: 1"
+    assert out == String.replace(@src, "[:a, :b]", "[:a, :b, :c]")
   end
 
   test "set over a MULTI-LINE value replaces the whole block, not just its first line" do
     out = Attr.set(@src, "hints", "[{\"z\", \"only\"}]")
 
-    assert out =~ ~s(@hints [{"z", "only"}])
-    refute out =~ ~s({"x", "one"})
-    refute out =~ ~s({"y", "two"})
-    assert out =~ "@doc \"first\""
+    assert out ==
+             String.replace(
+               @src,
+               ~s(@hints [\n    {"x", "one"},\n    {"y", "two"}\n  ]),
+               ~s(@hints [{"z", "only"}])
+             )
   end
 
   test "a multi-line value lands as a block at the attribute's own column" do
     out = Attr.set(@src, "kinds", "[\n  :a,\n  :z\n]")
 
-    assert out =~ "  @kinds [\n    :a,\n    :z\n  ]"
+    assert out == String.replace(@src, "@kinds [:a, :b]", "@kinds [\n    :a,\n    :z\n  ]")
   end
 
   test "setting one that is missing adds it above the first definition, where tables live" do
     out = Attr.set(@src, "timeout", "5_000")
 
-    assert out =~ "@timeout 5_000"
-    # above the first def, not appended after the last
-    assert String.split(out, "@timeout") |> hd() |> String.contains?("def go") == false
+    # above the first def, not appended after the last: under the @moduledoc, with the tables
+    assert out == String.replace(@src, "  @kinds", "  @timeout 5_000\n\n  @kinds")
   end
 
   test "delete removes the whole attribute, block and all" do
     out = Attr.delete(@src, "hints")
 
-    refute out =~ "@hints"
-    refute out =~ ~s({"x", "one"})
-    assert out =~ "@kinds [:a, :b]"
+    # the blank on each side stays: the format stage folds them
+    assert out == String.replace(@src, ~s(  @hints [\n    {"x", "one"},\n    {"y", "two"}\n  ]\n), "")
   end
 
   test "a name that repeats per clause is refused, with its lines, not guessed at" do
@@ -156,7 +154,7 @@ defmodule Menard.AttrTest do
     end
     """
 
-    assert Attr.set(src, "timeout", "10_000") =~ "@timeout 10_000 # ms"
+    assert Attr.set(src, "timeout", "10_000") == String.replace(src, "5_000", "10_000")
   end
 
   test "set on a heredoc keeps the line after it" do
@@ -248,9 +246,9 @@ defmodule Menard.AttrTest do
     end
     """
 
-    assert Menard.Attr.delete(src, "stray") =~ "  \"\"\"\n  @spec add(integer())"
-    # elsewhere a blank on each side stays one blank
-    assert Menard.Attr.delete(src, "plain") =~ "def add(a), do: a + 1\n\n\n  def other"
+    assert Menard.Attr.delete(src, "stray") == String.replace(src, "  @stray 1\n\n", "")
+    # elsewhere the blank on each side stays, for the format stage to fold
+    assert Menard.Attr.delete(src, "plain") == String.replace(src, "  @plain 2\n", "")
   end
 
   test "a multi-line value already placed deeper keeps its indentation" do
@@ -271,7 +269,8 @@ defmodule Menard.AttrTest do
     assert Menard.Attr.set(src, "words", value) == src
 
     # a sigil's lines are its value, written from column 0 or not: they stay as given
-    assert Menard.Attr.set(src, "words", "~w(\n  four\n)a") =~ "  @words ~w(\n  four\n)a\n"
+    assert Menard.Attr.set(src, "words", "~w(\n  four\n)a") ==
+             String.replace(src, "~w(\n      one two\n      three\n    )a", "~w(\n  four\n)a")
   end
 
   test "a NEW attribute that reads others lands below them, and above the next table" do
