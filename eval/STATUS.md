@@ -299,3 +299,23 @@ string: silent, parse-check-proof corruption), 90b3f6d, 43368f0, 6d19a61, ab2519
 
 For Andrew: (1) batch edits, the one lever left on the per-site turn cost; (2) whether the guard
 should cover test files (sonnet's first move for a new test is Edit); (3) `file` vs `file_path`.
+
+## long2 verdict: the long session again, on 8119072 (20:15-20:35)
+
+Same six-step cart-refactor session as long1, 1 run per cell (long1 in brackets).
+
+| model | arm | final | steps | clean | turns | cost | peak context |
+|---|---|---|---|---|---|---|---|
+| haiku | A | PASS (FAIL) | 6/6 (1/6) | no | 131 (126) | $1.74 ($1.86) | 141k (153k) |
+| haiku | B | FAIL (PASS) | 4/6 (4/6) | no (yes) | 194 (179) | $2.69 ($2.25) | 183k (166k) |
+| sonnet | A | PASS | 6/6 | yes (no) | 25 (25) | $0.30 ($0.33) | 38k (42k) |
+| sonnet | B | PASS | 6/6 | yes | **36 (53)** | **$0.40 ($0.73)** | 47k (64k) |
+
+- **Sonnet: the fixes cut B's long-session cost nearly in half**, from 2.2x A's to 1.3x, every
+  step passing and clean both times. That is the clearest effect of today's work.
+- **Haiku B failed again, on menard again**: step 02 ended not compiling for the same reason as
+  long1 in a new shape, a component replaced whole with its `attr` lines and `@doc` above the def,
+  which the long1 fix (5bfc41c, @doc/@spec only) did not cover; the session then ran out of turns
+  in step 06. Fixed after (2c4d345), with block's no-name whole block (a9e06ab).
+- **One run per cell is noisy here**: haiku A went from 1/6 (the optional-rate shortcut) to 6/6.
+  A verdict on haiku at length needs several runs per cell; sonnet's two runs agree.
