@@ -292,6 +292,87 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "format-report starts menard once per project for a shell command's files, and not for git", %{
+    tmp_dir: dir
+  } do
+    # one start per file (format 0.46s, credo 1.2s): a checkout of 100 files took ~170s, past the
+    # hook's 60s, and the agent heard nothing
+    host(dir)
+
+    counting =
+      stub_menard(
+        dir,
+        "counting",
+        ~s(echo "$*" >>"$\(dirname "$0"\)/../calls"\nexec "#{@root}/bin/menard" "$@")
+      )
+
+    formats = fn ->
+      Path.join(counting, "calls") |> File.read!() |> String.split("\n") |> Enum.count(&(&1 =~ "run format"))
+    end
+
+    bash = fn cmd ->
+      %{tool_name: "Bash", session_id: "t#{System.unique_integer([:positive])}", tool_input: %{command: cmd}}
+    end
+
+    call = bash.("sed")
+    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting)
+    backdate_format_mark(call, dir)
+    files = for n <- 1..3, do: Path.join(dir, "lib/m#{n}.ex")
+
+    for {f, n} <- Enum.with_index(files, 1),
+        do: File.write!(f, "defmodule M#{n} do\n  def   f(x), do: x\nend\n")
+
+    {out, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
+    for f <- files, do: assert(File.read!(f) =~ "  def f(x), do: x\n")
+    assert out =~ "lib/m3.ex was reformatted"
+    assert formats.() == 1
+
+    # git put these files back as they were: no one's edit, and none to format or report
+    call = bash.("git checkout -- lib")
+    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting)
+    backdate_format_mark(call, dir)
+    File.write!(hd(files), "defmodule M1 do\n  def   f(x), do: x\nend\n")
+    assert {"", 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
+    assert formats.() == 1
+  end
+
+  @tag :tmp_dir
+  test "format-report runs credo once over the files a call formatted, in a project that lints", %{
+    tmp_dir: dir
+  } do
+    host(dir)
+    File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
+
+    linting =
+      stub_menard(dir, "linting", """
+      echo "$*" >>"$(dirname "$0")/../calls"
+      case "$2" in
+        format) echo '{"ok":true,"failures":[],"changed":[]}' ;;
+        credo) echo '{"ok":false,"failures":[{"kind":"credo","at":"lib/m2.ex:1","message":"a nit"}]}' ;;
+      esac
+      """)
+
+    call = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "sed"}
+    }
+
+    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, linting)
+    backdate_format_mark(call, dir)
+    for n <- 1..2, do: File.write!(Path.join(dir, "lib/m#{n}.ex"), "defmodule M#{n} do\nend\n")
+
+    {out, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, linting)
+    assert JSON.decode!(out)["hookSpecificOutput"]["additionalContext"] =~ "  lib/m2.ex:1 a nit"
+
+    credo =
+      Path.join(linting, "calls") |> File.read!() |> String.split("\n") |> Enum.filter(&(&1 =~ "run credo"))
+
+    assert [line] = credo
+    assert line =~ "lib/m1.ex" and line =~ "lib/m2.ex"
+  end
+
+  @tag :tmp_dir
   test "format-report leaves what git ignores alone: a test run's fixtures are no agent's edit", %{
     tmp_dir: dir
   } do
@@ -738,13 +819,13 @@ defmodule Menard.HooksTest do
   defp gate_err_file(dir), do: Path.join(dir, "menard-gate.err")
   defp gate_err(dir), do: File.read!(gate_err_file(dir))
 
-  defp report(payload, dir) do
+  defp report(payload, dir, root \\ @root) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
 
     # paths as arguments, never inside the -c string: a tmp_dir holds the test's name, quotes and all
     System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/format-report.sh"), input],
-      env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}],
+      env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}],
       stderr_to_stdout: true
     )
   end

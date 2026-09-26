@@ -27,6 +27,11 @@ fi
 if [[ "$tool" == "Bash" ]]; then
   root=${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}
   [[ -f "$mark" ]] || exit 0
+  # git puts files as they were in some commit (checkout, stash, reset): no one's edit, none to format
+  if [[ "$(jq -r '.tool_input.command // empty' <<<"$payload")" =~ ^[[:space:]]*git[[:space:]] ]]; then
+    rm -f "$mark"
+    exit 0
+  fi
   files=$(find "$root" \( -name _build -o -name deps -o -name .git -o -name node_modules \) -prune -o \
     \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print 2>/dev/null)
   rm -f "$mark"
@@ -40,41 +45,59 @@ else
 fi
 [[ -n "$files" ]] || exit 0
 
-report="" problems="" moved="" written=""
+# the files by project, for one menard start per project: one per file (format 0.46s, credo 1.2s)
+# took ~170s over a 100-file change, past the hook's 60s, and the agent heard nothing
+declare -A of=()
 while IFS= read -r file; do
   case "$file" in *.ex | *.exs) ;; *) continue ;; esac
   [[ -f "$file" ]] || continue
   dir=$(dirname "$(readlink -f "$file")")
   while [[ "$dir" != "/" && ! -f "$dir/mix.exs" ]]; do dir=$(dirname "$dir"); done
   [[ -f "$dir/mix.exs" ]] || continue
+  of[$dir]+="$file"$'\n'
+done <<<"$files"
+
+menard="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard"
+report="" problems="" moved="" written=""
+for dir in "${!of[@]}"; do
+  mapfile -t list <<<"${of[$dir]%$'\n'}"
   # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
   printf '%s\n' "$dir" >>"${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
-
-  written+="$dir|${file#"$dir"/}"$'\n'
-  before=$(mktemp)
-  cp "$file" "$before"
-  # </dev/null: mix reads stdin, and inside this loop took the rest of the file list with it
-  out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run format --in "$dir" "$file" 2>/dev/null </dev/null)
-
-  if [[ "$out" == *'"ok":true'* ]]; then
+  before=$(mktemp -d)
+  for i in "${!list[@]}"; do cp "${list[$i]}" "$before/$i"; done
+  # </dev/null: mix reads stdin, and inside a loop took the rest of its list with it
+  reply=$("$menard" run format --in "$dir" "${list[@]}" 2>/dev/null </dev/null | tail -n1)
+  # the files that did not format, as the reply names them (relative to the project)
+  failed=$(jq -r '.failures[]?.at' <<<"$reply" 2>/dev/null)
+  why=$(jq -r '.failures[]? | "\(.at) was written but \(.message | sub("; mix format failed:.*"; ""))"' <<<"$reply" 2>/dev/null)
+  [[ -n "$why" ]] && problems+="$why"$'\n'
+  lint=()
+  for i in "${!list[@]}"; do
+    file=${list[$i]}
+    rel=${file#"$dir"/}
+    written+="$dir|$rel"$'\n'
+    # no reply at all: menard did not start, and nothing was formatted
+    if ! jq -e 'has("ok")' <<<"$reply" >/dev/null 2>&1; then
+      problems+="$rel was written but could not be formatted"$'\n'
+      continue
+    fi
+    grep -qxF -- "$rel" <<<"$failed" && continue
+    lint+=("$rel")
     # past the two header lines by position: a removed `-- x` reads `--- x`, and a filter took it for one
-    change=$(diff -U0 "$before" "$file" | tail -n +3)
+    change=$(diff -U0 "$before/$i" "$file" | tail -n +3)
     lines=$(wc -l <<<"$change")
     ((lines > 40)) && change=$(head -40 <<<"$change")$'\n'"… $((lines - 40)) more lines of the diff"
-    [[ -n "$change" ]] && report+="${file#"$dir"/} was reformatted:"$'\n'"$change"$'\n' && moved=1
-    # credo on what this session changed in the file, when the project lints with it: found at write
-    # time it is one edit; found in CI it is a round trip. Its default level; --strict is the project's.
-    if [[ -d "$dir/deps/credo" ]] || grep -qs '"credo":' "$dir/mix.lock"; then
-      lint=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run credo --in "$dir" --changed "${file#"$dir"/}" 2>/dev/null </dev/null |
-        jq -r '.failures[]? | "  \(.at) \(.message)"' 2>/dev/null)
-      [[ -n "$lint" ]] && report+="credo, on lines you changed in ${file#"$dir"/}:"$'\n'"$lint"$'\n'
-    fi
-  else
-    why=$(printf '%s' "$out" | jq -r '.failures[0].message // empty' 2>/dev/null | sed 's/; mix format failed:.*//')
-    problems+="${file#"$dir"/} was written but ${why:-could not be formatted}"$'\n'
+    [[ -n "$change" ]] && report+="$rel was reformatted:"$'\n'"$change"$'\n' && moved=1
+  done
+  rm -rf "$before"
+  # credo on what this session changed in the files, when the project lints with it: found at write
+  # time it is one edit; found in CI it is a round trip. Its default level; --strict is the project's.
+  if ((${#lint[@]})) && { [[ -d "$dir/deps/credo" ]] || grep -qs '"credo":' "$dir/mix.lock"; }; then
+    found=$("$menard" run credo --in "$dir" --changed "${lint[@]}" 2>/dev/null </dev/null | tail -n1 |
+      jq -r '.failures[]? | "  \(.at) \(.message)"' 2>/dev/null)
+    [[ -n "$found" ]] && report+="credo, on lines you changed:"$'\n'"$found"$'\n'
   fi
-  rm -f "$before"
-done <<<"$files"
+done
 
 # MENARD_HOOK_COMPILE (the eval's compile arm): compile each project written into, once, and report
 # the compiler's warnings in the files this call wrote. 42 red gates in the operator's sessions were
