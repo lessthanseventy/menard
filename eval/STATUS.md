@@ -173,3 +173,11 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   width, so every run started unformatted: A's "unformatted" on this case in bench1-3 is the setup,
   and bench3 not-compiling.B.haiku ran `run format` on catalog.ex, which made it noise. Clean on
   this case is void in every round so far, both arms. setup.sh now formats what it changed.
+- 19:00 bench3's runner died at 30/68: styler.A's check had its `mix compile` wait forever
+  on a build lock "held by" its own pid (a mix lock race; the same tree compiles in 1s), and the
+  600s timeout escaped sh(). Fixed in the harness (e9e4688): checks and agents run in their own
+  process group, killed whole at the deadline, recorded as a failed run. Resumed at 19:00 without
+  --rebuild: same pinned plugin (8aeaa4f), the 30 finished rows kept, styler.A rerun.
+  Also a63ec0b: stmt reaches module-level statements (defstruct, @type), from not-compiling.B;
+  6ce5310: not-compiling's setup left catalog.ex unformatted, voiding clean on that case in every
+  round so far, both arms.
