@@ -215,6 +215,51 @@ defmodule Menard.Source do
     end
   end
 
+  @doc """
+  The Elixir in a `~H` sigil node: each `{…}` (braces counted) and `<%… %>`, as `{line, column,
+  text}`, the text exactly as written between the delimiters. ~H is a string to the AST, so this
+  is the only way into what its expressions call.
+  """
+  def heex_expressions(source, node) do
+    %{start: [line: a, column: ca], end: [line: b, column: _]} = Sourceror.get_range(node)
+
+    gs =
+      source
+      |> String.split("\n")
+      |> Enum.slice((a - 1)..(b - 1)//1)
+      |> Enum.join("\n")
+      |> String.graphemes()
+      |> Enum.drop(ca - 1)
+
+    for {from, to} <- heex_regions(Enum.with_index(gs), :markup, nil, []) do
+      {line, column} = advance({a, ca}, gs |> Enum.take(from) |> Enum.join())
+      {line, column, gs |> Enum.slice(from, to - from) |> Enum.join()}
+    end
+  end
+
+  @doc "The `{line, column}` just past `text`, written from `{line, column}`."
+  def advance({line, column}, text) do
+    case String.split(text, "\n") do
+      [one] -> {line, column + String.length(one)}
+      many -> {line + length(many) - 1, String.length(List.last(many)) + 1}
+    end
+  end
+
+  defp heex_regions([], _state, _start, acc), do: Enum.reverse(acc)
+  defp heex_regions([{"<", i}, {"%", _} | rest], :markup, _, acc), do: heex_regions(rest, :eex, i + 2, acc)
+  defp heex_regions([{"{", i} | rest], :markup, _, acc), do: heex_regions(rest, {:brace, 1}, i + 1, acc)
+
+  defp heex_regions([{"%", i}, {">", _} | rest], :eex, s, acc),
+    do: heex_regions(rest, :markup, nil, [{s, i} | acc])
+
+  defp heex_regions([{"{", _} | rest], {:brace, d}, s, acc), do: heex_regions(rest, {:brace, d + 1}, s, acc)
+
+  defp heex_regions([{"}", i} | rest], {:brace, 1}, s, acc),
+    do: heex_regions(rest, :markup, nil, [{s, i} | acc])
+
+  defp heex_regions([{"}", _} | rest], {:brace, d}, s, acc), do: heex_regions(rest, {:brace, d - 1}, s, acc)
+  defp heex_regions([_ | rest], state, s, acc), do: heex_regions(rest, state, s, acc)
+
   defp earliest_start(%{start: [line: line, column: col]} = range, node) do
     {_node, {line, col}} =
       Macro.prewalk(node, {line, col}, fn

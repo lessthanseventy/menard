@@ -41,8 +41,46 @@ defmodule Menard.Stmt do
   @spec replace(String.t(), String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
   def replace(source, name_arity, head, match, code, opts \\ []) do
-    with {:ok, stmt} <- locate(source, name_arity, head, match, opts) do
-      patch(source, stmt.range, reindent(code, stmt.indent))
+    case locate(source, name_arity, head, match, opts) do
+      {:ok, stmt} ->
+        patch(source, stmt.range, reindent(code, stmt.indent))
+
+      # not a statement: maybe an expression in the clause's ~H, which agents reach for here first
+      {:error, _} = miss ->
+        case in_template(source, name_arity, head, match, opts) do
+          {:ok, expr} -> patch(source, expr.range, reindent(code, expr.indent))
+          {:error, _} = refused -> refused
+          :none -> miss
+        end
+    end
+  end
+
+  # The `{…}` and `<%= … %>` expressions of the ~H templates in the clause, matched as a statement
+  # is: whitespace-insensitive, the whole expression or its start
+  defp in_template(source, name_arity, head, match, opts) do
+    with {:ok, clause} <- Clause.find(source, name_arity, head, opts) do
+      all =
+        for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
+            {line, column, code} <- Menard.Source.heex_expressions(source, node),
+            text = String.trim(code),
+            text != "" do
+          [lead | _] = String.split(code, text, parts: 2)
+          {sl, sc} = Menard.Source.advance({line, column}, lead)
+          {el, ec} = Menard.Source.advance({sl, sc}, text)
+
+          %{
+            range: %{start: [line: sl, column: sc], end: [line: el, column: ec]},
+            text: text,
+            indent: String.duplicate(" ", sc - 1),
+            span: el - sl
+          }
+        end
+
+      case matching(all, Clause.squash(match)) do
+        [] -> :none
+        [one] -> {:ok, one}
+        many -> nth(many, match, opts[:nth])
+      end
     end
   end
 
@@ -113,8 +151,8 @@ defmodule Menard.Stmt do
   defp inside_string(all, match) do
     if Enum.any?(all, &(&1.text =~ ~r/\A\s*(~[a-zA-Z]|")/ and String.contains?(&1.text, String.trim(match)))),
       do:
-        " — that text is inside a string or sigil, which no verb reaches into: change it with Edit, " <>
-          "which passes the guard when only text inside a string changes",
+        " — that text is inside a string or sigil: `replace` reaches an expression in a ~H template's `{…}`, " <>
+          "and anything else there is Edit's, which passes the guard when only text inside a string changes",
       else: ""
   end
 

@@ -70,8 +70,9 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 - **`clause move` carries the function, not its call sites or aliases**: fix those after, with
   `find calls`.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
-  whole statement or its unique start (`total =`). A miss lists what is there. A line of a `~H`
-  template or a heredoc is text, not a statement: `Edit` it.
+  whole statement or its unique start (`total =`). A miss lists what is there. An expression in a
+  `~H` template's `{…}` is reached by `stmt replace` the same way; the rest of a template, and a
+  heredoc, is text: `Edit` it.
 - `attr` refuses `@doc`/`@impl`/`@spec`, which repeat per clause: the clause verbs carry those.
 
 ## The reply
