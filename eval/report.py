@@ -75,6 +75,41 @@ def usage(r, rounds):
     return u
 
 
+WRITES = {"Edit", "Write", "MultiEdit"}
+MENARD_WRITES = {"clause", "stmt", "block", "attr", "directive", "module", "rename", "write"}
+
+
+def habits(r, rounds):
+    """Two costs a trace shows and a row does not: Reads after the run's last edit, and outline on a
+    file already Read whole. And the peak context one model call read."""
+    for rd in rounds:
+        t = EVAL / "results" / rd / "traces" / f"{r['id']}.jsonl"
+        if not t.exists():
+            continue
+        calls, ctx = [], {}
+        for line in open(t):
+            if not line.startswith("{"):
+                continue
+            o = json.loads(line)
+            if o.get("type") == "assistant" and not o.get("parent_tool_use_id"):
+                u = o["message"].get("usage", {})
+                ctx[o["message"].get("id")] = u.get("input_tokens", 0) + u.get("cache_read_input_tokens", 0) + u.get("cache_creation_input_tokens", 0)
+                for c in o["message"].get("content", []):
+                    if c.get("type") == "tool_use":
+                        calls.append((c["name"].replace("mcp__plugin_menard_menard__", "m:"), c.get("input", {})))
+        edits = [i for i, (n, inp) in enumerate(calls)
+                 if n in WRITES or (n.startswith("m:") and n[2:] in MENARD_WRITES and inp.get("verb") not in ("get", "list"))]
+        after = sum(1 for n, _ in calls[edits[-1] + 1:] if n == "Read") if edits else 0
+        seen, dup = set(), 0
+        for n, inp in calls:
+            if n == "Read" and not inp.get("limit"):
+                seen.add(Path(str(inp.get("file_path"))).name)
+            if n == "m:outline" and Path(str(inp.get("file"))).name in seen:
+                dup += 1
+        return {"reads_after": after, "outline_dup": dup, "peak": max(ctx.values(), default=0)}
+    return None
+
+
 def pct(x):
     return "–" if x is None else f"{x * 100:.0f}%"
 
@@ -150,6 +185,17 @@ def main():
         u = [usage(r, rounds) for r in rs]
         share = lambda k: pct(mean([1.0 if x[k] else 0.0 for x in u]))
         md.append(f"| {arm} · {model} | {len(rs)} | {share('mcp')} | {share('cli')} | {share('skill')} | {share('shell_edit')} | {share('guard')} | {share('edit_ex')} |")
+
+    md.append("\n## Habits (from the traces)\n")
+    md.append("Reads after last edit: Read calls after the run's last edit. Outline of a Read file: `outline` on a "
+              "file the run had already Read whole. Peak context: the most one model call read.\n")
+    md.append("| arm · model | n | Reads after last edit /run | outline of a Read file /run | peak context |")
+    md.append("|---|---|---|---|---|")
+    for (arm, model), rs in sorted(g.items(), key=lambda kv: (kv[0][0], MODELS.index(kv[0][1]) if kv[0][1] in MODELS else 9)):
+        hs = [h for h in (habits(r, rounds) for r in rs) if h]
+        if hs:
+            md.append(f"| {arm} · {model} | {len(hs)} | {mean([h['reads_after'] for h in hs]):.2f} | "
+                      f"{mean([h['outline_dup'] for h in hs]):.2f} | {mean([h['peak'] for h in hs]):,.0f} |")
 
     md.append("\n## Gap signals (menard arms)\n")
     kinds = defaultdict(list)
