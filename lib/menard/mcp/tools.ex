@@ -619,7 +619,7 @@ if Code.ensure_loaded?(Anubis.Server) do
            result <- read(verb, source, params) do
         case result do
           {:error, :missing} ->
-            fail(frame, "no @#{params[:name]} in this module")
+            fail(frame, missing(params))
 
           {:error, message} ->
             fail(frame, message)
@@ -645,9 +645,27 @@ if Code.ensure_loaded?(Anubis.Server) do
              staged_write(file, out, params, did: "#{params.verb} #{at} in #{Path.basename(file)}") do
         ok(frame, reply)
       else
-        {:error, :missing} -> fail(frame, "no #{at} in this module")
+        {:error, :missing} -> fail(frame, missing(params))
         {:error, message} -> fail(frame, message)
       end
+    end
+
+    # `attr :product, …` in a component is Phoenix's declaration, not a module attribute: bench4
+    # new-component.B.haiku tried to delete one here and was told only that there was no @product
+    defp missing(params) do
+      name = String.trim_leading(params[:name] || "", "@")
+
+      declared? =
+        with {:ok, file} <- Menard.MCP.resolve(params.file),
+             {:ok, source} <- File.read(file),
+             do: source =~ ~r/^\s*(attr|slot)\s+:#{Regex.escape(name)}\b/m,
+             else: (_ -> false)
+
+      if declared?,
+        do:
+          "no @#{name} in this module; `attr :#{name}` here is a Phoenix component declaration, which goes " <>
+            "with the def below it (clause get/delete/move carry it), and stmt reaches it as a statement of the module",
+        else: "no @#{name} in this module"
     end
 
     defp read("get", source, p), do: Attr.get(source, p[:name] || "", module: p[:module])
