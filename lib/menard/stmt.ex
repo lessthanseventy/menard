@@ -43,7 +43,8 @@ defmodule Menard.Stmt do
   def replace(source, name_arity, head, match, code, opts \\ []) do
     case locate(source, name_arity, head, match, opts) do
       {:ok, stmt} ->
-        patch(source, stmt.range, reindent(code, stmt.indent))
+        out = patch(source, stmt.range, reindent(code, stmt.indent))
+        if whole_by_start?(stmt, match, out), do: {:error, by_start(stmt, match)}, else: out
 
       # not a statement: maybe an expression in the clause's ~H, which agents reach for here first
       {:error, _} = miss ->
@@ -54,6 +55,16 @@ defmodule Menard.Stmt do
         end
     end
   end
+
+  # `case x do` matches the whole case by its start, and code for that one line leaves one that does
+  # not parse: say what was matched, where the write would only have said "missing terminator"
+  defp whole_by_start?(stmt, match, out),
+    do: Clause.squash(stmt.text) != Clause.squash(match) and match?({:error, _}, Code.string_to_quoted(out))
+
+  defp by_start(%{range: %{start: [line: a, column: _], end: [line: b, column: _]}}, match),
+    do:
+      "`#{match}` matched, by its start, the whole statement on lines #{a}-#{b}, and `code` replaces all of " <>
+        "it: what is left does not parse. Give `code` for the whole statement, or add a line with insert_before/insert_after"
 
   # The `{…}` and `<%= … %>` expressions of the ~H templates in the clause, matched as a statement
   # is: whitespace-insensitive, the whole expression or its start
@@ -158,13 +169,22 @@ defmodule Menard.Stmt do
   # agent reaches for a line of a test the way it reaches for one of a function
   defp scope(source, name_arity, head, opts) do
     with {:error, _} = miss <- Clause.find(source, name_arity, head, opts) do
-      label = head |> to_string() |> String.trim() |> String.trim(~s("))
+      # the label where the head goes, or where the name goes: agents have written both
+      labels =
+        for text <- [head, name_arity |> to_string() |> String.replace(~r{/\d+\z}, "")],
+            label = text |> to_string() |> String.trim() |> String.trim(~s(")),
+            label != "",
+            do: label
 
-      case label != "" && Menard.Block.labelled(source, label) do
+      case Enum.find_value(labels, &ok_block(source, &1)) do
         {:ok, node} -> {:ok, %{node: node, range: Menard.Source.range(node, source)}}
-        _ -> miss
+        nil -> miss
       end
     end
+  end
+
+  defp ok_block(source, label) do
+    with {:ok, _node} = found <- Menard.Block.labelled(source, label), do: found, else: (_ -> nil)
   end
 
   defp locate(source, name_arity, head, match, opts) do
