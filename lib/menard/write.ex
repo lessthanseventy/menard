@@ -1,38 +1,16 @@
 defmodule Menard.Write do
   @moduledoc """
-  Write a WHOLE file — the verb the clause verbs cannot be: a new module has no clause to address
-  and no file to patch.
-
-  `run/2` refuses anything that does not parse as Elixir, so a syntax error is caught before it
-  reaches disk instead of at the next compile. It reports whether the file was created or
-  replaced, and the caller formats it with the target project's formatter (`Menard.format/1`).
-
-  The other thing it is for: a rewrite so sweeping that patching is the wrong tool — a fixture
-  file, a generated table, a module being replaced outright.
+  The parse check every write goes through (`Menard.write/3`): bytes that do not parse as Elixir
+  are refused before they reach disk, instead of at the next compile.
   """
 
   @doc """
-  `code` as the whole content of `path`. Returns `{:ok, :created | :replaced}`, `{:ok, :unchanged}`
-  when the bytes already match, or `{:error, message}` if `code` is not parseable Elixir.
+  `code` as the content of `path` would be written: `{:ok, content}` with exactly one trailing
+  newline, or `{:error, message}` when a `.ex`/`.exs` does not parse. Only those are parsed —
+  menard writes Elixir, but a fixture next to it may be anything, and refusing a `.json` because
+  it is not Elixir would be nonsense.
   """
-  @spec run(String.t(), String.t()) :: {:ok, :created | :replaced | :unchanged} | {:error, String.t()}
-  def run(path, code) do
-    with {:ok, content} <- checked(path, code) do
-      existed? = File.exists?(path)
-      previous = if existed?, do: File.read!(path)
-
-      if previous == content do
-        {:ok, :unchanged}
-      else
-        File.mkdir_p!(Path.dirname(path))
-        File.write!(path, content)
-        {:ok, if(existed?, do: :replaced, else: :created)}
-      end
-    end
-  end
-
-  # Only .ex/.exs are parsed — Menard writes Elixir, but a fixture next to it may be anything, and
-  # refusing to write a .json because it isn't Elixir would be nonsense.
+  @spec checked(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def checked(path, code) do
     content = if String.ends_with?(code, "\n"), do: code, else: code <> "\n"
 
@@ -56,6 +34,5 @@ defmodule Menard.Write do
   end
 
   defp line(meta) when is_list(meta), do: Keyword.get(meta, :line, "?")
-  defp line(meta) when is_integer(meta), do: meta
   defp line(_meta), do: "?"
 end
