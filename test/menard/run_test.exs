@@ -256,6 +256,22 @@ defmodule Menard.RunTest do
     assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
   end
 
+  test "format with no files formats a subdirectory's inputs too (Phoenix's migrations)", %{tmp_dir: dir} do
+    # `subdirectories:` was ignored: `run format` skipped the migrations, and `run check` failed on them
+    File.write!(
+      Path.join(dir, ".formatter.exs"),
+      ~s|[inputs: ["lib/**/*.ex"], subdirectories: ["priv/*/migrations"]]|
+    )
+
+    migrations = Path.join(dir, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    File.write!(Path.join(migrations, ".formatter.exs"), ~s|[inputs: ["*.exs"]]\n|)
+    messy = Path.join(migrations, "20260101_add.exs")
+    File.write!(messy, "defmodule M do\n  def   change, do: 1\nend\n")
+
+    assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
+  end
+
   test "check with no precommit alias runs format, warnings-as-errors and tests itself", %{tmp_dir: dir} do
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
     # `run check` is format + warnings-as-errors + tests; a host with no precommit alias still gets them
