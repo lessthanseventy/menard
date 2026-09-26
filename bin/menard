@@ -29,7 +29,7 @@ if [[ ! -d deps/sourceror ]]; then
   "${run[@]}" mix compile >&2 </dev/null
 fi
 
-verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|mcp"
+verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp"
 
 # menard building ITSELF (a first fetch, a compile after an update) is menard's business, not the
 # caller's: its log goes nowhere unless it fails. stderr then carries only the verb's own refusals
@@ -84,8 +84,13 @@ fi
 # "Compiling N files" to stdout, glued onto the front of it. So when anything is newer than the last
 # build, compile first with the log on stderr; the verb's own mix then has nothing to compile.
 manifest="_build/${MIX_ENV:-dev}/lib/menard/.mix/compile.elixir"
+# where the build was made: mix's manifest holds absolute source paths, so a copy of this checkout
+# (a plugin pinned elsewhere, _build and mtimes included) passes the mtime test and then rebuilds
+# every file inside the verb's own mix, onto its stdout, where it read as the top of the answer
+built_at="_build/${MIX_ENV:-dev}/.menard-built-at"
 if [[ "$verb" != "mcp" ]] &&
-  { [[ ! -f "$manifest" ]] || [[ -n "$(find lib mix.exs mix.lock -newer "$manifest" -print -quit 2>/dev/null)" ]]; }; then
+  { [[ ! -f "$manifest" ]] || [[ "$(cat "$built_at" 2>/dev/null)" != "$PWD" ]] ||
+    [[ -n "$(find lib mix.exs mix.lock -newer "$manifest" -print -quit 2>/dev/null)" ]]; }; then
   if ! quietly "${run[@]}" mix compile; then
     echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
     exit 1
@@ -93,6 +98,7 @@ if [[ "$verb" != "mcp" ]] &&
   # mix recompiles by content, this check goes by mtime: a file touched but unchanged leaves the
   # manifest old, and without this every later call would pay a compile it does not need
   touch "$manifest"
+  printf '%s' "$PWD" >"$built_at"
 fi
 
 # `mcp` is a long-running stdio SERVER: its stdout IS the JSON-RPC channel. Two rules follow.
