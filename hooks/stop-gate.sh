@@ -30,12 +30,19 @@ fi
 menard="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard"
 err=$(mktemp "${TMPDIR:-/tmp}/menard-err.XXXXXX")
 trap 'rm -f "$err"' EXIT
+# the gate's own deadline, under the 300s its wiring gives it (eval/run.py): a hook the harness kills
+# lets the stop through and leaves its mix test running; `timeout` takes menard's whole group down
+deadline=$((SECONDS + 280))
 red=""
 while IFS= read -r dir; do
   for verb in "compile" "credo --changed" "test --stale"; do
     # the reply is stdout's last line; stderr is kept apart, where a line that says "ok":true is no answer
     # shellcheck disable=SC2086 # the verb's words are its arguments
-    reply=$("$menard" run $verb --in "$dir" 2>"$err" </dev/null | tail -n1)
+    reply=$(timeout --kill-after=5 $((deadline > SECONDS ? deadline - SECONDS : 1)) "$menard" run $verb --in "$dir" 2>"$err" </dev/null | tail -n1)
+    if (($? == 124)); then
+      red+="${dir}:"$'\n'"  menard run ${verb} gave no answer within 280s (the gate's deadline) and was stopped"$'\n'
+      break 2
+    fi
     jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1 && continue
     why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$reply" 2>/dev/null)
     [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$reply" 2>/dev/null | tail -12)

@@ -31,6 +31,9 @@ repo=$(git -C "$at" rev-parse --show-toplevel 2>/dev/null)
 
 err=$(mktemp "${TMPDIR:-/tmp}/menard-err.XXXXXX")
 trap 'rm -f "$err"' EXIT
+# the gate's own deadline, under the 300s its wiring gives it (eval/run.py): a hook the harness kills
+# lets the commit through and leaves its mix test running; `timeout` takes menard's whole group down
+deadline=$((SECONDS + 280))
 red=""
 while IFS= read -r dir; do
   [[ -n "$repo" && "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" == "$repo" ]] || continue
@@ -48,7 +51,11 @@ while IFS= read -r dir; do
   stamp="$git_dir/menard-green-${name:-root}"
   [[ -n "$tree" && "$(cat "$stamp" 2>/dev/null)" == "$tree" ]] && continue
   # the reply is stdout's last line; stderr is kept apart, where a line that says "ok":true is no answer
-  reply=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>"$err" </dev/null | tail -n1)
+  reply=$(timeout --kill-after=5 $((deadline > SECONDS ? deadline - SECONDS : 1)) "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>"$err" </dev/null | tail -n1)
+  if (($? == 124)); then
+    red+="${dir}:"$'\n'"  menard run check gave no answer within 280s (the gate's deadline) and was stopped"$'\n'
+    break
+  fi
   jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1 && continue
   why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$reply" 2>/dev/null)
   [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$reply" 2>/dev/null | tail -12)
