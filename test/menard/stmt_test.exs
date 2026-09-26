@@ -41,14 +41,14 @@ defmodule Menard.StmtTest do
   test "insert_after puts a new statement below the one named, at its indent" do
     out = Stmt.insert_after(@src, "init/1", "_opts", "subscribe_b()", "Import.run()")
 
-    assert out =~ "    subscribe_b()\n\n    Import.run()\n"
+    assert out =~ "    subscribe_b()\n    Import.run()\n"
     assert out =~ "case start() do"
   end
 
   test "insert_before puts one above" do
     out = Stmt.insert_before(@src, "init/1", "_opts", "subscribe_a()", "before_all()")
 
-    assert out =~ "    before_all()\n\n    subscribe_a()"
+    assert out =~ "    before_all()\n    subscribe_a()"
   end
 
   test "replace swaps a CASE ARM without touching its neighbour" do
@@ -183,7 +183,7 @@ defmodule Menard.StmtTest do
     """
 
     out = Stmt.insert_after(src, "go/0", "", "text = \"\"\"\nhi\n\"\"\"", "IO.puts(text)")
-    assert out =~ "  \"\"\"\n\n    IO.puts(text)\n    text\n"
+    assert out =~ "  \"\"\"\n    IO.puts(text)\n    text\n"
   end
 
   test "replacing an arm that ends in a literal keeps the line break after it" do
@@ -518,5 +518,24 @@ defmodule Menard.StmtTest do
 
     assert {:error, message} = Stmt.delete(@src, "init/1", "_opts", "{:ok, :up}")
     assert message =~ "shares its line"
+  end
+
+  test "insert beside a with's step joins it with a comma, on no blank line" do
+    assert Stmt.insert_before(@with_src, "go/1", "x", "{:ok, a} <- fetch(x)", "true <- ready?(x)") ==
+             String.replace(@with_src, "with {:ok, a}", "with true <- ready?(x),\n         {:ok, a}")
+
+    assert Stmt.insert_after(@with_src, "go/1", "x", "{:ok, b} <- parse(a)", "true <- valid?(b)") ==
+             String.replace(@with_src, "parse(a) do", "parse(a),\n         true <- valid?(b) do")
+  end
+
+  test "insert beside a do: body is refused, not written above the def" do
+    assert {:error, message} = Stmt.insert_before(@with_src, "one/1", "x", "g(x)", "log(x)")
+    assert message =~ "do:"
+    assert {:error, _} = Stmt.insert_after(@with_src, "one/1", "x", "g(x)", "log(x)")
+  end
+
+  test "insert beside an arm's inline body goes at the body, not above the arm" do
+    assert Stmt.insert_before(@src, "init/1", "_opts", "{:ok, :up}", "log()") ==
+             String.replace(@src, "0 -> {:ok, :up}", "0 -> log()\n           {:ok, :up}")
   end
 end
