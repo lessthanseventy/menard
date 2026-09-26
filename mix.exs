@@ -46,7 +46,8 @@ defmodule Menard.MixProject do
           "format --check-formatted",
           "compile --warnings-as-errors",
           "credo --strict",
-          "cmd shellcheck -x -P SCRIPTDIR -s bash hooks/*.sh",
+          # through sh: mix cmd runs no shell, so a glob would reach shellcheck unexpanded
+          ~s(cmd sh -c "shellcheck -x -P SCRIPTDIR -s bash hooks/*.sh"),
           "test"
         ]
       ]
