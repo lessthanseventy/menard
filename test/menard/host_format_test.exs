@@ -349,31 +349,46 @@ defmodule Menard.HostFormatTest do
     assert File.read!(file) =~ "def   f"
   end
 
+  # up to three deadlines (31s) and their kills; ExUnit's 60s default is too close
+  @tag timeout: 120_000
   test "a format out of time is killed, and nothing it spawned writes the file afterwards", %{tmp_dir: dir} do
     # the shell fallback's `mix format` ran on after menard gave up, and wrote the file after menard
-    # had handed out its version: the agent's next edit was refused as stale
+    # had handed out its version: the agent's next edit was refused as stale. It sleeps past the
+    # longest deadline below, so only a VM that survived its kill writes "late".
     plugin =
       plug(dir, "Slow", ~S"""
       File.write!(opts[:pid_file], System.pid())
-      Process.sleep(10_000)
+      Process.sleep(60_000)
       File.write!(opts[:file], "# late\n")
       contents
       """)
 
-    pid_file = Path.join(dir, "pid")
     file = write(dir, "s.ex", "defmodule S do\nend\n")
 
-    host(
-      dir,
-      "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}], pid_file: #{inspect(pid_file)}, file: #{inspect(file)}]"
-    )
+    # the deadline must outlast the host VM's start, or it is stopped before the plugin says its pid,
+    # and there is nothing to check: on a loaded host that start took past 1s. So a run stopped too
+    # early is run again with more time, each with its own pid file.
+    stopped = fn ms ->
+      pid_file = Path.join(dir, "pid-#{ms}")
 
-    assert {:error, message} =
-             Menard.format_staged(file, File.read!(file), cache: Path.join(dir, "cache"), timeout: 1_000)
+      host(
+        dir,
+        "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}], pid_file: #{inspect(pid_file)}, file: #{inspect(file)}]"
+      )
 
-    assert message =~ "did not finish in 1s"
+      assert {:error, message} =
+               Menard.format_staged(file, File.read!(file), cache: Path.join(dir, "cache"), timeout: ms)
+
+      assert message =~ "did not finish in #{div(ms, 1000)}s"
+
+      case File.read(pid_file) do
+        {:ok, pid} -> pid
+        {:error, :enoent} -> nil
+      end
+    end
+
+    pid = Enum.find_value([1_000, 5_000, 25_000], stopped) || flunk("the host's VM never reached the plugin")
     # the host's VM was stopped with the deadline, not left to finish
-    pid = File.read!(pid_file)
     assert {_, status} = System.cmd("kill", ["-0", pid], stderr_to_stdout: true)
     assert status != 0, "the host's formatter (pid #{pid}) outlived its deadline"
     assert File.read!(file) == "defmodule S do\nend\n"
