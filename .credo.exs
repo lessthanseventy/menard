@@ -5,7 +5,10 @@
   configs: [
     %{
       name: "default",
-      files: %{included: ["lib/", "test/", "config/"], excluded: [~r"/_build/", ~r"/deps/", "test/fixtures/"]}
+      files: %{
+        included: ["lib/", "priv/", "test/", "config/"],
+        excluded: [~r"/_build/", ~r"/deps/", "test/fixtures/"]
+      }
     }
   ]
 }

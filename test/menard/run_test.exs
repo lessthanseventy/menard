@@ -599,4 +599,68 @@ defmodule Menard.RunTest do
     assert File.read!(log) =~ "$ mix compile"
     assert Process.get() == before
   end
+
+  test "run test reads each failure as ExUnit holds it, not as the prose it prints", %{tmp_dir: dir} do
+    # read from the CLI's prose, a `left:` that did not fit one line came back as its first line, "%{"
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Held.MixProject do
+      use Mix.Project
+      def project, do: [app: :held, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(
+      Path.join(dir, "lib/held.ex"),
+      ~s|defmodule Held do\n  @doc """\n      iex> Held.one()\n      2\n  """\n  def one, do: 1\nend\n|
+    )
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/held_test.exs"), """
+    defmodule HeldTest do
+      use ExUnit.Case
+      doctest Held
+
+      test "big" do
+        assert Map.new(1..12, &{&1, String.duplicate("x", 12)}) == %{}
+      end
+    end
+
+    defmodule HeldSetupTest do
+      use ExUnit.Case
+
+      setup_all do
+        File.read!("/nonexistent/menard-held")
+        :ok
+      end
+
+      test "never runs", do: :ok
+    end
+    """)
+
+    r = Menard.Run.result(dir, "test", ["--seed", "0"])
+    refute r.ok
+    assert {r.tests, r.failed} == {3, 3}
+
+    assert [
+             %{
+               name: "Held.one/0 (1)",
+               module: "HeldTest",
+               at: "test/held_test.exs:3",
+               code: "Held.one() === 2"
+             } =
+               doctest,
+             %{name: "big", at: "test/held_test.exs:5", left: left, right: "%{}"},
+             %{name: "setup_all", module: "HeldSetupTest", at: "test/held_test.exs:14", message: setup_all}
+           ] = Enum.sort_by(r.failures, & &1.name)
+
+    # the whole value, every line of it
+    assert left =~ ~s|12 => "xxxxxxxxxxxx"|
+    assert setup_all =~ "(File.Error) could not read file"
+    # a doctest's source is its `doctest` line, not every line down to the next `end`
+    assert doctest.source == "  doctest Held"
+  end
 end

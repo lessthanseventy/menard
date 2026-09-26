@@ -444,16 +444,19 @@ defmodule Menard do
   The HOST project's `mix`, run in `dir` on the host's own toolchain. menard's toolchain is first on
   its PATH, so a bare `mix` built the host with the wrong Elixir: every dep rebuilt, and nothing the
   host's toolchain built would load. With mise installed, `mise exec` picks the host's pins.
+  `require:` names an .exs file the host's VM loads before mix starts (`elixir -r FILE -S mix`).
   """
   def host_mix(dir, args, opts \\ []) do
     {timeout, opts} = Keyword.pop(opts, :timeout)
+    {require, opts} = Keyword.pop(opts, :require)
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
+    [mix | argv] = if require, do: ["elixir", "-r", require, "-S", "mix" | args], else: ["mix" | args]
 
     {exe, argv, note} =
       case host_toolchain(dir) do
-        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", "mix" | args], ""}
-        {:path, nil} -> {"mix", args, ""}
-        {:path, why} -> {"mix", args, "menard: #{why}\n"}
+        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", mix | argv], ""}
+        {:path, nil} -> {mix, argv, ""}
+        {:path, why} -> {mix, argv, "menard: #{why}\n"}
       end
 
     {out, status} = bounded_cmd(exe, argv, opts, timeout, hd(args))
