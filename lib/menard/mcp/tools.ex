@@ -212,6 +212,24 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
+    # no head: the whole function, every clause. The reply names each call still left, lib and test,
+    # so the agent fixes or deletes those on purpose; tests are never deleted for it.
+    def call(%{verb: "delete"} = params, frame) when not is_map_key(params, :head) do
+      with {:ok, file} <- Menard.MCP.resolve(params.file),
+           name_arity when is_binary(name_arity) <-
+             params[:name_arity] || {:error, "clause delete needs name_arity: the function's name/arity"},
+           source = File.read!(file),
+           out when is_binary(out) <- Clause.delete_function(source, name_arity),
+           {:ok, reply} <-
+             staged_write(file, out, params,
+               did: "delete #{name_arity}, every clause, in #{Path.basename(file)}"
+             ) do
+        ok(frame, Map.put(reply, :left, Menard.Find.left(Menard.MCP.root(), file, source, name_arity)))
+      else
+        {:error, message} -> fail(frame, message)
+      end
+    end
+
     def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
            source <- File.read!(file),

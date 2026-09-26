@@ -450,4 +450,26 @@ defmodule Menard.MCPTest do
     assert response.isError
     assert response.content |> hd() |> Map.fetch!("text") =~ "name_arity"
   end
+
+  test "clause delete with no head deletes the whole function, and names the calls it left", %{root: root} do
+    # a function of eight clauses took eight deletes; and what still calls it is the agent's to fix
+    File.write!(
+      Path.join(root, "lib/a.ex"),
+      "defmodule A do\n  def keep, do: two(1)\n\n  def two(1), do: 1\n  def two(n), do: n\nend\n"
+    )
+
+    File.mkdir_p!(Path.join(root, "test"))
+
+    File.write!(
+      Path.join(root, "test/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"two\" do\n    assert A.two(2) == 2\n  end\nend\n"
+    )
+
+    response = call(Menard.MCP.Clause, %{verb: "delete", file: "lib/a.ex", name_arity: "two/1"})
+    refute response.isError
+    refute File.read!(Path.join(root, "lib/a.ex")) =~ "def two"
+    left = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!() |> Map.fetch!("left")
+    assert "lib/a.ex:2: two(1)" in left
+    assert ~s(test/a_test.exs:5, in test "two": A.two(2\)) in left
+  end
 end

@@ -653,4 +653,25 @@ defmodule Menard.ClauseTest do
     assert out =~ ~r/  # why\n  def f\(x\) do\n    x \+ 1\n  end/
     refute out =~ ~r/def f\(x\) do\n\s+# why\n\s+def f/
   end
+
+  test "delete_function takes every clause, with the @doc, @spec and comments above them" do
+    src = """
+    defmodule A do
+      def keep, do: 1
+
+      # why two
+      @doc "Two."
+      @spec two(integer()) :: integer()
+      def two(1), do: 1
+      def two(n), do: n * 2
+
+      def after_it, do: 3
+    end
+    """
+
+    assert Clause.delete_function(src, "two/1") ==
+             "defmodule A do\n  def keep, do: 1\n\n  def after_it, do: 3\nend\n"
+
+    assert {:error, _} = Clause.delete_function(src, "nope/1")
+  end
 end
