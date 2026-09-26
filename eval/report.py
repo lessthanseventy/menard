@@ -92,10 +92,12 @@ def usage(r, rounds):
          "shell_edit": any(g["kind"] == "shell_edit_ex" for g in r["gaps"]),
          "guard": any(g["kind"] == "guard_block" for g in r["gaps"]), "edit_ex": False}
     for rd in rounds:
-        t = EVAL / "results" / rd / "traces" / f"{r['id']}.jsonl"
-        if not t.exists():
+        # a long run keeps one trace per step ({id}.01.jsonl …)
+        d = EVAL / "results" / rd / "traces"
+        traces = [t for t in [d / f"{r['id']}.jsonl"] if t.exists()] + sorted(d.glob(f"{r['id']}.[0-9][0-9].jsonl"))
+        if not traces:
             continue
-        for line in open(t):
+        for line in (line for t in traces for line in open(t)):
             if '"tool_use"' not in line:
                 continue
             o = json.loads(line)
@@ -119,11 +121,12 @@ def habits(r, rounds):
     """Two costs a trace shows and a row does not: Reads after the run's last edit, and outline on a
     file already Read whole. And the peak context one model call read."""
     for rd in rounds:
-        t = EVAL / "results" / rd / "traces" / f"{r['id']}.jsonl"
-        if not t.exists():
+        d = EVAL / "results" / rd / "traces"
+        traces = [t for t in [d / f"{r['id']}.jsonl"] if t.exists()] + sorted(d.glob(f"{r['id']}.[0-9][0-9].jsonl"))
+        if not traces:
             continue
         calls, ctx = [], {}
-        for line in open(t):
+        for line in (line for t in traces for line in open(t)):
             if not line.startswith("{"):
                 continue
             o = json.loads(line)
