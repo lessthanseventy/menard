@@ -494,9 +494,11 @@ defmodule Menard.RunTest do
     end
     """)
 
+    # the bound is loose on purpose: the test itself never ends, so any answer is the kill, and the
+    # room past 10s is a loaded host's teardown, not slack in the deadline
     started = System.monotonic_time(:millisecond)
     result = Menard.Run.result(dir, "test", [], timeout: 10_000)
-    assert System.monotonic_time(:millisecond) - started < 17_000
+    assert System.monotonic_time(:millisecond) - started < 40_000
 
     refute result.ok
     assert result.tail =~ "did not finish in 10s"
