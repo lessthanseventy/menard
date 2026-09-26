@@ -42,12 +42,12 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
 | a whole function | `clause {verb: "delete", file, name_arity}`, no `head`: every clause; the reply's `left` is each call still to fix |
 | public or private | `clause {verb: "visibility", file, name_arity, visibility}`: every clause at once |
 | which file a function lives in | `clause {verb: "move", file, name_arity, to, as?}` |
-| a function's `@spec`, `@doc`, or the comment above it | `clause {verb: "spec" \| "doc" \| "comment", …, text}`; no `text` removes it |
-| the comment above a statement | `stmt {verb: "comment", …, match, text}` |
-| a module attribute, or its comment | `attr {verb: "get" \| "set" \| "delete" \| "comment", file, name, value \| text}` |
+| a function's `@spec` | `clause {verb: "spec", file, name_arity, code: SIGNATURE}`; no `code` removes it |
+| a module attribute | `attr {verb: "get" \| "set" \| "delete", file, name, value}` |
 | a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}` |
 | an alias/import/use/require, a `doctest` | `directive {verb: "add" \| "replace" \| "remove", file, kind, target}` |
-| a module's header comment, or one whole module | `module {verb: "comment" \| "replace", file, module, text \| code}` |
+| one whole module of several | `module {verb: "replace", file, module, code}` |
+| a `@doc` or a `#` comment | a plain Edit: a string and a comment are prose, and the guard passes an edit that changes only those |
 | a name, everywhere | `rename {old, new, files: ["lib/**/*.ex", "test/**/*.exs"]}` |
 | who calls what | `find {kind: "calls" \| "defs" \| "aliases", target, files}`: strings and comments never match |
 | what a function uses, who calls its helpers | `deps {verb: "refs", file, name_arity}` |
@@ -93,7 +93,10 @@ that moved. `unformatted` means written but not formatted, and says why.
 Pass the reply's `version` back on your next edit to that file. If another session changed it
 since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
 created, to, from}`: `to` and `from` are each file's own reply, its `version` and stages;
-`created` is the new module's name when `to` did not exist.
+`created` is the new module's name when `to` did not exist. `rename` answers `{did, changed,
+unchanged, skipped}`: `changed` is each file's own reply, `skipped` each file it could not parse
+or write, with why. Both doors give one reply: the CLI prints the MCP tool's map as one JSON
+line, and a refusal is the same sentence at either.
 
 ## Done
 
