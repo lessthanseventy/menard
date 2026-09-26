@@ -744,4 +744,17 @@ defmodule Menard.ClauseTest do
 
     refute Clause.delete(src, "card/1", "assigns") =~ "attr :product"
   end
+
+  test "a head that is part of exactly one clause's head names that clause" do
+    # bench4 new-module.B.haiku addressed apply_code/2 by "TENOFF", the argument that tells its
+    # clauses apart, and was refused with the three heads
+    src =
+      "defmodule D do\n  def apply_code(cents, \"TENOFF\"), do: div(cents * 9, 10)\n  def apply_code(cents, \"FIVE\"), do: max(cents - 500, 0)\n  def apply_code(_cents, _code), do: :error\nend\n"
+
+    assert Clause.replace_body(src, "apply_code/2", ~s|"TENOFF"|, "cents") =~
+             ~s|def apply_code(cents, "TENOFF"), do: cents|
+
+    # a part that fits several is still refused
+    assert {:error, _} = Clause.replace_body(src, "apply_code/2", "cents", "0")
+  end
 end
