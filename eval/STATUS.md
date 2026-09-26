@@ -520,3 +520,69 @@ model on renames across files, not for a capable one on everyday edits.
   tokens only where it solved less; slower. focus3's 3 runs a side are what can say more, and its
   refactor and feature steps want the blind review too; their checks no longer pass shallow fixes
   (step 2 needs the tool over the wire, step 3 a split measured in code lines moved).
+
+### riverside (2026-09-26): the ex_riverside bench, built and validated, no round run
+
+- Why: Tlön's server depends on menard's library, so its arm A can never fully not-know menard.
+  ex_riverside (a Phoenix 1.8 app: 12.6k lines of lib, 58 test files, 594 tests, Postgres, Quokka
+  as a formatter plugin, its own `precommit` alias) has no connection to menard: no mention in its
+  tree or its 176-commit history (the only one, `.claude/settings.local.json`, is untracked and
+  never cloned). `eval/riverside` is the suite: `--suite eval/riverside`, with
+  `MENARD_EVAL_WORK=/tmp/riverside-eval` (a runs directory named after menard reaches arm A
+  through its cwd and through what its tests render: excessibility's snapshots carried
+  `file:///tmp/menard-eval-riverside/...`; build.sh and arm_setup.sh refuse such a path).
+- The template: a clone at HEAD, history and remote dropped, deps and _build from the checkout,
+  compiled on mise's Elixir 1.19.4 / OTP 27; its suite run once at build (594 tests, 0 failures,
+  20-33 s, with AI_BASE_URL dead and no key: no test reaches the LLM or the network), the test
+  database of that run dropped and its snapshots removed. mise.local.toml (the AI key) is
+  gitignored, so the clone has none. Not fully warm: the app's own 93/107 files recompile once per
+  workspace (~10 s an env, Mix's manifests are path-bound: a moved build recompiles too); the deps
+  stay compiled.
+- The wall is the eval's, the same in every arm: ex_riverside has no `.claude/settings.json`; the
+  template gets one with the Bash sandbox on (no network but the package hosts, writes in the
+  workspace and the toolchain caches), the same wall that keeps a run off the operator's
+  databases, network and production. Probe (one haiku turn each, `mix test
+  test/ex_riverside/tags_test.exs` in a prepared arm-A workspace): over TCP the sandbox refused
+  Postgres (`tcp connect (localhost:5432): connection refused`); with the Repo on the unix socket
+  (`socket_dir: "/run/postgresql"`, one line in config/dev.exs and test.exs, allowAllUnixSockets as
+  Tlön needed) 15 tests green. The dev database takes its name from EX_RIVERSIDE_DEV_DB (one line
+  in config/dev.exs); the test one from MIX_TEST_PARTITION, the project's own switch.
+- Per run (agent_env.sh): `ex_riverside_test_<rid>` and `ex_riverside_dev_<rid>`, dropped before and
+  after with --force, a failed drop reported; AI_BASE_URL=http://127.0.0.1:9/v1, AI_API_KEY empty;
+  ssh, scp and podman stubbed first on PATH (the mise tasks deploy to myelin.us through them). No
+  tmux or TMPDIR handling: the app's tests need neither. Arm A: the tree as the template has it,
+  and arm_setup.sh fails the run if its workspace or path mentions menard;
+  eval/tests/test_riverside_hidden.py holds that line and the run env. Menard arms need nothing
+  beyond the plugin: the run-cli note names the plugin's own bin/menard, and the project's notes
+  send the gate through `mix precommit`.
+- The case, `cases/events` (long, 3 steps, `ci` = `mix precommit`, settings 200 turns / 3600 s a
+  step as Tlön's): (1) a bug report: a moderator opening an item of the dashboard's review queue
+  is bounced with "You don't have permission"; planted by setup.sh, the queue's level comparison
+  `<` → `<=` in `list_pending_submissions_for/1`, so it lists a submission from the reviewer's own
+  level that the review page (Permissions' strict-above rule, right) refuses. The project's own
+  suite and precommit are green with it (594 tests, 0 failures, run on the planted tree); only the
+  hidden test sees it. (2) a ticket: `GET /events/:id/calendar.ics`, an iCalendar file for a live
+  event, with `Events.Calendar.ics/1` and an "Add to calendar" link on the event page. (3) a
+  refactor ask: split `events.ex` (862 lines, 701 of code) into modules under
+  `lib/ex_riverside/events/`, `ExRiverside.Events` keeping every public function.
+- Graders, validated both ways in scratch workspaces through run.prepare / suite_env / check:
+  - step 1: planted tree FAIL (hidden: the peer's submission in the queue); the fix (`<`) PASS,
+    598 tests; Permissions loosened to at-or-above FAIL (hidden + the project's own permissions
+    tests, 4 failures); the review page's check skipped so it never bounces FAIL (hidden: the
+    peer still in the queue and on the dashboard). The dashboard assertion looks for the review
+    links, not titles: the activity feed also names the event.
+  - step 2: no feature FAIL (5); reference PASS, 604 tests, whether the 404 is raised
+    (Ecto.NoResultsError) or sent; a stub answering a fixed field-less VCALENDAR with the link
+    on every page FAIL (6); LF line ends and no escaping FAIL (4). Lines are unfolded before
+    matching, and a DTSTAMP is allowed to differ between two renders.
+  - step 3: reference split with menard's `clause move` (53 moves, 49 s; Listing 230, Review 229,
+    Series 175 code lines, events.ex 134 of 701 as a facade of delegates plus what ties them) PASS:
+    split.py, credo --strict, the API test, 605 tests. Untouched FAIL (keeps 701 of 701); docs,
+    comments and blank lines purged FAIL (607 kept: a `@doc` heredoc counts as code, and it is
+    still 87%); one dump module with Events delegating FAIL (1 module of substance, 2 needed); a
+    public function nobody in the suite calls dropped from the facade FAIL (the API test and the
+    hidden queue test). Lines conserved: at most 70 fewer than the base total, 210 more.
+- Cost of the validation: two haiku probes ($0.08); no eval round was started. Every scratch
+  workspace and database is gone (only ex_riverside_dev and ex_riverside_test remain, the
+  operator's). `bin/menard run check` (802 tests) and `python3 -m unittest discover -s eval/tests`
+  (33) green.
