@@ -75,7 +75,8 @@ done <<<"$files"
 if [[ -n "${MENARD_HOOK_COMPILE:-}" && -n "$written" ]]; then
   while IFS= read -r dir; do
     out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run compile --in "$dir" 2>/dev/null </dev/null)
-    mine=$(grep "^$dir|" <<<"$written" | cut -d'|' -f2 | sort -u)
+    # compared as text: grep took the path as a regex, and `[x]` in it matched nothing
+    mine=$(d=$dir awk -F'|' '$1 == ENVIRON["d"] { print $2 }' <<<"$written" | sort -u)
     warn=$(jq -r '.failures[]? | select(.kind == "warning" or .kind == "error") | "\(.at)|\(.message | split("\n")[0])"' <<<"$out" 2>/dev/null |
       while IFS='|' read -r at msg; do grep -qxF "${at%%:*}" <<<"$mine" && echo "  $at $msg"; done)
     [[ -n "$warn" ]] && report+="the compiler, on files you changed:"$'\n'"$warn"$'\n'
