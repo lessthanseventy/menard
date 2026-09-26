@@ -53,5 +53,42 @@ defmodule Menard.SourceTest do
       range = literal |> Sourceror.get_range() |> Source.clamp(source)
       assert range.end == [line: 1, column: 10]
     end
+
+    test "a range never ends inside a string: escaped quotes around an interpolation" do
+      # Sourceror ends `"n: \"#{x}\"} y"` one column early, before its closing quote, and every node that
+      # ends in one inherits it: stmt insert_after put the new text INSIDE the string, where it parsed
+      src = ~S"""
+      case x do
+        :a ->
+          "a" <>
+            "n: \"#{x}\"} y"
+
+        _ ->
+          2
+      end
+      """
+
+      {:ok, {:case, _, [_, [{_, [arm | _]}]]}} = Sourceror.parse_string(src)
+      assert Menard.Source.slice(src, Menard.Source.range(arm, src)) |> String.ends_with?(~S|"} y"|)
+
+      out =
+        Menard.Stmt.insert_after(
+          "defmodule A do\n  def f(x) do\n" <> src <> "  end\nend\n",
+          "f/1",
+          "x",
+          ":a ->",
+          ":b -> 3"
+        )
+
+      {:ok, ast} = Code.string_to_quoted(out)
+
+      {_, arms} =
+        Macro.prewalk(ast, [], fn
+          {:case, _, [_, [do: arms]]} = n, _ -> {n, arms}
+          n, acc -> {n, acc}
+        end)
+
+      assert length(arms) == 3
+    end
   end
 end

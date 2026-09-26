@@ -211,9 +211,69 @@ defmodule Menard.Source do
   def range(node, source) do
     case Sourceror.get_range(node) do
       nil -> nil
-      range -> range |> earliest_start(node) |> clamp(source)
+      range -> range |> earliest_start(node) |> clamp(source) |> past_strings(node, source)
     end
   end
+
+  # Sourceror ends an interpolated string with escaped quotes (`"n: \"#{x}\"} y"`) one column short
+  # of its closing quote, and every node that ends in one inherits it: an insert after such a
+  # statement went INSIDE the string, where it still parsed. The true end is the string's own
+  # closing quote, found by reading it from its opening one.
+  defp past_strings(range, node, source) do
+    lines = String.split(source, "\n")
+    now = {range.end[:line], range.end[:column]}
+
+    ends =
+      for {:<<>>, meta, _parts} = string <- node |> Macro.prewalker() |> Enum.to_list(),
+          meta[:delimiter] == "\"",
+          %{start: start} <- [Sourceror.get_range(string)],
+          stop = string_end(lines, start),
+          stop != nil,
+          do: stop
+
+    case Enum.max(ends, fn -> nil end) do
+      {line, column} = stop when stop > now -> %{range | end: [line: line, column: column]}
+      _ -> range
+    end
+  end
+
+  # `{line, column}` just past the closing quote of the string opening at `line:column`, honoring
+  # `\` escapes and `#{…}` interpolations (a string inside one is skipped whole); nil if unclosed
+  defp string_end(lines, line: line, column: column) do
+    rest =
+      lines
+      |> Enum.drop(line - 1)
+      |> Enum.with_index(line)
+      |> Enum.flat_map(fn {text, no} ->
+        text
+        |> String.graphemes()
+        |> Enum.with_index(1)
+        |> Enum.map(fn {g, c} -> {g, no, c} end)
+        |> Kernel.++([{"\n", no, String.length(text) + 1}])
+      end)
+      |> Enum.drop(column - 1)
+
+    case rest do
+      [{"\"", _, _} | body] -> scan_string(body, 0)
+      _ -> nil
+    end
+  end
+
+  defp scan_string([], _depth), do: nil
+  defp scan_string([{"\\", _, _}, _escaped | rest], depth), do: scan_string(rest, depth)
+  defp scan_string([{"\"", no, c} | _rest], 0), do: {no, c + 1}
+  defp scan_string([{"#", _, _}, {"{", _, _} | rest], 0), do: scan_string(rest, 1)
+  defp scan_string([{"{", _, _} | rest], depth) when depth > 0, do: scan_string(rest, depth + 1)
+  defp scan_string([{"}", _, _} | rest], depth) when depth > 0, do: scan_string(rest, depth - 1)
+
+  defp scan_string([{"\"", _, _} | rest], depth) when depth > 0 do
+    case scan_string(rest, 0) do
+      nil -> nil
+      {no, c} -> rest |> Enum.drop_while(fn {_g, n, col} -> {n, col} < {no, c} end) |> scan_string(depth)
+    end
+  end
+
+  defp scan_string([_ | rest], depth), do: scan_string(rest, depth)
 
   @doc """
   The Elixir in a `~H` sigil node: each `{…}` (braces counted) and `<%… %>`, as `{line, column,
