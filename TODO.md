@@ -14,3 +14,8 @@ commit lands.
   clause given there was taken as a `rewrite`; that fallback is removed (2026-09-26, with the
   prose verbs), so on upgrading tlon must send a whole clause to `Menard.Clause.rewrite/5` itself,
   or the call is refused toward `rewrite`. Not edited from here: tlon's change, when it upgrades.
+- Two gate tests are wall-clock bound and went red once each on a loaded machine (load ~69,
+  2026-09-26), green on rerun: `test/menard/mcp_test.exs:182` ("resolving many files costs each
+  once", `us < 2_000_000`, measured 2_024_752) and `test/menard/host_format_test.exs:352` ("a
+  format out of time is killed…": the host VM had not written its pid file within the 1s deadline).
+  A gate that flips on load is not a gate: bound them on work done, not seconds, or widen them.
