@@ -7,16 +7,15 @@
 #
 # The eval (bench5): this alone gave menard's clean output, at no-menard's cost.
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-payload=$(cat)
 event=$(jq -r '.hook_event_name // empty' <<<"$payload")
 tool=$(jq -r '.tool_name // empty' <<<"$payload")
-session=$(jq -r '.session_id // "none"' <<<"$payload")
 cwd=$(jq -r '.cwd // empty' <<<"$payload")
 # one mark per call: per session, a second Bash call in flight moved the first one's mark past the
 # files it had written, and they went unformatted
 call=$(jq -r '.tool_use_id // "none"' <<<"$payload")
-mark="${TMPDIR:-/tmp}/menard-format-${session//[^A-Za-z0-9_-]/}-${call//[^A-Za-z0-9_-]/}"
+mark="$(session_file format)-${call//[^A-Za-z0-9_-]/}"
 
 # A shell command: a mark before it, and after it every Elixir file newer than the mark
 if [[ "$tool" == "Bash" && "$event" == "PreToolUse" ]]; then
@@ -32,7 +31,7 @@ if [[ "$tool" == "Bash" ]]; then
     rm -f "$mark"
     exit 0
   fi
-  files=$(find "$root" \( -name _build -o -name deps -o -name .git -o -name node_modules \) -prune -o \
+  files=$(find "$root" "${prune[@]}" \
     \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print 2>/dev/null)
   rm -f "$mark"
   # what git ignores is no one's edit: menard's own test run writes fixtures under tmp/, broken on
@@ -57,12 +56,11 @@ while IFS= read -r file; do
   of[$dir]+="$file"$'\n'
 done <<<"$files"
 
-menard="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard"
 report="" problems="" moved="" written=""
 for dir in "${!of[@]}"; do
   mapfile -t list <<<"${of[$dir]%$'\n'}"
   # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
-  printf '%s\n' "$dir" >>"${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
+  printf '%s\n' "$dir" >>"$(session_file touched)"
   before=$(mktemp -d)
   for i in "${!list[@]}"; do cp "${list[$i]}" "$before/$i"; done
   # </dev/null: mix reads stdin, and inside a loop took the rest of its list with it
@@ -104,7 +102,7 @@ done
 # warnings-as-errors, found only when the gate ran; an incremental compile on Tlön is under a second.
 if [[ -n "${MENARD_HOOK_COMPILE:-}" && -n "$written" ]]; then
   while IFS= read -r dir; do
-    out=$("${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run compile --in "$dir" 2>/dev/null </dev/null)
+    out=$("$menard" run compile --in "$dir" 2>/dev/null </dev/null)
     # compared as text: grep took the path as a regex, and `[x]` in it matched nothing
     mine=$(d=$dir awk -F'|' '$1 == ENVIRON["d"] { print $2 }' <<<"$written" | sort -u)
     warn=$(jq -r '.failures[]? | select(.kind == "warning" or .kind == "error") | "\(.at)|\(.message | split("\n")[0])"' <<<"$out" 2>/dev/null |

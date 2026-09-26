@@ -7,12 +7,11 @@
 # Formatting is not checked here: the format hook formatted every file as it was written.
 set -uo pipefail
 
-payload=$(cat)
-session=$(jq -r '.session_id // "none"' <<<"$payload")
-session=${session//[^A-Za-z0-9_-]/}
-touched="${TMPDIR:-/tmp}/menard-touched-$session"
-blocks="${TMPDIR:-/tmp}/menard-stop-blocks-$session"
-green="${TMPDIR:-/tmp}/menard-stop-green-$session"
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+touched=$(session_file touched)
+blocks=$(session_file stop-blocks)
+green=$(session_file stop-green)
 if [[ ! -s "$touched" ]]; then
   echo "stop gate: nothing written this session" >&2
   exit 0
@@ -34,7 +33,6 @@ if ((count >= 3)); then
   exit 0
 fi
 
-menard="${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard"
 err=$(mktemp "${TMPDIR:-/tmp}/menard-err.XXXXXX")
 trap 'rm -f "$err"' EXIT
 # the gate's own deadline, under the 300s its wiring gives it (eval/run.py): a hook the harness kills
@@ -57,11 +55,7 @@ while IFS= read -r dir; do
       break 2
     fi
     jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1 && continue
-    why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$reply" 2>/dev/null)
-    [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$reply" 2>/dev/null | tail -12)
-    # no answer at all: menard's own refusal or error, which it writes to stderr
-    [[ -n "$why" ]] || why=$(tail -12 "$err")
-    red+="${dir}:"$'\n'"${why}"$'\n'
+    red+="${dir}:"$'\n'"$(red_lines "$reply" "$err")"$'\n'
     break
   done
 done < <(sort -u "$touched")

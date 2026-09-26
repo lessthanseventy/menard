@@ -11,8 +11,8 @@
 # writes to an Elixir file means pattern-matching the command text — and that fires on a command
 # that merely QUOTES the pattern. A guard that blocks innocent commands gets switched off.
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-payload=$(cat)
 tool=$(jq -r '.tool_name // empty' <<<"$payload" 2>/dev/null) || exit 0
 
 case "$tool" in
@@ -21,12 +21,12 @@ case "$tool" in
     # Only an .ex/.exs can be refused, and this hook runs on EVERY edit: skip the verb's ~0.6s start
     # for the rest. The real decision is the verb's.
     case "$file" in *.ex | *.exs) ;; *) exit 0 ;; esac
-    [[ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/menard" ]] || exit 0
+    [[ -x "$menard" ]] || exit 0
     # --mcp: name the plugin's MCP tools in the refusal; CLI lines sent blocked agents to Bash
     # --edit: the edit itself, so one that only changes text inside a string (a heredoc, a ~H
     # template, which no verb reaches into) can pass
     edit=$(jq -c '.tool_input // {}' <<<"$payload" 2>/dev/null)
-    "$CLAUDE_PLUGIN_ROOT/bin/menard" guard "$file" --mcp mcp__plugin_menard_menard__ --edit "$edit" </dev/null
+    "$menard" guard "$file" --mcp mcp__plugin_menard_menard__ --edit "$edit" </dev/null
     status=$?
     # 2 is the refusal; anything else (menard failing to start) must never block an edit
     ((status == 2)) && exit 2
