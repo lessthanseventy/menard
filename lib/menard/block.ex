@@ -72,6 +72,8 @@ defmodule Menard.Block do
   # `defmodule` is not a block to add — a module with a `--label` renders `defmodule "Name"`, which
   # parses and then dies at compile with "invalid module name". `module add` is the verb for that.
   def add(source, name, label, body, opts \\ []) do
+    {body, opts} = tagged(body, opts)
+
     name = named(name, body)
 
     cond do
@@ -110,6 +112,21 @@ defmodule Menard.Block do
   # long1 cart-refactor.B.sonnet was refused over "…no placeholders" against "…leaves no placeholders"
   defp add_label(name, label, body) do
     if match?({:whole, _, _, _}, unwrap(name, body)), do: nil, else: label
+  end
+
+  # `@tag :tmp_dir` above a whole test is how a test is written, and was taken for a body: the block
+  # came out wrapped in a bare `test do`. The tags go to `tag:`, which writes them above the block.
+  defp tagged(code, opts) do
+    case Regex.run(~r/\A((?:\s*@tag\s+[^\n]+\n)+)(.*)\z/s, code || "") do
+      [_, lines, rest] ->
+        tags =
+          for [tag] <- Regex.scan(~r/@tag\s+([^\n]+)/, lines, capture: :all_but_first), do: String.trim(tag)
+
+        {rest, Keyword.update(opts, :tag, tags, &(List.wrap(&1) ++ tags))}
+
+      nil ->
+        {code, opts}
+    end
   end
 
   # No name given and a whole block as the code: the block says which macro (long2
