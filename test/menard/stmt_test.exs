@@ -41,37 +41,31 @@ defmodule Menard.StmtTest do
   test "insert_after puts a new statement below the one named, at its indent" do
     out = Stmt.insert_after(@src, "init/1", "_opts", "subscribe_b()", "Import.run()")
 
-    assert out =~ "    subscribe_b()\n    Import.run()\n"
-    assert out =~ "case start() do"
+    assert out == String.replace(@src, "    subscribe_b()\n", "    subscribe_b()\n    Import.run()\n")
   end
 
   test "insert_before puts one above" do
     out = Stmt.insert_before(@src, "init/1", "_opts", "subscribe_a()", "before_all()")
 
-    assert out =~ "    before_all()\n    subscribe_a()"
+    assert out == String.replace(@src, "    subscribe_a()\n", "    before_all()\n    subscribe_a()\n")
   end
 
   test "replace swaps a CASE ARM without touching its neighbour" do
     out = Stmt.replace(@src, "init/1", "_opts", "0 -> {:ok, :up}", "0 -> {:ok, :running}")
 
-    assert out =~ "0 -> {:ok, :running}"
-    assert out =~ "n -> {:error, n}"
-    refute out =~ "{:ok, :up}"
+    assert out == String.replace(@src, "0 -> {:ok, :up}", "0 -> {:ok, :running}")
   end
 
   test "replace swaps a plain statement" do
     out = Stmt.replace(@src, "init/1", "_opts", "subscribe_a()", "subscribe_everything()")
 
-    assert out =~ "subscribe_everything()"
-    refute out =~ "subscribe_a()"
+    assert out == String.replace(@src, "subscribe_a()", "subscribe_everything()")
   end
 
   test "delete removes the statement and the blank line it left" do
     out = Stmt.delete(@src, "init/1", "_opts", "subscribe_b()")
 
-    refute out =~ "subscribe_b()"
-    assert out =~ "subscribe_a()"
-    assert out =~ "case start() do"
+    assert out == String.replace(@src, "    subscribe_b()\n\n", "")
   end
 
   test "a statement that isn't there is refused, and the message lists what is" do
@@ -82,7 +76,7 @@ defmodule Menard.StmtTest do
 
   test "whitespace in the match doesn't matter — it is addressed as written, squashed" do
     out = Stmt.replace(@src, "init/1", "_opts", "0->{:ok,:up}", "0 -> :fine")
-    assert out =~ "0 -> :fine"
+    assert out == String.replace(@src, "0 -> {:ok, :up}", "0 -> :fine")
   end
 
   test "an ambiguous match is refused with line numbers, and --nth picks one" do
@@ -101,7 +95,7 @@ defmodule Menard.StmtTest do
     assert message =~ "--nth 1..2"
 
     out = Stmt.replace(src, "go/1", "x", "tick()", "tock()", nth: 2)
-    assert out =~ "other(x)\n    tock()"
+    assert out == String.replace(src, "other(x)\n    tick()", "other(x)\n    tock()")
   end
 
   test "reaches inside an anonymous fn — a call in Enum.each(fn -> end) had no verb" do
@@ -126,8 +120,7 @@ defmodule Menard.StmtTest do
         "spawn_window(id, instantiate(name, id))"
       )
 
-    assert out =~ "spawn_window(id, instantiate(name, id))"
-    assert out =~ "Enum.each(entries, fn %{name: name} ->"
+    assert out == String.replace(src, "instantiate(name)", "instantiate(name, id)")
   end
 
   test "a multi-statement fn body lists each of its statements" do
@@ -166,8 +159,8 @@ defmodule Menard.StmtTest do
     """
 
     out = Stmt.replace(src, "go/1", "x", "{:ok, x}", "{:ok, x, :tagged}")
-    assert out =~ ":a -> {:ok, x, :tagged}"
-    assert Stmt.replace(src, "go/1", "x", ":error", ":nope") =~ "_ -> :nope"
+    assert out == String.replace(src, "{:ok, x}", "{:ok, x, :tagged}")
+    assert Stmt.replace(src, "go/1", "x", ":error", ":nope") == String.replace(src, ":error", ":nope")
   end
 
   test "insert_after a heredoc keeps the heredoc closed" do
@@ -183,7 +176,7 @@ defmodule Menard.StmtTest do
     """
 
     out = Stmt.insert_after(src, "go/0", "", "text = \"\"\"\nhi\n\"\"\"", "IO.puts(text)")
-    assert out =~ "  \"\"\"\n    IO.puts(text)\n    text\n"
+    assert out == String.replace(src, "    text\n  end", "    IO.puts(text)\n    text\n  end")
   end
 
   test "replacing an arm that ends in a literal keeps the line break after it" do
@@ -197,7 +190,8 @@ defmodule Menard.StmtTest do
     end
     """
 
-    assert Stmt.replace(src, "y/1", "a", "nil -> false", "nil -> true") =~ "nil -> true\n    end"
+    assert Stmt.replace(src, "y/1", "a", "nil -> false", "nil -> true") ==
+             String.replace(src, "false", "true")
   end
 
   test "a with's steps and its else arms are statements" do
@@ -221,8 +215,7 @@ defmodule Menard.StmtTest do
     assert "{:error, e} -> e" in listed
 
     out = Stmt.replace(src, "go/1", "x", "{:ok, b} <- parse(a)", "{:ok, b} <- parse(a, strict: true)")
-    assert out =~ "{:ok, b} <- parse(a, strict: true) do"
-    assert out =~ "{:error, e} -> e"
+    assert out == String.replace(src, "parse(a)", "parse(a, strict: true)")
   end
 
   test "a leading fragment addresses the one statement that starts with it" do
@@ -250,8 +243,12 @@ defmodule Menard.StmtTest do
         "elixir_files = Path.wildcard(Path.join(dir, \"**/*.ex\"))"
       )
 
-    assert out =~ ~s[elixir_files = Path.wildcard(Path.join(dir, "**/*.ex"))\n]
-    assert out =~ "elixir_tests = Path.wildcard"
+    assert out ==
+             String.replace(
+               src,
+               ~s[elixir_files =\n      dir\n      |> Path.join("**/*.ex")\n      |> Path.wildcard()\n],
+               ~s[elixir_files = Path.wildcard(Path.join(dir, "**/*.ex"))\n]
+             )
 
     # two start that way: refused, and both named
     assert {:error, message} = Stmt.delete(src, "go/1", "dir", "elixir_")
@@ -272,11 +269,11 @@ defmodule Menard.StmtTest do
     end
     """
 
-    assert Stmt.replace(src, "go/0", "", "__MODULE__.Docs.helper(1)", "__MODULE__.Docs.helper(2)") =~
-             "\n    __MODULE__.Docs.helper(2)\n"
+    assert Stmt.replace(src, "go/0", "", "__MODULE__.Docs.helper(1)", "__MODULE__.Docs.helper(2)") ==
+             String.replace(src, "helper(1)", "helper(2)")
 
-    assert Menard.Clause.replace_body(src, "go/0", "", "__MODULE__.Docs.other()") =~
-             "\n    __MODULE__.Docs.other()\n  end"
+    assert Menard.Clause.replace_body(src, "go/0", "", "__MODULE__.Docs.other()") ==
+             String.replace(src, "helper(1)", "other()")
 
     assert Stmt.replace(src, "cb/0", "", "nil", "nil") == src
   end
@@ -325,10 +322,10 @@ defmodule Menard.StmtTest do
         ~S|Catalog.price_with_tax(%Product{sku: ""}) > 0|
       )
 
-    assert out =~ ~s|<p :if={\n      Catalog.price_with_tax(%Product{sku: ""}) > 0\n    }>x</p>|
+    assert out == String.replace(src, "%Shop.Product", "%Product")
 
     out = Stmt.replace(src, "render/1", "assigns", "Catalog.name(@p)", "Catalog.title(@p)")
-    assert out =~ "<p>{Catalog.title(@p)}</p>"
+    assert out == String.replace(src, "Catalog.name", "Catalog.title")
 
     assert {:error, message} = Stmt.insert_after(src, "render/1", "assigns", "Catalog.name(@p)", "x")
     assert message =~ "Edit"
@@ -356,7 +353,12 @@ defmodule Menard.StmtTest do
         "<p :for={line <- Cart.lines(@cart, 0.1)}>{Money.format_line(line)}</p>"
       )
 
-    assert out =~ "    <p :for={line <- Cart.lines(@cart, 0.1)}>{Money.format_line(line)}</p>\n"
+    assert out ==
+             String.replace(
+               src,
+               "Cart.lines(@cart)}>{Cart.format_line",
+               "Cart.lines(@cart, 0.1)}>{Money.format_line"
+             )
   end
 
   test "a miss lists each line a statement starts on once, not every nested node in full" do
@@ -392,7 +394,7 @@ defmodule Menard.StmtTest do
         ~s|assert Money.format_line(line) == "1 x Mug"|
       )
 
-    assert out =~ ~s|    [line] = lines()\n    assert Money.format_line(line) == "1 x Mug"\n|
+    assert out == String.replace(src, "Cart.format_line", "Money.format_line")
     assert {:error, _} = Stmt.replace(src, "-", "no such test", "x", "y")
   end
 
@@ -402,7 +404,7 @@ defmodule Menard.StmtTest do
       "defmodule ATest do\n  use ExUnit.Case\n\n  test \"formats a line\" do\n    assert f(1) == 1\n  end\nend\n"
 
     out = Stmt.replace(src, "formats a line/0", "", "assert f(1) == 1", "assert g(1) == 1")
-    assert out =~ "    assert g(1) == 1\n"
+    assert out == String.replace(src, "f(1)", "g(1)")
   end
 
   test "a replace matched by its start that leaves code which does not parse says what it matched" do
@@ -421,12 +423,12 @@ defmodule Menard.StmtTest do
     # clause t/0, stmt t/0, two Edits, then replaced the whole module
     src = "defmodule P do\n  defstruct [:sku, stock: 0]\n\n  @type t :: %__MODULE__{sku: String.t()}\nend\n"
     out = Stmt.replace(src, "-", "", "defstruct [:sku, stock: 0]", "defstruct [:sku, stock: 0, weight: 0]")
-    assert out =~ "  defstruct [:sku, stock: 0, weight: 0]\n"
+    assert out == String.replace(src, "stock: 0]", "stock: 0, weight: 0]")
 
     out =
       Stmt.replace(src, "t/0", "", "@type t ::", "@type t :: %__MODULE__{sku: String.t(), weight: integer()}")
 
-    assert out =~ "  @type t :: %__MODULE__{sku: String.t(), weight: integer()}\n"
+    assert out == String.replace(src, "sku: String.t()}", "sku: String.t(), weight: integer()}")
   end
 
   test "the module fallback reaches the module's own statements, never one inside a function or test" do
@@ -440,14 +442,17 @@ defmodule Menard.StmtTest do
 
     assert message =~ "subject/1"
     # the module's own statements are still reached
-    assert Stmt.replace(src, "-", "", "use ExUnit.Case", "use ExUnit.Case, async: true") =~
-             "use ExUnit.Case, async: true"
+    assert Stmt.replace(src, "-", "", "use ExUnit.Case", "use ExUnit.Case, async: true") ==
+             String.replace(src, "use ExUnit.Case", "use ExUnit.Case, async: true")
   end
 
   test "naming nothing searches the whole file for the one statement written" do
     # bench5 move-function.B.haiku: name_arity "" and head "" for a line inside a test
     src = "defmodule CTest do\n  use ExUnit.Case\n\n  test \"formats\" do\n    assert f(1) == 1\n  end\nend\n"
-    assert Stmt.replace(src, "", "", "assert f(1) == 1", "assert g(1) == 1") =~ "    assert g(1) == 1\n"
+
+    assert Stmt.replace(src, "", "", "assert f(1) == 1", "assert g(1) == 1") ==
+             String.replace(src, "f(1)", "g(1)")
+
     # naming a function that is not there still reaches only the module's own statements
     assert {:error, _} = Stmt.replace(src, "subject/1", "x", "assert f(1) == 1", "assert g(1) == 1")
   end
@@ -467,8 +472,7 @@ defmodule Menard.StmtTest do
     """
 
     out = Stmt.replace(src, "sidebar/0", "", ~s|%{open: 1, tag: "#top"}|, "%{open: 2}")
-    assert out =~ "%{open: 2}"
-    refute out =~ "open: 1"
+    assert out == "defmodule Sb do\n  def sidebar do\n    %{open: 2}\n  end\nend\n"
   end
 
   @with_src """
