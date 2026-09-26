@@ -68,7 +68,7 @@ def build_template(suite, force=False):
 def build_plugins(force=False):
     """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
     loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
-    for arm in ["B", "C", "L"]:
+    for arm in ["B", "C", "L", "H"]:
         dest = PLUGINS / arm
         if dest.exists() and not force:
             continue
@@ -77,6 +77,16 @@ def build_plugins(force=False):
         shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
         if arm == "C":
             (dest / "hooks" / "hooks.json").write_text('{"hooks": {}}\n')
+        # H: no tools, no skill, no guard: only a hook that formats each Elixir file written and
+        # names one that does not parse. Is menard's clean output the tools', or the formatting?
+        if arm == "H":
+            shutil.copy(EVAL / "arms" / "H" / "hooks.json", dest / "hooks" / "hooks.json")
+            shutil.copy(EVAL / "arms" / "H" / "check-elixir.sh", dest / "hooks" / "check-elixir.sh")
+            shutil.rmtree(dest / "skills", ignore_errors=True)
+            manifest = dest / ".claude-plugin" / "plugin.json"
+            d = json.loads(manifest.read_text())
+            d.pop("mcpServers", None)
+            manifest.write_text(json.dumps(d, indent=2) + "\n")
         if arm == "L":
             manifest = dest / ".claude-plugin" / "plugin.json"
             d = json.loads(manifest.read_text())
