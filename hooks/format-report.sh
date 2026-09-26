@@ -26,11 +26,6 @@ fi
 if [[ "$tool" == "Bash" ]]; then
   root=${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}
   [[ -f "$mark" ]] || exit 0
-  # git puts files as they were in some commit (checkout, stash, reset): no one's edit, none to format
-  if [[ "$(jq -r '.tool_input.command // empty' <<<"$payload")" =~ ^[[:space:]]*git[[:space:]] ]]; then
-    rm -f "$mark"
-    exit 0
-  fi
   files=$(find "$root" "${prune[@]}" \
     \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print 2>/dev/null)
   rm -f "$mark"
@@ -59,6 +54,22 @@ done <<<"$files"
 report="" problems="" moved="" written=""
 for dir in "${!of[@]}"; do
   mapfile -t list <<<"${of[$dir]%$'\n'}"
+  # what git wrote (a checkout, a reset, a new worktree, a popped stash) is content its repo already
+  # holds: no one's edit, and none to format. Read off the command, `cd D && git …` was taken for an
+  # edit of every file git checked out, and `git … && sed …` hid the sed's. An edit makes new content;
+  # one staged in the same command is left as it was staged.
+  if [[ "$tool" == "Bash" ]]; then
+    held=$(printf '%s\n' "${list[@]}" | git -C "$dir" hash-object --stdin-paths 2>/dev/null |
+      git -C "$dir" cat-file --batch-check 2>/dev/null)
+    mapfile -t held <<<"$held"
+    # a line per file, else nothing to go by (no repo): format them all
+    if [[ -n "${held[0]}" ]] && ((${#held[@]} == ${#list[@]})); then
+      new=()
+      for i in "${!list[@]}"; do [[ "${held[$i]}" == *" missing" ]] && new+=("${list[$i]}"); done
+      list=("${new[@]}")
+      ((${#list[@]})) || continue
+    fi
+  fi
   # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
   printf '%s\n' "$dir" >>"$(session_file touched)"
   before=$(mktemp -d)
