@@ -27,11 +27,12 @@ defmodule Menard.Find do
     |> Enum.sort_by(&{&1.line, &1.column})
   end
 
-  defp call_to({fun, _meta, args} = node, _aliases, nil, fun) when is_list(args), do: {:call, node}
+  defp call_to({name, _meta, args} = node, _aliases, nil, fun) when is_atom(name) and is_list(args),
+    do: if(Atom.to_string(name) == fun, do: {:call, node})
 
-  defp call_to({{:., _, [{:__aliases__, _, parts}, fun]}, _meta, args} = node, aliases, mod, fun)
-       when is_list(args) and not is_nil(mod) do
-    if expand(parts, aliases) == mod, do: {:call, node}, else: nil
+  defp call_to({{:., _, [{:__aliases__, _, parts}, name]}, _meta, args} = node, aliases, mod, fun)
+       when is_atom(name) and is_list(args) and not is_nil(mod) do
+    if Atom.to_string(name) == fun and expand(parts, aliases) == mod, do: {:call, node}, else: nil
   end
 
   defp call_to(_node, _aliases, _mod, _fun), do: nil
@@ -113,7 +114,7 @@ defmodule Menard.Find do
   end
 
   defp module_parts(prefix),
-    do: prefix |> String.trim_trailing(".") |> String.split(".") |> Enum.map(&String.to_atom/1)
+    do: prefix |> String.trim_trailing(".") |> String.split(".")
 
   defp def_head({kind, _meta, [head | _]}, _aliases) when kind in @def_kinds, do: {:head, strip_guard(head)}
   defp def_head(_node, _aliases), do: nil
@@ -130,8 +131,11 @@ defmodule Menard.Find do
 
   defp def_of({kind, _meta, [head | _]} = node, _aliases, name, arity) when kind in @def_kinds do
     case def_name_arity(head) do
-      {^name, a} when is_nil(arity) or a == arity -> {kind, node, head_only(kind, head)}
-      _ -> nil
+      {n, a} when is_atom(n) and (is_nil(arity) or a == arity) ->
+        if Atom.to_string(n) == name, do: {kind, node, head_only(kind, head)}
+
+      _ ->
+        nil
     end
   end
 
@@ -220,12 +224,12 @@ defmodule Menard.Find do
     |> Zipper.traverse(%{}, fn z, acc ->
       case Zipper.node(z) do
         {:alias, _, [{:__aliases__, _, parts}]} ->
-          {z, Map.put(acc, List.last(parts), Menard.Source.alias_name(parts, current))}
+          {z, Map.put(acc, to_string(List.last(parts)), Menard.Source.alias_name(parts, current))}
 
         {:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} ->
           {z,
            Enum.reduce(subs, acc, fn {:__aliases__, _, p}, a ->
-             Map.put(a, List.last(p), Menard.Source.alias_name(base ++ p, current))
+             Map.put(a, to_string(List.last(p)), Menard.Source.alias_name(base ++ p, current))
            end)}
 
         _ ->
@@ -235,9 +239,11 @@ defmodule Menard.Find do
     |> elem(1)
   end
 
-  # A module reference's full name: the first segment may be an alias.
+  # A module reference's full name: the first segment may be an alias. Names are text, the aliases'
+  # and the target's alike: String.to_atom on every target asked for made an atom per call, and the
+  # VM never collects one
   defp expand([first | rest], aliases) do
-    case Map.fetch(aliases, first) do
+    case Map.fetch(aliases, Menard.Source.alias_name([first])) do
       {:ok, full} -> Enum.join([full | Enum.map(rest, &to_string/1)], ".")
       :error -> Menard.Source.alias_name([first | rest])
     end
@@ -245,15 +251,15 @@ defmodule Menard.Find do
 
   defp split_target(target) do
     case String.split(target, ".") do
-      [fun] -> {nil, String.to_atom(fun)}
-      parts -> {parts |> Enum.drop(-1) |> Enum.join("."), parts |> List.last() |> String.to_atom()}
+      [fun] -> {nil, fun}
+      parts -> {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
     end
   end
 
   defp split_name_arity(spec) do
     case String.split(spec, "/") do
-      [name, arity] -> {String.to_atom(name), String.to_integer(arity)}
-      [name] -> {String.to_atom(name), nil}
+      [name, arity] -> {name, String.to_integer(arity)}
+      [name] -> {name, nil}
     end
   end
 

@@ -98,10 +98,10 @@ defmodule Menard.Attr do
   # -- locating ------------------------------------------------------------
 
   defp one(source, name, opts) do
-    want = to_atom(name)
+    want = key(name)
 
     with {:ok, body} <- body(source, opts) do
-      case Enum.filter(body, &(attr_name(&1) == want)) do
+      case Enum.filter(body, &named?(&1, want)) do
         [node] ->
           {:ok, node}
 
@@ -128,7 +128,7 @@ defmodule Menard.Attr do
 
   defp replace(source, node, name, value) do
     %{start: [line: _, column: col]} = range = Menard.Source.range(node, source)
-    written = "@#{to_atom(name)} " <> reindent(value, String.duplicate(" ", col - 1))
+    written = "@#{key(name)} " <> reindent(value, String.duplicate(" ", col - 1))
     Sourceror.patch_string(source, [%{range: range, change: written, preserve_indentation: false}])
   end
 
@@ -138,7 +138,7 @@ defmodule Menard.Attr do
     with {:ok, ast} <- parse(source),
          {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
       body = Clause.module_body(module)
-      atom = to_atom(name)
+      want = key(name)
       # below every attribute the value reads (`@open @statuses -- […]`), which is nil above its set
       deps = reads_in(value)
 
@@ -150,10 +150,10 @@ defmodule Menard.Attr do
       found =
         body
         |> Enum.with_index()
-        |> Enum.find(fn {n, i} -> i > last_dep and (anchor?(n) or reads?(n, atom)) end)
+        |> Enum.find(fn {n, i} -> i > last_dep and (anchor?(n) or reads?(n, want)) end)
 
       case found do
-        nil -> {:error, "nothing to place @#{atom} above — the module has no definitions"}
+        nil -> {:error, "nothing to place @#{want} above — the module has no definitions"}
         {_node, i} -> insert_before(source, owner_start(body, i), name, value)
       end
     end
@@ -172,7 +172,7 @@ defmodule Menard.Attr do
   defp insert_before(source, node, name, value) do
     %{start: [line: line, column: col]} = Sourceror.get_range(node)
     indent = String.duplicate(" ", col - 1)
-    written = indent <> "@#{to_atom(name)} " <> reindent(value, indent) <> "\n\n"
+    written = indent <> "@#{key(name)} " <> reindent(value, indent) <> "\n\n"
     # above the comment glued to what it goes before, too: that comment explains the node, not this
     line = line - comment_lines_above(source, line)
     at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
@@ -224,7 +224,12 @@ defmodule Menard.Attr do
   # `@name` read anywhere under the node: a `use Foo, from: @name`, a moduledoc interpolating it. A
   # read above its definition is nil, so a new attribute goes above its first reader, too.
   defp reads?(node, name) do
-    node |> Macro.prewalker() |> Enum.any?(&match?({:@, _, [{^name, _, ctx}]} when ctx in [nil, []], &1))
+    node
+    |> Macro.prewalker()
+    |> Enum.any?(fn
+      {:@, _, [{read, _, ctx}]} when is_atom(read) and ctx in [nil, []] -> Atom.to_string(read) == name
+      _ -> false
+    end)
   end
 
   # the attributes a value (as written) reads; a value that doesn't parse reads none, and the write's
@@ -257,6 +262,14 @@ defmodule Menard.Attr do
     line
   end
 
-  defp to_atom(name) when is_atom(name), do: name
-  defp to_atom(name) when is_binary(name), do: String.to_atom(String.trim_leading(name, "@"))
+  # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the
+  # VM never collects one
+  defp key(name), do: name |> to_string() |> String.trim_leading("@")
+
+  defp named?(node, key) do
+    case attr_name(node) do
+      nil -> false
+      name -> Atom.to_string(name) == key
+    end
+  end
 end

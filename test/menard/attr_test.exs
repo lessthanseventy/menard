@@ -90,6 +90,13 @@ defmodule Menard.AttrTest do
     assert Attr.get(@src, "nope") == {:error, :missing}
   end
 
+  test "a name the module never sets makes no atom: the VM never collects one" do
+    name = "never_set_#{System.unique_integer([:positive])}"
+    assert Attr.get(@src, name) == {:error, :missing}
+    assert {:error, _} = Attr.delete(@src, name)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "list names what the module sets, with lines" do
     names = @src |> Attr.list() |> Enum.map(&elem(&1, 0))
     assert :kinds in names

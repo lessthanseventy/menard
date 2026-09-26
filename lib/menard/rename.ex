@@ -15,23 +15,9 @@ defmodule Menard.Rename do
   def run(source, old, new, opts \\ []) when is_binary(source) do
     case Sourceror.parse_string(source) do
       {:ok, ast} ->
-        from = String.to_atom(old)
-        functions = function_positions(ast, from)
-        attributes = if opts[:only], do: attribute_starts(ast, from), else: []
-
-        patches =
-          ast
-          |> patches(from, new, Keyword.get(opts, :atoms, false))
-          |> Kernel.++(import_patches(ast, from, new))
-          |> Enum.filter(&wanted?(&1, opts[:only], functions))
-          |> Enum.map(&elem(&1, 1))
-          |> Enum.reject(&(&1.range.start in attributes))
-          # `atoms: true` renames the import's key as an atom too
-          |> Enum.uniq_by(& &1.range)
-
         apply_patches(
           source,
-          patches ++
+          code_patches(ast, old, new, opts) ++
             comment_patches(source, old, new, Keyword.get(opts, :comments, false)) ++
             heex_patches(ast, source, old, new, opts[:only]) ++
             doc_patches(ast, source, old, new, Keyword.get(opts, :docs, true) and opts[:only] != :variables)
@@ -40,6 +26,35 @@ defmodule Menard.Rename do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # The name is an atom only once the source is parsed, and only if that parse made it: a name the
+  # source never mentions has nothing to rename in the AST, and String.to_atom made an atom per call
+  # that the VM never collects
+  defp code_patches(ast, old, new, opts) do
+    case existing_atom(old) do
+      nil ->
+        []
+
+      from ->
+        functions = function_positions(ast, from)
+        attributes = if opts[:only], do: attribute_starts(ast, from), else: []
+
+        ast
+        |> patches(from, new, Keyword.get(opts, :atoms, false))
+        |> Kernel.++(import_patches(ast, from, new))
+        |> Enum.filter(&wanted?(&1, opts[:only], functions))
+        |> Enum.map(&elem(&1, 1))
+        |> Enum.reject(&(&1.range.start in attributes))
+        # `atoms: true` renames the import's key as an atom too
+        |> Enum.uniq_by(& &1.range)
+    end
+  end
+
+  defp existing_atom(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> nil
   end
 
   # `only:` narrows by what a name IS. A call with args, a remote call and a def head with args are
