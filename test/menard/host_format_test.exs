@@ -96,43 +96,45 @@ defmodule Menard.HostFormatTest do
     assert File.read!(file) =~ "# plugged\n"
   end
 
+  @tag skip:
+         !(System.find_executable("mise") &&
+             File.exists?(Path.expand("~/.local/share/mise/installs/elixir/1.20.4-otp-29/bin/elixirc")) &&
+             File.dir?(Path.expand("~/.local/share/mise/installs/erlang/29.0.6/bin")) &&
+             System.otp_release() < "29") &&
+           "needs mise with elixir 1.20.4-otp-29 and erlang 29.0.6 installed, menard on an older OTP"
   test "a plugin built by a newer toolchain than menard's runs on the host's own", %{tmp_dir: dir} do
     # Tlön's Quokka, built by OTP 29: an OTP 27 menard could not load it (and logged an error per
     # try). The host pins its toolchain, and the format runs there.
     installs = Path.expand("~/.local/share/mise/installs")
     elixirc = Path.join(installs, "elixir/1.20.4-otp-29/bin/elixirc")
     erl_bin = Path.join(installs, "erlang/29.0.6/bin")
+    ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
+    File.mkdir_p!(ebin)
+    src = Path.join(dir, "plug.ex")
 
-    if System.find_executable("mise") && File.exists?(elixirc) && File.dir?(erl_bin) &&
-         System.otp_release() < "29" do
-      ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
-      File.mkdir_p!(ebin)
-      src = Path.join(dir, "plug.ex")
-
-      File.write!(src, """
-      defmodule MenardNewerPlug do
-        def features(_opts), do: [extensions: [".ex"]]
-        def format(contents, _opts), do: "\# on \#{System.otp_release()}\\n" <> contents
-      end
-      """)
-
-      {_, 0} =
-        System.cmd(elixirc, ["-o", ebin, src], env: [{"PATH", erl_bin <> ":" <> System.get_env("PATH")}])
-
-      File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"1.20.4-otp-29\"\nerlang = \"29.0.6\"\n")
-      System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
-      host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardNewerPlug]]")
-      file = write(dir, "g.ex", "defmodule G do\n  def   g, do: 1\nend\n")
-
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert Menard.format(file, cache: Path.join(dir, "cache")) == :ok
-        end)
-
-      refute log =~ "Error loading module"
-      # the plugin is the file's formatter, and this one formats nothing
-      assert File.read!(file) == "# on 29\ndefmodule G do\n  def   g, do: 1\nend\n"
+    File.write!(src, """
+    defmodule MenardNewerPlug do
+      def features(_opts), do: [extensions: [".ex"]]
+      def format(contents, _opts), do: "\# on \#{System.otp_release()}\\n" <> contents
     end
+    """)
+
+    {_, 0} =
+      System.cmd(elixirc, ["-o", ebin, src], env: [{"PATH", erl_bin <> ":" <> System.get_env("PATH")}])
+
+    File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"1.20.4-otp-29\"\nerlang = \"29.0.6\"\n")
+    System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardNewerPlug]]")
+    file = write(dir, "g.ex", "defmodule G do\n  def   g, do: 1\nend\n")
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Menard.format(file, cache: Path.join(dir, "cache")) == :ok
+      end)
+
+    refute log =~ "Error loading module"
+    # the plugin is the file's formatter, and this one formats nothing
+    assert File.read!(file) == "# on 29\ndefmodule G do\n  def   g, do: 1\nend\n"
   end
 
   test "a plugin whose beam cannot be read is a plugin that cannot be found, not a crash", %{tmp_dir: dir} do
