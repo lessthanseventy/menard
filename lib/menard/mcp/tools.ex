@@ -38,6 +38,15 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
+    # The fields a verb cannot do without, where the schema leaves them optional for the tool's other
+    # verbs: a path left out was `params[:to] || ""`, which resolved to the root directory itself.
+    def need(params, keys, what) do
+      case for(key <- keys, params[key] in [nil, ""], do: key) do
+        [] -> :ok
+        missing -> {:error, "#{what} needs #{Enum.join(missing, ", ")}"}
+      end
+    end
+
     # `version` (from the last reply) is checked before the edit, and `force` writes over a stale
     # one: docs/live.md, phase 3
     def staged_write(file, content, params, opts),
@@ -199,8 +208,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(%{verb: "move"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           {:ok, dest} <- Menard.MCP.resolve(params[:to] || ""),
+      with :ok <- need(params, [:name_arity, :to], "clause move"),
+           {:ok, file} <- Menard.MCP.resolve(params.file),
+           {:ok, dest} <- Menard.MCP.resolve(params.to),
            # `version` is the source file's: the one the agent's edit came from
            :ok <-
              if(params[:version] && params[:force] != true,
@@ -841,9 +851,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params[:file] || ""),
-           %{} = report <-
-             Menard.Deps.of(File.read!(file), params[:name_arity] || "", module: params[:module]) do
+      with :ok <- need(params, [:file, :name_arity], "deps refs"),
+           {:ok, file} <- Menard.MCP.resolve(params.file),
+           %{} = report <- Menard.Deps.of(File.read!(file), params.name_arity, module: params[:module]) do
         ok(frame, report)
       else
         {:error, message} -> fail(frame, message)

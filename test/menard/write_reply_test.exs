@@ -214,5 +214,11 @@ defmodule Menard.WriteReplyTest do
 
       assert from["file"] == a
     end
+
+    test "with no --to is refused with the usage, not a stack trace", %{tmp_dir: dir} do
+      a = write_file(dir, "mc.ex", "defmodule MC do\n  def go, do: 1\nend\n")
+
+      assert_raise Mix.Error, ~r/move FILE name\/arity --to DEST/, fn -> Clause.run(["move", a, "go/0"]) end
+    end
   end
 end

@@ -208,6 +208,21 @@ defmodule Menard.MCPTest do
     end
   end
 
+  test "a move with no `to`, or refs with no `file`, is refused by name, not read as the root", %{
+    root: root
+  } do
+    File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
+    text = &(&1.content |> hd() |> Map.fetch!("text"))
+
+    moved = call(Menard.MCP.Clause, %{verb: "move", file: "lib/a.ex", name_arity: "go/0"})
+    assert moved.isError
+    assert text.(moved) =~ "clause move needs to"
+
+    refs = call(Menard.MCP.Deps, %{verb: "refs", name_arity: "go/0"})
+    assert refs.isError
+    assert text.(refs) =~ "deps refs needs file"
+  end
+
   test "attr comment writes the # line above an attribute", %{root: root} do
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
 
