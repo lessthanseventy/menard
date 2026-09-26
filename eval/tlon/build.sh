@@ -6,6 +6,8 @@ set -euo pipefail
 src=${TLON_SRC:-$HOME/projects/tlon}
 # a copy, not hardlinks: /tmp is another filesystem
 git clone -q --no-hardlinks "$src" "$TEMPLATE"
+# no remote: an agent's `git push` or `fetch` would otherwise reach the operator's live checkout
+git -C "$TEMPLATE" remote remove origin
 for app in server console; do
   for d in deps _build; do
     [ -d "$src/$app/$d" ] && cp -a --reflink=auto "$src/$app/$d" "$TEMPLATE/$app/$d"
