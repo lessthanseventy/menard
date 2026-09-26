@@ -313,4 +313,38 @@ defmodule Menard.StmtTest do
     assert message =~ "inside a string"
     assert message =~ "Edit"
   end
+
+  test "replace reaches an expression in a ~H template; the other verbs still send it to Edit" do
+    # bench1 and bench2 add-alias.B.haiku, new-component.B.haiku: each first tried stmt replace on
+    # a `{…}` in the template, and was refused
+    src = ~S'''
+    defmodule L do
+      def render(assigns) do
+        ~H"""
+        <p :if={
+          Catalog.price_with_tax(%Shop.Product{sku: ""}) > 0
+        }>x</p>
+        <p>{Catalog.name(@p)}</p>
+        """
+      end
+    end
+    '''
+
+    out =
+      Stmt.replace(
+        src,
+        "render/1",
+        "assigns",
+        ~S|Catalog.price_with_tax(%Shop.Product{sku: ""}) > 0|,
+        ~S|Catalog.price_with_tax(%Product{sku: ""}) > 0|
+      )
+
+    assert out =~ ~s|<p :if={\n      Catalog.price_with_tax(%Product{sku: ""}) > 0\n    }>x</p>|
+
+    out = Stmt.replace(src, "render/1", "assigns", "Catalog.name(@p)", "Catalog.title(@p)")
+    assert out =~ "<p>{Catalog.title(@p)}</p>"
+
+    assert {:error, message} = Stmt.insert_after(src, "render/1", "assigns", "Catalog.name(@p)", "x")
+    assert message =~ "Edit"
+  end
 end
