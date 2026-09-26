@@ -929,6 +929,13 @@ defmodule Menard.Clause do
   end
 
   defp attached_attr?({:@, _meta, [{name, _inner, _args}]}) when is_atom(name), do: name in @attached
+  # A Phoenix component's `attr`/`slot` declarations belong to the def below as its @doc does: a
+  # clause inserted before one landed between them and it (bench4 new-component.B.haiku), and a
+  # component deleted or moved left them behind
+  defp attached_attr?({macro, _meta, [{:__block__, _, [name]} | _]})
+       when macro in [:attr, :slot] and is_atom(name),
+       do: true
+
   defp attached_attr?(_node), do: false
 
   # The `def` keyword is the first token of the clause's own range, so each flip is a patch of

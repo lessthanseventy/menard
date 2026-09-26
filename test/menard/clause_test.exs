@@ -724,4 +724,24 @@ defmodule Menard.ClauseTest do
     out = Clause.rewrite(src, "card/1", "x", code)
     assert out =~ "  def card(x), do: badge(x)\n\n  @doc \"The badge.\"\n  def badge(x), do: x\nend"
   end
+
+  test "a component's attr and slot lines belong to its def: insert_before goes above them, delete takes them" do
+    # bench4 new-component.B.haiku inserted a new component before product_card/1 and it landed
+    # between product_card's `attr :product` and its def: a duplicate attr, a compile error
+    src =
+      "defmodule C do\n  use Phoenix.Component\n\n  attr :product, :map, required: true\n  slot :inner_block\n\n  def card(assigns) do\n    ~H\"x\"\n  end\nend\n"
+
+    out =
+      Clause.insert_before(
+        src,
+        "card/1",
+        "assigns",
+        "attr :product, :map\n\ndef badge(assigns) do\n  ~H\"y\"\nend"
+      )
+
+    assert out =~
+             ~r/def badge\(assigns\) do\n.*\n  end\n\n  attr :product, :map, required: true\n  slot :inner_block\n\n  def card/s
+
+    refute Clause.delete(src, "card/1", "assigns") =~ "attr :product"
+  end
 end
