@@ -186,6 +186,26 @@ defmodule Menard.MCPTest do
     assert {:ok, _} = Menard.MCP.resolve("lib/a.ex")
   end
 
+  test "a symlink under the root that points outside it is refused", %{root: root} do
+    outside = Path.join(System.tmp_dir!(), "menard-outside-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(outside)
+    on_exit(fn -> File.rm_rf!(outside) end)
+    File.ln_s!(outside, Path.join(root, "lib/out"))
+
+    assert {:error, "refused: lib/out/x.ex" <> _} = Menard.MCP.resolve("lib/out/x.ex")
+    assert {:error, "refused: lib/out" <> _} = Menard.MCP.resolve_all(["lib/a.ex", "lib/out"])
+    # a link that stays inside is as good as its target
+    File.ln_s!(Path.join(root, "lib"), Path.join(root, "src"))
+    assert {:ok, _} = Menard.MCP.resolve("src/a.ex")
+  end
+
+  test "resolving many files costs each once" do
+    paths = for n <- 1..20_000, do: "lib/m#{n}.ex"
+    {us, {:ok, resolved}} = :timer.tc(fn -> Menard.MCP.resolve_all(paths) end)
+    assert length(resolved) == 20_000
+    assert us < 2_000_000
+  end
+
   test "clause move carries a function to another file", %{root: root} do
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def go, do: 1\n\n  def stay, do: 2\nend\n")
 
