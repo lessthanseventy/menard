@@ -19,3 +19,9 @@ commit lands.
   once", `us < 2_000_000`, measured 2_024_752) and `test/menard/host_format_test.exs:352` ("a
   format out of time is killed…": the host VM had not written its pid file within the 1s deadline).
   A gate that flips on load is not a gate: bound them on work done, not seconds, or widen them.
+- `indented/2` in lib/menard/block.ex and lib/menard/clause.ex (identical copies) prefixes EVERY line
+  of the text with the indent: a blank line inside a block or definition comes out as trailing
+  spaces, and the lines of a heredoc or multi-line string inside it are shifted, changing the
+  string's value. `Menard.Source.reindent/2` already handles both (blank stays blank, literal lines
+  stay put); `indent <> reindent(text, indent)` is the likely fix, with a test for each case. Left
+  out of the Menard.Source consolidation because it changes behaviour.

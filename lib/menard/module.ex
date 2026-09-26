@@ -6,7 +6,7 @@ defmodule Menard.Module do
   """
 
   import Menard.Source, only: [parse: 1]
-  alias Menard.Clause
+  alias Menard.Tree
 
   @doc """
   Add `code` — a complete `defmodule` — to the file. It goes after the LAST module, separated by a
@@ -40,13 +40,9 @@ defmodule Menard.Module do
   def replace(source, name, code) do
     with {:ok, ^name} <- module_name(code),
          {:ok, ast} <- parse(source) do
-      case List.keyfind(Clause.modules(ast), name, 0) do
+      case List.keyfind(Tree.modules(ast), name, 0) do
         {^name, node} ->
-          range = Menard.Source.range(node, source)
-
-          Sourceror.patch_string(source, [
-            %{range: range, change: String.trim(code), preserve_indentation: false}
-          ])
+          Menard.Source.patch(source, Menard.Source.range(node, source), String.trim(code))
 
         nil ->
           {:error, "no module #{name} in this file — have: #{Enum.join(names(ast), ", ")}"}
@@ -73,7 +69,7 @@ defmodule Menard.Module do
 
   defp names(ast) do
     ast
-    |> Clause.modules()
+    |> Tree.modules()
     |> Enum.map(&elem(&1, 0))
   end
 

@@ -4,7 +4,7 @@ defmodule Menard.Test.Identity do
   # was. Shared by the identity test (this repo, every run) and the hex corpus benchmark (real
   # packages, on demand). It shares no code with what it checks: its own slice, its own heads.
 
-  alias Menard.{Attr, Block, Clause, Stmt}
+  alias Menard.{Attr, Block, Clause, Stmt, Tree}
 
   @kinds [:def, :defp, :defmacro, :defmacrop]
   @checks [:clause, :attr, :block, :stmt]
@@ -35,7 +35,7 @@ defmodule Menard.Test.Identity do
   # clause.ex held to the end made every GC sweep the parse cache's AST again, twice the time.
   defp edits(source, :clause, seen) do
     for {mod, node} <- modules(source),
-        {kind, meta, [head, [{_do, body} | _]]} <- Clause.module_body(node),
+        {kind, meta, [head, [{_do, body} | _]]} <- Tree.module_body(node),
         kind in @kinds and meta[:do] != nil,
         text = slice(source, body),
         is_binary(text) do
@@ -52,7 +52,7 @@ defmodule Menard.Test.Identity do
         is_list(listed),
         # a name set more than once is refused by `set` — the clause verbs own those
         {name, 1} <- Enum.frequencies_by(listed, &elem(&1, 0)),
-        {:@, _, [{^name, _, [value]}]} <- Clause.module_body(node),
+        {:@, _, [{^name, _, [value]}]} <- Tree.module_body(node),
         text = slice(source, value),
         is_binary(text) do
       {"#{mod} @#{name}", seen.(Attr.set(source, name, text, module: mod))}
@@ -73,7 +73,7 @@ defmodule Menard.Test.Identity do
 
   defp edits(source, :stmt, seen) do
     for {mod, node} <- modules(source),
-        {kind, _meta, [head | _]} <- Clause.module_body(node),
+        {kind, _meta, [head | _]} <- Tree.module_body(node),
         kind in @kinds,
         {name, arity, args} = head_of(head),
         na = "#{mod}.#{name}/#{arity}",
@@ -114,7 +114,7 @@ defmodule Menard.Test.Identity do
 
   defp modules(source) do
     {:ok, ast} = Sourceror.parse_string(source)
-    Clause.modules(ast)
+    Tree.modules(ast)
   end
 
   # nil where Sourceror has no range for the node (seen in credo): the oracle cannot say what is
