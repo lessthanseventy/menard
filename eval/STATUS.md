@@ -586,3 +586,20 @@ model on renames across files, not for a capable one on everyday edits.
   workspace and database is gone (only phoenix_app_dev and phoenix_app_test remain, the
   operator's). `bin/menard run check` (802 tests) and `python3 -m unittest discover -s eval/tests`
   (33) green.
+
+### Handoff (2026-09-26, out of credits)
+
+Merged into main and green (850 tests, eval tests OK): all review fixes (hooks, clause, edit verbs,
+run/deps, core and doors, eval harness, follow-ups), refactors 1 (one verb layer, prose verbs
+deleted) and 3 (formatter out of menard's VM), menard hidden from Hostapp's arm A, and the
+phoenix_app bench (eval/phoenix-app, case `events`, graders validated both ways; run with
+`--suite eval/phoenix-app`, MENARD_EVAL_WORK=/tmp/phoenix-app-eval).
+In flight when credits ran out, each in its worktree under .claude/worktrees (merge what is
+committed, resume or redo the rest):
+- refactor-ast: module walking and patch/range/parse into Menard.Source.
+- fix-eval-resume: the runner survives usage-limit cutoffs (detect, wait, restore the step, redo;
+  resume a killed round).
+- build-phoenix-app follow-up: reference solutions as patches under
+  eval/phoenix-app/cases/events/reference/ with a re-validation script; confirm no leftovers.
+Then: the test-suite review's 12 findings (docs/review/2026-09-26-fable.md), TODO.md's focus3
+re-plant, re-pin the plugins, and the round on phoenix_app (all vs A, Opus, 3 runs).
