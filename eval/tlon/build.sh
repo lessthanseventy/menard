@@ -19,14 +19,9 @@ done
 rm -rf "$TEMPLATE/server/deps/menard/lib/mix"
 find "$TEMPLATE/server/_build" -name 'Elixir.Mix.Tasks.Menard.*.beam' -delete
 # menard reaches an agent only through the plugins under test: Tlön's AGENTS.md section telling it
-# to edit Elixir with `mise run menard` goes, and that task refuses. Arm A would otherwise have
-# menard's CLI, and arm B the advice the hook-only design dropped.
-python3 - "$TEMPLATE/AGENTS.md" <<'PY'
-import sys
-p = sys.argv[1]; s = open(p).read()
-a = s.index("### Edit Elixir with Menard"); b = s.index("## How to work")
-open(p, "w").write(s[:a] + s[b:])
-PY
+# to edit Elixir with `mise run menard` goes (agents_md.py, with the watcher section), and that task
+# refuses. Arm A would otherwise have menard's CLI, and arm B the advice the hook-only design dropped.
+python3 "$(dirname "$0")/agents_md.py" "$TEMPLATE/AGENTS.md" "$TEMPLATE/AGENTS.md"
 printf '#!/usr/bin/env bash\necho "menard: not available in this checkout" >&2\nexit 1\n' > "$TEMPLATE/scripts/menard.sh"
 
 # Tlön's settings sandbox every Bash call, which is one more wall around the agent; its tests need
