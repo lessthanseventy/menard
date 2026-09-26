@@ -6,8 +6,6 @@ defmodule Menard.Run do
   `mix menard.run` prints what these return, as one JSON line.
   """
 
-  @deadline {__MODULE__, :deadline}
-  @log {__MODULE__, :log}
   @keep 40
 
   @doc """
@@ -16,43 +14,49 @@ defmodule Menard.Run do
   client's timeout, the CLI none.
   """
   def result(dir, verb, args, opts) do
-    if ms = opts[:timeout], do: Process.put(@deadline, System.monotonic_time(:millisecond) + ms)
-    # one log per call: the MCP server lives across calls, and each call's output is its own
-    Process.delete(@log)
+    # the run's context, handed to every mix it makes: its deadline, and its one log (the MCP server
+    # lives across calls, and each call's output is its own)
+    log = log_path(dir, [verb | args])
+    # the deadline after the log's pruning: the kill rounds its seconds down, and a 10s timeout ran 9
 
-    try do
-      Map.put(result(dir, verb, args), :log, Process.get(@log))
-    after
-      Process.delete(@deadline)
-      Process.delete(@log)
-    end
+    run = %{
+      dir: dir,
+      log: log,
+      deadline: if(ms = opts[:timeout], do: System.monotonic_time(:millisecond) + ms)
+    }
+
+    reply = verb(run, verb, args)
+    if File.exists?(run.log), do: Map.put(reply, :log, run.log), else: reply
   end
 
   @doc """
   A run verb in the mix project at `dir` — `"check"` (its `mix precommit`), `"test"` (args: files,
   file:line), `"format"` (args: files; reports what changed), `"compile"` (warnings as
-  diagnostics) — as one map with `ok`. Both doors (`mix menard.run`, the MCP `run` tool) call this.
+  diagnostics) — as one map with `ok`, and `log` when it ran mix. Both doors (`mix menard.run`, the
+  MCP `run` tool) call this, and `deps` for its compile after an update.
   """
-  def result(dir, "check", args) do
+  def result(dir, verb, args), do: result(dir, verb, args, [])
+
+  defp verb(%{dir: dir} = run, "check", args) do
     # the files as checked, taken before the gate runs: one written meanwhile is not what went green
     tree = tree(dir)
-    {out, status, fetched} = mix_fetching(dir, ["precommit"])
+    {out, status, fetched} = mix_fetching(run, ["precommit"])
 
     reply =
       if status != 0 and out =~ ~s(The task "precommit" could not be found),
-        do: check_steps(dir, args),
-        else: out |> gate(status, fetched, dir) |> credo_named(out, dir)
+        do: check_steps(run, args),
+        else: out |> gate(status, fetched, dir) |> credo_named(out, run)
 
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
     reply
   end
 
-  def result(dir, "test", args) do
-    {out, status, fetched} = mix_fetching(dir, ["test" | args])
-    out |> parse_test(status) |> with_sources(dir) |> Map.put(:fetched, fetched)
+  defp verb(run, "test", args) do
+    {out, status, fetched} = mix_fetching(run, ["test" | args])
+    out |> parse_test(status) |> with_sources(run.dir) |> Map.put(:fetched, fetched)
   end
 
-  def result(dir, "format", files) do
+  defp verb(%{dir: dir}, "format", files) do
     # no files named: what the project's own `mix format` would take, its formatter inputs. Given
     # none, this formatted nothing and answered ok, while the project's check failed.
     files = if files == [], do: formatter_inputs(dir), else: Enum.map(files, &Path.expand(&1, dir))
@@ -69,40 +73,42 @@ defmodule Menard.Run do
     %{ok: failures == [], changed: changed, failures: failures}
   end
 
-  def result(dir, "compile", _args) do
+  defp verb(run, "compile", _args) do
     # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
-    {out, status, fetched} = mix_fetching(dir, ["compile", "--warnings-as-errors"])
+    {out, status, fetched} = mix_fetching(run, ["compile", "--warnings-as-errors"])
 
     %{ok: status == 0, exit: status, failures: diagnostics(out), tail: tail(out), fetched: fetched}
   end
 
-  def result(dir, "credo", args) do
-    if credo?(dir), do: credo(dir, args), else: %{ok: true, failures: [], skipped: "no credo in this project"}
+  defp verb(run, "credo", args) do
+    if credo?(run.dir),
+      do: credo(run, args),
+      else: %{ok: true, failures: [], skipped: "no credo in this project"}
   end
 
   # A precommit that failed in credo printed its report as text: the same report as data puts each
   # issue in `failures`, at the alias's own strictness
-  defp credo_named(%{ok: false} = reply, out, dir) do
-    if out =~ "mix credo explain" and credo?(dir) do
-      strict = if File.read!(Path.join(dir, "mix.exs")) =~ "credo --strict", do: ["--strict"], else: []
-      %{reply | failures: reply.failures ++ credo(dir, strict).failures}
+  defp credo_named(%{ok: false} = reply, out, run) do
+    if out =~ "mix credo explain" and credo?(run.dir) do
+      strict = if File.read!(Path.join(run.dir, "mix.exs")) =~ "credo --strict", do: ["--strict"], else: []
+      %{reply | failures: reply.failures ++ credo(run, strict).failures}
     else
       reply
     end
   end
 
-  defp credo_named(reply, _out, _dir), do: reply
+  defp credo_named(reply, _out, _run), do: reply
 
-  defp credo(dir, args) do
+  defp credo(run, args) do
     {strict, args} = {"--strict" in args, args -- ["--strict"]}
     {changed, files} = {"--changed" in args, args -- ["--changed"]}
 
     {out, status, fetched} =
-      mix_fetching(dir, ["credo", "--format", "json"] ++ if(strict, do: ["--strict"], else: []) ++ files)
+      mix_fetching(run, ["credo", "--format", "json"] ++ if(strict, do: ["--strict"], else: []) ++ files)
 
     case credo_issues(out) do
       {:ok, issues} ->
-        issues = if changed, do: only_changed(issues, dir), else: issues
+        issues = if changed, do: only_changed(issues, run.dir), else: issues
         %{ok: issues == [], failures: issues, fetched: fetched}
 
       :error ->
@@ -158,12 +164,12 @@ defmodule Menard.Run do
   # A host with no `precommit` alias: the steps `run check` stands for, each its own mix, so `test`
   # picks its own env. The first that fails is the answer. Credo too, when the project has it: at
   # its default level, `--strict` when the caller asks.
-  defp check_steps(dir, args) do
+  defp check_steps(%{dir: dir} = run, args) do
     steps = [["format", "--check-formatted"], ["compile", "--warnings-as-errors"], ["test"]]
 
     {out, status, fetched} =
       Enum.reduce_while(steps, {"", 0, []}, fn step, {_out, _status, fetched} ->
-        {out, status, more} = mix_fetching(dir, step)
+        {out, status, more} = mix_fetching(run, step)
         next = {out, status, fetched ++ more}
         if status == 0, do: {:cont, next}, else: {:halt, next}
       end)
@@ -171,7 +177,7 @@ defmodule Menard.Run do
     reply = gate(out, status, fetched, dir)
 
     lint =
-      if credo?(dir), do: credo(dir, Enum.filter(args, &(&1 == "--strict"))), else: %{ok: true, failures: []}
+      if credo?(dir), do: credo(run, Enum.filter(args, &(&1 == "--strict"))), else: %{ok: true, failures: []}
 
     %{reply | ok: reply.ok and lint.ok, failures: reply.failures ++ lint.failures}
     |> Map.put(
@@ -266,13 +272,13 @@ defmodule Menard.Run do
   # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
   # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
   # and name what came.
-  defp mix_fetching(dir, args) do
-    {out, status} = mix(dir, args)
+  defp mix_fetching(run, args) do
+    {out, status} = mix(run, args)
 
     if status != 0 and out =~ ~s(run "mix deps.get") do
-      {got, _status} = mix(dir, ["deps.get"])
+      {got, _status} = mix(run, ["deps.get"])
       fetched = ~r/\* Getting (\S+)/ |> Regex.scan(got) |> Enum.map(&List.last/1)
-      {out, status} = mix(dir, args)
+      {out, status} = mix(run, args)
       {out, status, fetched}
     else
       {out, status, []}
@@ -295,15 +301,10 @@ defmodule Menard.Run do
   # every test/support module read as "not loaded" — first under `run test`, then again under
   # `run check`. nil unsets, so menard's own MIX_ENV cannot leak into the target either, which is
   # what the pin was for.
-  defp mix(dir, args) do
-    left =
-      case Process.get(@deadline) do
-        nil -> nil
-        at -> max(at - System.monotonic_time(:millisecond), 1_000)
-      end
-
-    {out, status} = Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}], timeout: left)
-    keep(dir, args, out)
+  defp mix(run, args) do
+    left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
+    {out, status} = Menard.host_mix(run.dir, args, env: [{"MIX_ENV", nil}], timeout: left)
+    File.write!(run.log, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
     # uncoloured, once, for every parser: `config :elixir, :ansi_enabled, true` colours ExUnit's
     # report even into this pipe, and `mix format --check-formatted` colours its list anyway
     {String.replace(out, ~r/\e\[[0-9;]*m/, ""), status}
@@ -312,14 +313,13 @@ defmodule Menard.Run do
   # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
   # reply names it, so what the failures leave out is a grep away, not a second run (Tlön's cap.sh
   # rule: run once, read the log; 40% of the operator's test runs were run again to see more)
-  defp keep(dir, args, out) do
+  defp log_path(dir, words) do
     logs = Path.join([System.tmp_dir!(), "menard-run", slug(Path.expand(dir))])
     File.mkdir_p!(logs)
+    # room for this run's: all but one of the last @keep stay
+    logs |> File.ls!() |> Enum.sort(:desc) |> Enum.drop(@keep - 1) |> Enum.each(&File.rm(Path.join(logs, &1)))
     stamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%S%f")
-    path = Process.get(@log) || Path.join(logs, "#{stamp}-#{slug(Enum.join(args, " "))}.log")
-    File.write!(path, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
-    Process.put(@log, path)
-    logs |> File.ls!() |> Enum.sort(:desc) |> Enum.drop(@keep) |> Enum.each(&File.rm(Path.join(logs, &1)))
+    Path.join(logs, "#{stamp}-#{slug(Enum.join(words, " "))}.log")
   end
 
   defp slug(text),

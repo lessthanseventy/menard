@@ -583,4 +583,20 @@ defmodule Menard.RunTest do
 
     assert {r.tests, r.failed} == {1, 1}
   end
+
+  test "a verb called past the doors (deps' compile) leaves nothing behind in its caller", %{tmp_dir: dir} do
+    # the deadline and the log lived in the process dictionary: a call that did not go through the
+    # door that clears them left its log for the MCP server's next call to append to
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Left.MixProject do
+      use Mix.Project
+      def project, do: [app: :left, version: "0.1.0"]
+    end
+    """)
+
+    before = Process.get()
+    assert %{ok: true, log: log} = Menard.Run.result(dir, "compile", [])
+    assert File.read!(log) =~ "$ mix compile"
+    assert Process.get() == before
+  end
 end
