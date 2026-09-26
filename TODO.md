@@ -18,3 +18,8 @@ commit lands.
   ExUnit's 60s twice under the full gate (2026-09-26 ~04:45 and ~05:08, load average ~40 from
   parallel agents) and passed alone (320 identity tests green) and in the next gate. It is the
   slowest identity case; it has no margin under a loaded machine.
+- `mcp_test`'s root is `menard-mcp-#{System.unique_integer([:positive])}` in /tmp, unique only within
+  one VM: two suites run at once (parallel worktrees, 2026-09-26) share small integers, and one's
+  `on_exit` `rm_rf` deletes the other's files. Three runs failed three different tests ("could not
+  read file /tmp/menard-mcp-1282/lib/a.ex", an attr set that did not land, a block delete refused);
+  alone, green. Fix: a root from `System.tmp_dir!()` + a random or OS-pid-qualified name.
