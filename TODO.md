@@ -23,3 +23,9 @@ commit lands.
   once (the review's agents, 2026-09-26) share `/tmp/menard-X-1…` and one's `on_exit` removes the
   other's dir mid-test (mcp_test failed that way, three different tests, until its dirs took the
   OS pid). Add `System.pid()` to each name, as mcp/outline/host_toolchain/format_shell tests do.
+- A write whose host formatter cannot run answers a crash dump for the reason. `clause move` in a
+  Tlön copy whose mise.toml was not trusted (the eval bench, 2026-09-26): the file was moved, and the
+  reply said `not formatted — no match of right hand side value: {:EXIT, {:badarg, [{:erlang,
+  :binary_to_atom, [<<69, 108, 105, …` (the formatter's error text made into an atom?), where "mise:
+  config files in …/mise.toml are not trusted" was the reason. The eval's agent_env.sh sets
+  MISE_TRUSTED_CONFIG_PATHS, so a run does not hit it; a checkout run by hand does.
