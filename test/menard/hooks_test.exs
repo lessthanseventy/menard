@@ -210,6 +210,28 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "format-report keeps what it reformatted when another file in the call does not parse", %{tmp_dir: dir} do
+    # the refusal carried only the broken file, and the next Edit on the other was written against a
+    # stale read
+    host(dir)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "sed"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir)
+    backdate_format_mark(bash, dir)
+    File.write!(Path.join(dir, "lib/bad.ex"), "defmodule Bad do\n  def f(x, do: x\nend\n")
+    File.write!(Path.join(dir, "lib/ok.ex"), "defmodule Ok do\n  def big, do: 999999\nend\n")
+
+    {out, 2} = report(Map.put(bash, :hook_event_name, "PostToolUse"), dir)
+    assert out =~ "lib/bad.ex was written but"
+    assert out =~ "+  def big, do: 999_999"
+  end
+
+  @tag :tmp_dir
   test "format-report names a file that does not parse, with the compiler's why", %{tmp_dir: dir} do
     host(dir)
     file = Path.join(dir, "lib/bad.ex")

@@ -86,8 +86,11 @@ if [[ -n "${MENARD_HOOK_COMPILE:-}" && -n "$written" ]]; then
   done < <(cut -d'|' -f1 <<<"$written" | sort -u | grep .)
 fi
 
+# exit 2 gives the agent stderr alone: what was reformatted in the same call goes with it, or its next
+# Edit on those files is written against a stale read
 if [[ -n "$problems" ]]; then
-  printf '%s' "$problems" >&2
+  printf '%s' "$problems" "$report" >&2
+  [[ -n "$moved" ]] && echo "Edit against these lines as they are now, not as you last read them." >&2
   exit 2
 fi
 
