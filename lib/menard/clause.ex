@@ -11,7 +11,7 @@ defmodule Menard.Clause do
   sibling.)
   """
 
-  import Menard.Source, only: [parse: 1, reindent: 2]
+  import Menard.Source, only: [comment_lines_above: 2, parse: 1, reindent: 2]
   alias Sourceror.Zipper
 
   @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
@@ -961,14 +961,6 @@ defmodule Menard.Clause do
     Enum.join([head <> " do" | lines] ++ [indent <> "end"], "\n")
   end
 
-  defp comment_lines_above(lines, i) do
-    lines
-    |> Enum.take(i)
-    |> Enum.reverse()
-    |> Enum.take_while(&String.starts_with?(String.trim_leading(&1), "#"))
-    |> length()
-  end
-
   # The line a clause really starts on: its first ATTACHED attribute, walking back over the
   # contiguous `@doc`/`@impl`/`@spec` siblings written above it, else the `def` line itself. Only
   # CONTIGUOUS ones count, so deleting the middle clause of a function takes the `@impl` written
@@ -1144,9 +1136,7 @@ defmodule Menard.Clause do
   # rather than between them and the def.
   defp doc_start(ast, range), do: attrs_start(ast, range)
 
-  defp doc_text(text, indent) do
-    pad = if is_integer(indent), do: String.duplicate(" ", indent), else: indent
-
+  defp doc_text(text, pad) do
     body =
       text
       |> String.trim_trailing()
