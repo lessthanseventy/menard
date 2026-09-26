@@ -3,6 +3,8 @@ defmodule Menard.MapWhereTest do
   # hit sits in. Both read the caller's directory, which is process-wide: not async.
   use ExUnit.Case, async: false
 
+  alias Mix.Tasks.Menard.Where
+
   @tag :tmp_dir
   setup %{tmp_dir: dir} do
     previous = System.get_env("MENARD_CWD")
@@ -47,7 +49,7 @@ defmodule Menard.MapWhereTest do
   test "where names the function each grep hit sits in, the module for a line outside every def" do
     out =
       ExUnit.CaptureIO.capture_io(fn ->
-        Mix.Tasks.Menard.Where.run([
+        Where.run([
           "app/lib/app/cart.ex:4:  def add",
           "app/lib/app/cart.ex:9",
           "app/lib/app/cart.ex:1"

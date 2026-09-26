@@ -2,6 +2,8 @@ defmodule Menard.WriteReplyTest do
   use ExUnit.Case, async: true
 
   alias Menard
+  alias Mix.Tasks.Menard.Clause
+  alias Mix.Tasks.Menard.Rename
 
   @moduletag :tmp_dir
 
@@ -158,7 +160,7 @@ defmodule Menard.WriteReplyTest do
 
       assert_raise Mix.Error, ~r/stale: .*rb\.ex/, fn ->
         ExUnit.CaptureIO.capture_io(fn ->
-          Mix.Tasks.Menard.Rename.run([
+          Rename.run([
             "old",
             "new",
             a,
@@ -180,7 +182,7 @@ defmodule Menard.WriteReplyTest do
 
       assert_raise Mix.Error, ~r/stale/, fn ->
         ExUnit.CaptureIO.capture_io(fn ->
-          Mix.Tasks.Menard.Clause.run(["move", a, "old/0", "--to", dest, "--as", "RC", "--version", va])
+          Clause.run(["move", a, "old/0", "--to", dest, "--as", "RC", "--version", va])
         end)
       end
 

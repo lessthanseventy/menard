@@ -18,12 +18,14 @@ defmodule Mix.Tasks.Menard.Where do
     argv
     |> Enum.flat_map(&parse/1)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Enum.each(fn {file, lines} ->
-      with {:ok, content} <- File.read(Menard.resolve(file)),
-           {:ok, modules} <- Outline.run(content) do
-        for line <- lines, name = at(modules, line), do: Mix.shell().info("#{file}:#{line}  #{name}")
-      end
-    end)
+    |> Enum.each(&print_lines/1)
+  end
+
+  defp print_lines({file, lines}) do
+    with {:ok, content} <- File.read(Menard.resolve(file)),
+         {:ok, modules} <- Outline.run(content) do
+      for line <- lines, name = at(modules, line), do: Mix.shell().info("#{file}:#{line}  #{name}")
+    end
   end
 
   defp parse(arg) do
@@ -37,14 +39,14 @@ defmodule Mix.Tasks.Menard.Where do
   defp at(modules, line) do
     Enum.find_value(modules, fn m ->
       {a, b} = m.lines || {0, 0}
-
-      if line in a..b//1 do
-        at(m.modules, line) ||
-          case Enum.find(m.defs, &(line in elem(&1.lines || {0, 0}, 0)..elem(&1.lines || {0, 0}, 1)//1)) do
-            nil -> m.module
-            d -> "#{m.module}.#{d.name}/#{d.arity}"
-          end
-      end
+      if line in a..b//1, do: at(m.modules, line) || def_at(m, line)
     end)
+  end
+
+  defp def_at(m, line) do
+    case Enum.find(m.defs, &(line in elem(&1.lines || {0, 0}, 0)..elem(&1.lines || {0, 0}, 1)//1)) do
+      nil -> m.module
+      d -> "#{m.module}.#{d.name}/#{d.arity}"
+    end
   end
 end

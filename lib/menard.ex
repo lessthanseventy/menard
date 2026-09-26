@@ -9,7 +9,10 @@ defmodule Menard do
   against the caller's directory (`MENARD_CWD`, else the cwd), and the run verbs act in
   `--in DIR` (default: the caller's directory).
   """
-  # Under load a host's own `mix format` through mise (its plugins will not load here) took past 30s; 60s still leaves the MCP door's 90s deadline room
+  alias Mix.Tasks.Format
+
+  # Under load a host's own `mix format` through mise (its plugins will not load here) took past
+  # 30s; 60s still leaves the MCP door's 90s deadline room
   @format_timeout 60_000
 
   @doc "The directory the caller stood in."
@@ -64,28 +67,7 @@ defmodule Menard do
   def format_staged(file, content, opts \\ []) do
     parent = self()
     ms = opts[:timeout] || @format_timeout
-
-    work = fn ->
-      in_vm? =
-        Code.ensure_loaded?(Mix.Tasks.Format) and
-          function_exported?(Mix.Tasks.Format, :formatter_for_file, 2)
-
-      case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
-        {:ok, formatted, split} ->
-          {:ok, formatted, split}
-
-        {:fallback, why} ->
-          send(parent, {__MODULE__, :waiting_on, "the host's own `mix format` (#{why})"})
-          File.write!(file, content)
-
-          case shell_format(file) do
-            :ok -> {:ok, File.read!(file), nil}
-            {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
-          end
-      end
-    end
-
-    task = Task.async(work)
+    task = Task.async(fn -> format_somewhere(file, content, opts, parent) end)
 
     case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} ->
@@ -105,6 +87,25 @@ defmodule Menard do
     end
   end
 
+  defp format_somewhere(file, content, opts, parent) do
+    in_vm? = Code.ensure_loaded?(Format) and function_exported?(Format, :formatter_for_file, 2)
+
+    case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
+      {:ok, formatted, split} -> {:ok, formatted, split}
+      {:fallback, why} -> format_in_shell(file, content, why, parent)
+    end
+  end
+
+  defp format_in_shell(file, content, why, parent) do
+    send(parent, {__MODULE__, :waiting_on, "the host's own `mix format` (#{why})"})
+    File.write!(file, content)
+
+    case shell_format(file) do
+      :ok -> {:ok, File.read!(file), nil}
+      {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
+    end
+  end
+
   defp in_process(file, content, opts) do
     root = formatter_root(file)
     project = find_up(root, "mix.exs") || root
@@ -119,14 +120,14 @@ defmodule Menard do
 
       in_host_dir(plugins, project, fn ->
         {formatter, formatter_opts} =
-          Mix.Tasks.Format.formatter_for_file(file,
+          Format.formatter_for_file(file,
             root: root,
             dot_formatter: dot,
             deps_paths: deps_paths,
             plugin_loader: & &1
           )
 
-        split = if plugins != [], do: split(content, formatter_opts, file, plugins)
+        split = split(content, formatter_opts, file, plugins)
         {:ok, formatter.(content), split}
       end)
     end
@@ -229,6 +230,7 @@ defmodule Menard do
     if File.exists?(Path.join(dir, name)), do: dir, else: find_up(Path.dirname(dir), name)
   end
 
+  defp split(_content, _formatter_opts, _file, []), do: nil
   # The formatter alone, with the host's options (import_deps' locals included), so whatever the
   # plugins changed after it is theirs to answer for. A pass that fails loses the split, not the
   # format: the plugins' changes are then billed to the formatter, as before.
@@ -498,7 +500,9 @@ defmodule Menard do
             String.starts_with?(Path.expand(dir) <> "/", Path.dirname(path) <> "/"),
             do: {tool, v}
 
-      case for({tool, %{"installed" => false} = v} <- pinned, do: "#{tool} #{v["version"]}") do
+      missing = for {tool, %{"installed" => false} = v} <- pinned, do: "#{tool} #{v["version"]}"
+
+      case missing do
         _ when pinned == [] ->
           {:path, nil}
 

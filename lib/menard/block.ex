@@ -37,13 +37,16 @@ defmodule Menard.Block do
 
         {body, _do} ->
           range = body |> Menard.Source.clamp(source) |> Menard.Source.with_leading_comments(source, code)
-
-          cond do
-            meta[:do] -> patch(source, range, reindent(code, indent))
-            not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
-            true -> to_do_block(source, args, range, code, col)
-          end
+          patch_body(source, range, code, meta, args, col)
       end
+    end
+  end
+
+  defp patch_body(source, range, code, meta, args, col) do
+    cond do
+      meta[:do] -> patch(source, range, reindent(code, String.duplicate(" ", col + 1)))
+      not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
+      true -> to_do_block(source, args, range, code, col)
     end
   end
 
@@ -87,12 +90,7 @@ defmodule Menard.Block do
          "add a module with `menard.module add`, not `block add defmodule` (a --label would become a string module name)"}
 
       wholes = several(name, label, body) ->
-        Enum.reduce_while(wholes, source, fn whole, source ->
-          case add(source, name, nil, whole, opts) do
-            {:error, _} = error -> {:halt, error}
-            out -> {:cont, out}
-          end
-        end)
+        add_each(source, name, wholes, opts)
 
       true ->
         with {:ok, label, body, opts} <- unwrapped(name, add_label(name, label, body), body, opts),
@@ -106,6 +104,15 @@ defmodule Menard.Block do
           place(source, where, anchor, tags <> render(to_atom(name), label, body, opts[:args]))
         end
     end
+  end
+
+  defp add_each(source, name, wholes, opts) do
+    Enum.reduce_while(wholes, source, fn whole, source ->
+      case add(source, name, nil, whole, opts) do
+        {:error, _} = error -> {:halt, error}
+        out -> {:cont, out}
+      end
+    end)
   end
 
   # A whole block being added is named by its own label: there is nothing to tell it apart from, and
@@ -229,8 +236,10 @@ defmodule Menard.Block do
     with {:ok, blocks} <- blocks(source, opts) do
       blocks
       # no name, a label: the label alone says which (bench3 new-component.B.sonnet)
-      |> Enum.filter(&(name in [nil, ""] or call_name(&1) == want))
-      |> Enum.filter(fn node -> is_nil(wanted_label) or label(node) == wanted_label end)
+      |> Enum.filter(fn node ->
+        (name in [nil, ""] or call_name(node) == want) and
+          (is_nil(wanted_label) or label(node) == wanted_label)
+      end)
       |> pick(want, wanted_label)
     end
   end
@@ -250,19 +259,21 @@ defmodule Menard.Block do
   defp blocks(source, opts) do
     with {:ok, ast} <- parse(source),
          {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
-      # into a describe, but not into a function: an `if` in a def body is a statement, not a block
       found =
         module
         |> Zipper.zip()
-        |> Zipper.traverse_while([], fn zipper, acc ->
-          case Zipper.node(zipper) do
-            {kind, _, _} when kind in [:def, :defp, :defmacro, :defmacrop] -> {:skip, zipper, acc}
-            node -> {:cont, zipper, if(block?(node), do: acc ++ [node], else: acc)}
-          end
-        end)
+        |> Zipper.traverse_while([], &collect_block/2)
         |> elem(1)
 
       {:ok, found}
+    end
+  end
+
+  # into a describe, but not into a function: an `if` in a def body is a statement, not a block
+  defp collect_block(zipper, acc) do
+    case Zipper.node(zipper) do
+      {kind, _, _} when kind in [:def, :defp, :defmacro, :defmacrop] -> {:skip, zipper, acc}
+      node -> {:cont, zipper, if(block?(node), do: acc ++ [node], else: acc)}
     end
   end
 
@@ -446,10 +457,7 @@ defmodule Menard.Block do
       case Code.string_to_quoted(code, emit_warnings: false) do
         # a whole block with a typo reads as one here: the parse error is the answer
         {:error, {meta, message, token}} ->
-          message =
-            if is_tuple(message), do: elem(message, 0) <> token <> elem(message, 1), else: message <> token
-
-          {:error, "CODE does not parse (line #{meta[:line]}): #{message}"}
+          {:error, "CODE does not parse (line #{meta[:line]}): #{parse_message(message, token)}"}
 
         _ ->
           {:error,
@@ -459,6 +467,9 @@ defmodule Menard.Block do
       :ok
     end
   end
+
+  defp parse_message(message, token) when is_tuple(message), do: elem(message, 0) <> token <> elem(message, 1)
+  defp parse_message(message, token), do: message <> token
 
   # Several whole blocks of the macro named, the first labelled as asked (or no label asked): each is
   # added in turn, as its own whole block. The texts as written, or nil.

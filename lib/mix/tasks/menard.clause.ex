@@ -20,158 +20,173 @@ defmodule Mix.Tasks.Menard.Clause do
         strict: [nth: :integer, to: :string, as: :string, module: :string, version: :string, force: :boolean]
       )
 
-    case normalize(argv) do
-      ["replace", file, na, head, code] ->
-        write(
-          file,
-          &Clause.replace_body(&1, na, head, code, nth: flags[:nth]),
-          "replace #{na} in #{Path.basename(file)}",
-          flags
-        )
+    verb(normalize(argv), flags)
+  end
 
-      ["rewrite", file, na, head, code] ->
-        write(
-          file,
-          &Clause.rewrite(&1, na, head, code, nth: flags[:nth]),
-          "rewrite #{na} in #{Path.basename(file)}",
-          flags
-        )
+  defp verb(["replace", file, na, head, code], flags) do
+    write(
+      file,
+      &Clause.replace_body(&1, na, head, code, nth: flags[:nth]),
+      "replace #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
 
-      ["get", file, na | head] when length(head) <= 1 ->
-        file = Menard.resolve(file)
-        source = File.read!(file)
+  defp verb(["rewrite", file, na, head, code], flags) do
+    write(
+      file,
+      &Clause.rewrite(&1, na, head, code, nth: flags[:nth]),
+      "rewrite #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
 
-        case Clause.get(source, na, List.first(head), nth: flags[:nth]) do
-          {:ok, got} ->
-            Mix.shell().info(JSON.encode!(Map.merge(got, %{file: file, version: Menard.remember(source)})))
+  defp verb(["get", file, na | head], flags) when length(head) <= 1 do
+    file = Menard.resolve(file)
+    source = File.read!(file)
 
-          {:error, message} ->
-            Mix.raise(message)
-        end
+    case Clause.get(source, na, List.first(head), nth: flags[:nth]) do
+      {:ok, got} ->
+        Mix.shell().info(JSON.encode!(Map.merge(got, %{file: file, version: Menard.remember(source)})))
 
-      ["delete", file, na] ->
-        file = Menard.resolve(file)
-        source = File.read!(file)
-
-        with out when is_binary(out) <- Clause.delete_function(source, na),
-             {:ok, reply} <-
-               Menard.write(
-                 file,
-                 out,
-                 [did: "delete #{na}, every clause, in #{Path.basename(file)}"] ++
-                   Keyword.take(flags, [:version, :force])
-               ) do
-          Mix.shell().info(
-            JSON.encode!(Map.put(reply, :left, Menard.Find.left(Menard.caller_dir(), file, source, na)))
-          )
-        else
-          {:error, message} -> Mix.raise(message)
-        end
-
-      ["delete", file, na, head] ->
-        write(
-          file,
-          &Clause.delete(&1, na, head, nth: flags[:nth]),
-          "delete #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["insert_after", file, na, head, code] ->
-        write(
-          file,
-          &Clause.insert_after(&1, na, head, code, nth: flags[:nth]),
-          "insert-after #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["insert_before", file, na, head, code] ->
-        write(
-          file,
-          &Clause.insert_before(&1, na, head, code, nth: flags[:nth]),
-          "insert-before #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["insert_at", file, module, code] ->
-        write(
-          file,
-          &Clause.insert_at(&1, module(module), nil, code),
-          "insert-at #{module || "-"} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["insert_at", file, module, where, code] when where in ["top", "bottom"] ->
-        write(
-          file,
-          &Clause.insert_at(&1, module(module), where, code),
-          "insert-at #{module || "-"} #{where} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["move", file, na] ->
-        move(file, flags[:to], na, flags)
-
-      ["comment", file, na, head, text] ->
-        write(
-          file,
-          &Clause.comment(&1, na, head, text, nth: flags[:nth]),
-          "comment #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["comment", file, na, head] ->
-        write(
-          file,
-          &Clause.comment(&1, na, head, nil, nth: flags[:nth]),
-          "comment #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["doc", file, na, head, text] ->
-        write(
-          file,
-          &Clause.doc(&1, na, head, text, nth: flags[:nth]),
-          "doc #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["doc", file, na, head] ->
-        write(
-          file,
-          &Clause.doc(&1, na, head, nil, nth: flags[:nth]),
-          "doc #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["spec", file, na | spec] when length(spec) <= 1 ->
-        write(
-          file,
-          &Clause.spec(&1, na, List.first(spec)),
-          "spec #{na} in #{Path.basename(file)}",
-          flags
-        )
-
-      ["visibility", file, na, want] ->
-        write(
-          file,
-          &Clause.visibility(&1, na, visibility(want)),
-          "visibility #{na} #{want} in #{Path.basename(file)}",
-          flags
-        )
-
-      _ ->
-        Mix.raise(
-          "usage: mix menard.clause (replace|rewrite|delete|insert-after|insert-before) FILE name/arity HEAD [CODE] [--nth N]\n" <>
-            "       mix menard.clause delete FILE name/arity                (no HEAD: the whole function, every clause)\n" <>
-            "       mix menard.clause get FILE name/arity [HEAD]            (the function as written; a HEAD: that clause)\n" <>
-            "       mix menard.clause insert-at FILE (Mod.Name|-) [top|bottom] CODE\n" <>
-            "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
-            "       mix menard.clause doc FILE name/arity HEAD [TEXT]       (no TEXT deletes it)\n" <>
-            "       mix menard.clause comment FILE name/arity HEAD [TEXT]   (no TEXT deletes it)\n" <>
-            "       mix menard.clause spec FILE name/arity [SPEC]           (no SPEC deletes it)\n" <>
-            "       mix menard.clause visibility FILE name/arity (public|private)"
-        )
+      {:error, message} ->
+        Mix.raise(message)
     end
+  end
+
+  defp verb(["delete", file, na], flags) do
+    file = Menard.resolve(file)
+    source = File.read!(file)
+
+    with out when is_binary(out) <- Clause.delete_function(source, na),
+         {:ok, reply} <-
+           Menard.write(
+             file,
+             out,
+             [did: "delete #{na}, every clause, in #{Path.basename(file)}"] ++
+               Keyword.take(flags, [:version, :force])
+           ) do
+      Mix.shell().info(
+        JSON.encode!(Map.put(reply, :left, Menard.Find.left(Menard.caller_dir(), file, source, na)))
+      )
+    else
+      {:error, message} -> Mix.raise(message)
+    end
+  end
+
+  defp verb(["delete", file, na, head], flags) do
+    write(
+      file,
+      &Clause.delete(&1, na, head, nth: flags[:nth]),
+      "delete #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["insert_after", file, na, head, code], flags) do
+    write(
+      file,
+      &Clause.insert_after(&1, na, head, code, nth: flags[:nth]),
+      "insert-after #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["insert_before", file, na, head, code], flags) do
+    write(
+      file,
+      &Clause.insert_before(&1, na, head, code, nth: flags[:nth]),
+      "insert-before #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["insert_at", file, module, code], flags) do
+    write(
+      file,
+      &Clause.insert_at(&1, module(module), nil, code),
+      "insert-at #{module || "-"} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["insert_at", file, module, where, code], flags) when where in ["top", "bottom"] do
+    write(
+      file,
+      &Clause.insert_at(&1, module(module), where, code),
+      "insert-at #{module || "-"} #{where} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["move", file, na], flags), do: move(file, flags[:to], na, flags)
+
+  defp verb(["comment", file, na, head, text], flags) do
+    write(
+      file,
+      &Clause.comment(&1, na, head, text, nth: flags[:nth]),
+      "comment #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["comment", file, na, head], flags) do
+    write(
+      file,
+      &Clause.comment(&1, na, head, nil, nth: flags[:nth]),
+      "comment #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["doc", file, na, head, text], flags) do
+    write(
+      file,
+      &Clause.doc(&1, na, head, text, nth: flags[:nth]),
+      "doc #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["doc", file, na, head], flags) do
+    write(
+      file,
+      &Clause.doc(&1, na, head, nil, nth: flags[:nth]),
+      "doc #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["spec", file, na | spec], flags) when length(spec) <= 1 do
+    write(
+      file,
+      &Clause.spec(&1, na, List.first(spec)),
+      "spec #{na} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(["visibility", file, na, want], flags) do
+    write(
+      file,
+      &Clause.visibility(&1, na, visibility(want)),
+      "visibility #{na} #{want} in #{Path.basename(file)}",
+      flags
+    )
+  end
+
+  defp verb(_argv, _flags) do
+    Mix.raise(
+      "usage: mix menard.clause (replace|rewrite|delete|insert-after|insert-before) FILE name/arity HEAD [CODE] [--nth N]\n" <>
+        "       mix menard.clause delete FILE name/arity                (no HEAD: the whole function, every clause)\n" <>
+        "       mix menard.clause get FILE name/arity [HEAD]            (the function as written; a HEAD: that clause)\n" <>
+        "       mix menard.clause insert-at FILE (Mod.Name|-) [top|bottom] CODE\n" <>
+        "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
+        "       mix menard.clause doc FILE name/arity HEAD [TEXT]       (no TEXT deletes it)\n" <>
+        "       mix menard.clause comment FILE name/arity HEAD [TEXT]   (no TEXT deletes it)\n" <>
+        "       mix menard.clause spec FILE name/arity [SPEC]           (no SPEC deletes it)\n" <>
+        "       mix menard.clause visibility FILE name/arity (public|private)"
+    )
   end
 
   # Two files change at once, so neither is written until BOTH edits succeed — a move that half
