@@ -511,10 +511,12 @@ model on renames across files, not for a capable one on everyday edits.
   and a green CI.
 - **Correction (the eval review, 2026-09-26)**: "4 reruns to 1" is a counting artifact. A command
   that edits and then runs the tests counted only as a run, so two in a row read as a rerun; 7 of
-  all's 8 runs were that form. Recounted: all 8 runs / 0 reruns, A 5 / 1. all's 2 "failed calls" are
-  its red `bin/menard run check`s (a non-zero exit), which A's piped runs never register. Both
-  metrics are being fixed before the next round.
+  all's 8 runs were that form, and a command with a heredoc in it (A's usual form) did not count
+  at all. Recounted with the fixed counter (bb5db2e): all 8 runs / 0 reruns, A 11 / 2. all's 2
+  "failed calls" were its red `bin/menard run check`s (a non-zero exit), which A's piped runs never
+  register; read off the result text, red runs were all 3 and A 4, tool errors 0 and 0. A's hand
+  `mix format`s were 5, not 1.
 - **Verdict (one run each, thin):** all does not beat A here. Equal on passing, credo and CI; fewer
-  tokens only where it solved less; slower, and 4 reruns to 1. focus3's 3 runs a side are what can
-  say more, and its refactor and feature steps want the blind review too, since their checks pass
-  shallow fixes.
+  tokens only where it solved less; slower. focus3's 3 runs a side are what can say more, and its
+  refactor and feature steps want the blind review too; their checks no longer pass shallow fixes
+  (step 2 needs the tool over the wire, step 3 a split measured in code lines moved).
