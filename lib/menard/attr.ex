@@ -91,13 +91,7 @@ defmodule Menard.Attr do
   @spec list(String.t(), keyword()) :: [{atom(), pos_integer()}] | {:error, String.t()}
   def list(source, opts \\ []) do
     with {:ok, body} <- body(source, opts) do
-      body
-      |> Enum.flat_map(fn node ->
-        case attr_name(node) do
-          nil -> []
-          name -> [{name, start_line(node)}]
-        end
-      end)
+      for node <- body, name = attr_name(node), not is_nil(name), do: {name, start_line(node)}
     end
   end
 
