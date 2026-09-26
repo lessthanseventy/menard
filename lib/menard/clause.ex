@@ -118,21 +118,36 @@ defmodule Menard.Clause do
       %{start: [line: def_line, column: _]} = clause.range
       above_attrs = attrs_start(ast, clause.range)
 
-      # A comment over a clause with @impl/@doc/@spec goes above THOSE, as `comment/5` puts it: written
-      # at the `def`, it would sit between the attributes and what they describe
-      if String.trim(lead) != "" and above_attrs < def_line and
-           comment_lines_above(String.split(source, "\n"), def_line - 1) == 0 do
-        source
-        |> patch(clause.range, reindent(body, clause.indent))
-        |> comment_at(above_attrs, clause.indent, String.trim(lead))
-      else
-        range = with_comments_above(source, clause.range, code)
-        # a range widened to the comments above starts at column 1, so the text brings its own indent
-        indent = if range.start[:column] == 1, do: clause.indent, else: ""
+      cond do
+        # code that carries its own @doc/@spec: those replace the ones above the clause, comments and all
+        leading_attrs(code) ->
+          {first, _last} = attached_span(ast, String.split(source, "\n"), clause)
+          range = %{clause.range | start: [line: first + 1, column: 1]}
 
-        Sourceror.patch_string(source, [
-          %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
-        ])
+          Sourceror.patch_string(source, [
+            %{
+              range: range,
+              change: clause.indent <> reindent(code, clause.indent),
+              preserve_indentation: false
+            }
+          ])
+
+        # A comment over a clause with @impl/@doc/@spec goes above THOSE, as `comment/5` puts it: written
+        # at the `def`, it would sit between the attributes and what they describe
+        String.trim(lead) != "" and above_attrs < def_line and
+            comment_lines_above(String.split(source, "\n"), def_line - 1) == 0 ->
+          source
+          |> patch(clause.range, reindent(body, clause.indent))
+          |> comment_at(above_attrs, clause.indent, String.trim(lead))
+
+        true ->
+          range = with_comments_above(source, clause.range, code)
+          # a range widened to the comments above starts at column 1, so the text brings its own indent
+          indent = if range.start[:column] == 1, do: clause.indent, else: ""
+
+          Sourceror.patch_string(source, [
+            %{range: range, change: indent <> reindent(code, clause.indent), preserve_indentation: false}
+          ])
       end
     end
   end
@@ -563,7 +578,7 @@ defmodule Menard.Clause do
   defp parse_clause(code) do
     {_comments, body} = split_leading_comments(code)
 
-    case Sourceror.parse_string(body) do
+    case leading_attrs(code) || Sourceror.parse_string(body) do
       {:ok, {kind, _meta, _args} = node} when kind in @kinds ->
         {:ok, node}
 
@@ -582,6 +597,23 @@ defmodule Menard.Clause do
 
     {Enum.join(lead, "\n"), Enum.join(rest, "\n")}
   end
+
+  # `@doc`/`@spec`/`@impl` lines and then a def, as a whole clause is written with what it carries: the
+  # def, when that is the shape (long1 cart-refactor.B.haiku nested one such in the old body)
+  defp leading_attrs(code) do
+    {_comments, body} = split_leading_comments(code)
+
+    with {:ok, {:__block__, _, [_, _ | _] = nodes}} <- Sourceror.parse_string(body),
+         {attrs, [{kind, _, _} = defn]} when kind in @kinds <- Enum.split(nodes, -1),
+         true <- Enum.all?(attrs, &clause_attr?/1) do
+      {:ok, defn}
+    else
+      _ -> nil
+    end
+  end
+
+  defp clause_attr?({:@, _, [{name, _, _}]}), do: name in [:doc, :spec, :impl, :deprecated]
+  defp clause_attr?(_node), do: false
 
   defp comment_or_blank?(line) do
     trimmed = String.trim(line)
@@ -807,10 +839,11 @@ defmodule Menard.Clause do
   # CODE here is the BODY, and a whole `def` nests inside itself — `def bg, do: def(bg, do: X)`
   # parses, so only the compiler would object.
   defp body_only(code) do
-    # a comment above the def is part of a whole clause, not a body that starts with one
+    # a comment above the def is part of a whole clause, not a body that starts with one, and so are
+    # the @doc/@spec/@impl lines a whole clause carries
     {_comments, body} = split_leading_comments(code)
 
-    if Regex.match?(~r/^\s*(def|defp|defmacro|defmacrop)\s/, body) do
+    if Regex.match?(~r/^\s*(def|defp|defmacro|defmacrop)\s/, body) or leading_attrs(code) do
       {:error,
        "CODE is the clause BODY here, and this looks like a whole clause — use `rewrite`, which replaces the head too"}
     else

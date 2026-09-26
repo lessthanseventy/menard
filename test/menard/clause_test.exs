@@ -702,4 +702,17 @@ defmodule Menard.ClauseTest do
     assert message =~ "block"
     assert message =~ ~s(name: "test")
   end
+
+  test "a whole clause under its @doc is the rewrite, and takes the old @doc's place" do
+    # long1 cart-refactor.B.haiku: clause replace with `@doc """…"""` + def nested the @doc in the
+    # old body, "cannot set attribute @doc inside function/macro", and the step ended not compiling
+    src = "defmodule A do\n  @doc \"Old.\"\n  def f(x), do: x\n\n  def g, do: 1\nend\n"
+    code = "@doc \"New.\"\n@spec f(integer()) :: integer()\ndef f(x) do\n  x + 1\nend"
+
+    for out <- [Clause.replace_body(src, "f/1", "x", code), Clause.rewrite(src, "f/1", "x", code)] do
+      assert out =~ ~s|  @doc "New."\n  @spec f(integer()) :: integer()\n  def f(x) do\n    x + 1\n  end|
+      refute out =~ "Old."
+      assert out =~ "def g, do: 1"
+    end
+  end
 end
