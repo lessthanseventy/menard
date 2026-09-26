@@ -14,3 +14,9 @@ commit lands.
   string's value. `Menard.Source.reindent/2` already handles both (blank stays blank, literal lines
   stay put); `indent <> reindent(text, indent)` is the likely fix, with a test for each case. Left
   out of the Menard.Source consolidation because it changes behaviour.
+- hooks/format-report.sh:30 skips a Bash command only when it STARTS with `git`: `cd DIR && git
+  worktree add …` (or a checkout after a `cd`) is taken for an edit of every file git wrote, and the
+  hook formats each one; in a worktree whose eval fixture has no deps fetched, that was ~45
+  "Unknown dependency :phoenix" errors back to the agent (2026-09-26). Matching `git` anywhere is
+  wrong too (`git checkout x && sed -i a.ex` is a real edit): skip only files git itself wrote, e.g.
+  those whose content matches the index/HEAD after the command.
