@@ -7,6 +7,8 @@ defmodule Menard.Run do
   """
 
   @deadline {__MODULE__, :deadline}
+  @log {__MODULE__, :log}
+  @keep 40
 
   @doc """
   `result/3` under a deadline: `timeout:` in ms for the whole verb, however many mix calls it
@@ -15,11 +17,14 @@ defmodule Menard.Run do
   """
   def result(dir, verb, args, opts) do
     if ms = opts[:timeout], do: Process.put(@deadline, System.monotonic_time(:millisecond) + ms)
+    # one log per call: the MCP server lives across calls, and each call's output is its own
+    Process.delete(@log)
 
     try do
-      result(dir, verb, args)
+      Map.put(result(dir, verb, args), :log, Process.get(@log))
     after
       Process.delete(@deadline)
+      Process.delete(@log)
     end
   end
 
@@ -252,8 +257,26 @@ defmodule Menard.Run do
         at -> max(at - System.monotonic_time(:millisecond), 1_000)
       end
 
-    Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}], timeout: left)
+    {out, status} = Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}], timeout: left)
+    keep(dir, args, out)
+    {out, status}
   end
+
+  # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
+  # reply names it, so what the failures leave out is a grep away, not a second run (Tlön's cap.sh
+  # rule: run once, read the log; 40% of the operator's test runs were run again to see more)
+  defp keep(dir, args, out) do
+    logs = Path.join([System.tmp_dir!(), "menard-run", slug(Path.expand(dir))])
+    File.mkdir_p!(logs)
+    stamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%dT%H%M%S%f")
+    path = Process.get(@log) || Path.join(logs, "#{stamp}-#{slug(Enum.join(args, " "))}.log")
+    File.write!(path, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
+    Process.put(@log, path)
+    logs |> File.ls!() |> Enum.sort(:desc) |> Enum.drop(@keep) |> Enum.each(&File.rm(Path.join(logs, &1)))
+  end
+
+  defp slug(text),
+    do: text |> String.replace(~r/[^A-Za-z0-9]+/, "-") |> String.trim("-") |> String.slice(0, 60)
 
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
@@ -315,6 +338,7 @@ defmodule Menard.Run do
       {:fetched, []} -> true
       {:tail, ""} -> true
       {:exit, _} -> ok
+      {:log, _} -> ok
       {:seed, _} -> ok
       {:runs, runs} -> runs <= 1
       {:tail, _} -> (ok and result[:tests] != nil) or result[:failures] not in [nil, []]

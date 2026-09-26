@@ -169,7 +169,7 @@ def warm_plugins():
             sh([str(dest / "bin" / "menard"), "version"], dest, timeout=600)
 
 
-def prepare(case_dir, ws):
+def prepare(case_dir, ws, arm):
     shutil.rmtree(ws, ignore_errors=True)
     ws.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cp", "-a", "--reflink=auto", str(TEMPLATE), str(ws)], check=True)
@@ -179,6 +179,13 @@ def prepare(case_dir, ws):
         code, out = sh(["bash", str(setup)], ws)
         if code != 0:
             sys.exit(f"{case_dir.name}: setup.sh failed:\n{out}")
+    # the project as this arm would find it (eval/tlon: its AGENTS.md sends tests through menard, which
+    # arm A has not got), before the base commit so the diff never sees it
+    arm_setup = case_dir.parent.parent / "arm_setup.sh"
+    if arm_setup.exists():
+        code, out = sh(["bash", str(arm_setup), arm, str(PLUGINS / arm)], ws)
+        if code != 0:
+            sys.exit(f"{arm}: arm_setup.sh failed:\n{out}")
     # tagged: an agent may commit its work, and the diff and the checks are against this, not HEAD
     for cmd in ["git init -q", "git add -A", "git -c user.name=eval -c user.email=eval@x commit -qm base",
                 "git tag eval-base"]:
@@ -441,7 +448,7 @@ def ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps):
 def run_one(case_dir, arm, model, n, out_dir):
     rid = f"{case_dir.name}.{arm}.{model}.{n}"
     ws = WORK / "runs" / out_dir.name / rid
-    prepare(case_dir, ws)
+    prepare(case_dir, ws, arm)
     (out_dir / "traces").mkdir(parents=True, exist_ok=True)
     # no CLAUDE_CODE_DISABLE_CLAUDE_MDS: it kept the user's own ~/.claude/CLAUDE.md out, which
     # --setting-sources project already does (tried in a bench), and the project's CLAUDE.md with it:

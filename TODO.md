@@ -12,3 +12,8 @@ commit lands.
       Ruled out (2026-09-25, not reproduced by any): the VM cwd a timed-out format left behind
       (fixed; the hook still formats at a 231-char host path and run from the leaked cwd), and a
       stale dev build (hooks_test green with lib touched).
+- Flake, not reproduced: the first `menard run check` after editing lib/menard/run.ex (2026-09-26 ~02:13)
+  answered green with 15 warnings "redefining module Menard.MCP.Block (current version loaded from
+  _build/dev/lib/menard/ebin/…)" at lib/menard/mcp/tools.ex:700/800/861 (Block, Deps, Module). Three runs
+  after (mix precommit direct, run check, each precommit stage alone) had none. Suspect bin_test's
+  fresh_build! rebuilding the dev build while the edited build was loading.

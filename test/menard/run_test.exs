@@ -358,6 +358,31 @@ defmodule Menard.RunTest do
     assert source =~ "assert Plain.go() == 2"
   end
 
+  @tag :tmp_dir
+  test "a red run keeps its whole output in a log and names it; a green one names none", %{tmp_dir: dir} do
+    # cap.sh's rule, Tlön's: run once, read the log; never run again with another grep to see more
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Logged.MixProject do
+      use Mix.Project
+      def project, do: [app: :logged, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    test = Path.join(dir, "test/logged_test.exs")
+    File.write!(test, "defmodule LoggedTest do\n  use ExUnit.Case\n  test \"one\", do: assert(1 == 2)\nend\n")
+
+    red = Menard.Run.lean(Menard.Run.result(dir, "test", [], []))
+    refute red.ok
+    assert File.read!(red.log) =~ "Assertion with == failed"
+
+    File.write!(test, "defmodule LoggedTest do\n  use ExUnit.Case\n  test \"one\", do: assert(1 == 1)\nend\n")
+    green = Menard.Run.lean(Menard.Run.result(dir, "test", [], []))
+    assert green.ok
+    refute Map.has_key?(green, :log)
+  end
+
   test "lean keeps what a reader looks for: ok and the counts when green, the failures and seed when red" do
     green =
       Run.parse_test(
