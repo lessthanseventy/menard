@@ -12,9 +12,13 @@ defmodule Menard.Clause do
   """
 
   import Menard.Source, only: [comment_lines_above: 2, parse: 1, reindent: 2]
+
+  import Menard.Tree,
+    only: [definitions: 1, module_bodies: 1, module_scope: 2, modules: 1, start_line: 1]
+
   alias Sourceror.Zipper
 
-  @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
+  @kinds Menard.Tree.def_kinds()
 
   # Attributes written directly above a clause belong TO that clause, not to the file: delete the
   # clause and leave them behind and they re-attach to whatever follows — "redefining @impl
@@ -758,66 +762,6 @@ defmodule Menard.Clause do
     module_scope(ast, mod)
   end
 
-  # Every `defmodule` in the file as `{"Full.Name", node}` — a nested one by the name Elixir gives it
-  # (`Outer.Inner`), the name `outline` shows.
-  def modules(ast), do: modules_in(ast, nil)
-
-  defp modules_in({:defmodule, _, [{:__aliases__, _, parts} | _] = args} = node, parent) do
-    name =
-      case {parts, parent} do
-        {[{:__MODULE__, _, _} | _], _} -> Menard.Source.alias_name(parts, parent)
-        {_, nil} -> Menard.Source.alias_name(parts)
-        _ -> parent <> "." <> Menard.Source.alias_name(parts)
-      end
-
-    [{name, node} | modules_in(args, name)]
-  end
-
-  defp modules_in({form, _meta, args}, parent), do: modules_in(form, parent) ++ modules_in(args, parent)
-  defp modules_in({a, b}, parent), do: modules_in(a, parent) ++ modules_in(b, parent)
-  defp modules_in(list, parent) when is_list(list), do: Enum.flat_map(list, &modules_in(&1, parent))
-  defp modules_in(_leaf, _parent), do: []
-
-  # The module to act in: named, or — unnamed — the file's one module. Several unnamed is refused,
-  # the same discipline as an unqualified name/arity two modules define.
-  @doc false
-  def module_scope(ast, nil) do
-    case modules(ast) do
-      [{_name, node}] -> {:ok, node}
-      [] -> {:error, "no module in this file"}
-      many -> {:error, "several modules here — name one: #{Enum.map_join(many, ", ", &elem(&1, 0))}"}
-    end
-  end
-
-  def module_scope(ast, module) do
-    case for {^module, node} <- modules(ast), do: node do
-      [node] ->
-        {:ok, node}
-
-      [] ->
-        {:error,
-         "no module #{module} in this file — have: #{Enum.map_join(modules(ast), ", ", &elem(&1, 0))}"}
-
-      # `if Code.ensure_loaded?(X) do defmodule M … else defmodule M … end`: an edit went to the first
-      # whichever was meant
-      many ->
-        lines = Enum.map_join(many, ", ", &"line #{start_line(&1)}")
-
-        {:error,
-         "#{module} is defined #{length(many)} times here (#{lines}), which no verb can tell apart — `write` the file whole"}
-    end
-  end
-
-  # The module's own top-level definitions, in source order — a def nested inside another is not one.
-  defp definitions(node) do
-    node |> module_body() |> Enum.filter(&match?({kind, _meta, _args} when kind in @kinds, &1))
-  end
-
-  @doc false
-  def module_body({:defmodule, _, [_alias, [{_do, {:__block__, _, statements}}]]}), do: statements
-  def module_body({:defmodule, _, [_alias, [{_do, statement}]]}), do: [statement]
-  def module_body(_node), do: []
-
   defp parse_name_arity(spec) do
     with [path, arity] <- String.split(spec, "/"),
          {arity, ""} <- Integer.parse(arity) do
@@ -869,14 +813,14 @@ defmodule Menard.Clause do
     }
   end
 
-  defp name_arity({:when, _, [call | _]}), do: name_arity(call)
   # The name as text, as `parse_name_arity` gives it: an input name is never made an atom.
-  defp name_arity({name, _, args}) when is_list(args), do: {name_text(name), length(args)}
-  defp name_arity({name, _, _}), do: {name_text(name), 0}
-
-  # `def unquote(name)(…)` has no name to read, and matches no name asked for
-  defp name_text(name) when is_atom(name), do: Atom.to_string(name)
-  defp name_text(name), do: name
+  # `def unquote(name)(…)` has no name to read, and matches no name asked for.
+  defp name_arity(head) do
+    case Menard.Tree.name_arity(head) do
+      {name, arity} when is_atom(name) -> {Atom.to_string(name), arity}
+      other -> other
+    end
+  end
 
   # The head as written: `{args_text, guard_text | nil}`.
   defp split_head({:when, _, [call, guard]}), do: {elem(split_head(call), 0), Sourceror.to_string(guard)}
@@ -1011,18 +955,6 @@ defmodule Menard.Clause do
     case Enum.find_index(statements, &(start_line(&1) == line)) do
       nil -> []
       i -> statements |> Enum.take(i) |> Enum.reverse() |> Enum.take_while(&attached_attr?/1)
-    end
-  end
-
-  @doc """
-  The top-level statements of each module in : what Menard.Stmt's module fallback may reach.
-  """
-  def module_bodies(ast), do: Enum.map(modules(ast), fn {_name, node} -> module_body(node) end)
-
-  defp start_line(node) do
-    case Sourceror.get_range(node) do
-      %{start: [line: line, column: _]} -> line
-      _ -> nil
     end
   end
 

@@ -9,7 +9,7 @@ defmodule Menard.Block do
   """
 
   import Menard.Source, only: [parse: 1, reindent: 2]
-  alias Menard.Clause
+  alias Menard.Tree
   alias Sourceror.Zipper
 
   @doc "Replace the block's body with `code`, keeping the `name … do` line and the `end`."
@@ -96,7 +96,7 @@ defmodule Menard.Block do
         with {:ok, label, body, opts} <- unwrapped(name, add_label(name, label, body), body, opts),
              :ok <- body_only(name, body),
              {:ok, ast} <- parse(source),
-             {:ok, module} <- Clause.module_scope(ast, opts[:module]),
+             {:ok, module} <- Tree.module_scope(ast, opts[:module]),
              {:ok, all} <- blocks(source, opts),
              {:ok, where, anchor} <- placement(all, ast, module, name, opts[:in]) do
           # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
@@ -200,7 +200,7 @@ defmodule Menard.Block do
       for node <- blocks, same?(call_name(node), name) do
         %{
           label: label(node),
-          line: start_line(node),
+          line: Tree.start_line(node),
           body: get(source, name, Keyword.put(opts, :label, label(node)))
         }
       end
@@ -211,7 +211,7 @@ defmodule Menard.Block do
   @spec list(String.t(), keyword()) :: [{atom(), String.t() | nil, pos_integer()}] | {:error, String.t()}
   def list(source, opts \\ []) do
     with {:ok, blocks} <- blocks(source, opts) do
-      Enum.map(blocks, fn node -> {call_name(node), label(node), start_line(node)} end)
+      Enum.map(blocks, fn node -> {call_name(node), label(node), Tree.start_line(node)} end)
     end
   end
 
@@ -249,7 +249,9 @@ defmodule Menard.Block do
   defp pick([], want, label), do: {:error, "no `#{want} #{inspect(label)} do` block here"}
 
   defp pick(many, want, _label) do
-    labels = Enum.map_join(many, " · ", fn node -> inspect(label(node)) <> " (line #{start_line(node)})" end)
+    labels =
+      Enum.map_join(many, " · ", fn node -> inspect(label(node)) <> " (line #{Tree.start_line(node)})" end)
+
     {:error, "#{length(many)} `#{want}` blocks here — name one with a label: #{labels}"}
   end
 
@@ -257,7 +259,7 @@ defmodule Menard.Block do
   # `describe`, so a top-level-only walk would miss most of them.
   defp blocks(source, opts) do
     with {:ok, ast} <- parse(source),
-         {:ok, module} <- Clause.module_scope(ast, opts[:module]) do
+         {:ok, module} <- Tree.module_scope(ast, opts[:module]) do
       found =
         module
         |> Zipper.zip()
@@ -315,11 +317,6 @@ defmodule Menard.Block do
       {:do, body} -> Sourceror.get_range(body)
       _pair -> nil
     end)
-  end
-
-  defp start_line(node) do
-    %{start: [line: line, column: _]} = Sourceror.get_range(node)
-    line
   end
 
   # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the
@@ -386,7 +383,7 @@ defmodule Menard.Block do
       [] ->
         # A parent can be a MODULE as well as a labelled block: appending into a defmodule is the obvious
         # reading of `--in Console.KeymapTest`.
-        case Clause.module_scope(ast, parent) do
+        case Tree.module_scope(ast, parent) do
           {:ok, node} -> {:ok, :inside, node}
           _error -> {:error, "no block or module #{inspect(parent)} here"}
         end

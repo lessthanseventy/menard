@@ -32,8 +32,8 @@ defmodule Menard.Directive do
     line = directive_line(kind, target, opts[:args])
 
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      body = Menard.Clause.module_body(node)
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      body = Menard.Tree.module_body(node)
 
       case Enum.find(body, &({kind, target} in directives(&1))) do
         nil ->
@@ -49,8 +49,8 @@ defmodule Menard.Directive do
   @spec remove(String.t(), atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def remove(source, kind, target, opts \\ []) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      body = Menard.Clause.module_body(node)
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      body = Menard.Tree.module_body(node)
 
       cond do
         found = Enum.find(body, &match(&1, kind, target)) ->
@@ -70,8 +70,8 @@ defmodule Menard.Directive do
   @spec list(String.t(), keyword()) :: [{atom(), String.t()}] | {:error, String.t()}
   def list(source, opts \\ []) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      node |> Menard.Clause.module_body() |> Enum.flat_map(&directives/1)
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      node |> Menard.Tree.module_body() |> Enum.flat_map(&directives/1)
     end
   end
 
@@ -83,8 +83,8 @@ defmodule Menard.Directive do
   @spec replace(String.t(), atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, kind, target, opts) do
     with {:ok, ast} <- parse(source),
-         {:ok, node} <- Menard.Clause.module_scope(ast, opts[:module]) do
-      case Enum.find(Menard.Clause.module_body(node), &match(&1, kind, target)) do
+         {:ok, node} <- Menard.Tree.module_scope(ast, opts[:module]) do
+      case Enum.find(Menard.Tree.module_body(node), &match(&1, kind, target)) do
         nil -> {:error, "no #{kind} #{target} in this module"}
         found -> patch(source, Sourceror.get_range(found), directive_line(kind, target, opts[:args]))
       end
