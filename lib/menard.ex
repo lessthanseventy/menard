@@ -304,8 +304,10 @@ defmodule Menard do
     File.write!(path, content)
     week_ago = System.os_time(:second) - 7 * 24 * 3600
 
+    # a copy another menard pruned between the listing and the stat is already gone, not an error
     for old <- Path.wildcard(Path.join(Path.dirname(path), "*")),
-        File.stat!(old, time: :posix).mtime < week_ago,
+        {:ok, %{mtime: mtime}} <- [File.stat(old, time: :posix)],
+        mtime < week_ago,
         do: File.rm(old)
 
     version
