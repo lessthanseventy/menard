@@ -545,4 +545,42 @@ defmodule Menard.RunTest do
     assert %{tests: 1, failed: 0} =
              Run.parse_test("Finished in 0.9 seconds\n1 test, 0 failures (22 excluded)\n", 0)
   end
+
+  test "a host that colours its output through a pipe still has its failures read", %{tmp_dir: dir} do
+    # `config :elixir, :ansi_enabled, true` colours ExUnit's report even into menard's pipe, and every
+    # pattern missed the `code:`, `left:` and the location between the escapes
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Colour.MixProject do
+      use Mix.Project
+      def project, do: [app: :colour, version: "0.1.0"]
+    end
+    """)
+
+    File.mkdir_p!(Path.join(dir, "config"))
+    File.write!(Path.join(dir, "config/config.exs"), "import Config\nconfig :elixir, :ansi_enabled, true\n")
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/colour_test.exs"),
+      "defmodule ColourTest do\n  use ExUnit.Case\n\n  test \"red\" do\n    assert 1 + 1 == 3\n  end\nend\n"
+    )
+
+    r = Menard.Run.result(dir, "test", [])
+    refute r.ok
+
+    assert [
+             %{
+               kind: "test",
+               name: "red",
+               at: "test/colour_test.exs:4",
+               code: "assert 1 + 1 == 3",
+               left: "2",
+               right: "3"
+             }
+           ] =
+             r.failures
+
+    assert {r.tests, r.failed} == {1, 1}
+  end
 end
