@@ -6,8 +6,8 @@
 # Advisory, never blocking: the command has already run and its output stands. That is what lets
 # the match stay loose — a false positive costs one line, not a broken call.
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-payload=$(cat)
 tool=$(jq -r '.tool_name // empty' <<<"$payload" 2>/dev/null) || exit 0
 [[ "$tool" == "Bash" ]] || exit 0
 
@@ -20,8 +20,8 @@ grep -q "menard" <<<"$cmd" && exit 0
 # menard has to be reachable — as the plugin or on the PATH — or the advice is a dead end
 if command -v menard >/dev/null 2>&1; then
   m=menard
-elif [[ -x "${CLAUDE_PLUGIN_ROOT:-}/bin/menard" ]]; then
-  m="$CLAUDE_PLUGIN_ROOT/bin/menard"
+elif [[ -x "$menard" ]]; then
+  m=$menard
 else
   exit 0
 fi

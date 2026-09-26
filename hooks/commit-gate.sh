@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # PreToolUse on Bash: a `git commit` waits for the whole gate (`run check`: the project's precommit)
-# of every project the session wrote Elixir into, and is refused while one is red. A Claude hook,
-# not a git one: it installs nothing in the host's repo and never stands in a human's way. The
-# stop checks only what changed (stop-gate.sh); the commit is where the whole suite runs.
+# of every project the session wrote Elixir into in the repo it commits to, and is refused while one
+# is red. A Claude hook, not a git one: it installs nothing in the host's repo and never stands in a
+# human's way. The stop checks only what changed (stop-gate.sh); the commit is where the whole suite
+# runs.
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-payload=$(cat)
 cmd=$(jq -r '.tool_input.command // empty' <<<"$payload")
 # git, its global options (-C/-c and theirs, quoted too; --no-pager, --git-dir=x, --git-dir x), then
 # commit; git after a separator, a quote, a slash or any word (then, env A=1, time, bash -c "…")
@@ -13,8 +14,7 @@ arg="(\"[^\"]*\"|'[^']*'|[^[:space:]]+)"
 opts="([[:space:]]+(-[Cc][[:space:]]+$arg|--(git-dir|work-tree|namespace)[[:space:]]+$arg|-[^[:space:]]+))*"
 grep -qE "(^|[[:space:];&|(\`\"'/])git$opts[[:space:]]+commit([[:space:];&|)\`\"']|\$)" <<<"$cmd" || exit 0
 
-session=$(jq -r '.session_id // "none"' <<<"$payload")
-touched="${TMPDIR:-/tmp}/menard-touched-${session//[^A-Za-z0-9_-]/}"
+touched=$(session_file touched)
 # one line for the trace on every outcome (stderr at exit 0 reaches no model): a green gate and one
 # that never ran looked the same
 if [[ ! -s "$touched" ]]; then
@@ -60,17 +60,13 @@ while IFS= read -r dir; do
   fi
   checked=$((checked + 1))
   # the reply is stdout's last line; stderr is kept apart, where a line that says "ok":true is no answer
-  reply=$(timeout --kill-after=5 $((deadline > SECONDS ? deadline - SECONDS : 1)) "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}/bin/menard" run check --in "$dir" 2>"$err" </dev/null | tail -n1)
+  reply=$(timeout --kill-after=5 $((deadline > SECONDS ? deadline - SECONDS : 1)) "$menard" run check --in "$dir" 2>"$err" </dev/null | tail -n1)
   if (($? == 124)); then
     red+="${dir}:"$'\n'"  menard run check gave no answer within 280s (the gate's deadline) and was stopped"$'\n'
     break
   fi
   jq -e '.ok == true' <<<"$reply" >/dev/null 2>&1 && continue
-  why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$reply" 2>/dev/null)
-  [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$reply" 2>/dev/null | tail -12)
-  # no answer at all: menard's own refusal or error, which it writes to stderr
-  [[ -n "$why" ]] || why=$(tail -12 "$err")
-  red+="${dir}:"$'\n'"${why}"$'\n'
+  red+="${dir}:"$'\n'"$(red_lines "$reply" "$err")"$'\n'
 done < <(sort -u "$touched")
 
 if [[ -z "$red" ]]; then

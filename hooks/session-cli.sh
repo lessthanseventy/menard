@@ -3,7 +3,8 @@
 # tools cost ~5,600 tokens of schema on every turn (bench6) and were used in 19 runs of 34; a
 # command the agent already knows how to run costs these lines once.
 set -uo pipefail
-m="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/bin/menard"
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+m=$menard
 read -r -d '' ctx <<TEXT
 menard is installed at $m. Through Bash, from the project root, where grep and sed guess (the full path each time: a shell variable does not outlive its call):
 - $m rename OLD NEW \$(git ls-files '*.ex' '*.exs'): a function, variable or module renamed everywhere; strings and comments left alone.

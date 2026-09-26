@@ -6,15 +6,14 @@
 #
 # Advisory, never blocking: the command has already run.
 set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-payload=$(cat)
 [[ $(jq -r '.tool_name // empty' <<<"$payload" 2>/dev/null) == "Bash" ]] || exit 0
 event=$(jq -r '.hook_event_name // empty' <<<"$payload")
-session=$(jq -r '.session_id // "none"' <<<"$payload")
 dir=$(jq -r '.cwd // empty' <<<"$payload")
 dir=${dir:-${CLAUDE_PROJECT_DIR:-$PWD}}
 p=${MENARD_TOOL_PREFIX:-mcp__plugin_menard_menard__}
-mark="${TMPDIR:-/tmp}/menard-shell-edits-${session//[^A-Za-z0-9_-]/}"
+mark=$(session_file shell-edits)
 
 if [[ "$event" == "PreToolUse" ]]; then
   touch "$mark"
@@ -26,7 +25,7 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload")
 # menard's verbs, the formatter and git rewrite modules by design
 grep -qE '(^|[[:space:];&|/])(menard|git)[[:space:]]|mix[[:space:]]+format' <<<"$cmd" && exit 0
 
-changed=$(find "$dir" \( -name _build -o -name deps -o -name .git -o -name node_modules \) -prune -o \
+changed=$(find "$dir" "${prune[@]}" \
   \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print0 2>/dev/null |
   xargs -0 -r grep -lE '^[[:space:]]*defmodule\b' 2>/dev/null |
   while IFS= read -r f; do printf '%s\n' "${f#"$dir"/}"; done)

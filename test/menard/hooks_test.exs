@@ -70,6 +70,16 @@ defmodule Menard.HooksTest do
     # the plugin's MCP tools by name: CLI lines sent blocked agents to Bash
     assert out =~ "mcp__plugin_menard_menard__clause"
     assert {_, 0} = run.(notes)
+
+    # run from a checkout, with no plugin root: menard is the one beside the hook, not none
+    input = Path.join(dir, "payload.json")
+    File.write!(input, JSON.encode!(%{tool_name: "Edit", tool_input: %{file_path: module}}))
+
+    assert {_, 2} =
+             System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/menard-only.sh"), input],
+               env: [{"CLAUDE_PLUGIN_ROOT", nil}],
+               stderr_to_stdout: true
+             )
   end
 
   @tag :tmp_dir

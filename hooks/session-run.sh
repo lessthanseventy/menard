@@ -5,7 +5,8 @@
 # mix format by hand 179 times, on files the hook had already formatted. The project's own notes
 # win: a plugin installed once must not overrule the repo's instructions.
 set -uo pipefail
-m="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/bin/menard"
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+m=$menard
 read -r -d '' ctx <<TEXT
 If the project's own notes say how to run its tests, do what they say. Otherwise run tests and the gate with menard, through Bash, from the Elixir project's directory (the full path each time):
 - $m run check: the project's gate (its precommit alias), one JSON line: ok, the counts, and every failure with its kind, file:line and message; a failing test adds its name, source, and the assertion's left and right.
