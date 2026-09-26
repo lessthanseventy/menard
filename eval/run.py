@@ -68,8 +68,21 @@ def stop(signum, _frame):
     if CURRENT:
         case_dir, rid, ws, env = CURRENT
         cleanup(case_dir, rid, ws, env)
-        shutil.rmtree(ws, ignore_errors=True)
+        remove_workspace(ws)
     sys.exit(128 + signum)
+
+
+def session_key(ws):
+    """The directory under ~/.claude/projects a session run in `ws` keeps its files in."""
+    return re.sub(r"[^A-Za-z0-9]", "-", str(ws))
+
+
+def remove_workspace(ws):
+    """The workspace, the snapshot its step checks run on, and the session files a kept session left
+    under ~/.claude/projects (448 of those had piled up)."""
+    shutil.rmtree(ws, ignore_errors=True)
+    shutil.rmtree(ws.parent / f"{ws.name}.check", ignore_errors=True)
+    shutil.rmtree(Path.home() / ".claude" / "projects" / session_key(ws), ignore_errors=True)
 
 
 def kill_group(p):
@@ -527,8 +540,6 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env):
         if timed_out or not sid:
             break
     ci = ci_loop(case_dir, arm, model, rid, ws, out_dir, env, sid, steps)
-    # the session files a kept session left under ~/.claude/projects
-    shutil.rmtree(Path.home() / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(ws)), ignore_errors=True)
     return steps, ci
 
 
@@ -607,7 +618,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     }
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
-    shutil.rmtree(ws, ignore_errors=True)
+    remove_workspace(ws)
     return row
 
 
@@ -646,7 +657,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env):
     cleanup(case_dir, rid, ws, env)
     with open(out_dir / "runs.jsonl", "a") as f:
         f.write(json.dumps(row) + "\n")
-    shutil.rmtree(ws, ignore_errors=True)
+    remove_workspace(ws)
     return row
 
 
