@@ -467,4 +467,23 @@ defmodule Menard.StmtTest do
     # naming a function that is not there still reaches only the module's own statements
     assert {:error, _} = Stmt.replace(src, "subject/1", "x", "assert f(1) == 1", "assert g(1) == 1")
   end
+
+  test "comments inside the statement don't count: it matches as written without them" do
+    src = """
+    defmodule Sb do
+      def sidebar do
+        %{
+          # what the board shows first
+          open: 1,
+          # "#" in a string is not a comment
+          tag: "#top"
+        }
+      end
+    end
+    """
+
+    out = Stmt.replace(src, "sidebar/0", "", ~s|%{open: 1, tag: "#top"}|, "%{open: 2}")
+    assert out =~ "%{open: 2}"
+    refute out =~ "open: 1"
+  end
 end

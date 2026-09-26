@@ -59,7 +59,7 @@ defmodule Menard.Stmt do
   # `case x do` matches the whole case by its start, and code for that one line leaves one that does
   # not parse: say what was matched, where the write would only have said "missing terminator"
   defp whole_by_start?(stmt, match, out),
-    do: Clause.squash(stmt.text) != Clause.squash(match) and match?({:error, _}, Code.string_to_quoted(out))
+    do: key(stmt.text) != key(match) and match?({:error, _}, Code.string_to_quoted(out))
 
   defp by_start(%{range: %{start: [line: a, column: _], end: [line: b, column: _]}}, match),
     do:
@@ -87,7 +87,7 @@ defmodule Menard.Stmt do
           }
         end
 
-      case matching(all, Clause.squash(match)) do
+      case matching(all, key(match)) do
         [] -> template_text(source, clause, match)
         [one] -> {:ok, one}
         many -> nth(many, match, opts[:nth])
@@ -215,7 +215,7 @@ defmodule Menard.Stmt do
 
   defp locate(source, name_arity, head, match, opts) do
     with {:ok, clause} <- scope(source, name_arity, head, opts) do
-      want = Clause.squash(match)
+      want = key(match)
       all = candidates(source, clause)
 
       case matching(all, want) do
@@ -262,9 +262,29 @@ defmodule Menard.Stmt do
   # The whole statement as written, or, when none is, the ones that start with it: `elixir_files =`
   # reaches a multi-line assignment without restating its pipeline.
   defp matching(all, want) do
-    case Enum.filter(all, &(Clause.squash(&1.text) == want)) do
-      [] when want != "" -> Enum.filter(all, &String.starts_with?(Clause.squash(&1.text), want))
+    case Enum.filter(all, &(key(&1.text) == want)) do
+      [] when want != "" -> Enum.filter(all, &String.starts_with?(key(&1.text), want))
       exact -> exact
+    end
+  end
+
+  # What a statement is matched by: its text squashed, its comments left out. An agent writes the
+  # statement as it means it, and a `# why` between a map's keys is not part of that (Tlön ticket 8).
+  # The parser finds the comments, so a `#` in a string stays.
+  defp key(text), do: text |> uncommented() |> Clause.squash()
+
+  defp uncommented(text) do
+    case Code.string_to_quoted_with_comments(text) do
+      {:ok, _ast, [_ | _] = comments} ->
+        at = Map.new(comments, &{&1.line, &1.column})
+
+        text
+        |> String.split("\n")
+        |> Enum.with_index(1)
+        |> Enum.map_join("\n", fn {line, i} -> if at[i], do: String.slice(line, 0, at[i] - 1), else: line end)
+
+      _ ->
+        text
     end
   end
 
