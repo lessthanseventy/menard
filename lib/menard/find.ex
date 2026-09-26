@@ -24,8 +24,45 @@ defmodule Menard.Find do
     |> walk(&call_to(&1, &2, mod, fun))
     |> Enum.reject(&MapSet.member?(heads, {&1.line, &1.column}))
     |> Kernel.++(heex_calls(source, mod, fun))
+    |> Kernel.++(self_calls(source, mod, fun))
     |> Enum.sort_by(&{&1.line, &1.column})
   end
+
+  # `__MODULE__.fun()` names the module it is written in, which the file-wide alias map cannot say:
+  # each module's own calls, a nested module's left to it
+  defp self_calls(_source, nil, _fun), do: []
+
+  defp self_calls(source, mod, fun) do
+    case Sourceror.parse_string(source) do
+      {:ok, ast} ->
+        for {name, module} <- Menard.Clause.modules(ast),
+            {{:., _, [receiver, called]}, _, args} = node <- own_nodes(module),
+            is_atom(called) and is_list(args) and Atom.to_string(called) == fun,
+            self_ref(receiver, name) == mod do
+          %{start: [line: l, column: c]} = Menard.Source.range(node, source)
+          %{line: l, column: c, kind: :call, text: one_line(node)}
+        end
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp own_nodes({:defmodule, _meta, [_name | body]}) do
+    body
+    |> Macro.prewalk([], fn
+      {:defmodule, _, _}, acc -> {nil, acc}
+      node, acc -> {node, [node | acc]}
+    end)
+    |> elem(1)
+  end
+
+  defp self_ref({:__MODULE__, _, _}, name), do: name
+
+  defp self_ref({:__aliases__, _, [{:__MODULE__, _, _} | _] = parts}, name),
+    do: Menard.Source.alias_name(parts, name)
+
+  defp self_ref(_receiver, _name), do: nil
 
   defp call_to({name, _meta, args} = node, _aliases, nil, fun) when is_atom(name) and is_list(args),
     do: if(Atom.to_string(name) == fun, do: {:call, node})
