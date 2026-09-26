@@ -112,8 +112,9 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def rewrite(source, name_arity, head, code, opts \\ []) do
     with {:ok, clause} <- find(source, name_arity, head, opts),
-         {:ok, _node} <- parse_clause(code),
-         {:ok, ast} <- parse(source) do
+         {:ok, node} <- parse_clause(code),
+         {:ok, ast} <- parse(source),
+         :ok <- keeps_function(ast, name_arity, clause, node) do
       {lead, body} = split_leading_comments(code)
       %{start: [line: def_line, column: _]} = clause.range
       above_attrs = attrs_start(ast, clause.range)
@@ -143,6 +144,23 @@ defmodule Menard.Clause do
         true ->
           patch_with_comments(source, clause, code)
       end
+    end
+  end
+
+  # One clause of several stays a clause of THAT function: a defp among defs does not compile, and a
+  # clause of another name/arity between them splits the function. The only clause IS the function,
+  # free to change.
+  defp keeps_function(ast, name_arity, clause, {kind, _meta, [head | _]}) do
+    {:ok, {mod, name, arity}} = parse_name_arity(name_arity)
+    {:ok, scope} = scope(ast, mod, name, arity)
+    {new_name, new_arity} = name_arity(head)
+
+    if match?([_], clauses(scope, name, arity)) or {kind, new_name, new_arity} == {clause.kind, name, arity} do
+      :ok
+    else
+      {:error,
+       "#{name}/#{arity} has other clauses, so this one stays `#{clause.kind} #{name}/#{arity}`, and CODE is " <>
+         "`#{kind} #{new_name}/#{new_arity}` — `visibility` flips every clause; a new function goes in with `insert_at`"}
     end
   end
 
