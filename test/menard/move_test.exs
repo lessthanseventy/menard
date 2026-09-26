@@ -3,10 +3,12 @@ defmodule Menard.MoveTest do
   # generator would, and with no mix project to name it from the move is refused toward `--as`.
   use ExUnit.Case, async: true
 
+  alias Menard.Test.Host
+
   @moduletag :tmp_dir
 
   test "a missing destination in a mix project is created as the module its path names", %{tmp_dir: dir} do
-    Menard.Test.Host.mix_project(dir, :app)
+    Host.mix_project(dir, :app)
     File.mkdir_p!(Path.join(dir, "lib"))
     from = Path.join(dir, "lib/a.ex")
     File.write!(from, "defmodule A do\n  def go, do: 1\n\n  def stays, do: 2\nend\n")
