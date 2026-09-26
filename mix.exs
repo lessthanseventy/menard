@@ -40,7 +40,9 @@ defmodule Menard.MixProject do
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
       # `menard run check` runs `mix precommit` like it does for every other project; without this
       # alias the one tool in the repo could not gate itself.
-      aliases: [precommit: ["format --check-formatted", "compile --warnings-as-errors", "test"]]
+      aliases: [
+        precommit: ["format --check-formatted", "compile --warnings-as-errors", "credo --strict", "test"]
+      ]
     ]
   end
 
