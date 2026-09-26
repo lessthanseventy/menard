@@ -29,7 +29,7 @@ defmodule Mix.Tasks.Menard.Run do
 
     case args do
       [verb | rest] when verb in ~w(check test format compile credo) ->
-        finish(Menard.Run.result(Menard.resolve(dir), verb, rest))
+        finish(Menard.Run.result(Menard.resolve(dir), verb, rest, []))
 
       _ ->
         Mix.raise(
