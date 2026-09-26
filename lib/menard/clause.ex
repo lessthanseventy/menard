@@ -20,6 +20,10 @@ defmodule Menard.Clause do
 
   @kinds Menard.Tree.def_kinds()
 
+  # A guard or a delegate has no body to replace: written as `defguard … do … end` it parses and
+  # does not compile, the one thing these verbs must never leave behind.
+  @bodiless [:defguard, :defguardp, :defdelegate]
+
   # Attributes written directly above a clause belong TO that clause, not to the file: delete the
   # clause and leave them behind and they re-attach to whatever follows — "redefining @impl
   # attribute previously set at line N", or a @spec describing a head that no longer exists.
@@ -48,10 +52,16 @@ defmodule Menard.Clause do
           String.t() | {:error, String.t()}
   def replace_body(source, name_arity, head, code, opts \\ []) do
     with :ok <- body_only(code),
-         {:ok, clause} <- find(source, name_arity, head, opts) do
+         {:ok, clause} <- find(source, name_arity, head, opts),
+         :ok <- has_body(clause) do
       body_edit(source, clause, code, name_arity, opts)
     end
   end
+
+  defp has_body(%{kind: kind, name: name}) when kind in @bodiless,
+    do: {:error, "`#{kind} #{name}` has no body to replace — `rewrite` replaces the whole #{kind}"}
+
+  defp has_body(_clause), do: :ok
 
   # Only the body's bytes move, so a clause keeps its form. `do … end` holds anything. `, do:` holds
   # the new body only if it reads back as itself there — `do: if a, do: b, else: c` hands `else:` to
@@ -482,8 +492,16 @@ defmodule Menard.Clause do
          {:ok, ast} <- parse(source),
          {:ok, scope} <- scope(ast, mod, name, arity) do
       case clauses(scope, name, arity) do
-        [] -> {:error, "no #{name}/#{arity} in this file"}
-        found -> source |> flip(found, want) |> drop_docs(name_arity, want)
+        [] ->
+          {:error, "no #{name}/#{arity} in this file"}
+
+        # no defdelegatep exists: a silent no-op read as done
+        [%{kind: :defdelegate} | _] ->
+          {:error,
+           "#{name}/#{arity} is a defdelegate, which is always public — `rewrite` it as a def to change that"}
+
+        found ->
+          source |> flip(found, want) |> drop_docs(name_arity, want)
       end
     end
   end

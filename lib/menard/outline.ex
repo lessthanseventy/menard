@@ -6,7 +6,7 @@ defmodule Menard.Outline do
   agent reads before it edits; the outline door is `mix menard.outline FILE`.
   """
 
-  @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp, :defdelegate]
+  @kinds Menard.Tree.def_kinds()
 
   @spec run(String.t()) :: {:ok, [map()]} | {:error, String.t()}
   def run(source) when is_binary(source) do

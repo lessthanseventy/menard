@@ -852,4 +852,20 @@ defmodule Menard.ClauseTest do
     refute out =~ "Old."
     assert length(Regex.scan(~r/attr :cart/, out)) == 1
   end
+
+  test "a defguard or a defdelegate has no body: replace_body is refused toward rewrite, never written as `do … end`" do
+    # written as a clause with a body, `defguard is_x(x) when … do` parses and does not compile
+    src =
+      "defmodule G do\n  defguard is_x(x) when is_integer(x)\n  defdelegate d(x), to: Enum, as: :count\nend\n"
+
+    assert {:error, message} = Clause.replace_body(src, "is_x/1", "x", "is_atom(x)")
+    assert message =~ "defguard"
+    assert message =~ "rewrite"
+
+    assert {:error, message} = Clause.replace_body(src, "d/1", "x", "x")
+    assert message =~ "defdelegate"
+
+    assert Clause.rewrite(src, "is_x/1", "x", "defguard is_x(x) when is_atom(x)") =~
+             "defguard is_x(x) when is_atom(x)\n  defdelegate"
+  end
 end

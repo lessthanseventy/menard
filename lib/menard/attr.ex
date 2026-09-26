@@ -12,6 +12,8 @@ defmodule Menard.Attr do
   import Menard.Source, only: [parse: 1, reindent: 2]
   alias Menard.Tree
 
+  @def_kinds Tree.def_kinds()
+
   # written above one def and belonging to it, as Menard.Clause's @attached
   @per_definition [:doc, :spec, :impl, :deprecated, :dialyzer]
 
@@ -219,10 +221,7 @@ defmodule Menard.Attr do
 
   defp value_text(_node, _source), do: {:error, "not an attribute with a value"}
 
-  defp definition?({kind, _meta, _args})
-       when kind in [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp],
-       do: true
-
+  defp definition?({kind, _meta, _args}) when kind in @def_kinds, do: true
   defp definition?(_node), do: false
   defp anchor?(node), do: definition?(node) or table?(node)
 

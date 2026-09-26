@@ -9,12 +9,14 @@ defmodule Menard.Tree do
   a range a verb PATCHES comes from `Menard.Source.range/2`, which corrects Sourceror's columns.
   """
 
-  @def_kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
+  @def_kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp, :defdelegate]
 
   @doc """
   The kinds a definition is written as. One list for every verb: `clause` addresses these,
   `outline` lists them, `attr` places a table above the first of them, `block` does not walk into
-  them, `find`, `deps` and `rename` know a head by them.
+  them, `find`, `deps` and `rename` know a head by them. A `defdelegate` is one: it defines a
+  function of the module, which a call resolves to and an outline lists; the kinds without a body
+  (`defguard`, `defguardp`, `defdelegate`) are what `clause replace` refuses toward `rewrite`.
   """
   @spec def_kinds() :: [atom()]
   def def_kinds, do: @def_kinds

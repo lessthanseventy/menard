@@ -11,6 +11,8 @@ defmodule Menard.Rename do
 
   alias Sourceror.Zipper
 
+  @def_kinds Menard.Tree.def_kinds()
+
   @spec run(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def run(source, old, new, opts \\ []) when is_binary(source) do
     with {:ok, ast} <- Menard.Source.parse(source) do
@@ -66,7 +68,7 @@ defmodule Menard.Rename do
     |> Zipper.zip()
     |> Zipper.traverse([], fn z, acc ->
       case Zipper.node(z) do
-        {kind, _, [head | _]} when kind in [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp] ->
+        {kind, _, [head | _]} when kind in @def_kinds ->
           {z, bare_start(strip_when(head), from) ++ acc}
 
         {:&, _, [{:/, _, [name, _arity]}]} ->

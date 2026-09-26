@@ -12,6 +12,8 @@ defmodule Menard.Block do
   alias Menard.Tree
   alias Sourceror.Zipper
 
+  @def_kinds Tree.def_kinds()
+
   @doc "Replace the block's body with `code`, keeping the `name … do` line and the `end`."
   @spec replace(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, name, code, opts \\ []) do
@@ -274,7 +276,7 @@ defmodule Menard.Block do
   # into a describe, but not into a function: an `if` in a def body is a statement, not a block
   defp collect_block(zipper, acc) do
     case Zipper.node(zipper) do
-      {kind, _, _} when kind in [:def, :defp, :defmacro, :defmacrop] -> {:skip, zipper, acc}
+      {kind, _, _} when kind in @def_kinds -> {:skip, zipper, acc}
       # prepended, and reversed once at the end: appending copied the list at every block found
       node -> {:cont, zipper, if(block?(node), do: [node | acc], else: acc)}
     end
@@ -285,8 +287,7 @@ defmodule Menard.Block do
   # A macro call whose last argument is a `do` keyword list. `defmodule` and the def kinds are
   # excluded: those have their own verbs, and a module is not a block you replace the body of.
   defp block?({name, _meta, args}) when is_atom(name) and is_list(args) and args != [] do
-    name not in [:defmodule, :def, :defp, :defmacro, :defmacrop, :defguard, :defguardp] and
-      has_do?(List.last(args))
+    name not in [:defmodule | @def_kinds] and has_do?(List.last(args))
   end
 
   defp block?(_node), do: false

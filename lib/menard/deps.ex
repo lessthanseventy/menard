@@ -17,7 +17,7 @@ defmodule Menard.Deps do
   alias Menard.Tree
   alias Sourceror.Zipper
 
-  @kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
+  @kinds Tree.def_kinds()
 
   @type report :: %{
           locals: [%{call: String.t(), shared_with: [String.t()]}],
