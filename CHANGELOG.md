@@ -61,6 +61,10 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - The format hook blocked on a file whose formatter plugins will not load in menard's VM (a project
   never built in place) even when it was formatted already. `run format` checks such a file with
   the plugins left out, and passes it when it is formatted.
+- A write in a host whose formatter plugins were built by a newer OTP (Tlön's Quokka, OTP 29) and
+  whose mise config was not trusted answered a crash dump for its reason: OTP 27's `beam_lib`
+  raised reading the plugin's atom chunk. Such a plugin is one that will not load, and the reply
+  keeps mise's own "are not trusted" line, not its version and `--verbose` lines.
 
 ## 0.5.0
 

@@ -41,4 +41,27 @@ defmodule Menard.HostToolchainTest do
       end
     end
   end
+
+  test "a host whose mise config is not trusted: the reply carries mise's own reason", %{dir: dir} do
+    # the eval bench's Tlön copy: the host's mise refused to run, and the reply ended in mise's
+    # "Version: …" and "Run with --verbose" lines, not the one that said why
+    if System.find_executable("mise") do
+      # [env] is what mise refuses to read from an untrusted file; [tools] alone it reads
+      File.write!(Path.join(dir, "mise.toml"), "[tools]\nerlang = \"27\"\n\n[env]\nMENARD_TRUST = \"1\"\n")
+      File.write!(Path.join(dir, "mix.exs"), "defmodule T.MixProject do\n  use Mix.Project\nend\n")
+      ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
+      File.mkdir_p!(ebin)
+      File.write!(Path.join(ebin, "Elixir.MenardBadPlug.beam"), "not a beam")
+      File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"], plugins: [MenardBadPlug]]")
+      file = Path.join(dir, "t.ex")
+      File.write!(file, "defmodule T do\nend\n")
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        send(self(), {:format, Menard.format(file, cache: Path.join(dir, "cache"))})
+      end)
+
+      assert_received {:format, {:error, message}}
+      assert message =~ "are not trusted"
+    end
+  end
 end

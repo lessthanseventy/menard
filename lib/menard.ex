@@ -194,14 +194,24 @@ defmodule Menard do
   # attempt. Its compile_info chunk names the compiler, and reading a chunk loads nothing.
   defp loadable?(module) do
     with path when is_list(path) <- :code.which(module),
-         {:ok, {_, [compile_info: info]}} <- :beam_lib.chunks(path, [:compile_info]),
+         {:ok, {_, [compile_info: info]}} <- chunks(path),
          built when is_list(built) <- info[:version] do
       Application.load(:compiler)
       vsn_parts(built) <= vsn_parts(Application.spec(:compiler, :vsn))
     else
-      # loaded already, preloaded, not on the path, or unreadable: loading it is the test
+      :unreadable -> false
+      # loaded already, preloaded, not on the path, or no chunk to say: loading it is the test
       _ -> true
     end
+  end
+
+  # beam_lib RAISES on an atom chunk this VM cannot read (Tlön's Quokka, built by OTP 29, read by
+  # OTP 27: a MatchError over `binary_to_atom`), where it returns an error for most bad beams. A beam
+  # this VM cannot even read will not load in it.
+  defp chunks(path) do
+    :beam_lib.chunks(path, [:compile_info])
+  rescue
+    _ -> :unreadable
   end
 
   defp vsn_parts(vsn) do
@@ -255,8 +265,16 @@ defmodule Menard do
       {_out, 0} ->
         :ok
 
+      # the last lines that say why: mise ends every refusal (an untrusted config) with its version
+      # and a pointer to --verbose, which were all the reply kept
       {out, _status} ->
-        {:error, "mix format failed: " <> (out |> String.split("\n") |> Enum.take(-3) |> Enum.join(" "))}
+        said =
+          out
+          |> String.split("\n")
+          |> Enum.reject(&(String.trim(&1) == "" or &1 =~ ~r/^mise ERROR (Version:|Run with --verbose)/))
+          |> Enum.take(-3)
+
+        {:error, "mix format failed: " <> Enum.join(said, " ")}
     end
   end
 

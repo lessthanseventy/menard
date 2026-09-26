@@ -79,6 +79,29 @@ defmodule Menard.HostFormatTest do
     end
   end
 
+  test "a plugin whose beam this VM's beam_lib cannot read is one that will not load", %{tmp_dir: dir} do
+    # Tlön's Quokka, built by OTP 29: OTP 27's beam_lib raised a MatchError over the atom chunk
+    # (`binary_to_atom` badarg on its bytes), and the reply's reason was that crash dump. Stood in
+    # for by a beam whose first atom is not UTF-8, which beam_lib fails on the same way.
+    ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
+    File.mkdir_p!(ebin)
+    [{MenardUnreadablePlug, beam}] = Code.compile_string("defmodule MenardUnreadablePlug do\nend\n")
+    :code.purge(MenardUnreadablePlug)
+    :code.delete(MenardUnreadablePlug)
+    {at, _} = :binary.match(beam, "AtU8")
+    # past the chunk id, its size, the atom count and the first atom's length byte: its first byte
+    <<head::binary-size(at + 4 + 4 + 4 + 1), _e, rest::binary>> = beam
+    File.write!(Path.join(ebin, "Elixir.MenardUnreadablePlug.beam"), <<head::binary, 0xFF, rest::binary>>)
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardUnreadablePlug]]")
+    file = write(dir, "u.ex", "defmodule U do\n  def   u, do: 1\nend\n")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:error, message} = Menard.format(file, cache: Path.join(dir, "cache"))
+      assert message =~ "[MenardUnreadablePlug] will not load"
+      refute message =~ "no match of right hand side"
+    end)
+  end
+
   test "a plugin that will not load is never skipped silently — the file is left alone", %{tmp_dir: dir} do
     ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
     File.mkdir_p!(ebin)
