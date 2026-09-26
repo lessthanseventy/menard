@@ -121,6 +121,15 @@ defmodule Menard.HooksTest do
     backdate_mark.()
     File.write!(module, "defmodule C do\nend\n")
     assert {_, 0} = hook.("PostToolUse", "mix format")
+
+    # a path with a space in it is one path
+    spaced = Path.join(dir, "lib/my dir/d.ex")
+    File.mkdir_p!(Path.dirname(spaced))
+    {_, 0} = hook.("PreToolUse", "sed -i s/D/E/ 'lib/my dir/d.ex'")
+    backdate_mark.()
+    File.write!(spaced, "defmodule E do\nend\n")
+    assert {out, 2} = hook.("PostToolUse", "sed -i s/D/E/ 'lib/my dir/d.ex'")
+    assert out =~ "lib/my dir/d.ex"
   end
 
   @tag :tmp_dir

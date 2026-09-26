@@ -27,8 +27,9 @@ cmd=$(jq -r '.tool_input.command // empty' <<<"$payload")
 grep -qE '(^|[[:space:];&|/])(menard|git)[[:space:]]|mix[[:space:]]+format' <<<"$cmd" && exit 0
 
 changed=$(find "$dir" \( -name _build -o -name deps -o -name .git -o -name node_modules \) -prune -o \
-  \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print 2>/dev/null |
-  xargs -r grep -lE '^[[:space:]]*defmodule\b' 2>/dev/null | sed "s|^$dir/||")
+  \( -name '*.ex' -o -name '*.exs' \) -newer "$mark" -print0 2>/dev/null |
+  xargs -0 -r grep -lE '^[[:space:]]*defmodule\b' 2>/dev/null |
+  while IFS= read -r f; do printf '%s\n' "${f#"$dir"/}"; done)
 [[ -n "$changed" ]] || exit 0
 
 cat >&2 <<MSG
