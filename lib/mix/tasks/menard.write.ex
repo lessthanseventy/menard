@@ -10,39 +10,20 @@ defmodule Mix.Tasks.Menard.Write do
   """
   use Mix.Task
 
+  alias Menard.Verbs
+
+  import Menard.CLI
+
   @impl true
   def run(argv) do
     {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean])
-    stale = Keyword.take(flags, [:version, :force])
 
     case argv do
-      [file, "-"] ->
-        # an empty stdin is a pipe that lost its input, not a request to empty the file
-        case IO.read(:stdio, :eof) do
-          text when is_binary(text) and text != "" -> write(file, text, stale)
-          _empty -> Mix.raise("menard.write: stdin was empty — nothing written to #{file}")
-        end
-
       [file, code] ->
-        write(file, code, stale)
+        answer(Verbs.Write.run(Map.merge(Map.new(flags), %{file: file, code: stdin(code, "menard.write")})))
 
       _ ->
-        Mix.raise("usage: mix menard.write FILE CODE   (CODE of `-` reads stdin)")
-    end
-  end
-
-  defp write(file, code, stale) do
-    file = Menard.resolve(file)
-
-    if File.exists?(file) and File.read!(file) == String.trim_trailing(code, "\n") <> "\n" do
-      Mix.shell().info(JSON.encode!(%{did: "write #{Path.basename(file)}", file: file, unchanged: true}))
-    else
-      File.mkdir_p!(Path.dirname(file))
-
-      case Menard.write(file, code, [did: "write #{Path.basename(file)}"] ++ stale) do
-        {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-        {:error, message} -> Mix.raise(message)
-      end
+        usage("mix menard.write FILE CODE   (CODE of `-` reads stdin)")
     end
   end
 end

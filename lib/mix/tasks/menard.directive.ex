@@ -12,77 +12,30 @@ defmodule Mix.Tasks.Menard.Directive do
   """
   use Mix.Task
 
-  alias Menard.Directive
+  alias Menard.Verbs
+
+  import Menard.CLI
+
+  @usage "mix menard.directive add FILE (alias|import|require|use|doctest) MOD [OPTS] [--module Mod]\n" <>
+           "       mix menard.directive replace FILE (alias|import|require|use|doctest) MOD [OPTS] [--module Mod]\n" <>
+           "       mix menard.directive remove FILE (alias|import|require|use|doctest) MOD [--module Mod]\n" <>
+           "       mix menard.directive list FILE [--module Mod]"
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
+    {flags, argv, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
 
-    did = did(args)
-
-    case args do
-      ["list", file] ->
-        list(file, opts)
-
-      ["add", file, kind, target | rest] ->
-        edit(
-          file,
-          did,
-          opts,
-          &Directive.add(&1, atom(kind), target, module: opts[:module], args: List.first(rest))
-        )
-
-      ["remove", file, kind, target] ->
-        edit(file, did, opts, &Directive.remove(&1, atom(kind), target, module: opts[:module]))
-
-      ["replace", file, kind, target | rest] ->
-        edit(
-          file,
-          did,
-          opts,
-          &Directive.replace(&1, atom(kind), target, module: opts[:module], args: List.first(rest))
-        )
-
-      _ ->
-        Mix.raise(
-          "usage: mix menard.directive add FILE (alias|import|require|use|doctest) MOD [OPTS] [--module Mod]\n" <>
-            "       mix menard.directive replace FILE (alias|import|require|use|doctest) MOD [OPTS] [--module Mod]\n" <>
-            "       mix menard.directive remove FILE (alias|import|require|use|doctest) MOD [--module Mod]\n" <>
-            "       mix menard.directive list FILE [--module Mod]"
-        )
+    case params(argv) do
+      :usage -> usage(@usage)
+      params -> answer(Verbs.Directive.run(Map.merge(Map.new(flags), params)))
     end
   end
 
-  defp list(file, opts) do
-    case Directive.list(File.read!(Menard.resolve(file)), module: opts[:module]) do
-      {:error, message} -> Mix.raise(message)
-      found -> Mix.shell().info(Enum.map_join(found, "\n", fn {kind, target} -> "#{kind} #{target}" end))
-    end
-  end
+  defp params(["list", file]), do: %{verb: "list", file: file}
+  defp params(["remove", file, kind, target]), do: %{verb: "remove", file: file, kind: kind, target: target}
 
-  defp atom(kind) when kind in ~w(alias import require use doctest), do: String.to_existing_atom(kind)
-  defp atom(kind), do: Mix.raise("unknown directive #{kind} — one of alias, import, require, use, doctest")
+  defp params([verb, file, kind, target | rest]) when verb in ["add", "replace"] and length(rest) <= 1,
+    do: %{verb: verb, file: file, kind: kind, target: target, args: List.first(rest)}
 
-  defp edit(file, did, opts, change) do
-    file = Menard.resolve(file)
-
-    case change.(File.read!(file)) do
-      {:error, message} ->
-        Mix.raise(message)
-
-      out ->
-        case Menard.write(
-               file,
-               out,
-               [did: "#{did} in #{Path.basename(file)}"] ++ Keyword.take(opts, [:version, :force])
-             ) do
-          {:ok, reply} -> Mix.shell().info(JSON.encode!(reply))
-          {:error, message} -> Mix.raise(message)
-        end
-    end
-  end
-
-  # what the reply's `did` names: `add alias Foo.Bar`
-  defp did([verb, _file, kind, target | _]), do: "#{verb} #{kind} #{target}"
-  defp did(_), do: nil
+  defp params(_argv), do: :usage
 end

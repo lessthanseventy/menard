@@ -86,13 +86,13 @@ defmodule Menard.AttrTest do
     assert message =~ "clause verbs"
   end
 
-  test "an attribute that isn't there reads as missing" do
-    assert Attr.get(@src, "nope") == {:error, :missing}
+  test "an attribute that isn't there reads as missing, by name" do
+    assert Attr.get(@src, "nope") == {:error, "no @nope in this module"}
   end
 
   test "a name the module never sets makes no atom: the VM never collects one" do
     name = "never_set_#{System.unique_integer([:positive])}"
-    assert Attr.get(@src, name) == {:error, :missing}
+    assert Attr.get(@src, name) == {:error, "no @#{name} in this module"}
     assert {:error, _} = Attr.delete(@src, name)
     assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
   end

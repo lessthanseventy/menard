@@ -7,6 +7,13 @@ if Code.ensure_loaded?(Anubis.Server) do
     def ok(frame, payload), do: {:reply, Response.json(Response.tool(), Menard.jsonable(payload)), frame}
     def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
 
+    @doc "A verb's result (`Menard.Verbs`) as the tool's answer: the reply as is, the reason as a tool error."
+    def answer(frame, {:ok, reply}), do: ok(frame, reply)
+    def answer(frame, {:error, reason}), do: fail(frame, reason)
+
+    @doc "The tool's params as the verb takes them: every path resolves under the launch root."
+    def params(params), do: Map.put(params, :root, Menard.MCP.root())
+
     # Every tool's body is its call/2, and execute/2 only puts a deadline on it: over stdio a call
     # that never returns is a server gone silent, and one went past Claude Code's 120s. An edit
     # takes seconds; `run` and `deps` wait on a host's test suite or a fetch, so they get longer.
@@ -58,20 +65,6 @@ if Code.ensure_loaded?(Anubis.Server) do
           )
       end
     end
-
-    # The fields a verb cannot do without, where the schema leaves them optional for the tool's other
-    # verbs: a path left out was `params[:to] || ""`, which resolved to the root directory itself.
-    def need(params, keys, what) do
-      case for(key <- keys, params[key] in [nil, ""], do: key) do
-        [] -> :ok
-        missing -> {:error, "#{what} needs #{Enum.join(missing, ", ")}"}
-      end
-    end
-
-    # `version` (from the last reply) is checked before the edit, and `force` writes over a stale
-    # one: docs/live.md, phase 3
-    def staged_write(file, content, params, opts),
-      do: Menard.write(file, content, opts ++ [version: params[:version], force: params[:force] == true])
   end
 
   defmodule Menard.MCP.Rename do
@@ -82,10 +75,12 @@ if Code.ensure_loaded?(Anubis.Server) do
     is false. `only` narrows it to `functions` or `variables`;
     `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
     identifier's bytes move. `files` are paths or globs (`lib/**/*.ex`) under the launch root. The
-    reply lists the files `changed`, `unchanged`, and `skipped` (not parseable or not written, with why).
+    reply lists the files `changed` (each with its version and stages), `unchanged`, and `skipped`
+    (not parseable or not written, with why).
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
@@ -103,64 +98,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:docs, :boolean)
     end
 
-    def call(params, frame) do
-      with {:ok, files} <- Menard.MCP.resolve_all(params.files),
-           :ok <- versions(params) do
-        opts = [
-          atoms: params[:atoms] == true,
-          comments: params[:comments] == true,
-          docs: params[:docs] != false,
-          only: params[:only] && String.to_existing_atom(params[:only])
-        ]
-
-        results = Enum.map(files, &{&1, rename(&1, params, opts)})
-
-        ok(frame, %{
-          "changed" => for({file, :changed} <- results, do: file),
-          "unchanged" => for({file, :unchanged} <- results, do: file),
-          "skipped" => for({file, {:skipped, why}} <- results, do: %{"file" => file, "why" => why})
-        })
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    defp versions(%{force: true}), do: :ok
-
-    defp versions(params) do
-      pairs =
-        Enum.reduce_while(params[:versions] || [], {:ok, []}, fn spec, {:ok, acc} ->
-          with [file, version] <- String.split(spec, "=", parts: 2),
-               {:ok, abs} <- Menard.MCP.resolve(file) do
-            {:cont, {:ok, [{abs, version} | acc]}}
-          else
-            {:error, _} = refused -> {:halt, refused}
-            _ -> {:halt, {:error, "versions are FILE=SHA, got #{spec}"}}
-          end
-        end)
-
-      with {:ok, pairs} <- pairs, do: Menard.check_versions(Enum.reverse(pairs))
-    end
-
-    # a file it could not parse or write is neither: "unchanged" told the agent the old name was
-    # not in a file it never looked into
-    defp rename(file, params, opts) do
-      source = File.read!(file)
-
-      case Menard.Rename.run(source, params.old, params.new, opts) do
-        ^source ->
-          :unchanged
-
-        {:error, reason} ->
-          {:skipped, "not parseable — #{inspect(reason)}"}
-
-        out ->
-          case Menard.write(file, out, did: "rename #{params.old} → #{params.new} in #{Path.basename(file)}") do
-            {:ok, _reply} -> :changed
-            {:error, message} -> {:skipped, message}
-          end
-      end
-    end
+    def call(params, frame), do: answer(frame, Verbs.Rename.run(params(params)))
   end
 
   defmodule Menard.MCP.Clause do
@@ -183,6 +121,8 @@ if Code.ensure_loaded?(Anubis.Server) do
     `@doc`/`@spec`/comments above it) and `delete` deletes it, answering with `left`: each call to it
     still to fix. With a `head`, each takes that one clause.
 
+    `spec` sets the function's `@spec` (`code` is the signature; no `code` deletes it).
+
     Two clauses CAN share a head (an insert beside its twin). That is refused with both line
     numbers rather than guessed at; `nth` says which one.
 
@@ -198,10 +138,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
-    alias Menard.Clause
 
     schema do
       field(:version, :string)
@@ -235,112 +175,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:as, :string)
     end
 
-    def call(%{verb: "move"} = params, frame) do
-      with :ok <- need(params, [:name_arity, :to], "clause move"),
-           {:ok, file} <- Menard.MCP.resolve(params.file),
-           {:ok, dest} <- Menard.MCP.resolve(params.to),
-           # `version` is the source file's: the one the agent's edit came from
-           :ok <-
-             if(params[:version] && params[:force] != true,
-               do: Menard.check_versions([{file, params.version}]),
-               else: :ok
-             ),
-           {:ok, moved} <-
-             Menard.Move.run(file, dest, params.name_arity, as: params[:as], module: params[:module]) do
-        ok(frame, Map.put(moved, :did, "move #{params.name_arity} to #{Path.basename(dest)}"))
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    # reads, never writes: the function as written, and the file's version for the edit that follows
-    def call(%{verb: "get"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           name_arity when is_binary(name_arity) <-
-             params[:name_arity] || {:error, "clause get needs name_arity: the function's name/arity"},
-           source = File.read!(file),
-           {:ok, got} <-
-             Clause.get(source, name_arity, params[:head], if(n = params[:nth], do: [nth: n], else: [])) do
-        ok(frame, Map.merge(got, %{file: file, version: Menard.remember(source)}))
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    # no head: the whole function, every clause. The reply names each call still left, lib and test,
-    # so the agent fixes or deletes those on purpose; tests are never deleted for it.
-    def call(%{verb: "delete"} = params, frame) when not is_map_key(params, :head) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           name_arity when is_binary(name_arity) <-
-             params[:name_arity] || {:error, "clause delete needs name_arity: the function's name/arity"},
-           source = File.read!(file),
-           out when is_binary(out) <- Clause.delete_function(source, name_arity),
-           {:ok, reply} <-
-             staged_write(file, out, params,
-               did: "delete #{name_arity}, every clause, in #{Path.basename(file)}"
-             ) do
-        ok(frame, Map.put(reply, :left, Menard.Find.left(Menard.MCP.root(), file, source, name_arity)))
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           out when is_binary(out) <- edit(params, File.read!(file)),
-           {:ok, reply} <-
-             staged_write(file, out, params,
-               did:
-                 "#{params.verb} #{params[:name_arity] || params[:module] || "-"} `#{params[:head] || params[:at]}` in #{Path.basename(file)}"
-             ) do
-        ok(frame, reply)
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    # the core takes atoms only; the schema's enum is the strings
-    defp at("top"), do: :top
-    defp at("bottom"), do: :bottom
-    defp at(nil), do: nil
-
-    defp want("public"), do: :public
-    defp want(_private), do: :private
-
-    defp edit(%{verb: verb} = p, source) do
-      if verb != "insert_at" and is_nil(p[:name_arity]) do
-        {:error, "clause #{verb} needs name_arity: the function's name/arity, as outline lists it"}
-      else
-        # `nth` disambiguates a head two clauses share; without it that is refused, not guessed.
-        opts = if n = p[:nth], do: [nth: n], else: []
-        # no head is a function's only clause, as `head: ""` is; among several, that is refused with theirs
-        edit_clause(verb, Map.put(p, :head, p[:head] || ""), source, p[:code] || "", opts)
-      end
-    end
-
-    defp edit_clause("replace", p, source, code, opts),
-      do: Clause.replace_body(source, p.name_arity, p.head, code, opts)
-
-    defp edit_clause("rewrite", p, source, code, opts),
-      do: Clause.rewrite(source, p.name_arity, p.head, code, opts)
-
-    defp edit_clause("delete", p, source, _code, opts), do: Clause.delete(source, p.name_arity, p.head, opts)
-
-    defp edit_clause("insert_after", p, source, code, opts),
-      do: Clause.insert_after(source, p.name_arity, p.head, code, opts)
-
-    defp edit_clause("insert_before", p, source, code, opts),
-      do: Clause.insert_before(source, p.name_arity, p.head, code, opts)
-
-    defp edit_clause("insert_at", p, source, code, _opts),
-      do: Clause.insert_at(source, p[:module], at(p[:at]), code)
-
-    # every clause of the function at once — a half-flipped one does not compile
-    defp edit_clause("visibility", p, source, _code, _opts),
-      do: Clause.visibility(source, p.name_arity, want(p[:visibility]))
-
-    # the function's, not a clause's: no head. `code` is the signature, absent deletes it
-    defp edit_clause("spec", p, source, _code, _opts), do: Clause.spec(source, p.name_arity, p[:code])
+    def call(params, frame), do: answer(frame, Verbs.Clause.run(params(params)))
   end
 
   defmodule Menard.MCP.Stmt do
@@ -355,10 +190,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
-    alias Menard.Stmt
 
     schema do
       field(:version, :string)
@@ -377,64 +212,32 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:nth, :integer)
     end
 
-    def call(%{verb: "list"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           statements when is_list(statements) <- Stmt.list(File.read!(file), params.name_arity, params.head) do
-        ok(frame, %{"statements" => statements, "file" => file})
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           out when is_binary(out) <- edit(params, File.read!(file)),
-           {:ok, reply} <-
-             staged_write(file, out, params,
-               did: "#{params.verb} `#{params[:match]}` in #{params.name_arity} of #{Path.basename(file)}"
-             ) do
-        ok(frame, reply)
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    defp edit(%{verb: verb} = p, source) do
-      opts = if n = p[:nth], do: [nth: n], else: []
-      code = p[:code] || ""
-      match = p[:match] || ""
-
-      case verb do
-        "insert_after" -> Stmt.insert_after(source, p.name_arity, p.head, match, code, opts)
-        "insert_before" -> Stmt.insert_before(source, p.name_arity, p.head, match, code, opts)
-        "replace" -> Stmt.replace(source, p.name_arity, p.head, match, code, opts)
-        "delete" -> Stmt.delete(source, p.name_arity, p.head, match, opts)
-      end
-    end
+    def call(params, frame), do: answer(frame, Verbs.Stmt.run(params(params)))
   end
 
   defmodule Menard.MCP.Outline do
-    @moduledoc "A file as an outline: modules, defs with arity/kind/head/spec/doc, line spans. Read before editing: each def's `head` is the address `clause` and `stmt` take."
+    @moduledoc """
+    A file as an outline (`file`): modules, defs with arity/kind/head/spec/doc, line spans. Read
+    before editing: each def's `head` is the address `clause` and `stmt` take. `verb: "map"`: every
+    module under a `lib/` of the project, its file and public functions (a dozen each unless `all`),
+    the map an agent starts with. `verb: "where"`: for each `FILE:LINE` in `at`, the module and
+    function whose lines hold it — what a grep hit sits in.
+    """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
 
     schema do
-      field(:file, :string, required: true)
+      field(:verb, :enum, values: ["file", "map", "where"])
+      field(:file, :string)
+      field(:at, {:list, :string})
+      field(:all, :boolean)
     end
 
-    def call(%{file: file}, frame) do
-      with {:ok, abs} <- Menard.MCP.resolve(file),
-           content = File.read!(abs),
-           {:ok, modules} <- Menard.Outline.run(content) do
-        ok(frame, %{"file" => abs, "version" => Menard.remember(content), "modules" => modules})
-      else
-        {:error, message} when is_binary(message) -> fail(frame, message)
-        {:error, reason} -> fail(frame, "not parseable — #{inspect(reason)}")
-      end
-    end
+    def call(params, frame), do: answer(frame, Verbs.Outline.run(params(params)))
   end
 
   defmodule Menard.MCP.Find do
@@ -445,6 +248,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
@@ -455,26 +259,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:files, {:list, :string}, required: true)
     end
 
-    def call(params, frame) do
-      with {:ok, patterns} <- Menard.MCP.resolve_all(params.files),
-           {:ok, files} <- Menard.Find.files(patterns) do
-        finder =
-          case params.kind do
-            "calls" -> &Menard.Find.calls(&1, params.target)
-            "defs" -> &Menard.Find.defs(&1, params.target)
-            "aliases" -> &Menard.Find.aliases(&1, params.target)
-          end
-
-        hits =
-          Enum.flat_map(files, fn file ->
-            file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
-          end)
-
-        ok(frame, %{"hits" => hits})
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
+    def call(params, frame), do: answer(frame, Verbs.Find.run(params(params)))
   end
 
   defmodule Menard.MCP.Run do
@@ -490,6 +275,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
@@ -500,22 +286,14 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:dir, :string)
     end
 
-    def call(params, frame) do
-      case Menard.MCP.resolve(params[:dir] || ".") do
-        {:ok, dir} ->
-          # the host's mix is killed short of the tool's own deadline, so the reply says what it was doing
-          # instead of the call going silent while mix keeps running
-          timeout = deadline(__MODULE__) - 20_000
-
-          ok(
-            frame,
-            Menard.Run.lean(Menard.Run.result(dir, params.verb, params[:args] || [], timeout: timeout))
-          )
-
-        {:error, message} ->
-          fail(frame, message)
-      end
-    end
+    # the host's mix is killed short of the tool's own deadline, so the reply says what it was doing
+    # instead of the call going silent while mix keeps running
+    def call(params, frame),
+      do:
+        answer(
+          frame,
+          Verbs.Run.run(params |> params() |> Map.put(:timeout, deadline(__MODULE__) - 20_000))
+        )
   end
 
   defmodule Menard.MCP.Write do
@@ -528,6 +306,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
@@ -539,25 +318,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:code, :string, required: true)
     end
 
-    def call(%{file: file, code: code} = params, frame) do
-      case Menard.MCP.resolve(file) do
-        {:ok, abs} -> write_file(abs, code, params, frame)
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    defp write_file(abs, code, params, frame) do
-      if File.exists?(abs) and File.read!(abs) == String.trim_trailing(code, "\n") <> "\n" do
-        ok(frame, %{did: "write #{Path.basename(abs)}", file: abs, unchanged: true})
-      else
-        File.mkdir_p!(Path.dirname(abs))
-
-        case staged_write(abs, code, params, did: "write #{Path.basename(abs)}") do
-          {:ok, reply} -> ok(frame, reply)
-          {:error, message} -> fail(frame, message)
-        end
-      end
-    end
+    def call(params, frame), do: answer(frame, Verbs.Write.run(params(params)))
   end
 
   defmodule Menard.MCP.Directive do
@@ -572,11 +333,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
-
-    alias Menard.Directive
 
     schema do
       field(:version, :string)
@@ -589,46 +349,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
     end
 
-    def call(%{verb: "list"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           found when is_list(found) <- Directive.list(File.read!(file), module: params[:module]) do
-        ok(frame, %{"directives" => Enum.map(found, fn {kind, target} -> "#{kind} #{target}" end)})
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           {:ok, kind} <- kind(params[:kind]),
-           {:ok, target} <- target(params[:target]),
-           out when is_binary(out) <- edit(params.verb, File.read!(file), kind, target, params),
-           {:ok, reply} <-
-             staged_write(file, out, params,
-               did: "#{params.verb} #{kind} #{target} in #{Path.basename(file)}"
-             ) do
-        ok(frame, reply)
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    defp edit("add", source, kind, target, params),
-      do: Directive.add(source, kind, target, module: params[:module], args: params[:args])
-
-    defp edit("replace", source, kind, target, params),
-      do: Directive.replace(source, kind, target, module: params[:module], args: params[:args])
-
-    defp edit("remove", source, kind, target, params),
-      do: Directive.remove(source, kind, target, module: params[:module])
-
-    defp kind(k) when k in ["alias", "import", "require", "use", "doctest"],
-      do: {:ok, String.to_existing_atom(k)}
-
-    defp kind(_k), do: {:error, "kind is required: alias, import, require or use"}
-
-    defp target(t) when is_binary(t) and t != "", do: {:ok, t}
-    defp target(_t), do: {:error, "target is required — the module the directive names"}
+    def call(params, frame), do: answer(frame, Verbs.Directive.run(params(params)))
   end
 
   defmodule Menard.MCP.Attr do
@@ -641,11 +362,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
-
-    alias Menard.Attr
 
     schema do
       field(:version, :string)
@@ -657,66 +377,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
     end
 
-    def call(%{verb: verb} = params, frame) when verb in ["get", "list"] do
-      case Menard.MCP.resolve(params.file) do
-        {:ok, file} ->
-          case read(verb, File.read!(file), params) do
-            {:error, :missing} ->
-              fail(frame, missing(params))
-
-            {:error, message} ->
-              fail(frame, message)
-
-            found when is_list(found) ->
-              ok(frame, %{"attributes" => Enum.map(found, fn {n, l} -> "@#{n} (line #{l})" end)})
-
-            text ->
-              ok(frame, %{"value" => text})
-          end
-
-        {:error, message} ->
-          fail(frame, message)
-      end
-    end
-
-    def call(params, frame) do
-      # the name may come with its `@` or without; the reply names it once either way
-      at = "@" <> String.trim_leading(params[:name] || "", "@")
-
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           out when is_binary(out) <- write(params.verb, File.read!(file), params),
-           {:ok, reply} <-
-             staged_write(file, out, params, did: "#{params.verb} #{at} in #{Path.basename(file)}") do
-        ok(frame, reply)
-      else
-        {:error, :missing} -> fail(frame, missing(params))
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    # `attr :product, …` in a component is Phoenix's declaration, not a module attribute: bench4
-    # new-component.B.haiku tried to delete one here and was told only that there was no @product
-    defp missing(params) do
-      name = String.trim_leading(params[:name] || "", "@")
-
-      declared? =
-        with {:ok, file} <- Menard.MCP.resolve(params.file),
-             {:ok, source} <- File.read(file),
-             do: source =~ ~r/^\s*(attr|slot)\s+:#{Regex.escape(name)}\b/m,
-             else: (_ -> false)
-
-      if declared?,
-        do:
-          "no @#{name} in this module; `attr :#{name}` here is a Phoenix component declaration, which goes " <>
-            "with the def below it (clause get/delete/move carry it), and stmt reaches it as a statement of the module",
-        else: "no @#{name} in this module"
-    end
-
-    defp read("get", source, p), do: Attr.get(source, p[:name] || "", module: p[:module])
-    defp read("list", source, p), do: Attr.list(source, module: p[:module])
-
-    defp write("set", source, p), do: Attr.set(source, p[:name] || "", p[:value] || "", module: p[:module])
-    defp write("delete", source, p), do: Attr.delete(source, p[:name] || "", module: p[:module])
+    def call(params, frame), do: answer(frame, Verbs.Attr.run(params(params)))
   end
 
   defmodule Menard.MCP.Block do
@@ -730,11 +391,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
-
-    alias Menard.Block
 
     schema do
       field(:version, :string)
@@ -751,74 +411,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:tag, :string)
     end
 
-    def call(%{verb: "list"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           found when is_list(found) <- Block.list(File.read!(file), module: params[:module]) do
-        ok(frame, %{"blocks" => Enum.map(found, fn {n, l, line} -> "#{n} #{inspect(l)} (line #{line})" end)})
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(%{verb: "get"} = params, frame) do
-      case Menard.MCP.resolve(params.file) do
-        {:ok, file} -> get(File.read!(file), params[:name] || "", params, frame)
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(params, frame) do
-      # in a test file, a block added with no name is a test: what an agent leaving `name` out means
-      params =
-        if params.verb == "add" and params[:name] in [nil, ""] and String.ends_with?(params.file, "_test.exs"),
-          do: Map.put(params, :name, "test"),
-          else: params
-
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           out when is_binary(out) <- edit(params, File.read!(file)),
-           {:ok, reply} <-
-             staged_write(file, out, params, did: "#{params.verb} #{params[:name]} in #{Path.basename(file)}") do
-        ok(frame, reply)
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    defp edit(%{verb: "add"} = p, source),
-      do:
-        Block.add(source, p[:name] || "", p[:label], p[:code] || "",
-          in: p[:in],
-          module: p[:module],
-          args: p[:args],
-          tag: p[:tag]
-        )
-
-    defp edit(%{verb: "relabel"} = p, source),
-      do: Block.relabel(source, p[:name] || "", p[:label] || "", p[:new_label] || "", module: p[:module])
-
-    defp edit(%{verb: "replace"} = p, source),
-      do: Block.replace(source, p[:name] || "", p[:code] || "", where(p))
-
-    defp edit(%{verb: "delete"} = p, source), do: Block.delete(source, p[:name] || "", where(p))
-    defp edit(%{verb: verb}, _source), do: {:error, "block has no verb #{inspect(verb)}"}
-
-    defp where(params), do: [module: params[:module], label: params[:label]]
-
-    # no label among several: every one, not a refusal to pick (bench3 new-component.B.haiku)
-    defp get(source, name, params, frame) do
-      all = if params[:label], do: [], else: Block.get_all(source, name, where(params))
-
-      case all do
-        [_, _ | _] ->
-          ok(frame, %{"blocks" => all})
-
-        _ ->
-          case Block.get(source, name, where(params)) do
-            text when is_binary(text) -> ok(frame, %{"body" => text})
-            {:error, message} -> fail(frame, message)
-          end
-      end
-    end
+    def call(params, frame), do: answer(frame, Verbs.Block.run(params(params)))
   end
 
   defmodule Menard.MCP.Deps do
@@ -831,7 +424,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       the remote calls, the modules whose aliases must travel, and the attributes it reads.
     - `add`: a project dependency, `spec` as written in mix.exs (`{:req, "~> 0.5"}`) or a bare name
       looked up on Hex. Written into the deps list, fetched and compiled; the answer carries the lock
-      diff and the compile. A fetch that fails puts mix.exs back.
+      diff and the compile, `ok` false when either failed. A fetch that fails puts mix.exs back.
     - `upgrade`: `apps` updated (all when none are named), through the host's own
       `mix igniter.upgrade` when it has Igniter. `to` rewrites one app's requirement first.
 
@@ -839,6 +432,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
@@ -854,32 +448,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:dir, :string)
     end
 
-    def call(%{verb: "add"} = params, frame) do
-      case Menard.MCP.resolve(params[:dir] || ".") do
-        {:ok, dir} -> answer(frame, Menard.MixDeps.add_in(dir, params[:spec] || ""))
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(%{verb: "upgrade"} = params, frame) do
-      case Menard.MCP.resolve(params[:dir] || ".") do
-        {:ok, dir} -> answer(frame, Menard.MixDeps.upgrade_in(dir, params[:apps] || [], params[:to]))
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(params, frame) do
-      with :ok <- need(params, [:file, :name_arity], "deps refs"),
-           {:ok, file} <- Menard.MCP.resolve(params.file),
-           %{} = report <- Menard.Deps.of(File.read!(file), params.name_arity, module: params[:module]) do
-        ok(frame, report)
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    defp answer(frame, %{ok: true} = result), do: ok(frame, result)
-    defp answer(frame, result), do: fail(frame, JSON.encode!(result))
+    def call(params, frame), do: answer(frame, Verbs.Deps.run(params(params)))
   end
 
   defmodule Menard.MCP.Module do
@@ -891,6 +460,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
+    alias Menard.Verbs
 
     @impl true
     def execute(params, frame), do: bounded(__MODULE__, params, frame)
@@ -904,31 +474,6 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:module, :string)
     end
 
-    def call(%{verb: "list"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           names when is_list(names) <- Menard.Module.list(File.read!(file)) do
-        ok(frame, %{"modules" => names})
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(%{verb: verb} = params, frame) when verb in ["add", "replace"] do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           out when is_binary(out) <- edit(verb, File.read!(file), params),
-           {:ok, reply} <-
-             staged_write(file, out, params,
-               did: "#{verb} #{params[:module] || "a module"} in #{Path.basename(file)}"
-             ) do
-        ok(frame, reply)
-      else
-        {:error, message} -> fail(frame, message)
-      end
-    end
-
-    def call(%{verb: verb}, frame), do: fail(frame, "module has no verb #{inspect(verb)}")
-
-    defp edit("add", source, p), do: Menard.Module.add(source, p[:code] || "")
-    defp edit("replace", source, p), do: Menard.Module.replace(source, p[:module] || "", p[:code] || "")
+    def call(params, frame), do: answer(frame, Verbs.Module.run(params(params)))
   end
 end
