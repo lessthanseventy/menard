@@ -22,3 +22,8 @@ commit lands.
   formatted — [Phoenix.LiveView.HTMLFormatter] will not load from …/_build in this VM" for two files
   already formatted at HEAD (2026-09-26 ~03:00). True, but noise: a file the fallback cannot format
   could still be checked (`--check-formatted` without the plugin, or git saying it matches HEAD).
+- `find_test`, `run_test` and `hooks_test` still name scratch dirs `System.tmp_dir!()/menard-X-N`
+  with N from `System.unique_integer`, which restarts in every VM: test runs in two checkouts at
+  once (the review's agents, 2026-09-26) share `/tmp/menard-X-1…` and one's `on_exit` removes the
+  other's dir mid-test (mcp_test failed that way, three different tests, until its dirs took the
+  OS pid). Add `System.pid()` to each name, as mcp/outline/host_toolchain/format_shell tests do.

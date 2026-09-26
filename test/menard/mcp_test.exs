@@ -6,7 +6,7 @@ defmodule Menard.MCPTest do
   alias Menard.MCP.Reply
 
   setup do
-    root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.unique_integer([:positive])}")
+    root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(root, "lib"))
     previous = System.get_env("MENARD_ROOT")
     System.put_env("MENARD_ROOT", root)
@@ -65,7 +65,7 @@ defmodule Menard.MCPTest do
 
     response = call(Menard.MCP.Deps, %{verb: "add", spec: ~s({:dep, path: "dep"})})
 
-    refute response.isError
+    refute response.isError, inspect(response.content)
     assert File.read!(Path.join(root, "mix.exs")) =~ ~s({:dep, path: "dep"})
   end
 
@@ -187,7 +187,9 @@ defmodule Menard.MCPTest do
   end
 
   test "a symlink under the root that points outside it is refused", %{root: root} do
-    outside = Path.join(System.tmp_dir!(), "menard-outside-#{System.unique_integer([:positive])}")
+    outside =
+      Path.join(System.tmp_dir!(), "menard-outside-#{System.pid()}-#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(outside)
     on_exit(fn -> File.rm_rf!(outside) end)
     File.ln_s!(outside, Path.join(root, "lib/out"))

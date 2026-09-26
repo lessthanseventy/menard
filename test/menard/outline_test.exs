@@ -70,7 +70,7 @@ defmodule Menard.OutlineTest do
   end
 
   test "outline --json answers with the version, and line spans JSON can carry" do
-    dir = Path.join(System.tmp_dir!(), "menard-outline-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "menard-outline-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     on_exit(fn -> File.rm_rf!(dir) end)
     file = Path.join(dir, "a.ex")
