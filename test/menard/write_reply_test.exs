@@ -147,6 +147,18 @@ defmodule Menard.WriteReplyTest do
       assert File.read!(file) =~ ":a"
     end
 
+    test "a kept copy gone mid-prune does not fail the write that kept the next", %{tmp_dir: dir} do
+      # another menard pruning the same directory removes a copy between the listing and its stat;
+      # a link to nowhere is a copy that listed and will not stat
+      kept = Path.join([:filename.basedir(:user_cache, "menard"), "versions"])
+      File.mkdir_p!(kept)
+      gone = Path.join(kept, "gone-#{System.os_time()}")
+      File.ln_s!(Path.join(dir, "nowhere"), gone)
+      on_exit(fn -> File.rm(gone) end)
+
+      assert "sha256:" <> _ = Menard.remember("defmodule Gone do\nend\n")
+    end
+
     test "rename and move check every version before writing any file", %{tmp_dir: dir} do
       # rename and move write several files: every version is checked before any file is written
       a = write_file(dir, "ra.ex", "defmodule RA do\n  def old, do: 1\nend\n")
