@@ -92,7 +92,7 @@ defmodule Menard.FindTest do
   end
 
   test "the CLI: the kind once, a directory searched, a path that matches nothing named" do
-    dir = Path.join(System.tmp_dir!(), "menard-find-#{System.unique_integer([:positive])}")
+    dir = Path.join(System.tmp_dir!(), "menard-find-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(dir, "lib/deep"))
     on_exit(fn -> File.rm_rf!(dir) end)
     File.write!(Path.join(dir, "lib/deep/a.ex"), "defmodule A do\n  def go(x), do: x\nend\n")

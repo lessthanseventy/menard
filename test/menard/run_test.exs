@@ -65,7 +65,7 @@ defmodule Menard.RunTest do
 
   # The test's own source, so the reader sees the assertion in context without opening the file.
   test "with_sources/2 attaches each failing test's body, read from the file under the root" do
-    tmp = Path.join(System.tmp_dir!(), "menard-run-#{System.unique_integer([:positive])}")
+    tmp = Path.join(System.tmp_dir!(), "menard-run-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(tmp, "test/server"))
 
     # the failure says line 40: pad so the test's `test` line IS line 40
