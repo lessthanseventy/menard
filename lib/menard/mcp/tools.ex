@@ -15,22 +15,43 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def bounded(tool, params, frame, ms \\ nil) do
       ms = ms || deadline(tool)
+      caller = self()
+      tag = make_ref()
 
-      # a raise is an answer too, not a crash of the server's process
-      task =
-        Task.async(fn ->
-          try do
-            tool.call(params, frame)
-          rescue
-            e -> fail(frame, Exception.message(e))
-          end
+      # Monitored, not linked: in a linked Task, an exit the tool did not catch (or a process it had
+      # linked dying) took the server's own process with it. A raise, a throw or an exit is an answer,
+      # with the trace that says where in menard it came from.
+      {pid, monitor} =
+        spawn_monitor(fn ->
+          reply =
+            try do
+              tool.call(params, frame)
+            catch
+              kind, reason -> fail(frame, Exception.format(kind, reason, __STACKTRACE__))
+            end
+
+          send(caller, {tag, reply})
         end)
 
-      case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
-        {:ok, reply} ->
+      receive do
+        {^tag, reply} ->
+          Process.demonitor(monitor, [:flush])
           reply
 
-        _timeout ->
+        {:DOWN, ^monitor, :process, ^pid, reason} ->
+          fail(frame, "#{inspect(tool)} died: #{Exception.format_exit(reason)}")
+      after
+        ms ->
+          Process.exit(pid, :kill)
+          Process.demonitor(monitor, [:flush])
+
+          # an answer that came in as the clock ran out is not left in the server's mailbox
+          receive do
+            {^tag, _late} -> :ok
+          after
+            0 -> :ok
+          end
+
           fail(
             frame,
             "#{inspect(tool)} did not finish in #{ms / 1000}s. It may have written its file: read it before retrying"

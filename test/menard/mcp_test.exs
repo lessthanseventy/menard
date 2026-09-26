@@ -344,6 +344,34 @@ defmodule Menard.MCPTest do
     assert us < 2_000_000
   end
 
+  test "a tool that exits, or loses a process it linked, answers why; the door lives on" do
+    # the tool ran in a Task linked to the server: an exit it did not catch took the server's process
+    # with it, and one that was caught was reported as a timeout
+    defmodule Exits do
+      def call(%{how: :exit}, _frame), do: exit(:gave_up)
+
+      def call(%{how: :link}, _frame) do
+        spawn_link(fn -> exit(:helper_died) end)
+        Process.sleep(:infinity)
+      end
+
+      def call(%{how: :raise}, _frame), do: raise("menard bug")
+    end
+
+    text = &(&1.content |> hd() |> Map.fetch!("text"))
+
+    for {how, why} <- [exit: "gave_up", link: "helper_died", raise: "menard bug"] do
+      {:reply, response, _frame} = Reply.bounded(Exits, %{how: how}, Frame.new(), 2_000)
+      assert response.isError
+      assert text.(response) =~ why
+      refute text.(response) =~ "did not finish"
+    end
+
+    # a raise keeps where it came from: the trace is what fixes a bug in menard
+    {:reply, raised, _frame} = Reply.bounded(Exits, %{how: :raise}, Frame.new(), 2_000)
+    assert text.(raised) =~ "Exits.call/2"
+  end
+
   test "every tool answers through the deadline" do
     # every tool answers through bounded/4: its body is call/2, and execute/2 only puts a deadline on it
     for %{handler: tool} <- Menard.MCP.__components__(:tool) do
