@@ -23,8 +23,9 @@ PY
 printf '#!/usr/bin/env bash\necho "menard: not available in this checkout" >&2\nexit 1\n' > "$TEMPLATE/scripts/menard.sh"
 
 # Tlön's settings sandbox every Bash call, which is one more wall around the agent; its tests need
-# Postgres, whose socket the sandbox refuses (eperm) unless allowed.
-jq '.sandbox.network.allowUnixSockets = ["/run/postgresql"]' "$TEMPLATE/.claude/settings.json" > "$TEMPLATE/.claude/settings.json.new"
+# Postgres, whose socket the sandbox refuses (eperm). On Linux only allowAllUnixSockets lets it
+# through: the path list (allowUnixSockets) is still refused, tried in a bench.
+jq '.sandbox.network.allowAllUnixSockets = true' "$TEMPLATE/.claude/settings.json" > "$TEMPLATE/.claude/settings.json.new"
 mv "$TEMPLATE/.claude/settings.json.new" "$TEMPLATE/.claude/settings.json"
 
 export MISE_TRUSTED_CONFIG_PATHS="$(dirname "$TEMPLATE")"
