@@ -391,8 +391,10 @@ every edit (its blocks are a turn each and bought nothing measurable over H).
 - **Sonnet in M called tools that do not exist** (`Grep`, bare `find`, `bash`), 3 of 17 runs, none
   in A or B this round: a turn each. Open: whether manos' tool list or its skill text primes it.
 - **The reformat report**: one Edit miss in 102 runs (bug-matcherror B haiku: its old_string kept
-  the trailing whitespace the formatter had stripped from the test it wrote, after the hook said
-  so). bench5h's H, with no report, had two in fewer runs. Thin evidence that the report helps.
+  the trailing whitespace the formatter had stripped from the test it wrote). Whether the hook's
+  report reached it the trace cannot say: stream-json leaves hook output out unless asked
+  (`--include-hook-events`, on in the runner from here). bench5h's H, with no report, had two
+  misses in fewer runs. Thin evidence that the report helps.
 - **The one failure is the agent's**: haiku A change-signature kept `total/1` next to the new
   `total/2`, which the task said to replace.
 
