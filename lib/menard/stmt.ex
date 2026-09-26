@@ -145,7 +145,9 @@ defmodule Menard.Stmt do
   """
   @spec list(String.t(), String.t(), String.t(), keyword()) :: [String.t()] | {:error, String.t()}
   def list(source, name_arity, head, opts \\ []) do
-    with {:ok, clause} <- scope(source, name_arity, head, opts) do
+    # the module is a scope to match in, not one to list: a clause that is not there stays a miss
+    with {:ok, clause} <- scope(source, name_arity, head, opts),
+         nil <- clause[:miss] do
       source |> candidates(clause) |> Enum.map(& &1.text)
     end
   end
@@ -178,8 +180,16 @@ defmodule Menard.Stmt do
 
       case Enum.find_value(labels, &ok_block(source, &1)) do
         {:ok, node} -> {:ok, %{node: node, range: Menard.Source.range(node, source)}}
-        nil -> miss
+        # neither: the module itself, for `defstruct` or `@type t ::`; a miss there is the clause miss
+        nil -> module_scope(source, miss)
       end
+    end
+  end
+
+  defp module_scope(source, miss) do
+    case Menard.Source.parse(source) do
+      {:ok, ast} -> {:ok, %{node: ast, range: Menard.Source.range(ast, source), miss: miss}}
+      _ -> miss
     end
   end
 
@@ -194,8 +204,9 @@ defmodule Menard.Stmt do
 
       case matching(all, want) do
         [] ->
-          {:error,
-           "no statement `#{match}` in #{name_arity} — have: #{have(all)}" <> inside_string(all, match)}
+          clause[:miss] ||
+            {:error,
+             "no statement `#{match}` in #{name_arity} — have: #{have(all)}" <> inside_string(all, match)}
 
         [one] ->
           {:ok, one}
