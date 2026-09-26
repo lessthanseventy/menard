@@ -293,8 +293,7 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def call(params, frame) do
       with {:ok, file} <- Menard.MCP.resolve(params.file),
-           source <- File.read!(file),
-           out when is_binary(out) <- edit(params, source),
+           out when is_binary(out) <- edit(params, File.read!(file)),
            {:ok, reply} <-
              staged_write(file, out, params,
                did:
@@ -414,14 +413,14 @@ if Code.ensure_loaded?(Anubis.Server) do
     defp edit(%{verb: verb} = p, source) do
       opts = if n = p[:nth], do: [nth: n], else: []
       code = p[:code] || ""
-      args = [source, p.name_arity, p.head, p[:match] || ""]
+      match = p[:match] || ""
 
       case verb do
-        "insert_after" -> apply(Stmt, :insert_after, args ++ [code, opts])
-        "insert_before" -> apply(Stmt, :insert_before, args ++ [code, opts])
-        "replace" -> apply(Stmt, :replace, args ++ [code, opts])
-        "delete" -> apply(Stmt, :delete, args ++ [opts])
-        "comment" -> apply(Stmt, :comment, args ++ [p[:text], opts])
+        "insert_after" -> Stmt.insert_after(source, p.name_arity, p.head, match, code, opts)
+        "insert_before" -> Stmt.insert_before(source, p.name_arity, p.head, match, code, opts)
+        "replace" -> Stmt.replace(source, p.name_arity, p.head, match, code, opts)
+        "delete" -> Stmt.delete(source, p.name_arity, p.head, match, opts)
+        "comment" -> Stmt.comment(source, p.name_arity, p.head, match, p[:text], opts)
       end
     end
   end
@@ -673,24 +672,24 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(%{verb: verb} = params, frame) when verb in ["get", "list"] do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           source <- File.read!(file),
-           result <- read(verb, source, params) do
-        case result do
-          {:error, :missing} ->
-            fail(frame, missing(params))
+      case Menard.MCP.resolve(params.file) do
+        {:ok, file} ->
+          case read(verb, File.read!(file), params) do
+            {:error, :missing} ->
+              fail(frame, missing(params))
 
-          {:error, message} ->
-            fail(frame, message)
+            {:error, message} ->
+              fail(frame, message)
 
-          found when is_list(found) ->
-            ok(frame, %{"attributes" => Enum.map(found, fn {n, l} -> "@#{n} (line #{l})" end)})
+            found when is_list(found) ->
+              ok(frame, %{"attributes" => Enum.map(found, fn {n, l} -> "@#{n} (line #{l})" end)})
 
-          text ->
-            ok(frame, %{"value" => text})
-        end
-      else
-        {:error, message} -> fail(frame, message)
+            text ->
+              ok(frame, %{"value" => text})
+          end
+
+        {:error, message} ->
+          fail(frame, message)
       end
     end
 
@@ -824,8 +823,10 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     # no label among several: every one, not a refusal to pick (bench3 new-component.B.haiku)
     defp get(source, name, params, frame) do
-      case params[:label] || Block.get_all(source, name, where(params)) do
-        [_, _ | _] = all ->
+      all = if params[:label], do: [], else: Block.get_all(source, name, where(params))
+
+      case all do
+        [_, _ | _] ->
           ok(frame, %{"blocks" => all})
 
         _ ->
