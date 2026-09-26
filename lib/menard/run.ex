@@ -503,21 +503,25 @@ defmodule Menard.Run do
       # no run at all: a compile error in a test file — the errors are what matters, not the
       # last five lines (the stack trace under "cannot compile module")
       _ ->
-        case Regex.scan(~r/^\s*error: .*(?:\n(?!\s*error:).*)*?\n\s*└─ .*$/m, out) do
-          [] ->
-            # the last lines that say anything: a run stopped at its deadline ends in blank lines and the
-            # VM's shutdown notice, and what it was doing is just above them
-            out
-            |> String.split("\n")
-            |> Enum.reject(&(String.trim(&1) == ""))
-            |> Enum.take(-5)
-            |> Enum.join("\n")
+        compile_errors(out)
+    end
+  end
 
-          errors ->
-            Enum.map_join(errors, "\n", fn [e] ->
-              e |> String.split("\n") |> Enum.map_join("\n", &String.trim/1)
-            end)
-        end
+  defp compile_errors(out) do
+    case Regex.scan(~r/^\s*error: .*(?:\n(?!\s*error:).*)*?\n\s*└─ .*$/m, out) do
+      [] ->
+        # the last lines that say anything: a run stopped at its deadline ends in blank lines and the
+        # VM's shutdown notice, and what it was doing is just above them
+        out
+        |> String.split("\n")
+        |> Enum.reject(&(String.trim(&1) == ""))
+        |> Enum.take(-5)
+        |> Enum.join("\n")
+
+      errors ->
+        Enum.map_join(errors, "\n", fn [e] ->
+          e |> String.split("\n") |> Enum.map_join("\n", &String.trim/1)
+        end)
     end
   end
 end
