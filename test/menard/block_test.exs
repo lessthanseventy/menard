@@ -344,4 +344,13 @@ defmodule Menard.BlockTest do
     assert out =~ ~s(test "c, as written" do)
     refute out =~ "as asked"
   end
+
+  test "no name, a whole block as the code: the block names its macro" do
+    # long2 cart-refactor.B.haiku: block with no name and a whole `test "…" do … end`, refused as
+    # "a whole `` block"
+    code = "test \"c\" do\n  assert 3 == 3\nend"
+    assert Block.add(@src, nil, nil, code) =~ ~s(test "c" do\n)
+    out = Block.replace(@src, "", "test \"b\" do\n  assert 9 == 9\nend", label: "b")
+    assert out =~ ~s(test "b" do\n      assert 9 == 9)
+  end
 end

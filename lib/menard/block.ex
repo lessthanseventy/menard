@@ -15,6 +15,8 @@ defmodule Menard.Block do
   @doc "Replace the block's body with `code`, keeping the `name … do` line and the `end`."
   @spec replace(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, name, code, opts \\ []) do
+    name = named(name, code)
+
     with {:ok, _label, code, _opts} <- unwrapped(name, opts[:label], code, opts),
          :ok <- body_only(name, code),
          {:ok, node} <- one(source, name, opts) do
@@ -70,6 +72,8 @@ defmodule Menard.Block do
   # `defmodule` is not a block to add — a module with a `--label` renders `defmodule "Name"`, which
   # parses and then dies at compile with "invalid module name". `module add` is the verb for that.
   def add(source, name, label, body, opts \\ []) do
+    name = named(name, body)
+
     cond do
       # an MCP call may leave `name` out; `"label" do … end` is what that would write, and it doesn't parse
       name in [nil, ""] ->
@@ -107,6 +111,21 @@ defmodule Menard.Block do
   defp add_label(name, label, body) do
     if match?({:whole, _, _, _}, unwrap(name, body)), do: nil, else: label
   end
+
+  # No name given and a whole block as the code: the block says which macro (long2
+  # cart-refactor.B.haiku was refused as "a whole `` block")
+  defp named(name, code) when name in [nil, ""] do
+    case Sourceror.parse_string(code || "") do
+      # a do-block is the last argument, a keyword list: anything else is a body, not a whole block
+      {:ok, {call, _, [_ | _] = args} = node} when is_atom(call) and call != :__block__ ->
+        if is_list(List.last(args)) and body_range(node), do: to_string(call), else: name
+
+      _ ->
+        name
+    end
+  end
+
+  defp named(name, _code), do: name
 
   # Inside: on the line before the block's own `end`, one level in. After: below the anchor, at the
   # anchor's own column. Both leave a blank line, the way blocks are separated everywhere else.
