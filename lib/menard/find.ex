@@ -8,7 +8,7 @@ defmodule Menard.Find do
 
   alias Sourceror.Zipper
 
-  @def_kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
+  @def_kinds Menard.Tree.def_kinds()
 
   @type hit :: %{line: pos_integer(), column: pos_integer(), kind: atom(), text: String.t()}
 
