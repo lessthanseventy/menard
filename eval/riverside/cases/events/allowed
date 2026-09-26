@@ -1,0 +1,6 @@
+lib/**
+test/**
+config/**
+AGENTS.md
+README.md
+docs/**

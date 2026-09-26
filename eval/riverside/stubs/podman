@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "podman: not available here: this is an isolated copy of ex_riverside for an evaluation; production (myelin.us) is out of reach" >&2
+exit 1
