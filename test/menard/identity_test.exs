@@ -6,6 +6,11 @@ defmodule Menard.IdentityTest do
   # oracle is Menard.Test.Identity, which the hex corpus benchmark runs over real packages too.
   use ExUnit.Case, async: true
 
+  # The slowest case, clause.ex's stmt check (635 edits), takes ~6s alone at load 4 (15.6s before
+  # the oracle stopped holding every output). A gate at load ~40 stretched it 4x, past ExUnit's 60s;
+  # 120s is ~5x that stretch of today's cost, and still stops a hang.
+  @moduletag timeout: 120_000
+
   alias Menard.Test.Identity
 
   @root Path.expand("../..", __DIR__)

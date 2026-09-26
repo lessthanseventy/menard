@@ -16,20 +16,24 @@ defmodule Menard.Test.Identity do
   `:formatted` (different bytes that format the same), `:changed` (a miss) or `:refused`.
   """
   def run(source, check) do
-    edits = edits(source, check)
-    for {label, out} <- edits, do: {label, outcome(out, source, formatted(source))}
+    formatted = formatted(source)
+    edits(source, check, &outcome(&1, source, formatted))
   end
 
   @doc "The edits of `check` that changed the file, each with the hunks it changed: what a miss was."
   def changes(source, check) do
-    edits = edits(source, check)
+    formatted = formatted(source)
 
-    for {label, out} <- edits,
-        outcome(out, source, formatted(source)) == :changed,
-        do: {label, Menard.Diff.hunks(source, out)}
+    seen = fn out ->
+      if outcome(out, source, formatted) == :changed, do: Menard.Diff.hunks(source, out)
+    end
+
+    for {label, hunks} <- edits(source, check, seen), hunks, do: {label, hunks}
   end
 
-  defp edits(source, :clause) do
+  # Each edit's output is judged (`seen`) as it is made, and only the verdict kept: 635 copies of
+  # clause.ex held to the end made every GC sweep the parse cache's AST again, twice the time.
+  defp edits(source, :clause, seen) do
     for {mod, node} <- modules(source),
         {kind, meta, [head, [{_do, body} | _]]} <- Clause.module_body(node),
         kind in @kinds and meta[:do] != nil,
@@ -37,11 +41,11 @@ defmodule Menard.Test.Identity do
         is_binary(text) do
       {name, arity, args} = head_of(head)
       out = Clause.replace_body(source, "#{mod}.#{name}/#{arity}", args, text)
-      {"#{mod}.#{name}/#{arity} `#{args}`", out}
+      {"#{mod}.#{name}/#{arity} `#{args}`", seen.(out)}
     end
   end
 
-  defp edits(source, :attr) do
+  defp edits(source, :attr, seen) do
     for {mod, node} <- modules(source),
         # a module the verbs refuse (defined twice) has nothing to list
         listed = Attr.list(source, module: mod),
@@ -51,11 +55,11 @@ defmodule Menard.Test.Identity do
         {:@, _, [{^name, _, [value]}]} <- Clause.module_body(node),
         text = slice(source, value),
         is_binary(text) do
-      {"#{mod} @#{name}", Attr.set(source, name, text, module: mod)}
+      {"#{mod} @#{name}", seen.(Attr.set(source, name, text, module: mod))}
     end
   end
 
-  defp edits(source, :block) do
+  defp edits(source, :block, seen) do
     for {mod, _node} <- modules(source),
         listed = Block.list(source, module: mod),
         is_list(listed),
@@ -63,11 +67,11 @@ defmodule Menard.Test.Identity do
         body = Block.get(source, name, module: mod, label: label),
         is_binary(body) do
       out = Block.replace(source, name, body, module: mod, label: label)
-      {"#{mod} #{name} #{inspect(label)}", out}
+      {"#{mod} #{name} #{inspect(label)}", seen.(out)}
     end
   end
 
-  defp edits(source, :stmt) do
+  defp edits(source, :stmt, seen) do
     for {mod, node} <- modules(source),
         {kind, _meta, [head | _]} <- Clause.module_body(node),
         kind in @kinds,
@@ -76,7 +80,7 @@ defmodule Menard.Test.Identity do
         statements = Stmt.list(source, na, args),
         is_list(statements),
         text <- Enum.uniq(statements) do
-      {"#{na} `#{String.slice(text, 0, 50)}`", Stmt.replace(source, na, args, text, text)}
+      {"#{na} `#{String.slice(text, 0, 50)}`", seen.(Stmt.replace(source, na, args, text, text))}
     end
   end
 

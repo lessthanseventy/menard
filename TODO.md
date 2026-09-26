@@ -8,10 +8,6 @@ commit lands.
   _build/dev/lib/menard/ebin/…)" at lib/menard/mcp/tools.ex:700/800/861 (Block, Deps, Module). Three runs
   after (mix precommit direct, run check, each precommit stage alone) had none. Suspect bin_test's
   fresh_build! rebuilding the dev build while the edited build was loading.
-- `identity_test` "lib/menard/clause.ex stmt replace with a statement's own text" timed out at
-  ExUnit's 60s twice under the full gate (2026-09-26 ~04:45 and ~05:08, load average ~40 from
-  parallel agents) and passed alone (320 identity tests green) and in the next gate. It is the
-  slowest identity case; it has no margin under a loaded machine.
 - A write whose host formatter cannot run answers a crash dump for the reason. `clause move` in a
   Tlön copy whose mise.toml was not trusted (the eval bench, 2026-09-26): the file was moved, and the
   reply said `not formatted — no match of right hand side value: {:EXIT, {:badarg, [{:erlang,
