@@ -26,6 +26,44 @@ defmodule Menard.MCPTest do
     response
   end
 
+  # The server as Claude Code runs it: cwd the plugin root, stdin held open, until its answer to
+  # request `id` is out. A Port, not a pipe with a `sleep` holding stdin: no build first so the
+  # answer lands inside a window, and no window to wait out once it has.
+  defp serve(script, env, messages, id) do
+    env = [{"BIN", Path.join(@root, "bin/menard")}, {"MIX_ENV", "dev"} | env]
+
+    port =
+      Port.open({:spawn_executable, "/bin/sh"}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        {:line, 65_536},
+        args: ["-c", script],
+        cd: @root,
+        env: for({k, v} <- env, do: {String.to_charlist(k), String.to_charlist(v)})
+      ])
+
+    Port.command(port, Enum.map_join(messages, &(JSON.encode!(&1) <> "\n")))
+    out = answer(port, ~s("id":#{id}), "")
+    Port.close(port)
+    out
+  end
+
+  # no deadline of its own: a server that never answers is the test's timeout
+  defp answer(port, needle, out) do
+    receive do
+      {^port, {:data, {:eol, line}}} ->
+        out = out <> line <> "\n"
+        if out =~ needle, do: out, else: answer(port, needle, out)
+
+      {^port, {:data, {:noeol, part}}} ->
+        answer(port, needle, out <> part)
+
+      {^port, {:exit_status, status}} ->
+        flunk("the server exited #{status} before its answer #{needle}:\n#{out}")
+    end
+  end
+
   test "module replace swaps one module of several; an unknown verb is refused, not treated as add", %{
     root: root
   } do
@@ -91,44 +129,25 @@ defmodule Menard.MCPTest do
     assert server["env"]["MENARD_ROOT"] == "${CLAUDE_PROJECT_DIR}"
     assert server["args"] == ["mcp"]
 
-    messages =
-      [
-        %{
-          jsonrpc: "2.0",
-          id: 1,
-          method: "initialize",
-          params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
-        },
-        %{jsonrpc: "2.0", method: "notifications/initialized"},
-        %{
-          jsonrpc: "2.0",
-          id: 2,
-          method: "tools/call",
-          params: %{name: "outline", arguments: %{file: "lib/a.ex"}}
-        }
-      ]
-      |> Enum.map_join("\n", &JSON.encode!/1)
+    messages = [
+      %{
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+      },
+      %{jsonrpc: "2.0", method: "notifications/initialized"},
+      %{
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: %{name: "outline", arguments: %{file: "lib/a.ex"}}
+      }
+    ]
 
-    input = Path.join(dir, "in.jsonl")
-    File.write!(input, messages <> "\n")
+    # as Claude Code starts it: cwd the plugin root, the project in MENARD_ROOT
+    out = serve(~S[exec "$BIN" mcp], [{"MENARD_ROOT", dir}], messages, 2)
 
-    # built first, so the server answers inside the window below instead of compiling through it
-    System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
-
-    # as Claude Code starts it: cwd the plugin root, the project in MENARD_ROOT, stdin held open briefly
-    {out, _} =
-      System.cmd("sh", ["-c", ~S[(cat "$IN"; sleep 5) | "$BIN" mcp]],
-        cd: @root,
-        env: [
-          {"MENARD_ROOT", dir},
-          {"MIX_ENV", "dev"},
-          {"IN", input},
-          {"BIN", Path.join(@root, "bin/menard")}
-        ],
-        stderr_to_stdout: true
-      )
-
-    assert out =~ ~s("id":2)
     # no failed call and no crash; the word "error" alone is in the server's own instructions
     refute out =~ ~s("isError":true)
     refute out =~ "** ("
@@ -290,38 +309,30 @@ defmodule Menard.MCPTest do
 
   test "stdout carries only the protocol, even with debug logs on", %{root: root} do
     # the task sets this up itself: a host that takes menard as a dep never loads menard's config/
-    input = Path.join(root, "in.jsonl")
+    initialize = %{
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+    }
 
-    File.write!(
-      input,
-      JSON.encode!(%{
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
-      }) <> "\n"
-    )
+    err = Path.join(root, "err.log")
 
-    System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
-
-    {out, _} =
-      System.cmd("sh", ["-c", ~S[(cat "$IN"; sleep 3) | "$BIN" mcp 2>"$ERR"]],
-        cd: @root,
-        env: [
-          {"MENARD_ROOT", root},
-          {"MENARD_LOG_LEVEL", "debug"},
-          {"MIX_ENV", "dev"},
-          {"IN", input},
-          {"ERR", Path.join(root, "err.log")},
-          {"BIN", Path.join(@root, "bin/menard")}
-        ]
+    # up to the answer to a second request: the logger writes stderr from a process of its own, and
+    # the first frame's lines are well out by then
+    out =
+      serve(
+        ~S[exec "$BIN" mcp 2>"$ERR"],
+        [{"MENARD_ROOT", root}, {"MENARD_LOG_LEVEL", "debug"}, {"ERR", err}],
+        [initialize, %{jsonrpc: "2.0", id: 2, method: "ping"}],
+        2
       )
 
     lines = String.split(out, "\n", trim: true)
     assert [_ | _] = lines
     for line <- lines, do: assert({:ok, _} = JSON.decode(line), "not protocol on stdout: #{line}")
     # and the logs did happen, where they belong
-    assert File.read!(Path.join(root, "err.log")) =~ "[debug]"
+    assert File.read!(err) =~ "[debug]"
   end
 
   test "a stale version is refused through the door, and force writes anyway", %{root: root} do
@@ -366,20 +377,23 @@ defmodule Menard.MCPTest do
   end
 
   test "a tool that never returns still gets an answer out of the door, in time" do
-    # a verb stuck on a lock, or a format that never returns, must still get an answer out of the door
+    # a verb stuck on a lock, or a format that never returns: the answer names the deadline it was
+    # given, and the stuck tool is killed, not left running. No clock bound: a deadline not kept
+    # hangs this test, and ExUnit's own timeout fails it.
     defmodule Stuck do
-      def call(_params, frame) do
+      def call(%{test: test}, frame) do
+        send(test, {:stuck, self()})
         Process.sleep(:infinity)
         {:reply, :never, frame}
       end
     end
 
-    {us, {:reply, response, _frame}} =
-      :timer.tc(fn -> Reply.bounded(Stuck, %{}, Frame.new(), 200) end)
+    {:reply, response, _frame} = Reply.bounded(Stuck, %{test: self()}, Frame.new(), 200)
 
     assert response.isError
-    assert response.content |> hd() |> Map.fetch!("text") =~ "did not finish in"
-    assert us < 2_000_000
+    assert response.content |> hd() |> Map.fetch!("text") =~ "did not finish in 0.2s"
+    assert_received {:stuck, stuck}
+    refute Process.alive?(stuck)
   end
 
   test "a tool that exits, or loses a process it linked, answers why; the door lives on" do
@@ -440,32 +454,18 @@ defmodule Menard.MCPTest do
 
   test "the door answers under --frozen too", %{root: root} do
     # `--frozen` runs the last build with no mix project, and app.start in the mcp task died there
-    input = Path.join(root, "in.jsonl")
+    initialize = %{
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+    }
 
-    File.write!(
-      input,
-      JSON.encode!(%{
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
-      }) <> "\n"
-    )
+    # --frozen runs a build that must be there already: in a fresh checkout nothing else made it
+    {_, 0} = System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
 
-    System.cmd(Path.join(@root, "bin/menard"), ["version"], env: [{"MIX_ENV", "dev"}])
-
-    {out, _} =
-      System.cmd("sh", ["-c", ~S[(cat "$IN"; sleep 3) | "$BIN" --frozen mcp 2>/dev/null]],
-        cd: @root,
-        env: [
-          {"MENARD_ROOT", root},
-          {"MIX_ENV", "dev"},
-          {"IN", input},
-          {"BIN", Path.join(@root, "bin/menard")}
-        ]
-      )
-
-    assert out =~ ~s("id":1)
+    assert serve(~S[exec "$BIN" --frozen mcp 2>/dev/null], [{"MENARD_ROOT", root}], [initialize], 1) =~
+             ~s("id":1)
   end
 
   test "attr set names the attribute once, whether or not it was given with its @", %{root: root} do
