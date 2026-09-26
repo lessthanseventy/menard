@@ -37,6 +37,14 @@ defmodule Menard.BlockTest do
     assert Block.get(@src, "schema") =~ "field(:x, :string)"
   end
 
+  test "a block name the source never mentions makes no atom: the VM never collects one" do
+    name = "never_block_#{System.unique_integer([:positive])}"
+    assert {:error, _} = Block.get(@src, name)
+    assert Block.get_all(@src, name) == []
+    assert Block.add(@src, name, "x", "assert true") =~ ~s(#{name} "x" do)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
+  end
+
   test "a label addresses one of several blocks sharing a name" do
     out = Block.replace(@src, "describe", "test \"c\" do\n  assert 3 == 3\nend", label: "two")
 

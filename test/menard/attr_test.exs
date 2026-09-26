@@ -25,7 +25,16 @@ defmodule Menard.AttrTest do
 
   test "get reads the value exactly as written, single line or block" do
     assert Attr.get(@src, "kinds") == "[:a, :b]"
-    assert Attr.get(@src, :hints) =~ ~s({"x", "one"})
+    # its lines relative to the attribute, as `set` takes a value
+    assert Attr.get(@src, :hints) == ~s([\n  {"x", "one"},\n  {"y", "two"}\n])
+  end
+
+  test "get returns the value's own text, not a reprint at the default line length" do
+    # a project formatted at a longer line_length writes this on one line; a reprint broke it up
+    long = "[" <> Enum.map_join(1..14, ", ", &":name_#{&1}") <> "]"
+    src = "defmodule A do\n  @names #{long}\nend\n"
+
+    assert Attr.get(src, "names") == long
   end
 
   test "a leading @ on the name is accepted — it is how the attribute is written" do
@@ -79,6 +88,13 @@ defmodule Menard.AttrTest do
 
   test "an attribute that isn't there reads as missing" do
     assert Attr.get(@src, "nope") == {:error, :missing}
+  end
+
+  test "a name the module never sets makes no atom: the VM never collects one" do
+    name = "never_set_#{System.unique_integer([:positive])}"
+    assert Attr.get(@src, name) == {:error, :missing}
+    assert {:error, _} = Attr.delete(@src, name)
+    assert_raise ArgumentError, fn -> String.to_existing_atom(name) end
   end
 
   test "list names what the module sets, with lines" do
