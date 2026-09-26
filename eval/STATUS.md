@@ -268,3 +268,34 @@ wrong) and correctness catches. Whether that is worth 2x is Andrew's call; batch
 the per-site turns that make up most of it.
 - 19:44 bench4 started on 7d5f5df (every fix through the long pilot): same matrix as bench3,
   to measure the fixes against bench3's numbers.
+
+## bench4 verdict (68 runs, menard pinned at 7d5f5df): what the fixes since bench3 changed
+
+Same matrix as bench3, 1 run per cell; A is the control (no menard, nothing changed for it).
+
+| model · arm | turns | $/run | context/run | failed calls | Reads after last edit | clean |
+|---|---|---|---|---|---|---|
+| haiku A | 10.9 → 11.1 | 0.070 → 0.070 | 279k → 249k | 6 → 6 | 0.47 → 0.35 | 12 → 13 /17 |
+| haiku B | 13.1 → 13.0 | 0.082 → 0.086 | 349k → 380k | 13 → 11 | **1.41 → 0.47** | 16 → **17** /17 |
+| sonnet A | 4.9 → 5.2 | 0.053 → 0.061 | 69k → 74k | 0 → 0 | 0 → 0 | 14 /17 |
+| sonnet B | **9.2 → 7.7** | **0.092 → 0.086** | **155k → 135k** | **8 → 2** | 0 → 0 | 17 /17 |
+
+- **Every run passed, in both rounds.** B is clean on all 34 runs; A on 27 of 34.
+- **The "no need to Read it back" note worked**: haiku B's reads after its last edit fell 3x, to
+  A's level. The `outline`-after-Read guidance did not (0.53 → 0.47 a run).
+- **Sonnet: the gap to A roughly halved**: +2.5 turns and +41% cost (was +4.3 and +74%); failed
+  calls 8 → 2. On bug-matcherror, doctest-line and explore-config B tied or beat A on turns.
+- **Haiku: no net change in turns or cost**, because two new menard bugs cost what the fixes
+  saved: stmt's module fallback (from a63ec0b) put a test inside a test in bug-receipt-total.B
+  (20 turns), and Phoenix `attr` lines not moving with their def broke new-component.B (27 turns).
+  Both fixed mid-round (90b3f6d, 43368f0), so bench4 does not measure them.
+- **Still the biggest costs**: change-signature for haiku (26 turns in all four rounds against A's
+  15-18: one clause edit per call site), and the guard blocking Edits on test files (6 haiku and
+  2 sonnet B runs in bench4, a turn each).
+
+Found and fixed during bench4 (not in its numbers): b206f91 (Sourceror ends an interpolated
+string with escaped quotes one column short, so an insert after such a statement went INSIDE the
+string: silent, parse-check-proof corruption), 90b3f6d, 43368f0, 6d19a61, ab25192, 0380006.
+
+For Andrew: (1) batch edits, the one lever left on the per-site turn cost; (2) whether the guard
+should cover test files (sonnet's first move for a new test is Edit); (3) `file` vs `file_path`.
