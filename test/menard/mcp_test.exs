@@ -512,4 +512,20 @@ defmodule Menard.MCPTest do
     refute call(Menard.MCP.Attr, %{verb: "replace", file: "lib/a.ex", name: "t", value: "2"}).isError
     assert File.read!(Path.join(root, "lib/a.ex")) =~ "@t 2"
   end
+
+  test "block get with no label, among several, answers with every one", %{root: root} do
+    File.write!(
+      Path.join(root, "lib/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"a\" do\n    assert 1\n  end\n\n  test \"b\" do\n    assert 2\n  end\nend\n"
+    )
+
+    response = call(Menard.MCP.Block, %{verb: "get", file: "lib/a_test.exs", name: "test"})
+    refute response.isError
+    blocks = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!() |> Map.fetch!("blocks")
+    assert Enum.map(blocks, & &1["label"]) == ["a", "b"]
+    response = call(Menard.MCP.Block, %{verb: "get", file: "lib/a_test.exs", name: "test", label: "b"})
+
+    assert response.content |> hd() |> Map.fetch!("text") |> JSON.decode!() |> Map.fetch!("body") ==
+             "assert 2"
+  end
 end

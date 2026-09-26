@@ -144,6 +144,20 @@ defmodule Menard.Block do
     end
   end
 
+  @doc "Every block named `name`, as `%{label, line, body}` in source order: what a get with no label, among several, means."
+  @spec get_all(String.t(), String.t() | atom(), keyword()) :: [map()] | {:error, String.t()}
+  def get_all(source, name, opts \\ []) do
+    with {:ok, blocks} <- blocks(source, opts) do
+      for node <- blocks, call_name(node) == to_atom(name) do
+        %{
+          label: label(node),
+          line: start_line(node),
+          body: get(source, name, Keyword.put(opts, :label, label(node)))
+        }
+      end
+    end
+  end
+
   @doc "Every `do`-block macro call in the module, as `{name, label | nil, line}` in source order."
   @spec list(String.t(), keyword()) :: [{atom(), String.t() | nil, pos_integer()}] | {:error, String.t()}
   def list(source, opts \\ []) do

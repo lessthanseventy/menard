@@ -320,4 +320,13 @@ defmodule Menard.BlockTest do
     assert {:error, message} = Block.add(@src, "test", nil, "test \"z\" do\n  assert f(1))\nend")
     assert message =~ "does not parse"
   end
+
+  test "get_all: every block of the name, each with its label, line and body" do
+    # bench3 new-component.B.haiku asked block for the tests with no label and was told to pick one
+    src =
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"a\" do\n    assert 1\n  end\n\n  test \"b\" do\n    assert 2\n  end\nend\n"
+
+    assert [%{label: "a", line: 4, body: "assert 1"}, %{label: "b", line: 8, body: "assert 2"}] =
+             Block.get_all(src, "test")
+  end
 end

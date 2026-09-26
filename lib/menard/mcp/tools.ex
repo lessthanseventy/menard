@@ -698,9 +698,21 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     def call(%{verb: "get"} = params, frame) do
-      with {:ok, file} <- Menard.MCP.resolve(params.file),
-           text when is_binary(text) <- Block.get(File.read!(file), params[:name] || "", where(params)) do
-        ok(frame, %{"body" => text})
+      with {:ok, file} <- Menard.MCP.resolve(params.file) do
+        source = File.read!(file)
+        name = params[:name] || ""
+
+        # no label among several: every one, not a refusal to pick (bench3 new-component.B.haiku)
+        case params[:label] || Block.get_all(source, name, where(params)) do
+          [_, _ | _] = all ->
+            ok(frame, %{"blocks" => all})
+
+          _ ->
+            case Block.get(source, name, where(params)) do
+              text when is_binary(text) -> ok(frame, %{"body" => text})
+              {:error, message} -> fail(frame, message)
+            end
+        end
       else
         {:error, message} -> fail(frame, message)
       end
