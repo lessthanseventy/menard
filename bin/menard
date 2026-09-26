@@ -6,7 +6,8 @@ set -euo pipefail
 # relative path against (Menard.caller_dir/0) — rides MENARD_CWD. A mise task with `dir =` set has
 # already moved us, and left the real one in MISE_ORIGINAL_CWD.
 export MENARD_CWD="${MENARD_CWD:-${MISE_ORIGINAL_CWD:-$PWD}}"
-cd -- "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# readlink: `./menard` at the root links here, and its `..` is the root's parent
+cd -- "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd)"
 
 # menard runs on ITS toolchain (.tool-versions), not whatever the caller's PATH puts first: a host's
 # newer Elixir rebuilt menard from scratch on every switch, and an older one cannot run it at all.
