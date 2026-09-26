@@ -37,6 +37,7 @@ def sh(cmd, cwd, timeout=600, env=None):
     p = subprocess.Popen(cmd, cwd=cwd, shell=isinstance(cmd, str), stdout=subprocess.PIPE,
                          stderr=subprocess.STDOUT, text=True, env=env, stdin=subprocess.DEVNULL,
                          start_new_session=True)
+    LIVE.add(p)
     try:
         out, _ = p.communicate(timeout=timeout)
         return p.returncode, out
@@ -44,6 +45,21 @@ def sh(cmd, cwd, timeout=600, env=None):
         kill_group(p)
         out, _ = p.communicate()
         return 124, (out or "") + f"\nFAIL: timed out after {timeout}s"
+    finally:
+        LIVE.discard(p)
+
+
+# Every process group the runner started and has not reaped: agents and checks run in their own
+# (so a timeout takes their mix too), which also puts them out of reach of a kill aimed at the
+# runner. Stopping the runner mid-round left an agent running; its workspace deleted, it wrote its
+# fix into the rebuilt template, and every run after started from it (bench5h, 21:44).
+LIVE = set()
+
+
+def stop(signum, _frame):
+    for p in list(LIVE):
+        kill_group(p)
+    sys.exit(128 + signum)
 
 
 def kill_group(p):
@@ -57,12 +73,16 @@ def build_template(suite, force=False):
     """The fixture, deps fetched and compiled in dev and test, so a run starts warm."""
     if TEMPLATE.exists() and not force:
         return
+    if TEMPLATE.exists():
+        subprocess.run(["chmod", "-R", "u+w", str(TEMPLATE)], check=True)
     shutil.rmtree(TEMPLATE, ignore_errors=True)
     shutil.copytree(suite / "fixture", TEMPLATE)
     for cmd in ["mix deps.get", "mix compile", "MIX_ENV=test mix compile", "mix test"]:
         code, out = sh(cmd, TEMPLATE, timeout=1200)
         if code != 0:
             sys.exit(f"template: `{cmd}` failed:\n{out[-3000:]}")
+    # nothing may write into the copy every run starts from, an agent that wandered here included
+    subprocess.run(["chmod", "-R", "a-w", str(TEMPLATE)], check=True)
 
 
 def build_plugins(force=False):
@@ -99,6 +119,7 @@ def prepare(case_dir, ws):
     shutil.rmtree(ws, ignore_errors=True)
     ws.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["cp", "-a", "--reflink=auto", str(TEMPLATE), str(ws)], check=True)
+    subprocess.run(["chmod", "-R", "u+w", str(ws)], check=True)
     setup = case_dir / "setup.sh"
     if setup.exists():
         code, out = sh(["bash", str(setup)], ws)
@@ -261,6 +282,7 @@ def run_agent(cmd, ws, out, env):
     True when it timed out."""
     p = subprocess.Popen(cmd, cwd=ws, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                          env=env, start_new_session=True)
+    LIVE.add(p)
     try:
         p.wait(timeout=TIMEOUT)
         return False
@@ -268,6 +290,8 @@ def run_agent(cmd, ws, out, env):
         kill_group(p)
         p.wait()
         return True
+    finally:
+        LIVE.discard(p)
 
 
 def check(check_dir, ws):
@@ -397,6 +421,8 @@ def main():
     ap.add_argument("--suite", default=str(EVAL), help="a dir holding fixture/ and cases/")
     ap.add_argument("--stop-at", default="", help="HH:MM local; start no run after it")
     a = ap.parse_args()
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(sig, stop)
 
     suite = Path(a.suite).resolve()
     build_template(suite, a.rebuild)
