@@ -166,12 +166,19 @@ defmodule Menard.Run do
   git tree id, the same for the same files whatever HEAD is. A green `check` stamps it in the repo's
   git dir (`green_stamp/1`), and the commit hook (hooks/commit-gate.sh, which computes it the same
   way) skips a gate over files it already passed. nil outside a git repo.
+
+  `git add` into the scratch index writes each file's blob into the repo's `.git/objects`, as any
+  `git add` does: unreferenced, they stay loose objects until `git gc` prunes them.
   """
   def tree(dir) do
-    # a scratch index in the git dir: one under a TMPDIR inside the project would be one of its files
+    # a scratch index in the git dir: one under a TMPDIR inside the project would be one of its files.
+    # Named by the OS pid, like the hook's (`$$`), so no other live process's is the same file:
+    # `System.unique_integer` is unique in one VM only, and fresh VMs draw near the same numbers. The
+    # integer after the pid keeps two calls in one VM (the MCP server's) apart.
     case System.cmd("git", ["-C", dir, "rev-parse", "--absolute-git-dir"], stderr_to_stdout: true) do
       {git_dir, 0} ->
-        tree(dir, Path.join(String.trim(git_dir), "menard-index-#{System.unique_integer([:positive])}"))
+        index = "menard-index-#{System.pid()}-#{System.unique_integer([:positive])}"
+        tree(dir, Path.join(String.trim(git_dir), index))
 
       _ ->
         nil
