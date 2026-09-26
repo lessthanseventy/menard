@@ -13,6 +13,16 @@ from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
 ARMS = ["A", "B", "M", "H", "L", "C"]
+ARM_TEXT = {
+    "A": "no menard",
+    # B is menard as shipped at the round's commit: through bench5 the MCP tools, the guard hook and
+    # the skill; from bench6 the formatting hook alone (69059a4)
+    "B": "menard as shipped (bench1-5: MCP tools, guard hook, skill; bench6 on: the formatting hook)",
+    "M": "menard's hook plus manos (the MCP tools and their skill)",
+    "H": "only the format-and-parse-check hook",
+    "L": "B with its MCP tools always loaded",
+    "C": "menard without its hooks",
+}
 MODELS = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5-5", "claude-fable-5-1"]
 
 
@@ -142,8 +152,8 @@ def grouped(rows, keyf):
 def main():
     rounds = sys.argv[1:] or ["round1"]
     rows = load(rounds)
-    md = [f"# menard eval report\n\nRounds: {', '.join(rounds)}. {len(rows)} runs. Arms: A no menard, "
-          "B full menard (MCP, guard hook, skill), H only the format-and-parse-check hook, L = B with its MCP tools always loaded, C menard without its hooks.\n\n"
+    md = [f"# menard eval report\n\nRounds: {', '.join(rounds)}. {len(rows)} runs. Arms: "
+          + ", ".join(f"{a} {ARM_TEXT[a]}" for a in ARMS if any(r["arm"] == a for r in rows)) + ".\n\n"
           "`pass`: the case's check (hidden tests, compile with warnings as errors, task-specific greps). "
           "`clean`: passed, touched only the files the task needs, and `mix format --check-formatted` holds. "
           "`context tok`: input + cache read + cache write, summed over the run.\n"]

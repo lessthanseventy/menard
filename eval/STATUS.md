@@ -366,3 +366,35 @@ structural edits and large-file reads where they win, and drop the guard that fo
 every edit (its blocks are a turn each and bought nothing measurable over H).
 - 22:56 bench6 started on 4f7bb1e: menard is hook-only now (69059a4), the tools are manos.
   Arms A (none), B (menard as shipped: the hook), M (menard + manos). 102 runs.
+- 23:38 bench6 finished: 102 runs, 101 pass.
+
+### bench6 verdict (hook-only menard, 4f7bb1e)
+
+| model | arm | pass | clean | turns | cost/run | vs A |
+|---|---|---|---|---|---|---|
+| haiku | A | 16/17 | 11/17 | 10.3 | 0.068 | |
+| haiku | B | 17/17 | **17/17** | 11.0 | 0.074 | +9% |
+| haiku | M | 17/17 | **17/17** | 10.4 | 0.070 | +4% |
+| sonnet | A | 17/17 | 14/17 | 4.9 | 0.054 | |
+| sonnet | B | 17/17 | **17/17** | 4.7 | 0.057 | +5% |
+| sonnet | M | 17/17 | **17/17** | 6.2 | 0.073 | +35% |
+
+- **The hook alone makes every run clean, for 5-9%.** B was clean on all 34; A left files
+  unformatted in 8 of its 33 passes (haiku 5, sonnet 3), mostly where the agent edited by shell:
+  sonnet's sed rename-across and change-signature, formatted by B's Bash hook at +$0.002-0.006.
+  One bench, one run per cell: the 5-9% is within the case-to-case noise (sonnet's attrs was
+  $0.048 in A and $0.112 in B for a whole-file read of the same 1,016 lines the hook never saw).
+- **manos pays for haiku on a rename and costs sonnet a third more.** haiku rename-across: M $0.048
+  in 7 turns (one `rename`) against A $0.135 / B $0.130 in ~20. Sonnet reached for the tools on
+  small edits (`find` on a one-line change, `clause` for a component) and paid +35% overall for
+  nothing the hook did not already give; on rename-across it used sed like the others.
+- **Sonnet in M called tools that do not exist** (`Grep`, bare `find`, `bash`), 3 of 17 runs, none
+  in A or B this round: a turn each. Open: whether manos' tool list or its skill text primes it.
+- **The reformat report**: one Edit miss in 102 runs (bug-matcherror B haiku: its old_string kept
+  the trailing whitespace the formatter had stripped from the test it wrote, after the hook said
+  so). bench5h's H, with no report, had two in fewer runs. Thin evidence that the report helps.
+- **The one failure is the agent's**: haiku A change-signature kept `total/1` next to the new
+  `total/2`, which the task said to replace.
+
+**Verdict**: hook-only is the right default. manos stays opt-in; it earns its keep for a weaker
+model on renames across files, not for a capable one on everyday edits.
