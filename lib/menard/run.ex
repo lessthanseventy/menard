@@ -304,7 +304,9 @@ defmodule Menard.Run do
 
     {out, status} = Menard.host_mix(dir, args, env: [{"MIX_ENV", nil}], timeout: left)
     keep(dir, args, out)
-    {out, status}
+    # uncoloured, once, for every parser: `config :elixir, :ansi_enabled, true` colours ExUnit's
+    # report even into this pipe, and `mix format --check-formatted` colours its list anyway
+    {String.replace(out, ~r/\e\[[0-9;]*m/, ""), status}
   end
 
   # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
@@ -545,13 +547,13 @@ defmodule Menard.Run do
     end
   end
 
-  # `mix format --check-formatted`'s list of files, colored even when piped, each with its diff after
+  # `mix format --check-formatted`'s list of files, each with its diff after
   defp unformatted(out, dir) do
     case String.split(out, "The following files are not formatted:", parts: 2) do
       [_, rest] ->
         root = Path.expand(dir) <> "/"
 
-        for line <- rest |> String.replace(~r/\e\[[0-9;]*m/, "") |> String.split("\n"),
+        for line <- String.split(rest, "\n"),
             path = String.trim(line),
             path =~ ~r/\.(ex|exs|heex)$/,
             do: %{kind: "format", message: "not formatted", at: String.replace_prefix(path, root, "")}
