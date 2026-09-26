@@ -415,7 +415,7 @@ defmodule Menard.Clause do
   `:top`/`:bottom` override that with the module's first/last definition; an empty module takes
   the code just inside. `module` is `"Mod.Name"`, or nil in a file with exactly one module.
   """
-  @spec insert_at(String.t(), String.t() | nil, :top | :bottom | String.t() | nil, String.t()) ::
+  @spec insert_at(String.t(), String.t() | nil, :top | :bottom | nil, String.t()) ::
           String.t() | {:error, String.t()}
   def insert_at(source, module, where, code) do
     with {:ok, ast} <- parse(source),
@@ -505,9 +505,7 @@ defmodule Menard.Clause do
   end
 
   defp normalize_where(where) when where in [:top, :bottom], do: where
-  defp normalize_where("top"), do: :top
-  defp normalize_where("bottom"), do: :bottom
-  defp normalize_where(_none), do: nil
+  defp normalize_where(nil), do: nil
 
   defp private_kind?(kind), do: kind in [:defp, :defmacrop, :defguardp]
 

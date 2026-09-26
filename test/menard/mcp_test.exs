@@ -264,6 +264,23 @@ defmodule Menard.MCPTest do
     assert value.content |> hd() |> Map.fetch!("text") |> JSON.decode!() == %{"value" => "5"}
   end
 
+  test "clause insert_at takes at: top/bottom through the door", %{root: root} do
+    file = Path.join(root, "lib/t.ex")
+    File.write!(file, "defmodule T do\n  def one, do: 1\n\n  defp helper, do: :h\nend\n")
+
+    refute call(Menard.MCP.Clause, %{verb: "insert_at", file: "lib/t.ex", at: "top", code: "defp zero, do: 0"}).isError
+
+    refute call(Menard.MCP.Clause, %{
+             verb: "insert_at",
+             file: "lib/t.ex",
+             at: "bottom",
+             code: "def last, do: 9"
+           }).isError
+
+    assert File.read!(file) =~ "defp zero, do: 0\n\n  def one, do: 1"
+    assert File.read!(file) =~ "defp helper, do: :h\n\n  def last, do: 9"
+  end
+
   test "attr comment writes the # line above an attribute", %{root: root} do
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  @t 1\n\n  def go, do: @t\nend\n")
 
