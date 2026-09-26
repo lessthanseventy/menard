@@ -67,7 +67,7 @@ defmodule Menard do
   def format_staged(file, content, opts \\ []) do
     parent = self()
     ms = opts[:timeout] || @format_timeout
-    task = Task.async(fn -> format_somewhere(file, content, opts, parent) end)
+    task = Task.async(fn -> format_somewhere(file, content, Keyword.put(opts, :timeout, ms), parent) end)
 
     case Task.yield(task, ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} ->
@@ -92,15 +92,15 @@ defmodule Menard do
 
     case if(in_vm?, do: in_process(file, content, opts), else: {:fallback, "Mix is not loaded here"}) do
       {:ok, formatted, split} -> {:ok, formatted, split}
-      {:fallback, why} -> format_in_shell(file, content, why, parent)
+      {:fallback, why} -> format_in_shell(file, content, why, parent, opts[:timeout])
     end
   end
 
-  defp format_in_shell(file, content, why, parent) do
+  defp format_in_shell(file, content, why, parent, ms) do
     send(parent, {__MODULE__, :waiting_on, "the host's own `mix format` (#{why})"})
     File.write!(file, content)
 
-    case shell_format(file) do
+    case shell_format(file, ms) do
       :ok -> {:ok, File.read!(file), nil}
       {:error, shell} -> {:error, "not formatted — #{why}; #{shell}"}
     end
@@ -204,13 +204,15 @@ defmodule Menard do
         Integer.to_string(:erlang.phash2(project))
       ])
 
-  defp shell_format(file) do
+  # `ms` is the format's own deadline: killing the task that waits on the host's mix does not stop
+  # the OS process, which then wrote the file after menard had handed out its version
+  defp shell_format(file, ms) do
     # the host's own toolchain — a plugin built by a newer OTP loads there and not here. `loadpaths
     # --no-deps-check` first puts its last build on the path without checking deps, so the `format`
     # after it finds its plugins loaded and neither checks nor compiles anything.
     args = ["do", "loadpaths", "--no-deps-check", "+", "format", file]
 
-    case host_mix(formatter_root(file), args) do
+    case host_mix(formatter_root(file), args, timeout: ms) do
       {_out, 0} ->
         :ok
 
