@@ -66,6 +66,11 @@ defmodule Menard.ClauseTest do
     assert {:error, _} = Clause.delete(@src, "nope/0", "", [])
   end
 
+  test "find locates a clause with no opts, as the verbs address it" do
+    assert {:ok, %{kind: :def, name: "go", args: ":b", guard: nil, head_text: ":b", indent: "  "}} =
+             Clause.find(@src, "go/1", ":b")
+  end
+
   test "a name/arity is matched as text, never made an atom: atoms are never collected" do
     name = "never_an_atom_#{System.unique_integer([:positive])}"
 
