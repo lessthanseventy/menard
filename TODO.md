@@ -22,3 +22,7 @@ commit lands.
   formatted — [Phoenix.LiveView.HTMLFormatter] will not load from …/_build in this VM" for two files
   already formatted at HEAD (2026-09-26 ~03:00). True, but noise: a file the fallback cannot format
   could still be checked (`--check-formatted` without the plugin, or git saying it matches HEAD).
+- `identity_test` "lib/menard/clause.ex stmt replace with a statement's own text" timed out at
+  ExUnit's 60s twice under the full gate (2026-09-26 ~04:45 and ~05:08, load average ~40 from
+  parallel agents) and passed alone (320 identity tests green) and in the next gate. It is the
+  slowest identity case; it has no margin under a loaded machine.
