@@ -98,7 +98,7 @@ created, to, from}`: `to` and `from` are each file's own reply, its `version` an
 ## Done
 
 `run {verb: "check"}` is format, warnings-as-errors and the tests in one JSON line: green, `ok`
-and the counts; red, the failures. Every `run` verb answers `failures` in one shape: `kind` (`test`, `error`, `warning`, `format`), `message`
+and the counts; red, the failures. Every `run` verb answers `failures` in one shape: `kind` (`test`, `error`, `warning`, `format`, `credo`, and `step`: a precommit step nothing else read, named in `step`), `message`
 (why) and `at` (`file:line`); a test failure adds its `source` and the assertion's `left`/`right`. `run {verb: "test", args: [FILE, "--repeat-until-failure", "50"]}` hunts a flake
 and answers with the failing run's `seed`. A parse-checked write is a floor, not a proof: finish on
 a green check.
