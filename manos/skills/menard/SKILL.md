@@ -1,20 +1,24 @@
 ---
 name: menard
-description: How to edit Elixir (.ex/.exs) with menard's AST-aware tools instead of Edit/Write or sed — which tool fits which change, and the traps no error message explains. Use before changing any Elixir module, test file or directive, and when an Edit on a .ex/.exs file is blocked.
+description: menard's AST-aware Elixir tools — which fits which change, and the traps no error message explains. Use for a rename across files, finding who calls a function, reading one function of a big module, and whenever an Edit on a .ex/.exs file is blocked (pi's guard).
 ---
 
 # Editing Elixir with menard
 
-An `Edit` or `Write` on an existing `.ex`/`.exs` holding a `defmodule` is **blocked**; `sed` or a
-script on one is the same guess, unguarded. Edit with menard's tools: each parses the file, changes
-the tree, formats with the project's formatter and parse-checks what it writes.
+In Claude Code, `Edit` works on Elixir, and menard's hook formats every file written and reports
+what changed. These tools are for what an edit by hand does badly: a rename across files
+(`rename`), who calls what (`find`), one function of a big module (`clause get`), a function
+moved with its docs (`clause move`). Each parses the file, changes the tree, formats with the
+project's formatter and parse-checks what it writes. Under pi's guard an `Edit` or `Write` on a
+module is **blocked**, and these tools are how a module is edited at all.
 
 Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`,
 `mix.lock`, and an `Edit` that only changes text inside a string (a heredoc, a `~H` template).
 
 ## Calling a tool
 
-- **Claude Code**: MCP tools `mcp__plugin_menard_menard__<tool>`, verb as an argument.
+- **Claude Code** (the `manos` plugin): MCP tools `mcp__plugin_manos_menard__<tool>`,
+  verb as an argument.
 - **pi**: `mcp({ tool: "menard__<tool>", args: {…} })`, the same arguments.
 - **CLI**, where there is no MCP: `menard <tool> <verb> FILE …`, the same fields in order; a
   wrong call prints the usage. CODE full of quotes goes in a file, passed with `--stdin`.

@@ -149,7 +149,7 @@ defmodule Menard.HooksTest do
     assert {_, 0} = read.(%{file_path: small})
   end
 
-  test "shell-edits hears a failed command too: PostToolUse does not run when the tool fails" do
+  test "the format hook hears a failed shell command too: PostToolUse does not run when the tool fails" do
     # a shell command that edits a module and then runs a failing test (the usual edit-then-test)
     # fires PostToolUseFailure, not PostToolUse, so a hook on the latter never heard of the edit
     # (found in the eval: arm H's shell hook, 2026-09-25)
@@ -161,7 +161,90 @@ defmodule Menard.HooksTest do
           do: cmd
     end
 
-    assert Enum.any?(scripts.("PostToolUse"), &(&1 =~ "shell-edits.sh"))
-    assert Enum.any?(scripts.("PostToolUseFailure"), &(&1 =~ "shell-edits.sh"))
+    for event <- ["PreToolUse", "PostToolUse", "PostToolUseFailure"],
+        do:
+          assert(
+            Enum.any?(scripts.(event), &(&1 =~ "format-report.sh")),
+            "#{event} on Bash runs no format-report"
+          )
+  end
+
+  @tag :tmp_dir
+  test "format-report formats what an Edit wrote and tells the agent what the formatter changed", %{
+    tmp_dir: dir
+  } do
+    # the eval: `999999` became `999_999` under an agent, and its next Edit, written against its
+    # own read, missed
+    host(dir)
+    file = Path.join(dir, "lib/n.ex")
+    File.write!(file, "defmodule N do\n  def big, do: 999999\nend\n")
+
+    {out, 0} =
+      report(%{hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: %{file_path: file}}, dir)
+
+    assert File.read!(file) =~ "999_999"
+    context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
+    assert context =~ "-  def big, do: 999999"
+    assert context =~ "+  def big, do: 999_999"
+  end
+
+  @tag :tmp_dir
+  test "format-report names a file that does not parse, with the compiler's why", %{tmp_dir: dir} do
+    host(dir)
+    file = Path.join(dir, "lib/bad.ex")
+    File.write!(file, "defmodule Bad do\n  def f(x, do: x\nend\n")
+
+    {out, 2} =
+      report(%{hook_event_name: "PostToolUse", tool_name: "Write", tool_input: %{file_path: file}}, dir)
+
+    assert out =~ "lib/bad.ex was written but"
+    assert out =~ "unclosed delimiter"
+  end
+
+  @tag :tmp_dir
+  test "format-report formats every file a shell command changed, a failed command too", %{tmp_dir: dir} do
+    # PostToolUse does not run when the tool fails, so the hook sits on PostToolUseFailure too; and
+    # mix inside the file loop read its stdin, which was the rest of the list: one of six formatted
+    host(dir)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "sed"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir)
+    Process.sleep(1100)
+
+    files = for n <- 1..3, do: Path.join(dir, "lib/m#{n}.ex")
+
+    for {f, n} <- Enum.with_index(files, 1),
+        do: File.write!(f, "defmodule M#{n} do\n  def   f(x), do: x\nend\n")
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PostToolUseFailure"), dir)
+    for f <- files, do: assert(File.read!(f) =~ "  def f(x), do: x\n")
+  end
+
+  # A host menard can format: a mix.exs and a formatter, nothing fetched
+  defp host(dir) do
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(
+      Path.join(dir, "mix.exs"),
+      "defmodule Host.MixProject do\n  use Mix.Project\n  def project, do: [app: :host, version: \"0.1.0\"]\nend\n"
+    )
+
+    File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
+  end
+
+  defp report(payload, dir) do
+    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
+    File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
+
+    # paths as arguments, never inside the -c string: a tmp_dir holds the test's name, quotes and all
+    System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/format-report.sh"), input],
+      env: [{"CLAUDE_PLUGIN_ROOT", @root}],
+      stderr_to_stdout: true
+    )
   end
 end

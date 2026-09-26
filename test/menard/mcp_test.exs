@@ -70,7 +70,7 @@ defmodule Menard.MCPTest do
 
   test "the plugin's MCP server waits out a first start: deps fetch and compile, on a slow network" do
     [server] =
-      Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])
+      Map.values(JSON.decode!(File.read!(Path.join(@root, "manos/.claude-plugin/plugin.json")))["mcpServers"])
 
     # an integer: nil compares greater than any number, so `>=` alone passes on a missing field
     assert is_integer(server["timeout"]) and server["timeout"] >= 120_000
@@ -84,9 +84,9 @@ defmodule Menard.MCPTest do
     File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
 
     [server] =
-      Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])
+      Map.values(JSON.decode!(File.read!(Path.join(@root, "manos/.claude-plugin/plugin.json")))["mcpServers"])
 
-    assert server["command"] == "${CLAUDE_PLUGIN_ROOT}/bin/menard"
+    assert server["command"] == "${CLAUDE_PLUGIN_ROOT}/../bin/menard"
     assert server["env"]["MENARD_ROOT"] == "${CLAUDE_PROJECT_DIR}"
     assert server["args"] == ["mcp"]
 
@@ -420,10 +420,11 @@ defmodule Menard.MCPTest do
     assert File.read!(Path.join(root, "lib/a_test.exs")) =~ "test \"two\" do\n    assert 2\n  end"
   end
 
-  test "the server tells an agent up front that modules are edited here, starting from outline" do
-    # in the smoke runs 4 of 6 agents tried Edit first and learned it only from the guard's refusal
+  test "the server tells an agent up front what its tools are for, starting from outline" do
+    # the guard is gone (bench5: a formatting hook alone gave the clean output), so the instructions
+    # say where the tools win over a plain Edit, not that Edit is refused
     text = Menard.MCP.server_instructions()
-    assert text =~ "defmodule"
+    assert text =~ "rename"
     assert text =~ "outline"
     assert text =~ "run"
   end

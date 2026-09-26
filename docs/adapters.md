@@ -35,7 +35,7 @@ Everything harness-specific is wiring. The Claude Code plugin is one adapter, no
 
 | harness | MCP | guard | advice | reference |
 |---|---|---|---|---|
-| Claude Code | plugin.json `mcpServers`, `alwaysLoad` | `PreToolUse` hook → `menard guard` (hooks/menard-only.sh) | `PreToolUse`/`PostToolUse` hooks | the plugin's skill |
+| Claude Code | the `manos` plugin (manos/.claude-plugin/plugin.json), opt-in | none since bench5: the `menard` plugin formats instead (hooks/format-report.sh) | the format hook's report, as `additionalContext` | `manos`' skill |
 | pi | `mcp.json` mcpServers.menard (`mise run install:pi`) | `tool_call` extension → `menard guard` (pi/extension.ts) | `tool_result` → the same scripts (pi/advice.ts) | the skill, wired by install:pi |
 | Cursor, opencode, … | their MCP config | whatever pre-edit hook they have, or none | whatever post-tool hook they have | their rules mechanism |
 
