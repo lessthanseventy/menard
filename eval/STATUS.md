@@ -153,3 +153,12 @@ uses `--plugin-dir` on this repo, C uses `--plugin-dir` on a copy with `hooks/ho
   clean as unknown. Fixed in the case (and the long suite's step 06 copy) for later rounds.
 - 18:20 Fixing as bench2 runs (Andrew): cd9b403 (clause get; schema refusals say why),
   5598d8f (stmt replace on any ~H text; short miss lists). The gate runs at nice 19 meanwhile.
+- 18:23 bench2 stopped at 25 rows (haiku, add-alias..not-compiling.A), pinned at dafd33e: kept as a
+  partial record in results/bench2. Its failed calls drove cd9b403, 5598d8f, 8aeaa4f. Of note:
+  explore-callers.B passed with find + outline and no Read (bench1 failed it); move-function.B
+  passed (run test now shows the unused-alias warning); B's extra turns are mostly orientation twice
+  (whole Reads, then outline of the same files) and Reads after a green run check. new-module.A
+  failed: its own rounding bug (TENOFF), agent logic, not the harness.
+- 18:23 bench3 started: pinned at 8aeaa4f (every fix so far), both models, 68 runs, one toolchain,
+  the new-component hidden test formatted. Rule for this round (Andrew): fix as it runs, do not
+  restart it; let it finish for one complete A/B round on both models.
