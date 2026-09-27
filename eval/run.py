@@ -251,8 +251,9 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd += ["--effort", EFFORT] if EFFORT else []
     if arm != "A":
         cmd += ["--plugin-dir", str(PLUGINS / arm)]
-    # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`
-    if arm in ("M", "lazy-mcp", "map-mcp"):
+    # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`;
+    # `all` is all of menard, so its tools too
+    if arm in ("M", "lazy-mcp", "map-mcp", "all"):
         cmd += ["--plugin-dir", str(PLUGINS / arm / "manos")]
     return cmd
 
