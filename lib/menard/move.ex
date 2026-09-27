@@ -5,7 +5,8 @@ defmodule Menard.Move do
   than being left broken:
 
   - a private helper only the moved functions call travels with them; one that a function staying
-    behind also calls is refused, naming it (which side it belongs on is a judgement, not a guess);
+    behind also calls stays, made public, and the moved code calls it there (`published`); one the
+    caller named in the move is refused, naming it (it was asked to go, and something needs it here);
   - the module attributes it reads are copied, and leave the source when nothing there reads them;
   - the `alias`, `import` and `require` lines it uses are added to the destination, and only those:
     an unused one fails a `--warnings-as-errors` build, so the source loses the ones it stops using;
@@ -84,12 +85,37 @@ defmodule Menard.Move do
   """
   @spec plan(String.t(), String.t(), [String.t()], keyword()) :: {:ok, map()} | {:error, String.t()}
   def plan(source, dest_source, names, opts \\ []) do
+    case plan_once(source, dest_source, names, opts) do
+      # a helper the move takes that what stays calls too: made public where it is, and the move made
+      # again, the moved code now calling it there (riverside2: the refusal and two `visibility`
+      # calls every split made by hand)
+      {:publish, keys, mod} ->
+        with {:ok, source} <- publish(source, mod, keys),
+             {:ok, plan} <- plan(source, dest_source, names, opts) do
+          {:ok, update_in(plan.report.published, &(Enum.map(keys, fn key -> na(key) end) ++ &1))}
+        end
+
+      planned ->
+        planned
+    end
+  end
+
+  defp publish(source, mod, keys) do
+    Enum.reduce_while(keys, {:ok, source}, fn key, {:ok, source} ->
+      case Clause.visibility(source, "#{mod}.#{na(key)}", :public) do
+        out when is_binary(out) -> {:cont, {:ok, out}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp plan_once(source, dest_source, names, opts) do
     with {:ok, ast} <- parse(source),
          {:ok, mod, module} <- source_module(ast, names),
          graph = Deps.graph(module),
          {:ok, named} <- named(names, graph, mod),
          taking = taking(named, graph),
-         :ok <- unshared(taking, graph, mod),
+         :ok <- unshared(taking, named, graph, mod),
          :ok <- delegable(named, graph, opts[:delegate]),
          {:ok, dest_ast} <- parse(dest_source),
          {:ok, dest_module} <- Tree.module_scope(dest_ast, opts[:module]),
@@ -127,7 +153,8 @@ defmodule Menard.Move do
         unresolved:
           Enum.map(needs.answered.open, &"#{na(&1)} (one of: #{Enum.join(needs.answered.from, "; ")})"),
         qualified: qualified,
-        delegated: Enum.map(delegated, &na/1)
+        delegated: Enum.map(delegated, &na/1),
+        published: []
       }
 
       {:ok, %{source: out, dest: dest_out, report: report}}
@@ -200,9 +227,10 @@ defmodule Menard.Move do
   end
 
   # A private function the moved code takes that a function staying behind also calls cannot go
-  # without breaking that one, nor stay without breaking the moved code. Which side it belongs on is
-  # the caller's to say, so it is refused with both ways out.
-  defp unshared(taking, graph, mod) do
+  # without breaking that one, nor stay private without breaking the moved code. A helper the move
+  # only carried stays and goes public (`plan/4`); one the caller named was asked to go, so that one
+  # is refused with both ways out.
+  defp unshared(taking, named, graph, mod) do
     shared =
       for key <- taking,
           graph[key].kind in @private,
@@ -210,7 +238,11 @@ defmodule Menard.Move do
           by != [],
           do: {key, by |> Enum.sort_by(&line(graph, &1)) |> Enum.map(&na/1)}
 
-    if shared == [], do: :ok, else: {:error, shared_refusal(shared, mod)}
+    case Enum.split_with(shared, fn {key, _by} -> key in named end) do
+      {[], []} -> :ok
+      {[], carried} -> {:publish, Enum.map(carried, &elem(&1, 0)), mod}
+      {asked, _carried} -> {:error, shared_refusal(asked, mod)}
+    end
   end
 
   defp shared_refusal(shared, mod) do

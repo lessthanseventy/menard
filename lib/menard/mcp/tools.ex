@@ -136,8 +136,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     `@spec` and comment. What the moved code needs comes along: the private helpers only it calls,
     the attributes it reads, the alias/import/require lines it uses; a call back to a public
     function that stays, and `__MODULE__`, now name the source. A private helper that a function
-    staying behind also calls is refused, naming both (move that caller too, or make the helper
-    public first). `delegate: true` leaves a `defdelegate` (defaults kept) for each public function
+    staying behind also calls stays, made public, and the moved code calls it there (`published`). `delegate: true` leaves a `defdelegate` (defaults kept) for each public function
     moved, so the source's API and every caller keep working; without it, `left` names each call
     now pointing at nothing. A missing file is created, its module named from the path or by `as`,
     with `moduledoc` as its @moduledoc; `module` picks the destination module in a file with

@@ -103,9 +103,10 @@ agents tripped on, fixed, and what they reached for first, made to work.
   gone from the source when nothing there reads them), and the alias/import/require lines it uses,
   only those (the source loses the ones it stops using, as they would warn). A call back to a
   public function that stays, and `__MODULE__`, name the source. A private helper a staying
-  function also calls is refused, naming both, with the two ways out. `moduledoc` gives a created
+  function also calls stays, made public (`published`), and the moved code calls it there; one
+  named in the move is refused, naming both. `moduledoc` gives a created
   module its `@moduledoc`. The reply adds `moved`, `carried`, `attributes`, `directives`,
-  `qualified`, `delegated` and `left` (without `delegate`, each call now pointing at nothing). In
+  `qualified`, `delegated`, `published` and `left` (without `delegate`, each call now pointing at nothing). In
   riverside1 every agent split ex_riverside's 860-line `events.ex` with a Python script copying
   line ranges and then hand-wrote ~50 delegates; the same split is now three moves and two
   `visibility` calls the first refusal asks for, and it passes step 03's check (grader, credo

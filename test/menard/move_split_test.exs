@@ -153,12 +153,45 @@ defmodule Menard.MoveSplitTest do
     assert {:total, 1} in shop.__info__(:functions)
   end
 
-  test "a private helper that functions staying behind also call is refused, and nothing is written",
+  test "a private helper that functions staying behind also call is made public and stays, and the moved code calls it there",
        %{tmp_dir: dir} do
+    # riverside2: every split was refused on the shared broadcast helpers, then two `visibility` calls
+    # and the move again. That fix is the move's own now, said in the reply.
+    file = Path.join(dir, "fmt.ex")
+
+    File.write!(file, """
+    defmodule Split2 do
+      def a(x), do: fmt(x)
+      def b(x), do: fmt(x) <> "!"
+      defp fmt(x), do: to_string(x)
+    end
+    """)
+
+    dest = Path.join(dir, "fmt/out.ex")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["a/1"], as: "Split2.Out", delegate: true)
+    assert reply.published == ["fmt/1"]
+    assert reply.carried == []
+
+    source = File.read!(file)
+    assert source =~ "  def fmt(x), do: to_string(x)\n"
+    refute source =~ "defp fmt"
+    assert File.read!(dest) =~ "Split2.fmt(x)"
+
+    assert compile([File.read!(dest), source]) == []
+    # through variables: the modules exist only once compiled above
+    {split, out} = {Module.concat(["Split2"]), Module.concat(["Split2.Out"])}
+    assert split.a(1) == "1"
+    assert out.a(2) == "2"
+    assert split.b(3) == "3!"
+  end
+
+  test "a shared private helper named in the move itself is still refused: it was asked to go", %{
+    tmp_dir: dir
+  } do
     file = Path.join(dir, "fmt.ex")
 
     src = """
-    defmodule Split2 do
+    defmodule Split2b do
       def a(x), do: fmt(x)
       def b(x), do: fmt(x) <> "!"
       defp fmt(x), do: to_string(x)
@@ -168,11 +201,8 @@ defmodule Menard.MoveSplitTest do
     File.write!(file, src)
     dest = Path.join(dir, "fmt/out.ex")
 
-    assert {:error, message} = Menard.Move.run(file, dest, ["a/1"], as: "Split2.Out", delegate: true)
-
-    assert message ==
-             "refused, nothing written: fmt/1 is private, and b/1 stays and calls it too. Move b/1 as well, " <>
-               "or make fmt/1 public first (clause visibility FILE fmt/1 public): the moved code then calls Split2.fmt"
+    assert {:error, "refused, nothing written: fmt/1 is private, and b/1 stays and calls it too." <> _} =
+             Menard.Move.run(file, dest, ["a/1", "fmt/1"], as: "Split2b.Out", delegate: true)
 
     assert File.read!(file) == src
     refute File.exists?(dest)
