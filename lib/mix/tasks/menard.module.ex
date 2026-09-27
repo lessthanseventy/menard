@@ -18,7 +18,7 @@ defmodule Mix.Tasks.Menard.Module do
 
   @impl true
   def run(argv) do
-    {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean])
+    {flags, argv} = options(argv, version: :string, force: :boolean)
 
     case params(argv) do
       :usage -> usage(@usage)

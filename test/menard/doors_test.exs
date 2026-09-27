@@ -158,4 +158,28 @@ defmodule Menard.DoorsTest do
     refute File.read!(tools) =~
              ~r/Menard\.(Clause|Stmt|Attr|Block|Directive|Module|Rename|Find|Outline|Deps|Run|MixDeps)\./
   end
+
+  test "a flag a verb cannot read is refused, not dropped", %{tmp_dir: dir} do
+    # Found 2026-09-26: `block add … --label "--frozen still runs…"` read the label as another flag,
+    # dropped both, and wrote `test %{tmp_dir: dir} do`: a nameless test, answered as a success
+    for {task, argv} <- [
+          {Mix.Tasks.Menard.Block, ["add", "lib/a_test.exs", "test", "assert 1", "--label", "--frozen two"]},
+          {Mix.Tasks.Menard.Clause, ["get", "lib/a.ex", "two/1", "--modul", "A"]},
+          {Mix.Tasks.Menard.Attr, ["get", "lib/a.ex", "limit", "--nope"]},
+          {Mix.Tasks.Menard.Stmt, ["get", "lib/a.ex", "go/1", "0", "--nth", "x"]},
+          {Mix.Tasks.Menard.Directive, ["list", "lib/a.ex", "--nope"]},
+          {Mix.Tasks.Menard.Module, ["list", "lib/a.ex", "--nope"]},
+          {Mix.Tasks.Menard.Outline, ["lib/a.ex", "--nope"]},
+          {Mix.Tasks.Menard.Find, ["calls", "two", "lib/a.ex", "--nope"]},
+          {Mix.Tasks.Menard.Rename, ["lib/a.ex", "two", "three", "--nope"]},
+          {Mix.Tasks.Menard.Write, ["lib/w.ex", "x", "--nope"]},
+          {Mix.Tasks.Menard.Deps, ["refs", "lib/a.ex", "go/1", "--nope"]}
+        ] do
+      assert {:error, "usage: " <> why} = cli(task, argv), "#{inspect(task)} took #{inspect(argv)}"
+      assert why =~ ~r/--(label|modul|nope|nth)/
+    end
+
+    assert File.read!(Path.join(dir, "lib/a_test.exs")) =~ ~s(test "one")
+    refute File.exists?(Path.join(dir, "lib/w.ex"))
+  end
 end

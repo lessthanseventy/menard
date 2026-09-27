@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Menard.Block do
 
   @impl true
   def run(argv) do
-    {flags, argv, _} = OptionParser.parse(argv, strict: @flags)
+    {flags, argv} = options(argv, @flags)
     # `--tag` repeats: every one is an `@tag` line above the block
     flags = flags |> Keyword.delete(:tag) |> Map.new() |> Map.put(:tag, Keyword.get_values(flags, :tag))
 

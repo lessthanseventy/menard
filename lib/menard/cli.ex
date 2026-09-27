@@ -31,6 +31,31 @@ defmodule Menard.CLI do
   @spec usage(String.t()) :: no_return()
   def usage(text), do: Mix.raise("usage: " <> text)
 
+  @doc """
+  The flags and arguments of `argv`, or the usage raised for any flag the verb cannot read: an unknown
+  one, or one whose value is missing or starts with `-` (`--flag=VALUE`, or CODE after `--`). Dropped
+  silently, `--label "--x"` wrote a test with no name and answered as a success.
+  """
+  @spec options([String.t()], keyword()) :: {keyword(), [String.t()]}
+  def options(argv, strict) do
+    case OptionParser.parse(argv, strict: strict) do
+      {flags, args, []} ->
+        {flags, args}
+
+      {_flags, _args, invalid} ->
+        named = Enum.map_join(invalid, ", ", fn {flag, _value} -> flag end)
+
+        known =
+          Enum.map_join(strict, " ", fn {name, _type} -> "--" <> String.replace(to_string(name), "_", "-") end)
+
+        usage(
+          "cannot read #{named}: a flag this verb does not take, or its value is missing or starts with -. " <>
+            "A flag's value that starts with - goes as --flag=VALUE; CODE or an argument that does goes " <>
+            "after --. This verb takes: #{known}"
+        )
+    end
+  end
+
   @doc "The two doors spelled verbs differently, the CLI with dashes: both spellings work everywhere."
   @spec verb(String.t()) :: String.t()
   def verb(verb), do: String.replace(verb, "-", "_")
