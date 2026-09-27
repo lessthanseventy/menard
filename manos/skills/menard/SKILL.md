@@ -96,9 +96,10 @@ that moved. `unformatted` means written but not formatted, and says why.
 
 Pass the reply's `version` back on your next edit to that file. If another session changed it
 since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
-created, moved, carried, attributes, directives, qualified, delegated, left, to, from}`: `to` and
-`from` are each file's own reply, its `version` and stages; `created` is the new module's name when
-`to` did not exist; `carried` the helpers that came along. `rename` answers `{did, changed,
+created, moved, carried, attributes, directives, unresolved, qualified, delegated, left, to, from}`:
+`to` and `from` are each file's own reply, its `version` and stages; `created` is the new module's
+name when `to` did not exist; `carried` the helpers that came along; `unresolved` each call a `use`
+or an import without `only:` may answer, which is not copied: add the one it names. `rename` answers `{did, changed,
 unchanged, skipped}`: `changed` is each file's own reply, `skipped` each file it could not parse
 or write, with why. Both doors give one reply: the CLI prints the MCP tool's map as one JSON
 line, and a refusal is the same sentence at either.

@@ -173,6 +173,11 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `clause move --delegate` copied a default into the delegate as written, where it is evaluated in
   the source: one calling code that moved (`opts \\ defaults()`) called nothing. Such a function
   gets a delegate per arity, each to the same arity, whose default is evaluated where it went.
+- `clause move` copied every import without `only:` whenever the moved code made a call nothing
+  defined, which a `use`-provided function looks like too: the destination gained an import it
+  did not use, which warns. Such an import goes only when it is the one directive that could
+  answer the call; otherwise none is copied and the reply's `unresolved` names the call and the
+  `use`/`import` lines it may come from.
 
 ## 0.5.0
 

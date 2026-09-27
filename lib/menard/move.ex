@@ -44,9 +44,10 @@ defmodule Menard.Move do
 
   Returns `{:ok, reply}`: `created` (the new module's name, else nil), `moved`, `carried` (the
   private helpers that came along), `attributes` and `directives` (what the destination gained),
-  `qualified` (the calls back to the source that now name it), `delegated`, `left` (each call still
-  naming a moved function, without `delegate`), and `to` and `from`, each file's `Menard.write/3`
-  reply, its version and stages.
+  `unresolved` (each call only a `use` or an import without `only:` may answer, with those: not
+  copied, as the AST cannot say which), `qualified` (the calls back to the source, and its types,
+  that now name it), `delegated`, `left` (each call still naming a moved function, without
+  `delegate`), and `to` and `from`, each file's `Menard.write/3` reply, its version and stages.
   """
   @spec run(String.t(), String.t(), String.t() | [String.t()], keyword()) ::
           {:ok, map()} | {:error, String.t()}
@@ -123,6 +124,8 @@ defmodule Menard.Move do
         carried: src.taking |> Enum.reject(&(&1 in src.named)) |> Enum.map(&na/1),
         attributes: Enum.map(needs.values, &"@#{elem(&1, 0)}"),
         directives: directives,
+        unresolved:
+          Enum.map(needs.answered.open, &"#{na(&1)} (one of: #{Enum.join(needs.answered.from, "; ")})"),
         qualified: qualified,
         delegated: Enum.map(delegated, &na/1)
       }
@@ -345,7 +348,7 @@ defmodule Menard.Move do
          scan: scan,
          values: values,
          aliases: MapSet.union(scan.aliases, from_values.aliases),
-         unresolved: unresolved(scan.calls ++ from_values.calls, src.graph)
+         answered: answering(src.source, src.mod, unresolved(scan.calls ++ from_values.calls, src.graph))
        }}
     end
   end
@@ -494,7 +497,7 @@ defmodule Menard.Move do
   end
 
   # The source's directives the moved code uses: an alias by its name, a require by its module's
-  # first or last segment, an import by a call only an import answers (by its `only:`, exactly).
+  # first or last segment, an import by a call it answers (`answering/3`).
   defp used(directives, needs) do
     Enum.filter(directives, fn
       {:alias, target, args} ->
@@ -505,7 +508,7 @@ defmodule Menard.Move do
         Enum.any?([hd(parts), List.last(parts)], &(String.to_atom(&1) in needs.aliases))
 
       {:import, _, _} = import ->
-        import_used?(import, needs.unresolved)
+        import in needs.answered.imports
     end)
   end
 
@@ -717,7 +720,8 @@ defmodule Menard.Move do
   end
 
   # An import the moved code used that nothing left calls into goes: an unused import warns, unless
-  # it says `warn: false`. One without `only:` counts any call no definition answers as its own.
+  # it says `warn: false`. Which import answers a call is decided as for the move (`answering/3`):
+  # one the AST cannot tie to a call stays, as the call may be its.
   defp unimported(out, src, needs) do
     with {:ok, module} <- scope(out, src.mod) do
       {_, calls} =
@@ -731,13 +735,12 @@ defmodule Menard.Move do
             {node, acc}
         end)
 
-      left = unresolved(calls, Deps.graph(module))
+      kept = answering(out, src.mod, unresolved(calls, Deps.graph(module))).imports
 
       out
       |> directives(src.mod)
       |> Enum.filter(fn {kind, _, args} = import ->
-        kind == :import and import_used?(import, needs.unresolved) and not import_used?(import, left) and
-          not quiet?(args)
+        kind == :import and import in needs.answered.imports and import not in kept and not quiet?(args)
       end)
       |> reduce(out, fn {:import, target, _}, acc ->
         Directive.remove(acc, :import, target, module: src.mod)
@@ -775,10 +778,38 @@ defmodule Menard.Move do
 
   defp directive_of(_node, _source, _mod), do: []
 
-  defp import_used?({:import, _target, args}, calls) do
-    case only(args) do
-      nil -> calls != []
-      only -> Enum.any?(calls, &(&1 in only))
+  # Which imports answer `calls`, the calls neither the module nor Kernel does. An `only:` import
+  # answers its list, exactly. What an import without one brings, or a `use`, the AST cannot say:
+  # such an import is taken to answer the rest only when it is the one directive that could, and
+  # otherwise none is, and the rest is `open`, with the directives it may come from.
+  defp answering(source, mod, calls) do
+    {bare, listed} =
+      source
+      |> directives(mod)
+      |> Enum.filter(&(elem(&1, 0) == :import))
+      |> Enum.split_with(&(only(elem(&1, 2)) == nil))
+
+    answers? = fn {:import, _, args}, call -> call in only(args) end
+    by_list = Enum.filter(listed, fn import -> Enum.any?(calls, &answers?.(import, &1)) end)
+    open = Enum.reject(calls, fn call -> Enum.any?(listed, &answers?.(&1, call)) end)
+    uses = uses(source, mod)
+
+    case {open, bare, uses} do
+      {[], _, _} -> %{imports: by_list, open: [], from: []}
+      {_, [one], []} -> %{imports: by_list ++ [one], open: [], from: []}
+      _ -> %{imports: by_list, open: open, from: uses ++ Enum.map(bare, &directive_text/1)}
+    end
+  end
+
+  # The module's `use` lines, as written.
+  defp uses(source, mod) do
+    case scope(source, mod) do
+      {:ok, module} ->
+        for {:use, _, [_ | _]} = node <- Tree.module_body(module),
+            do: Menard.Source.slice(source, Sourceror.get_range(node))
+
+      _ ->
+        []
     end
   end
 
