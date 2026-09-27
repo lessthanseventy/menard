@@ -641,3 +641,39 @@ started with `--rebuild` so the arms are pinned to this main.
   shell edits of .ex files in the all arm. The guard is not in the Claude Code plugin since
   69059a4 (bench5: its blocks cost a turn each), so nothing steers an edit to a verb.
 - focus3b not started: paused after riverside1 by choice.
+
+### Handoff (2026-09-26, ~20:40, limits again)
+
+Main is green and clean (bin/menard run check 892 at 2060c46; eval/tests 60 OK at 15904ec); TODO.md is
+empty; riverside1 is committed (9461959, results + REPORT.md).
+
+Since riverside1: the `all` arm has the guard too (15904ec: eval/arms/all/menard-only.sh, wired
+by build_plugins; the shipped plugin still has none). riverside2 (all only, fable first) was
+started and stopped after one session to build the verb below first; its leftovers are removed.
+
+**In flight: a split-shaped `clause move`**, in .claude/worktrees/agent-a72ce4ef1b8fd95c9 (branch
+worktree-agent-a72ce4ef1b8fd95c9, off 15904ec; uncommitted work in lib/menard/clause.ex,
+lib/menard/deps.ex and a new test/menard/move_split_test.exs when the limit hit). The job, from
+riverside1: every agent split events.ex with a Python script because `clause move` takes one
+function a call (the reference: 53), leaves no delegate and fixes no calls. Build, test-first, on
+the one verb layer (both doors):
+1. `name_arity` as a list (MCP array or "a/1,b/2"; CLI comma-separated), one write per file.
+2. `delegate: true` / `--delegate`: each moved public function leaves a `defdelegate` (defaults
+   kept), so the source's API is unchanged.
+3. carried along: private helpers only moved code calls (reuse `deps`); a private also called by
+   what stays is refused, named, with what to do; attributes the moved code reads copied; only the
+   aliases/imports it uses added; calls from moved code back to the source's public functions
+   qualified; without delegate, the reply names calls in the source left pointing at nothing.
+4. the reply per docs/live.md; the skill's `clause move` row and trap note, the MCP description,
+   CLI usage and the guard's refusal text say a split is one call per new module.
+Acceptance, no model: on a riverside template copy (MENARD_EVAL_WORK=/tmp/riverside-eval; see
+eval/riverside/cases/events/reference/validate.py), steps 01+02 reference patches applied, step 03's
+split done with only `clause move … --delegate` calls (about one per new module) must pass step
+03's check. Then CHANGELOG, `bin/menard run check`, eval/tests, merge.
+
+**Next, in order:** finish and merge the verb (resume the worktree's work or redo it from the
+above); then riverside2 = `--arms all --models claude-fable-5-1,claude-opus-5-5 --runs 3 --rebuild`
+(compared against riverside1's A rows, same case and models); then focus3b (`--suite eval/tlon
+--cases focus3 --arms A,all …`, MENARD_EVAL_WORK=/tmp/menard-eval-tlon), started only when Andrew
+says. The unit tier (eval/cases on haiku and sonnet) is Andrew's to run overnight. Open question
+for him: rename `all` to `full` after these rounds (older rounds used `all`).
