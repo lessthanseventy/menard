@@ -699,3 +699,12 @@ Against riverside1's A and all (medians):
   place it has to be about one call, not twelve: the whole plan ({module => functions}) at once,
   shared helpers made public by the move itself, moduledocs in the same call.
 - Found: the stop gate never sees manos' writes (TODO.md).
+
+### focus3b restarted (2026-09-26, ~00:15)
+
+Started 23:40 (A vs all, opus and fable, 3 runs, MENARD_EVAL_WORK=/tmp/tlon-eval: a work path
+without "menard", which arm A would read). Stopped after one session: focus3.A.opus.1 split cockpit.ex
+into 8 modules and failed step 03 on split.py's symmetric 10% line bound (1765 -> 2057, +16.5%: new
+modules' headers, aliases and docs) before compile, credo and the tests ran, so it could not be
+regraded. The bound is now at most 10% fewer, 30% more, as riverside's; the row is in
+results/focus3b-void. Restarted fresh.

@@ -4,8 +4,10 @@ against the eval-base tag, from the repo root:
 - cockpit.ex keeps at most 60% of its code lines;
 - at least two NEW modules under lib/console/cockpit/, each at least 10% of cockpit.ex's old code
   lines, and each named in cockpit.ex (one dump module, or a stub beside one, is not a split);
-- the code lines of cockpit.ex and every module under lib/console/cockpit/ together are within
-  10% of before: moved, not deleted.
+- the code lines of cockpit.ex and every module under lib/console/cockpit/ together are at most
+  10% fewer than before (moved, not deleted) and at most 30% more (new modules bring their headers,
+  aliases and docs: focus3b's first A run split into 8 modules at +16.5% and was failed by a
+  symmetric 10% before compile, credo and the tests ran; riverside's grader allows the same 30%).
 
 Exit 1 with a FAIL line on the first miss; the numbers either way.
 """
@@ -17,7 +19,7 @@ from pathlib import Path
 
 COCKPIT = "console/lib/console/cockpit.ex"
 SUB = "console/lib/console/cockpit"
-KEEP, EACH, MOVED = 0.6, 0.1, 0.1
+KEEP, EACH, LOST, GROWN = 0.6, 0.1, 0.1, 0.3
 
 
 def code_lines(text):
@@ -59,8 +61,9 @@ def main():
     if len(substantial) < 2:
         sys.exit(f"FAIL: {len(substantial)} new module(s) under lib/console/cockpit/ of at least {int(EACH * base_cockpit)} "
                  f"code lines that cockpit.ex uses (a split has at least 2)")
-    if not (1 - MOVED) * base_total <= now_total <= (1 + MOVED) * base_total:
-        sys.exit(f"FAIL: {base_total} code lines became {now_total} (a split moves them: within {MOVED:.0%})")
+    if not (1 - LOST) * base_total <= now_total <= (1 + GROWN) * base_total:
+        sys.exit(f"FAIL: {base_total} code lines became {now_total} (a split moves them: at most "
+                 f"{LOST:.0%} fewer, {GROWN:.0%} more)")
 
 
 if __name__ == "__main__":
