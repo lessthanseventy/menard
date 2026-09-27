@@ -178,6 +178,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
   did not use, which warns. Such an import goes only when it is the one directive that could
   answer the call; otherwise none is copied and the reply's `unresolved` names the call and the
   `use`/`import` lines it may come from.
+- `directive remove` of one member of `alias A.{B, C}` was refused, so `clause move` left a member
+  only the moved code used in the source, where it warns. The line is rewritten with the others
+  (`alias A.C` when one is left).
 
 ## 0.5.0
 
