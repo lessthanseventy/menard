@@ -417,19 +417,23 @@ defmodule Menard.Move do
         {:error, typep_refusal(private, src.mod)}
 
       true ->
-        ref = source_ref(src.mod, needs, dest.module)
-
-        patches =
-          for({{fun, _}, meta} <- back ++ types, do: name_patch(meta, fun, "#{ref.name}.#{fun}")) ++
-            for(meta <- needs.scan.modules, do: name_patch(meta, :__MODULE__, ref.name))
-
-        qualified =
-          (back |> Enum.map(&na(elem(&1, 0))) |> Enum.uniq() |> Enum.sort()) ++
-            (types |> Enum.map(&"@type #{na(elem(&1, 0))}") |> Enum.uniq() |> Enum.sort()) ++
-            if(needs.scan.modules == [], do: [], else: ["__MODULE__"])
-
-        {:ok, if(patches == [], do: nil, else: ref), qualified, Menard.Source.patch(dest.code, patches)}
+        name_source(src.mod, needs, dest, back, types)
     end
+  end
+
+  defp name_source(mod, needs, dest, back, types) do
+    ref = source_ref(mod, needs, dest.module)
+
+    patches =
+      for({{fun, _}, meta} <- back ++ types, do: name_patch(meta, fun, "#{ref.name}.#{fun}")) ++
+        for(meta <- needs.scan.modules, do: name_patch(meta, :__MODULE__, ref.name))
+
+    qualified =
+      (back |> Enum.map(&na(elem(&1, 0))) |> Enum.uniq() |> Enum.sort()) ++
+        (types |> Enum.map(&"@type #{na(elem(&1, 0))}") |> Enum.uniq() |> Enum.sort()) ++
+        if(needs.scan.modules == [], do: [], else: ["__MODULE__"])
+
+    {:ok, if(patches == [], do: nil, else: ref), qualified, Menard.Source.patch(dest.code, patches)}
   end
 
   # The types a module defines: `{name, arity} => :type | :typep | :opaque`.
