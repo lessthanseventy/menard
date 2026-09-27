@@ -677,3 +677,25 @@ above); then riverside2 = `--arms all --models claude-fable-5-1,claude-opus-5-5 
 --cases focus3 --arms A,all …`, MENARD_EVAL_WORK=/tmp/menard-eval-tlon), started only when Andrew
 says. The unit tier (eval/cases on haiku and sonnet) is Andrew's to run overnight. Open question
 for him: rename `all` to `full` after these rounds (older rounds used `all`).
+
+### riverside2 (21:32-22:21): the all arm alone (+ guard, split-shaped clause move, stop-gate skip), fable and opus, 3 runs
+
+Against riverside1's A and all (medians):
+
+| set | opus pass | opus turns / agent s | fable pass | fable turns / agent s / new in |
+|---|---|---|---|---|
+| A (r1) | 3/3 | 42 / 370 | 2/3 | 27 / 315 / 98k |
+| all (r1: hooks + manos) | 3/3 | 43 / 430 | 3/3 | 35 / 445 / 116k |
+| all (r2: + guard, split, skip) | 3/3 | 44 / 433 | 2/3 | 40 / 462 / 159k |
+
+- The one failure is fable's again: the `.ics` `;` unescaped (as A fable.3 in riverside1), its calendar
+  written through Bash; menard neither helps nor hurts it.
+- The split verb was used in 3 of 6 (all fable, never a script), opus scripted it every time. Used,
+  step 3 doubled: median 20 turns / 171 s against A's 8 / 122. The path: outline, a move refused on
+  the shared `broadcast` helpers, 2x `visibility`, 5-6 moves, fixups. The guard's blocks cost a turn
+  each and moved the agent onto manos. The stop-gate skip fired in 2 of 18 steps: agents seldom run the
+  gate after their last write.
+- Reading: no quality bought on this bench, and every nudge costs turns. For the split to earn its
+  place it has to be about one call, not twelve: the whole plan ({module => functions}) at once,
+  shared helpers made public by the move itself, moduledocs in the same call.
+- Found: the stop gate never sees manos' writes (TODO.md).
