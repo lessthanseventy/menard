@@ -15,13 +15,23 @@ defmodule Mix.Tasks.Menard.Clause do
 
   import Menard.CLI
 
-  @flags [nth: :integer, to: :string, as: :string, module: :string, version: :string, force: :boolean]
+  @flags [
+    nth: :integer,
+    to: :string,
+    as: :string,
+    module: :string,
+    moduledoc: :string,
+    delegate: :boolean,
+    version: :string,
+    force: :boolean
+  ]
 
   @usage "mix menard.clause (replace|rewrite|delete|insert-after|insert-before) FILE name/arity HEAD [CODE] [--nth N]\n" <>
            "       mix menard.clause delete FILE name/arity                (no HEAD: the whole function, every clause)\n" <>
            "       mix menard.clause get FILE name/arity [HEAD]            (the function as written; a HEAD: that clause)\n" <>
            "       mix menard.clause insert-at FILE (Mod.Name|-) [top|bottom] CODE\n" <>
-           "       mix menard.clause move FILE name/arity --to DEST [--as Mod.Name]\n" <>
+           "       mix menard.clause move FILE name/arity[,name/arity…] --to DEST [--delegate] [--as Mod.Name] [--moduledoc TEXT]\n" <>
+           "                                                               (a split: every function for one new module in one call)\n" <>
            "       mix menard.clause spec FILE name/arity [SPEC]           (no SPEC deletes it)\n" <>
            "       mix menard.clause visibility FILE name/arity (public|private)"
 

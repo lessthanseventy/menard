@@ -18,13 +18,23 @@ defmodule Menard.Verbs.Clause do
 
   # Two files change at once, so neither is written until BOTH edits succeed — a move that half
   # lands is worse than one that does not. `version` is the source file's: the one the edit came from.
+  # `name_arity` names one function or several (a list, or comma-separated): a split is a call per
+  # new module.
   def run(%{verb: "move"} = p) do
     with :ok <- need(p, [:file, :name_arity, :to], "clause move"),
          {:ok, file} <- resolve(p.file, p),
          {:ok, dest} <- resolve(p.to, p),
          :ok <- fresh(file, p),
-         {:ok, moved} <- Menard.Move.run(file, dest, p.name_arity, as: p[:as], module: p[:module]) do
-      {:ok, Map.put(moved, :did, "move #{p.name_arity} to #{Path.basename(dest)}")}
+         names = Menard.Move.names(p.name_arity),
+         {:ok, moved} <-
+           Menard.Move.run(file, dest, names,
+             as: p[:as],
+             module: p[:module],
+             moduledoc: p[:moduledoc],
+             delegate: p[:delegate] == true,
+             root: p[:root]
+           ) do
+      {:ok, Map.put(moved, :did, "move #{Enum.join(names, ", ")} to #{Path.basename(dest)}")}
     end
   end
 

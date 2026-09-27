@@ -98,6 +98,50 @@ defmodule Menard.DoorsTest do
     assert from_mcp["did"] == "replace two/1 `n` in a.ex"
   end
 
+  test "a move of several functions with delegates is one reply at both doors: a list, or a/1,b/2",
+       %{tmp_dir: dir} do
+    a = Path.join(dir, "lib/a.ex")
+    before = File.read!(a)
+
+    assert {:ok, from_mcp} =
+             mcp(Menard.MCP.Clause, %{
+               verb: "move",
+               file: "lib/a.ex",
+               name_arity: ["go/1", "two/1"],
+               to: "lib/b.ex",
+               as: "B",
+               delegate: true
+             })
+
+    after_mcp = {File.read!(a), File.read!(Path.join(dir, "lib/b.ex"))}
+    File.write!(a, before)
+    File.rm!(Path.join(dir, "lib/b.ex"))
+
+    assert {:ok, from_cli} =
+             cli(Mix.Tasks.Menard.Clause, [
+               "move",
+               "lib/a.ex",
+               "go/1,two/1",
+               "--to",
+               "lib/b.ex",
+               "--as",
+               "B",
+               "--delegate"
+             ])
+
+    assert {File.read!(a), File.read!(Path.join(dir, "lib/b.ex"))} == after_mcp
+    files = &(&1 |> Map.update!("to", fn r -> same(r) end) |> Map.update!("from", fn r -> same(r) end))
+    assert files.(from_mcp) == files.(from_cli)
+
+    assert %{
+             "moved" => ["go/1", "two/1"],
+             "delegated" => ["go/1", "two/1"],
+             "did" => "move go/1, two/1 to b.ex"
+           } = from_mcp
+
+    assert elem(after_mcp, 0) =~ "defdelegate go(x), to: B\n"
+  end
+
   test "attr names a Phoenix component declaration for what it is, at both doors", %{tmp_dir: dir} do
     File.write!(
       Path.join(dir, "lib/c.ex"),

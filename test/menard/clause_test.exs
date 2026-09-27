@@ -550,7 +550,7 @@ defmodule Menard.ClauseTest do
       def go(n), do: n + 1
     """
 
-    {:ok, out_src, out_dest} = Clause.move(src, dest, "go/1")
+    {:ok, %{source: out_src, dest: out_dest}} = Menard.Move.plan(src, dest, ["go/1"])
 
     # a @doc or @spec left behind re-attaches to whatever definition follows it
     assert out_src == "defmodule A do\n  def stays, do: :here\nend\n"
@@ -570,14 +570,14 @@ defmodule Menard.ClauseTest do
     end
     """
 
-    {:ok, out_src, out_dest} = Clause.move(src, "defmodule B do\nend\n", "go/0")
+    {:ok, %{source: out_src, dest: out_dest}} = Menard.Move.plan(src, "defmodule B do\nend\n", ["go/0"])
 
     assert out_src == String.replace(src, "  def go, do: :moved\n\n", "")
     assert out_dest == "defmodule B do\n  def go, do: :moved\nend\n"
   end
 
   test "move refuses a function that is not there, naming it" do
-    assert {:error, message} = Clause.move("defmodule A do\nend\n", "defmodule B do\nend\n", "nope/1")
+    assert {:error, message} = Menard.Move.plan("defmodule A do\nend\n", "defmodule B do\nend\n", ["nope/1"])
     assert message =~ "nope/1"
   end
 
