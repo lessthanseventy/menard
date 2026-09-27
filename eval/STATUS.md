@@ -625,3 +625,7 @@ only the hidden tests catch it; validate.py 4 of 4), and every TODO.md entry, wh
 this machine). Models now split by tier (PLAN.md): unit rounds (eval/cases) on haiku and sonnet,
 project rounds (eval/long, eval/tlon, eval/riverside) on opus and fable. Next: both rounds, each
 started with `--rebuild` so the arms are pinned to this main.
+- 19:05 riverside1 stopped after 2 sessions: `all` had been menard's hooks only, and manos' tools
+  were loaded only by M, lazy-mcp and map-mcp. `all` is all of menard now (eval/tests/test_arms.py
+  holds it). events.A.opus.1 kept; the hooks-only `all` rows moved to results/riverside1-void.
+  Restarted as riverside1 (the runner skips the row it has), then focus3b.
