@@ -60,7 +60,7 @@ defmodule Menard.DirectiveTest do
     assert Directive.add(src, :alias, "App.Zb") =~ "alias App.Zb\n  alias App.ZZ"
   end
 
-  test "a kind with no block yet opens one in conventional order" do
+  test "a kind with no block yet opens one in conventional order, a blank line around it" do
     src = """
     defmodule A do
       use GenServer
@@ -71,13 +71,36 @@ defmodule Menard.DirectiveTest do
     end
     """
 
-    # import outranks alias and is outranked by use
-    out = Directive.add(src, :import, "Bar")
-    assert out =~ "use GenServer\n  import Bar"
+    # import outranks alias and is outranked by use; the bare formatter adds no blank line, so the
+    # new block brings its own
+    assert Directive.add(src, :import, "Bar") == """
+           defmodule A do
+             use GenServer
+
+             import Bar
+
+             alias App.Cat
+
+             def go, do: :ok
+           end
+           """
 
     # require sorts after alias
-    out = Directive.add(src, :require, "Logger")
-    assert out =~ "alias App.Cat\n  require Logger"
+    assert Directive.add(src, :require, "Logger") == """
+           defmodule A do
+             use GenServer
+
+             alias App.Cat
+
+             require Logger
+
+             def go, do: :ok
+           end
+           """
+
+    # with nothing above it, it goes before the first block it outranks
+    assert Directive.add("defmodule A do\n  alias App.Cat\n\n  def go, do: :ok\nend\n", :use, "GenServer") ==
+             "defmodule A do\n  use GenServer\n\n  alias App.Cat\n\n  def go, do: :ok\nend\n"
   end
 
   test "with no directives at all it goes under the @moduledoc" do
@@ -162,8 +185,7 @@ defmodule Menard.DirectiveTest do
 
     assert Directive.add(src, :alias, "Foo.Bar") == src
     assert Directive.list(src) == [{:alias, "Foo.Bar"}, {:alias, "Foo.Baz"}]
-    assert {:error, message} = Directive.remove(src, :alias, "Foo.Bar")
-    assert message =~ "Foo.{Bar, Baz}"
+    assert Directive.remove(src, :alias, "Foo.Bar") == String.replace(src, "Foo.{Bar, Baz}", "Foo.Baz")
     assert Directive.add(src, :alias, "Zed") =~ "alias Foo.{Bar, Baz}\n  alias Zed\n"
   end
 
@@ -189,7 +211,8 @@ defmodule Menard.DirectiveTest do
   end
 
   test "doctest is a directive: added after use and the aliases, listed, removed" do
-    # a test module's `doctest Mod` is a directive in all but name: added after `use` and the aliases
+    # a test module's `doctest Mod` is a directive in all but name: added after `use` and the aliases,
+    # a block of its own, as Quokka leaves it
     src = """
     defmodule FooTest do
       use ExUnit.Case, async: true
@@ -201,9 +224,40 @@ defmodule Menard.DirectiveTest do
     """
 
     out = Directive.add(src, :doctest, "Foo")
-    assert out =~ "  alias Foo.Bar\n  doctest Foo\n"
+
+    assert out == """
+           defmodule FooTest do
+             use ExUnit.Case, async: true
+
+             alias Foo.Bar
+
+             doctest Foo
+
+             test "a", do: assert(true)
+           end
+           """
+
     assert {:doctest, "Foo"} in Directive.list(out)
     assert Directive.add(out, :doctest, "Foo") == out
-    assert Directive.remove(out, :doctest, "Foo") =~ "  alias Foo.Bar\n\n  test"
+    # the block it was alone in goes with it, its blank line too
+    assert Directive.remove(out, :doctest, "Foo") == src
+  end
+
+  test "removing one of a multi-alias rewrites its line without it" do
+    src = """
+    defmodule A do
+      alias App.{Cat, Dog, Emu}
+
+      def go, do: :ok
+    end
+    """
+
+    once = Directive.remove(src, :alias, "App.Dog")
+    assert once == String.replace(src, "App.{Cat, Dog, Emu}", "App.{Cat, Emu}")
+
+    # one left is a plain alias; none left, the line goes
+    twice = Directive.remove(once, :alias, "App.Emu")
+    assert twice == String.replace(src, "App.{Cat, Dog, Emu}", "App.Cat")
+    assert Directive.remove(twice, :alias, "App.Cat") == "defmodule A do\n  def go, do: :ok\nend\n"
   end
 end

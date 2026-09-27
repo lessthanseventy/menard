@@ -45,7 +45,10 @@ defmodule Menard.Directive do
     end
   end
 
-  @doc "Remove `alias Mod` (or import/require/use) and the line it sits on. A miss leaves the source alone."
+  @doc """
+  Remove `alias Mod` (or import/require/use) and the line it sits on; one of an `alias A.{B, C}`
+  leaves that line, rewritten with the others. A miss leaves the source alone.
+  """
   @spec remove(String.t(), atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def remove(source, kind, target, opts \\ []) do
     with {:ok, ast} <- parse(source),
@@ -55,17 +58,54 @@ defmodule Menard.Directive do
       cond do
         found = Enum.find(body, &match(&1, kind, target)) ->
           {a, b} = Menard.Tree.line_span(found)
-          Menard.Source.delete_lines(source, a, b)
+          Menard.Source.delete_lines(source, a, b + alone(source, a, b))
 
-        # dropping the line would take its siblings with it
         multi = Enum.find(body, &({kind, target} in directives(&1))) ->
-          {:error, "#{kind} #{target} is part of `#{Sourceror.to_string(multi)}` — rewrite that line"}
+          without(source, multi, target)
 
         true ->
           source
       end
     end
   end
+
+  # A directive alone in its block, a blank line below it and above it a blank or the module's `do`:
+  # 1, so the blank below goes too and the block leaves no double gap behind.
+  defp alone(source, a, b) do
+    lines = String.split(source, "\n")
+    above = String.trim(Enum.at(lines, a - 2, "x"))
+    below = String.trim(Enum.at(lines, b, "x"))
+    if a > 1 and below == "" and (above == "" or String.ends_with?(above, " do")), do: 1, else: 0
+  end
+
+  # `alias A.{B, C}` without one of its members: its line rewritten with the others, a plain `alias
+  # A.C` when one is left, and gone when none is.
+  defp without(
+         source,
+         {kind, _, [{{:., _, [{:__aliases__, _, parts} = base, :{}]}, _, subs}]} = multi,
+         target
+       ) do
+    text = &Menard.Source.slice(source, Sourceror.get_range(&1))
+
+    others =
+      for {:__aliases__, _, p} = sub <- subs, Menard.Source.alias_name(parts ++ p) != target, do: text.(sub)
+
+    case others do
+      [] ->
+        {a, b} = Menard.Tree.line_span(multi)
+        Menard.Source.delete_lines(source, a, b + alone(source, a, b))
+
+      [one] ->
+        patch(source, Sourceror.get_range(multi), "#{kind} #{text.(base)}.#{one}")
+
+      _ ->
+        patch(source, Sourceror.get_range(multi), "#{kind} #{text.(base)}.{#{Enum.join(others, ", ")}}")
+    end
+  end
+
+  # with options after it, which say something of every member: the caller's to split
+  defp without(_source, {kind, _, _} = multi, target),
+    do: {:error, "#{kind} #{target} is part of `#{Sourceror.to_string(multi)}` — rewrite that line"}
 
   @doc "Every directive in the module, as `{kind, \"Mod.Name\"}` in source order — the read half."
   @spec list(String.t(), keyword()) :: [{atom(), String.t()}] | {:error, String.t()}
@@ -120,8 +160,8 @@ defmodule Menard.Directive do
     below = Enum.filter(directives, &(rank(kind_of(&1)) > rank(kind)))
 
     cond do
-      above != [] -> after_line(source, List.last(above), line)
-      below != [] -> before_line(source, hd(below), line)
+      above != [] -> after_line(source, List.last(above), line, "\n")
+      below != [] -> before_line(source, hd(below), line, "\n")
       true -> after_preamble(source, module_node, body, line)
     end
   end
@@ -147,10 +187,10 @@ defmodule Menard.Directive do
     patch(source, at, gap <> "\n" <> String.duplicate(" ", col - 1) <> line)
   end
 
-  defp before_line(source, node, line) do
+  defp before_line(source, node, line, gap \\ "") do
     %{start: [line: first, column: col]} = Sourceror.get_range(node)
     at = %{start: [line: first, column: 1], end: [line: first, column: 1]}
-    patch(source, at, String.duplicate(" ", col - 1) <> line <> "\n")
+    patch(source, at, String.duplicate(" ", col - 1) <> line <> "\n" <> gap)
   end
 
   # -- reading directives ---------------------------------------------------
