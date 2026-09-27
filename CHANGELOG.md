@@ -167,6 +167,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `directive add` opening a new block (the first `alias` after the `import`s) wrote it with no
   blank line before it; Styler and Quokka added one, the bare formatter did not. It writes the
   blank line, and `directive remove` of a block's only line takes its blank line with it.
+- `clause move` left a moved `@spec` naming a type the source defines (`t()`) as written, and the
+  destination did not compile. A public type is named by its module (`Cart.t()`, aliased); a
+  `@typep`, which no other module can name, is refused with what to do.
 
 ## 0.5.0
 

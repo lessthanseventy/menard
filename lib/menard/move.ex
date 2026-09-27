@@ -280,7 +280,7 @@ defmodule Menard.Move do
   # with where it is written, and where it says `__MODULE__`. A typespec is read for its aliases and
   # `__MODULE__` only: `list(t())` there is a type, not a call to `list/1`.
   defp scan(code) do
-    empty = %{aliases: MapSet.new(), attributes: MapSet.new(), calls: [], modules: []}
+    empty = %{aliases: MapSet.new(), attributes: MapSet.new(), calls: [], modules: [], types: []}
 
     case Sourceror.parse_string(code) do
       {:ok, ast} ->
@@ -292,8 +292,8 @@ defmodule Menard.Move do
   end
 
   defp scan_node({:@, _, [{kind, _, [_ | _] = args}]}, acc) when kind in @typespecs do
-    {_, inner} = Macro.prewalk(args, %{acc | calls: []}, &scan_node/2)
-    {:typespec, %{inner | calls: acc.calls}}
+    {_, inner} = Macro.prewalk(typespec_body(kind, args), %{acc | calls: []}, &scan_node/2)
+    {:typespec, %{inner | calls: acc.calls, types: inner.calls ++ acc.types}}
   end
 
   # an attribute SET: its value is read, its name is not a call
@@ -313,6 +313,16 @@ defmodule Menard.Move do
     do: {node, %{acc | calls: [{{fun, length(args)}, meta} | acc.calls]}}
 
   defp scan_node(node, acc), do: {node, acc}
+
+  # What a spec's types are read from: its head's arguments, its return and its guard, not the head's
+  # name, which is the function's own.
+  defp typespec_body(kind, [{:when, _, [spec, guard]}]) when kind in [:spec, :callback, :macrocallback],
+    do: [typespec_body(kind, [spec]), guard]
+
+  defp typespec_body(kind, [{:"::", _, [head, return]}]) when kind in [:spec, :callback, :macrocallback],
+    do: [head_args(head), return]
+
+  defp typespec_body(_kind, args), do: args
 
   # The calls neither the module nor Kernel answers: an import's.
   defp unresolved(calls, graph) do
@@ -384,30 +394,58 @@ defmodule Menard.Move do
 
   # -- the destination ------------------------------------------------------
 
-  # A call back to a public function that stays, and `__MODULE__`, now name the source module: by
-  # its last segment, aliased, unless that name already means something else where the code lands.
+  # A call back to a public function that stays, a public type the source defines, and `__MODULE__`
+  # now name the source module: by its last segment, aliased, unless that name already means
+  # something else where the code lands. A type is named, not delegated: no stand-in exists for one.
   defp qualify(src, needs, dest) do
     staying = Map.drop(src.graph, src.taking)
     back = for {key, meta} <- needs.scan.calls, Map.has_key?(staying, key), do: {key, meta}
+    defined = types(src.module)
+    types = for {key, meta} <- needs.scan.types, Map.has_key?(defined, key), do: {key, meta}
+    macros = for {key, _} <- back, staying[key].kind in @macros, uniq: true, do: na(key)
+    private = for {key, _} <- types, defined[key] == :typep, uniq: true, do: key
 
-    case back |> Enum.filter(fn {key, _} -> staying[key].kind in @macros end) |> Enum.map(&na(elem(&1, 0))) do
-      [] ->
+    cond do
+      macros != [] ->
+        {:error,
+         "the moved code calls #{Enum.join(macros, ", ")}, a macro that stays in #{src.mod} — move it too"}
+
+      private != [] ->
+        {:error, typep_refusal(private, src.mod)}
+
+      true ->
         ref = source_ref(src.mod, needs, dest.module)
 
         patches =
-          for({{fun, _}, meta} <- back, do: name_patch(meta, fun, "#{ref.name}.#{fun}")) ++
+          for({{fun, _}, meta} <- back ++ types, do: name_patch(meta, fun, "#{ref.name}.#{fun}")) ++
             for(meta <- needs.scan.modules, do: name_patch(meta, :__MODULE__, ref.name))
 
         qualified =
           (back |> Enum.map(&na(elem(&1, 0))) |> Enum.uniq() |> Enum.sort()) ++
+            (types |> Enum.map(&"@type #{na(elem(&1, 0))}") |> Enum.uniq() |> Enum.sort()) ++
             if(needs.scan.modules == [], do: [], else: ["__MODULE__"])
 
         {:ok, if(patches == [], do: nil, else: ref), qualified, Menard.Source.patch(dest.code, patches)}
-
-      macros ->
-        {:error,
-         "the moved code calls #{macros |> Enum.uniq() |> Enum.join(", ")}, a macro that stays in #{src.mod} — move it too"}
     end
+  end
+
+  # The types a module defines: `{name, arity} => :type | :typep | :opaque`.
+  defp types(module) do
+    for {:@, _, [{kind, _, [{:"::", _, [{name, _, args}, _]}]}]} <- Tree.module_body(module),
+        kind in [:type, :typep, :opaque],
+        into: %{},
+        do: {{name, length(List.wrap(args))}, kind}
+  end
+
+  # A private type is named nowhere else, so a spec naming it cannot move as written; making it
+  # public, or rewriting the spec, is the caller's call.
+  defp typep_refusal(private, mod) do
+    names = Enum.map_join(private, ", ", &na/1)
+    statements = Enum.map_join(private, ", ", fn {name, _} -> "`@typep #{name}`" end)
+    them = Enum.map_join(private, ", ", fn {name, _} -> "#{mod}.#{name}()" end)
+
+    "refused, nothing written: the moved @spec names #{names}, a @typep of #{mod}, which no other module " <>
+      "can name. Make it a @type first (stmt replace of the module's #{statements}): the spec then names #{them}"
   end
 
   defp name_patch(meta, name, to) do
