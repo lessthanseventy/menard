@@ -381,4 +381,56 @@ defmodule Menard.MoveSplitTest do
     assert File.read!(priv) == src
     refute File.exists?(out)
   end
+
+  test "a delegate's default that calls moved code is left to the destination: a delegate per arity", %{
+    tmp_dir: dir
+  } do
+    file = Path.join(dir, "opts.ex")
+
+    File.write!(file, """
+    defmodule Split10 do
+      def list(opts \\\\ defaults()), do: Keyword.merge(defaults(), opts)
+
+      def fetch(id, opts \\\\ defaults(), retries \\\\ 3), do: {id, opts, retries}
+
+      def page(n \\\\ 1), do: n
+
+      defp defaults, do: [limit: 10]
+    end
+    """)
+
+    dest = Path.join(dir, "opts/lists.ex")
+
+    assert {:ok, _reply} =
+             Menard.Move.run(file, dest, ["list/1", "fetch/3", "page/1"], as: "Split10.Lists", delegate: true)
+
+    # `defaults()` evaluated in the source would call what is no longer there, and it is private
+    # where it went: each arity delegates to the same arity, whose default is evaluated there. A
+    # default that calls nothing moved stays as written.
+    assert File.read!(file) == """
+           defmodule Split10 do
+             alias Split10.Lists
+
+             defdelegate list, to: Lists
+
+             defdelegate list(opts), to: Lists
+
+             defdelegate fetch(id), to: Lists
+
+             defdelegate fetch(id, opts), to: Lists
+
+             defdelegate fetch(id, opts, retries), to: Lists
+
+             defdelegate page(n \\\\ 1), to: Lists
+           end
+           """
+
+    assert compile([File.read!(dest), File.read!(file)]) == []
+    mod = Module.concat(["Split10"])
+    assert mod.list() == [limit: 10]
+    assert mod.list(limit: 2) == [limit: 2]
+    assert mod.fetch(7) == {7, [limit: 10], 3}
+    assert mod.fetch(7, [], 1) == {7, [], 1}
+    assert mod.page() == 1
+  end
 end

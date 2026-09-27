@@ -170,6 +170,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `clause move` left a moved `@spec` naming a type the source defines (`t()`) as written, and the
   destination did not compile. A public type is named by its module (`Cart.t()`, aliased); a
   `@typep`, which no other module can name, is refused with what to do.
+- `clause move --delegate` copied a default into the delegate as written, where it is evaluated in
+  the source: one calling code that moved (`opts \\ defaults()`) called nothing. Such a function
+  gets a delegate per arity, each to the same arity, whose default is evaluated where it went.
 
 ## 0.5.0
 
