@@ -17,6 +17,22 @@ defmodule Menard.BinTest do
   @fresh [{"MIX_ENV", "bintest"}]
   defp fresh_build!, do: File.rm_rf!(Path.join(@root, "_build/bintest/lib/menard"))
 
+  # this checkout's tracked files, its deps and its dev build, at DIR/menard
+  defp checkout_copy!(dir) do
+    copy = Path.join(dir, "menard")
+    {files, 0} = System.cmd("git", ["-C", @root, "ls-files"])
+
+    for f <- String.split(files, "\n", trim: true) do
+      File.mkdir_p!(Path.dirname(Path.join(copy, f)))
+      File.cp!(Path.join(@root, f), Path.join(copy, f))
+    end
+
+    File.cp_r!(Path.join(@root, "deps"), Path.join(copy, "deps"))
+    File.mkdir_p!(Path.join(copy, "_build"))
+    File.cp_r!(Path.join(@root, "_build/dev"), Path.join(copy, "_build/dev"))
+    copy
+  end
+
   @tag :tmp_dir
   test "--stdin passes the last argument on stdin, quotes and backslashes intact", %{tmp_dir: dir} do
     file = Path.join(dir, "a.ex")
@@ -180,17 +196,7 @@ defmodule Menard.BinTest do
     # has more deps. deps/ is untracked, so it kept the old ones, and the first-run check (one dep's
     # directory) passed: the compile died on "dependency not available". The same after any pull that
     # adds a dep. Here: a copy of this checkout, its deps and dev build, with one dep taken away.
-    copy = Path.join(dir, "menard")
-    {files, 0} = System.cmd("git", ["-C", @root, "ls-files"])
-
-    for f <- String.split(files, "\n", trim: true) do
-      File.mkdir_p!(Path.dirname(Path.join(copy, f)))
-      File.cp!(Path.join(@root, f), Path.join(copy, f))
-    end
-
-    File.cp_r!(Path.join(@root, "deps"), Path.join(copy, "deps"))
-    File.mkdir_p!(Path.join(copy, "_build"))
-    File.cp_r!(Path.join(@root, "_build/dev"), Path.join(copy, "_build/dev"))
+    copy = checkout_copy!(dir)
     File.rm_rf!(Path.join(copy, "deps/jason"))
     # fetched for a mix.lock that had no jason yet
     lock = File.read!(Path.join(@root, "mix.lock"))
@@ -205,5 +211,38 @@ defmodule Menard.BinTest do
              )
 
     assert File.dir?(Path.join(copy, "deps/jason"))
+  end
+
+  @tag :tmp_dir
+  test "--frozen still runs the last good build after a verb without it failed to compile menard", %{
+    tmp_dir: dir
+  } do
+    # Found 2026-09-26: one verb run without --frozen mid-edit (menard not compiling) failed its
+    # compile, and the compiler had already removed the beams of the modules it was recompiling;
+    # every --frozen verb after it died on "module Menard.Source is not available".
+    copy = checkout_copy!(dir)
+    bin = Path.join(copy, "bin/menard")
+    env = [{"MIX_ENV", "dev"}]
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\n  def go, do: 1\nend\n")
+    {_, 0} = System.cmd(bin, ["version"], env: env, stderr_to_stdout: true)
+
+    # a half-applied edit: a clause calling a helper the next call adds
+    source = Path.join(copy, "lib/menard/source.ex")
+
+    File.write!(
+      source,
+      String.replace(
+        File.read!(source),
+        "defmodule Menard.Source do\n",
+        "defmodule Menard.Source do\n  def half, do: not_there_yet()\n",
+        global: false
+      )
+    )
+
+    assert {_, 1} = System.cmd(bin, ["outline", file], env: env, stderr_to_stdout: true)
+
+    assert {out, 0} = System.cmd(bin, ["--frozen", "outline", file], env: env, stderr_to_stdout: true)
+    assert out =~ "go/0"
   end
 end
