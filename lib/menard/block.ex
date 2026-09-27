@@ -482,6 +482,12 @@ defmodule Menard.Block do
       {:whole, whole_label, ctx, body} when label in [nil, whole_label] ->
         {:ok, whole_label, body, Keyword.put(opts, :args, opts[:args] || ctx)}
 
+      # the same macro under another label: a rename in disguise, which `relabel` is for
+      {:whole, whole_label, _ctx, _body} when is_binary(label) and is_binary(whole_label) ->
+        {:error,
+         "CODE is a whole `#{name} #{inspect(whole_label)}` block, for `#{name} #{inspect(label)}`: " <>
+           "to rename it, `block relabel` first, then replace; to change only what is inside, pass its body"}
+
       _ ->
         {:ok, label, code, opts}
     end

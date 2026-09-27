@@ -229,10 +229,13 @@ defmodule Menard.BlockTest do
     out = Block.replace(@src, "describe", code, label: "two")
     assert out =~ "describe \"two\" do\n    test \"c\" do\n      assert 3 == 3\n    end\n  end"
     refute out =~ "describe \"two\" do\n    describe"
-    # one labelled otherwise is a mistake, not a shorthand
+    # one labelled otherwise is a mistake, not a shorthand; the refusal says which, and the way to
+    # rename (an agent read "pass what goes inside it" and lost turns: the label was the difference)
     other = "describe \"three\" do\n  test \"c\" do\n    assert 3 == 3\n  end\nend"
     assert {:error, message} = Block.replace(@src, "describe", other, label: "two")
-    assert message =~ "BODY"
+    assert message =~ ~s(`describe "three"`)
+    assert message =~ ~s(`describe "two"`)
+    assert message =~ "relabel"
   end
 
   test "replace with a body that repeats its leading comment writes it once" do
