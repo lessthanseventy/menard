@@ -1,0 +1,1 @@
+Voided 2026-09-26: step 03 was graded by split.py's symmetric 10% bound, which failed a split for its new module headers and docs (1765 -> 2057 code lines) before compile, credo and the tests ran. The bound is now asymmetric; these rows are not that grader.
