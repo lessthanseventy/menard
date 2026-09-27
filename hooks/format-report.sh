@@ -33,6 +33,25 @@ if [[ "$tool" == "Bash" && "$event" == "PostToolUse" ]]; then
   fi
 fi
 
+# A write through manos' MCP tools: menard wrote and formatted the file itself, so there is nothing
+# to format, but the stop gate checks the projects on this list, and an MCP write went through no
+# Edit, Write or Bash (riverside2: a session of manos writes read as "nothing written"). Reads
+# (`get`, `list`, `refs`; `outline`, `find`, `run`) write nothing.
+if [[ "$tool" == mcp__*menard__* ]]; then
+  verb=$(jq -r '.tool_input.verb // empty' <<<"$payload")
+  case "${tool##*__}" in outline | find | run) exit 0 ;; esac
+  case "$verb" in get | list | refs) exit 0 ;; esac
+  root=${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}
+  while IFS= read -r file; do
+    [[ -n "$file" ]] || continue
+    [[ "$file" == /* ]] || file="$root/$file"
+    dir=$(dirname "$file")
+    while [[ "$dir" != "/" && ! -f "$dir/mix.exs" ]]; do dir=$(dirname "$dir"); done
+    [[ -f "$dir/mix.exs" ]] && printf '%s\n' "$dir" >>"$(session_file touched)"
+  done < <(jq -r '.tool_input | (.file, .to, (.files // [])[]?) // empty | strings' <<<"$payload")
+  exit 0
+fi
+
 # A shell command: a mark before it, and after it every Elixir file newer than the mark
 if [[ "$tool" == "Bash" && "$event" == "PreToolUse" ]]; then
   touch "$mark"

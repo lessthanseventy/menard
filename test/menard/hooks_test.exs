@@ -950,6 +950,40 @@ defmodule Menard.HooksTest do
     end
   end
 
+  @tag :tmp_dir
+  test "stop-gate checks what manos wrote through MCP, not what it only read", %{tmp_dir: dir} do
+    # riverside2 events.all.fable.3: `clause replace`, `block add` and `directive add` through manos,
+    # and the stop gate said "nothing written this session": its list is the format hook's, which saw
+    # no Edit, Write or Bash. A menard write through MCP is a write.
+    host(dir)
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
+
+    mcp = fn session, tool, input ->
+      report(
+        %{
+          hook_event_name: "PostToolUse",
+          session_id: session,
+          tool_name: "mcp__plugin_manos_menard__" <> tool,
+          tool_input: input
+        },
+        dir
+      )
+    end
+
+    # a read through manos writes nothing: no gate
+    {_, 0} = mcp.("m1", "clause", %{verb: "get", file: "lib/n.ex", name_arity: "f/1"})
+    {_, 0} = mcp.("m1", "outline", %{file: "lib/n.ex"})
+    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "m1"}, dir)
+    assert gate_err(dir) =~ "nothing written"
+
+    # a write through manos is gated like any other
+    {_, 0} =
+      mcp.("m2", "clause", %{verb: "replace", file: "lib/n.ex", name_arity: "f/1", head: "f(x)", code: "x"})
+
+    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "m2"}, dir)
+    assert JSON.decode!(out)["decision"] == "block"
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

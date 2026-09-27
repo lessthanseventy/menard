@@ -114,6 +114,10 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `deps`: a head's defaults and guard count as what a function calls and reads (they travel with it).
 
 **Fixed**
+- The stop gate never checked what manos' MCP tools wrote: its list of projects was the format
+  hook's, fed by Edit, Write and Bash, so a session that edited only through menard's tools stopped
+  unchecked. A write through them (any verb but `get`, `list` and `refs`) now puts its project on
+  the list.
 - The stop gate re-checked, at every step (12s), what the agent had just checked itself: in
   riverside1 it never refused a stop. A gate the agent runs (`mix precommit`, `menard run check`)
   whose output is green, nothing red in it, now counts as the stop gate's own green.
