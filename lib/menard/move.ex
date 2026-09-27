@@ -521,7 +521,9 @@ defmodule Menard.Move do
         [{a, _} = first | _] = src.spans[key]
         line = Enum.at(lines, a)
         indent = String.duplicate(" ", String.length(line) - String.length(String.trim_leading(line)))
-        {first, indent <> delegate(key, src.graph[key].nodes, ref.name)}
+
+        {first,
+         Enum.map_join(delegate(key, src.graph[key].nodes, ref.name, src.taking), "\n\n", &(indent <> &1))}
       end)
 
     out = Clause.cut(src.source, Enum.flat_map(src.taking, &src.spans[&1]), replace)
@@ -555,10 +557,13 @@ defmodule Menard.Move do
 
   # `defdelegate name(args), to: Dest`: each argument named from a clause that names it — a variable,
   # else a struct's module (`%User{}` is `user`), else `argN` — with the default the function gave
-  # it: a delegate's head carries defaults, and its one head covers every arity they make.
-  defp delegate({name, 0}, _nodes, to), do: "defdelegate #{name}, to: #{to}"
+  # it: a delegate's head carries defaults, and its one head covers every arity they make. A default
+  # is evaluated where the delegate is, so one calling code that moved (`opts \\ defaults()`, a
+  # helper that may be private there) cannot be copied: each arity delegates to the same arity
+  # instead, whose default is evaluated in the destination.
+  defp delegate({name, 0}, _nodes, to, _taking), do: ["defdelegate #{name}, to: #{to}"]
 
-  defp delegate({name, arity}, nodes, to) do
+  defp delegate({name, arity}, nodes, to, taking) do
     heads = Enum.map(nodes, fn {_kind, _, [head | _]} -> head_args(head) end)
 
     args =
@@ -569,20 +574,55 @@ defmodule Menard.Move do
         {Enum.find_value(at, &var_name/1) || Enum.find_value(at, &struct_name/1) || "arg#{i + 1}", default}
       end)
       |> unique()
-      |> Enum.map_join(", ", fn
-        {var, nil} -> var
-        {var, default} -> "#{var} \\\\ #{default}"
-      end)
 
-    "defdelegate #{name}(#{args}), to: #{to}"
+    if Enum.any?(args, fn {_var, default} -> default && calls_any?(default, taking) end) do
+      per_arity(name, args, to)
+    else
+      args =
+        Enum.map_join(args, ", ", fn
+          {var, nil} -> var
+          {var, default} -> "#{var} \\\\ #{Sourceror.to_string(default)}"
+        end)
+
+      ["defdelegate #{name}(#{args}), to: #{to}"]
+    end
   end
 
   defp head_args({:when, _, [call | _]}), do: head_args(call)
   defp head_args({_name, _, args}) when is_list(args), do: args
   defp head_args(_head), do: []
 
-  defp default({:\\, _, [_arg, default]}), do: Sourceror.to_string(default)
+  defp default({:\\, _, [_arg, default]}), do: default
   defp default(_arg), do: nil
+
+  # One delegate per arity the defaults make, each passing what it is given: every argument without
+  # a default, and the defaulted ones from the left as the arity has room, as Elixir fills them.
+  defp per_arity(name, args, to) do
+    required = Enum.count(args, &(elem(&1, 1) == nil))
+
+    for k <- required..length(args) do
+      {kept, _} =
+        Enum.flat_map_reduce(args, k - required, fn
+          {var, nil}, left -> {[var], left}
+          {var, _default}, left when left > 0 -> {[var], left - 1}
+          _arg, 0 -> {[], 0}
+        end)
+
+      if kept == [],
+        do: "defdelegate #{name}, to: #{to}",
+        else: "defdelegate #{name}(#{Enum.join(kept, ", ")}), to: #{to}"
+    end
+  end
+
+  defp calls_any?(ast, keys) do
+    ast
+    |> Macro.prewalk(&Deps.as_call/1)
+    |> Macro.prewalker()
+    |> Enum.any?(fn
+      {fun, _, args} when is_atom(fun) and is_list(args) -> {fun, length(args)} in keys
+      _node -> false
+    end)
+  end
 
   defp var_name({:\\, _, [arg, _]}), do: var_name(arg)
   defp var_name({:=, _, [left, right]}), do: var_name(left) || var_name(right)
