@@ -96,8 +96,26 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `hooks/shell-edits.sh`: a module a shell command changed is named, with `run check` to confirm it.
   `hooks/read-hint.sh`: a whole-file read of a module over 300 lines is pointed at `outline`. Both
   advisory, in Claude Code and pi.
+- `clause move` splits a module: `name_arity` takes several (a list, or `a/1,b/2`), one write per
+  file, and `delegate: true` (`--delegate`) leaves a `defdelegate` for each public function moved,
+  its defaults kept, so the old module's API and callers keep working. What the moved code needs
+  comes with it: the private helpers only it calls, the attributes it reads (with their comment;
+  gone from the source when nothing there reads them), and the alias/import/require lines it uses,
+  only those (the source loses the ones it stops using, as they would warn). A call back to a
+  public function that stays, and `__MODULE__`, name the source. A private helper a staying
+  function also calls is refused, naming both, with the two ways out. `moduledoc` gives a created
+  module its `@moduledoc`. The reply adds `moved`, `carried`, `attributes`, `directives`,
+  `qualified`, `delegated` and `left` (without `delegate`, each call now pointing at nothing). In
+  riverside1 every agent split ex_riverside's 860-line `events.ex` with a Python script copying
+  line ranges and then hand-wrote ~50 delegates; the same split is now three moves and two
+  `visibility` calls the first refusal asks for, and it passes step 03's check (grader, credo
+  --strict, the API test, the suite). The guard's refusal and the skill say a split is one call
+  per new module.
+- `deps`: a head's defaults and guard count as what a function calls and reads (they travel with it).
 
 **Fixed**
+- `clause move` dedented the code it moved, and a heredoc `@doc`'s text with it: the patch left
+  the text at column 1 and only the formatter put it back.
 - Every CLI verb dropped a flag it could not read, and its value with it: `block add … --label
   "--x"` wrote a test with no name and answered as a success, and CODE like `-x + 1` lost its
   first token. Each verb now refuses it, saying `--flag=VALUE` or `-- CODE`, and what it takes.
