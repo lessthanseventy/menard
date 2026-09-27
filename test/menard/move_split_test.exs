@@ -18,6 +18,14 @@ defmodule Menard.MoveSplitTest do
     defmodule Split1.Shop.Stock do
       def take(n), do: n
     end
+
+    defmodule Split1.Greeter.Fns do
+      def greet(x), do: "hi " <> x
+    end
+
+    defmodule Split1.Greeter do
+      defmacro __using__(_opts), do: quote(do: import(Split1.Greeter.Fns))
+    end
     """)
 
     :ok
@@ -432,5 +440,80 @@ defmodule Menard.MoveSplitTest do
     assert mod.fetch(7) == {7, [limit: 10], 3}
     assert mod.fetch(7, [], 1) == {7, [], 1}
     assert mod.page() == 1
+  end
+
+  test "an import without only: goes along only when nothing else could answer the call it makes", %{
+    tmp_dir: dir
+  } do
+    # alone, the bare import is what answers band/2: it goes, and the source, calling nothing of it
+    # now, loses it
+    file = Path.join(dir, "bits.ex")
+
+    File.write!(file, """
+    defmodule Split11 do
+      import Bitwise
+
+      def mask(x), do: band(x, 1)
+
+      def id(x), do: x
+    end
+    """)
+
+    assert {:ok, reply} =
+             Menard.Move.run(file, Path.join(dir, "bits/mask.ex"), ["mask/1"], as: "Split11.Mask")
+
+    assert reply.directives == ["import Bitwise"]
+    assert reply.unresolved == []
+    assert File.read!(file) == "defmodule Split11 do\n  def id(x), do: x\nend\n"
+
+    # beside a `use`, which may import anything, what the AST shows cannot say which one answers
+    # greet/1: neither is copied (a wrong guess is an unused import, which warns), and the reply
+    # names the call and where it may come from
+    file = Path.join(dir, "hi.ex")
+
+    src = """
+    defmodule Split12 do
+      use Split1.Greeter
+
+      import Bitwise
+
+      def hello(x), do: greet(x)
+
+      def mask(x), do: band(x, 1)
+    end
+    """
+
+    File.write!(file, src)
+    dest = Path.join(dir, "hi/hello.ex")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["hello/1"], as: "Split12.Hello", delegate: true)
+
+    assert File.read!(dest) == """
+           defmodule Split12.Hello do
+             def hello(x), do: greet(x)
+           end
+           """
+
+    assert reply.directives == []
+    assert reply.unresolved == ["greet/1 (one of: use Split1.Greeter; import Bitwise)"]
+
+    # the source keeps both: band/2 still needs one of them
+    assert File.read!(file) == """
+           defmodule Split12 do
+             use Split1.Greeter
+
+             import Bitwise
+
+             alias Split12.Hello
+
+             defdelegate hello(x), to: Hello
+
+             def mask(x), do: band(x, 1)
+           end
+           """
+
+    # with the `use` the reply names, it compiles clean
+    fixed = Menard.Directive.add(File.read!(dest), :use, "Split1.Greeter")
+    assert compile([fixed, File.read!(file)]) == []
+    assert Module.concat(["Split12"]).hello("x") == "hi x"
   end
 end
