@@ -32,6 +32,15 @@
             "statusMessage": "mix format"
           }
         ]
+      },
+      {
+        "matcher": "mcp__.*menard__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\""
+          }
+        ]
       }
     ],
     "PostToolUseFailure": [
