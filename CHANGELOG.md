@@ -77,6 +77,12 @@ agents tripped on, fixed, and what they reached for first, made to work.
   adapters.
 - `block replace` and `block add` handed a whole block of the macro (and label) named take its
   body, label and args. Both were refused, and `block add` nested the block inside another.
+- `block replace` handed a whole test under `@tag` lines sets those as its tags, in place of the
+  ones above it: the one way to tag an existing test. The test came out nested in the old one.
+- `run test` and `run check` answer `skipped` when tests were skipped (`@tag skip:`). `run test`
+  counted them as nothing (5 tests, 3 skipped came back `tests: 2`) and `run check` never said.
+- `mise run install:path` (and both install tasks) puts `menard` on PATH, `~/.local/bin`. Inside a
+  menard checkout or worktree it runs that checkout's `bin/menard`; anywhere else, the installed one.
 
 **Removed**
 - The prose verbs: `clause doc`, `clause comment`, `stmt comment`, `attr comment` and `module
@@ -92,6 +98,27 @@ agents tripped on, fixed, and what they reached for first, made to work.
   advisory, in Claude Code and pi.
 
 **Fixed**
+- Every CLI verb dropped a flag it could not read, and its value with it: `block add … --label
+  "--x"` wrote a test with no name and answered as a success, and CODE like `-x + 1` lost its
+  first token. Each verb now refuses it, saying `--flag=VALUE` or `-- CODE`, and what it takes.
+- `bin/menard` fetched deps only when `deps/sourceror` was missing, so a checkout whose mix.lock
+  gained a dep (a pull, a worktree moved to a newer commit) died on "dependency not available",
+  told to retry `--frozen`. It fetches whenever mix.lock differs from the one last fetched for,
+  quietly like its compile, and never under `--frozen`.
+- A verb run without `--frozen` while menard does not compile left `--frozen` nothing to run: the
+  failed compile had deleted the beams it was rebuilding ("module Menard.Source is not
+  available"). The last good ones are put back.
+- `block add` and `clause insert-at` wrote a blank line inside the new code as trailing spaces, and
+  shifted the lines of a multi-line string inside it, changing its value.
+- `clause delete` left a blank line under the module's `do`; deleting or moving a module's last
+  function left one above its `end`. `clause move` to a new file in a directory that did not exist
+  yet raised `File.Error`; the directory is made.
+- `block replace` handed a whole test with args of its own (`%{tmp_dir: dir}`) kept the old ones,
+  leaving its variables undefined.
+- The format hook took every file git wrote after a `cd` (`cd DIR && git worktree add`) for an edit
+  and formatted each; a command that started with `git` hid a real edit after it (`git checkout x
+  && sed -i a.ex`). A file is skipped when its content is one its repo already holds, whatever the
+  command.
 - A verb whose build another process changed between `bin/menard`'s own compile and the verb's
   mix answered with mix's compile log ("Generated menard app" on stdout, ahead of the answer;
   "Waiting for lock on the build directory" on stderr). Every verb now runs off the last build
