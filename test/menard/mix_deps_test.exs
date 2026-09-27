@@ -166,7 +166,7 @@ defmodule Menard.MixDepsTest do
   @tag :tmp_dir
   test "mix menard.deps refuses an option it does not know, before it touches anything", %{tmp_dir: dir} do
     # swallowed, `upgrade --in DIR --tp 2.0` ran an upgrade of an app named "2.0", with no --to
-    assert_raise OptionParser.ParseError, ~r/--tp/, fn ->
+    assert_raise Mix.Error, ~r/--tp/, fn ->
       Deps.run(["upgrade", "--in", dir, "--tp", "2.0"])
     end
   end
