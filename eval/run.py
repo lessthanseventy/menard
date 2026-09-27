@@ -132,7 +132,8 @@ def build_plugins(force=False):
         if dest.exists() and not force:
             continue
         shutil.rmtree(dest, ignore_errors=True)
-        ignore = shutil.ignore_patterns(".git", "eval", "tmp", "doc", "erl_crash.dump", ".worktrees", "pi")
+        # worktrees: .claude/worktrees holds whole checkouts of this repo, one per agent at work
+        ignore = shutil.ignore_patterns(".git", "eval", "tmp", "doc", "erl_crash.dump", ".worktrees", "worktrees", "pi")
         shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
         if arm == "C":
             (dest / "hooks" / "hooks.json").write_text('{"hooks": {}}\n')
@@ -160,7 +161,12 @@ def build_plugins(force=False):
                  "big-read": [("PreToolUse", "Read", "big-read.sh")],
                  # everything the hook-side arms add, together
                  "all": [("SessionStart", None, "session-run.sh"), ("PreToolUse", "Read", "big-read.sh"),
-                         ("Stop", None, "stop-gate.sh"), ("PreToolUse", "Bash", "commit-gate.sh")]}.get(arm, [])
+                         ("Stop", None, "stop-gate.sh"), ("PreToolUse", "Bash", "commit-gate.sh"),
+                         ("PreToolUse", "Edit|MultiEdit|Write|NotebookEdit", "menard-only.sh")]}.get(arm, [])
+        # `all`'s scripts the shipped plugin no longer has (the guard)
+        if arm == "all":
+            for f in (EVAL / "arms" / "all").iterdir():
+                shutil.copy(f, dest / "hooks" / f.name)
         for event, matcher, script in extra:
             hooks_json = dest / "hooks" / "hooks.json"
             d = json.loads(hooks_json.read_text())

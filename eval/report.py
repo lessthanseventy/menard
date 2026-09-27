@@ -27,7 +27,7 @@ ARM_TEXT = {
     "run-cli": "hook, plus a few lines at session start teaching `menard run test` / `run check` (one JSON line per run)",
     "compile": "hook, plus a compile after each write naming compiler warnings in the files written",
     "big-read": "hook, plus a whole-file Read of an Elixir file over 800 lines answered with its outline (once)",
-    "all": "all of menard: hook, run-cli, compile, big-read and stop together, and manos' tools",
+    "all": "all of menard: hook, run-cli, compile, big-read, stop and the guard together, and manos' tools",
     "stop": "hook, plus a Stop hook that checks what the agent changed (compile, credo on its lines, the stale tests) and refuses the stop while it is red, and the whole gate before a git commit (until 2026-09-26: the whole gate at every stop)",
     "map-mcp": "hook, plus the full map and manos (its MCP tools, always loaded)",
     "cli": "hook, plus a few lines at session start teaching menard's CLI (rename, find, outline)",
