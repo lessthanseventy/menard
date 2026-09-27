@@ -123,7 +123,6 @@ defmodule Menard.BinTest do
     File.mkdir_p!(Path.join(dir, "bin"))
     File.cp!(@bin, Path.join(dir, "bin/menard"))
     File.cp!(Path.join(@root, ".tool-versions"), Path.join(dir, ".tool-versions"))
-    File.mkdir_p!(Path.join(dir, "deps/sourceror"))
 
     for env <- ["dev", "docs", "test"] do
       ebin = Path.join(dir, "_build/#{env}/lib/fake/ebin")
@@ -171,5 +170,40 @@ defmodule Menard.BinTest do
     path = Enum.join(@caller ++ [System.get_env("PATH")], ":")
     {out, 0} = System.cmd(@bin, ["version"], env: [{"PATH", path}, {"MIX_ENV", "dev"}])
     assert out =~ "on Elixir 1.19.4 / OTP 27"
+  end
+
+  @tag :tmp_dir
+  test "a checkout whose mix.lock gained a dep since its first run fetches it, and says nothing", %{
+    tmp_dir: dir
+  } do
+    # Found 2026-09-26: a worktree first run at an older commit, then moved to one whose mix.lock
+    # has more deps. deps/ is untracked, so it kept the old ones, and the first-run check (one dep's
+    # directory) passed: the compile died on "dependency not available". The same after any pull that
+    # adds a dep. Here: a copy of this checkout, its deps and dev build, with one dep taken away.
+    copy = Path.join(dir, "menard")
+    {files, 0} = System.cmd("git", ["-C", @root, "ls-files"])
+
+    for f <- String.split(files, "\n", trim: true) do
+      File.mkdir_p!(Path.dirname(Path.join(copy, f)))
+      File.cp!(Path.join(@root, f), Path.join(copy, f))
+    end
+
+    File.cp_r!(Path.join(@root, "deps"), Path.join(copy, "deps"))
+    File.mkdir_p!(Path.join(copy, "_build"))
+    File.cp_r!(Path.join(@root, "_build/dev"), Path.join(copy, "_build/dev"))
+    File.rm_rf!(Path.join(copy, "deps/jason"))
+    # fetched for a mix.lock that had no jason yet
+    lock = File.read!(Path.join(@root, "mix.lock"))
+    old = lock |> String.split("\n") |> Enum.reject(&(&1 =~ ~s("jason":))) |> Enum.join("\n")
+    File.write!(Path.join(copy, "deps/.menard-mix-lock"), old)
+
+    # stdout the answer, stderr nothing: fetching and building itself is menard's business
+    assert {"menard " <> _, 0} =
+             System.cmd(Path.join(copy, "bin/menard"), ["version"],
+               env: [{"MIX_ENV", "dev"}],
+               stderr_to_stdout: true
+             )
+
+    assert File.dir?(Path.join(copy, "deps/jason"))
   end
 end

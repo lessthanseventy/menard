@@ -14,27 +14,11 @@ cd -- "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd
 run=()
 command -v mise >/dev/null 2>&1 && run=(mise exec -C "$PWD" --)
 
-# A fresh install has no deps/ and no _build — git carries neither, and nothing runs `mix deps.get`
-# for a cloned Claude Code plugin. Without this, every verb dies on "some dependencies are missing"
-# the first time anyone uses it. mix.lock is tracked, so this resolves to the tested versions.
-# Output goes to STDERR: `mcp`'s stdout is the JSON-RPC channel and a fetch log there is fatal.
-# Every mix that is not the verb itself reads /dev/null: a VM left on the caller's stdin swallows
-# what was piped to the verb (`write FILE -` wrote an empty file) or the MCP client's first message.
-if [[ ! -d deps/sourceror ]]; then
-  echo "menard: first run — fetching deps" >&2
-  # only this env's: ex_doc and its lexers are the docs env's, and cost a first start seconds
-  "${run[@]}" mix deps.get --only "${MIX_ENV:-dev}" >&2 </dev/null
-  # Compile here too, with the log on stderr. A cold build is ~200 lines that mix writes to
-  # STDOUT, and stdout is the answer: one JSON line from `run`, the protocol for `mcp`.
-  "${run[@]}" mix compile >&2 </dev/null
-fi
-
-# every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
-verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|version"
-
 # menard building ITSELF (a first fetch, a compile after an update) is menard's business, not the
 # caller's: its log goes nowhere unless it fails. stderr then carries only the verb's own refusals
-# and real errors, so a caller never has to throw it away to read the answer.
+# and real errors, so a caller never has to throw it away to read the answer. Every mix that is not
+# the verb itself reads /dev/null: a VM left on the caller's stdin swallows what was piped to the
+# verb (`write FILE -` wrote an empty file) or the MCP client's first message.
 quietly() {
   local log
   log=$("$@" 2>&1 </dev/null) && return 0
@@ -44,6 +28,22 @@ quietly() {
 }
 frozen=0
 [[ "${1:-}" == "--frozen" ]] && { frozen=1; shift; }
+
+# deps/ as mix.lock has them. A fresh install has none: git carries neither deps/ nor _build, and
+# nothing runs `mix deps.get` for a cloned Claude Code plugin. And git does not track deps/, so a
+# pull or checkout whose mix.lock gained a dep kept the old ones, and the compile died on
+# "dependency not available". So fetch whenever mix.lock differs from the one last fetched for;
+# mix.lock is tracked, so this resolves to the tested versions. The compile below builds them.
+# Only this env's: ex_doc and its lexers are the docs env's, and cost a first start seconds.
+# `--frozen` runs the last build as it is, so it fetches nothing either.
+fetched=deps/.menard-mix-lock
+if ((!frozen)) && ! cmp -s mix.lock "$fetched"; then
+  quietly "${run[@]}" mix deps.get --only "${MIX_ENV:-dev}"
+  cp mix.lock "$fetched"
+fi
+
+# every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
+verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|version"
 
 verb="${1:-}"
 [[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
