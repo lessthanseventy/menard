@@ -25,8 +25,3 @@ commit lands.
   `test "L" … do … end` put all of it INSIDE the old test's body, a test nested in a test, where a
   CODE starting at `test` replaces the test (2026-09-26). Take a leading `@tag`/`@describetag` as
   the test's own, or refuse it.
-- bin/menard's first run fetches deps only when `deps/sourceror` is missing. A worktree whose first
-  run fetched sourceror alone and then failed its compile on "dependency not available" (2026-09-26,
-  not reproduced in a clean copy; `mix deps.get` fixed it) suggests a partial `deps/` passes that
-  check. Check every locked dep (`mix deps.loadpaths --no-deps-check` failing, or `mix deps` status),
-  not one directory.
