@@ -714,7 +714,8 @@ defmodule Menard.Move do
     end
   end
 
-  # one of an `alias A.{B, C}` stays: it cannot go without rewriting its line
+  # one of an `alias A.{B, C}` leaves its line; one of an `alias A.{B, C}, opts` stays, as the
+  # options speak for every member
   defp unalias(source, target, mod) do
     with {:error, _} <- Directive.remove(source, :alias, target, module: mod), do: source
   end

@@ -516,4 +516,36 @@ defmodule Menard.MoveSplitTest do
     assert compile([fixed, File.read!(file)]) == []
     assert Module.concat(["Split12"]).hello("x") == "hi x"
   end
+
+  test "a multi-alias member only the moved code used leaves the source's line", %{tmp_dir: dir} do
+    file = Path.join(dir, "multi.ex")
+
+    File.write!(file, """
+    defmodule Split13 do
+      alias Split1.{Shop.Stock, Tax}
+
+      def price(p), do: Tax.add(p, 0.5)
+
+      def stock(n), do: Stock.take(n)
+    end
+    """)
+
+    dest = Path.join(dir, "multi/price.ex")
+    assert {:ok, _reply} = Menard.Move.run(file, dest, ["price/1"], as: "Split13.Price", delegate: true)
+
+    # Tax, unused in the source now, would warn: it leaves the multi-alias, Stock stays
+    assert File.read!(file) == """
+           defmodule Split13 do
+             alias Split1.Shop.Stock
+             alias Split13.Price
+
+             defdelegate price(p), to: Price
+
+             def stock(n), do: Stock.take(n)
+           end
+           """
+
+    assert compile([File.read!(dest), File.read!(file)]) == []
+    assert Module.concat(["Split13"]).price(2) == 3.0
+  end
 end

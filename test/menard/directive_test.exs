@@ -185,8 +185,7 @@ defmodule Menard.DirectiveTest do
 
     assert Directive.add(src, :alias, "Foo.Bar") == src
     assert Directive.list(src) == [{:alias, "Foo.Bar"}, {:alias, "Foo.Baz"}]
-    assert {:error, message} = Directive.remove(src, :alias, "Foo.Bar")
-    assert message =~ "Foo.{Bar, Baz}"
+    assert Directive.remove(src, :alias, "Foo.Bar") == String.replace(src, "Foo.{Bar, Baz}", "Foo.Baz")
     assert Directive.add(src, :alias, "Zed") =~ "alias Foo.{Bar, Baz}\n  alias Zed\n"
   end
 
@@ -242,5 +241,23 @@ defmodule Menard.DirectiveTest do
     assert Directive.add(out, :doctest, "Foo") == out
     # the block it was alone in goes with it, its blank line too
     assert Directive.remove(out, :doctest, "Foo") == src
+  end
+
+  test "removing one of a multi-alias rewrites its line without it" do
+    src = """
+    defmodule A do
+      alias App.{Cat, Dog, Emu}
+
+      def go, do: :ok
+    end
+    """
+
+    once = Directive.remove(src, :alias, "App.Dog")
+    assert once == String.replace(src, "App.{Cat, Dog, Emu}", "App.{Cat, Emu}")
+
+    # one left is a plain alias; none left, the line goes
+    twice = Directive.remove(once, :alias, "App.Emu")
+    assert twice == String.replace(src, "App.{Cat, Dog, Emu}", "App.Cat")
+    assert Directive.remove(twice, :alias, "App.Cat") == "defmodule A do\n  def go, do: :ok\nend\n"
   end
 end
