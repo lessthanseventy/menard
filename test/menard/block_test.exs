@@ -436,4 +436,53 @@ defmodule Menard.BlockTest do
                "      assert 2 == 2\n    end\n\n    test \"c\" do\n      assert \"one\ntwo\" =~ \"t\"\n    end\n"
              )
   end
+
+  test "replace handed a whole test with @tag lines above it takes them as the test's tags" do
+    # Found 2026-09-26: a whole test with an `@tag` above it was taken for a body, and came out as a
+    # test nested in the old one. Its tags are the test's own: they replace the ones above it.
+    src = """
+    defmodule T do
+      use ExUnit.Case
+
+      @tag :tmp_dir
+      test "one", %{tmp_dir: dir} do
+        assert dir
+      end
+
+      test "two" do
+        assert 2
+      end
+    end
+    """
+
+    tagged = "@tag skip: \"no toolchain\"\ntest \"one\" do\n  assert 1\nend"
+
+    assert Block.replace(src, "test", tagged, label: "one") == """
+           defmodule T do
+             use ExUnit.Case
+
+             @tag skip: "no toolchain"
+             test "one", %{tmp_dir: dir} do
+               assert 1
+             end
+
+             test "two" do
+               assert 2
+             end
+           end
+           """
+
+    # a tag put above a test that had none
+    assert Block.replace(src, "test", "@tag :slow\ntest \"two\" do\n  assert 2\nend", label: "two") =~
+             ~s(  end\n\n  @tag :slow\n  test "two" do\n)
+
+    # a whole test with no tags keeps the ones it has
+    assert Block.replace(src, "test", "test \"one\", %{tmp_dir: dir} do\n  assert dir != nil\nend",
+             label: "one"
+           ) =~
+             ~s(  @tag :tmp_dir\n  test "one", %{tmp_dir: dir} do\n    assert dir != nil\n)
+
+    # tags above a body are not the test's: there is nothing to put them over
+    assert {:error, "an @tag" <> _} = Block.replace(src, "test", "@tag :slow\nassert 2", label: "two")
+  end
 end

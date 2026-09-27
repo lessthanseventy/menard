@@ -17,13 +17,15 @@ defmodule Menard.Block do
   @doc "Replace the block's body with `code`, keeping the `name … do` line and the `end`."
   @spec replace(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def replace(source, name, code, opts \\ []) do
+    {code, tags} = own_tags(code)
     name = named(name, code)
 
-    with {:ok, _label, code, unwrapped_opts} <- unwrapped(name, opts[:label], code, opts),
+    with :ok <- tags_over_whole(name, code, tags),
+         {:ok, _label, code, unwrapped_opts} <- unwrapped(name, opts[:label], code, opts),
          :ok <- body_only(name, code),
          {:ok, node} <- one(source, name, opts) do
       {_name, meta, args} = node
-      %{start: [line: _, column: col]} = Sourceror.get_range(node)
+      %{start: [line: line, column: col]} = Sourceror.get_range(node)
       indent = String.duplicate(" ", col + 1)
 
       out =
@@ -43,9 +45,37 @@ defmodule Menard.Block do
             patch_body(source, range, code, meta, args, col)
         end
 
-      # the body is patched first: it sits after the args, so their range still holds
-      if is_binary(out), do: with_args(out, args, unwrapped_opts[:args]), else: out
+      # the body is patched first: it sits after the args, so their range still holds; the tags
+      # sit above the block, where neither moves a line
+      if is_binary(out),
+        do: out |> with_args(args, unwrapped_opts[:args]) |> retag(line, col, tags),
+        else: out
     end
+  end
+
+  # `@tag` lines above a whole block are that block's own (found 2026-09-26: taken for a body, the
+  # tagged test came out nested in the old one). nil when there are none.
+  defp own_tags(code) do
+    {rest, opts} = tagged(code, [])
+    {rest, opts[:tag]}
+  end
+
+  defp tags_over_whole(_name, _code, nil), do: :ok
+
+  defp tags_over_whole(name, code, _tags) do
+    if match?({:whole, _, _, _}, unwrap(name, code)),
+      do: :ok,
+      else: {:error, "an @tag goes above a whole `#{name}` block: give the whole block after it, not a body"}
+  end
+
+  # the block's `@tag` lines, right above its first line, become `tags`
+  defp retag(out, _line, _col, nil), do: out
+
+  defp retag(out, line, col, tags) do
+    {above, rest} = out |> String.split("\n") |> Enum.split(line - 1)
+    kept = above |> Enum.reverse() |> Enum.drop_while(&(&1 =~ ~r/^\s*@tag\b/)) |> Enum.reverse()
+    indent = String.duplicate(" ", col - 1)
+    Enum.join(kept ++ Enum.map(tags, &(indent <> "@tag " <> &1)) ++ rest, "\n")
   end
 
   defp patch_body(source, range, code, meta, args, col) do

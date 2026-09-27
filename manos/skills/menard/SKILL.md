@@ -44,7 +44,7 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
 | which file a function lives in | `clause {verb: "move", file, name_arity, to, as?}` |
 | a function's `@spec` | `clause {verb: "spec", file, name_arity, code: SIGNATURE}`; no `code` removes it |
 | a module attribute | `attr {verb: "get" \| "set" \| "delete", file, name, value}` |
-| a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}` |
+| a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}`; `replace` with a whole test under `@tag` lines sets its tags |
 | an alias/import/use/require, a `doctest` | `directive {verb: "add" \| "replace" \| "remove", file, kind, target}` |
 | one whole module of several | `module {verb: "replace", file, module, code}` |
 | a `@doc` or a `#` comment | a plain Edit: a string and a comment are prose, and the guard passes an edit that changes only those |
