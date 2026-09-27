@@ -318,4 +318,67 @@ defmodule Menard.MoveSplitTest do
     assert {:error, "no nope/1 in Split6 — have: go/0"} =
              Menard.Move.run(file, Path.join(dir, "o.ex"), ["nope/1"], as: "O")
   end
+
+  test "a moved @spec naming a type the source defines names the source's; a @typep is refused", %{
+    tmp_dir: dir
+  } do
+    file = Path.join(dir, "cart.ex")
+
+    File.write!(file, """
+    defmodule Split8.Cart do
+      @type t :: %{items: [item()]}
+      @type item :: %{price: number()}
+
+      @spec total(t()) :: number()
+      def total(%{items: items}), do: items |> Enum.map(& &1.price) |> Enum.sum()
+
+      @spec empty?(t()) :: boolean()
+      def empty?(cart), do: cart.items == []
+    end
+    """)
+
+    dest = Path.join(dir, "cart/sum.ex")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["total/1"], as: "Split8.Cart.Sum", delegate: true)
+
+    # a type is not a function: no delegate stands in for it, so the spec names it where it is
+    assert File.read!(dest) == """
+           defmodule Split8.Cart.Sum do
+             alias Split8.Cart
+
+             @spec total(Cart.t()) :: number()
+             def total(%{items: items}), do: items |> Enum.map(& &1.price) |> Enum.sum()
+           end
+           """
+
+    assert reply.qualified == ["@type t/0"]
+    assert compile([File.read!(dest), File.read!(file)]) == []
+    assert Module.concat(["Split8.Cart"]).total(%{items: [%{price: 2}, %{price: 3}]}) == 5
+
+    # a private type cannot be named from another module: which way out is the caller's call
+    priv = Path.join(dir, "priv.ex")
+
+    src = """
+    defmodule Split9 do
+      @typep n :: integer()
+
+      @spec double(n()) :: n()
+      def double(x), do: x * 2
+
+      @spec half(n()) :: n()
+      def half(x), do: div(x, 2)
+    end
+    """
+
+    File.write!(priv, src)
+    out = Path.join(dir, "priv/double.ex")
+
+    assert Menard.Move.run(priv, out, ["double/1"], as: "Split9.Double") ==
+             {:error,
+              "refused, nothing written: the moved @spec names n/0, a @typep of Split9, which no other " <>
+                "module can name. Make it a @type first (stmt replace of the module's `@typep n`): " <>
+                "the spec then names Split9.n()"}
+
+    assert File.read!(priv) == src
+    refute File.exists?(out)
+  end
 end
