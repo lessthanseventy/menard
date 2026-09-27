@@ -12,12 +12,6 @@ commit lands.
   what git writes, except a conflicted merge's (`git merge`, `stash pop`, `rebase`): the markers are
   new content, so the file is formatted and named back as not parsing. The agent knows the merge
   conflicted; skip what `git ls-files -u` lists if that noise shows up.
-- `bin/menard --frozen` is only as good as `_build`: one verb run WITHOUT `--frozen` while the tree
-  does not compile (a half-applied edit) fails the compile, and the compiler has already removed the
-  beams of the modules it was recompiling (Menard.Source, Menard.Block, Menard.Clause gone from
-  `_build/dev/lib/menard/ebin`, 2026-09-26). Every later `--frozen` verb then dies on "module
-  Menard.Source is not available", and the edit has to be finished by hand. A frozen copy of the
-  last good build (or compiling into a scratch build path) would keep `--frozen` working.
 - No verb puts a `@tag` above an existing test (2026-09-26, making two tests `@tag skip:`):
   `block replace` takes no `--tag`, and `stmt insert-before FILE "" "" 'test "…"'` answers "stmt
   insert_before needs name_arity", though `stmt` reaches a module's own statements. It took an Edit.

@@ -87,10 +87,19 @@ stale() {
   return 1
 }
 if ((!frozen)) && stale; then
+  # A failed compile has already deleted the beams of the modules it was recompiling, and
+  # `--frozen` runs off exactly those: put the last good ones back, or the retry it is told to make
+  # dies on "module Menard.Source is not available"
+  ebin="$build/lib/menard/ebin"
+  good=$(mktemp -d)
+  [[ -d "$ebin" ]] && cp -a "$ebin/." "$good/"
   if ! quietly "${run[@]}" mix compile; then
+    rm -rf "$ebin" && mkdir -p "$ebin" && cp -a "$good/." "$ebin/"
+    rm -rf "$good"
     echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
     exit 1
   fi
+  rm -rf "$good"
   # mix recompiles by content, this check goes by mtime: a file touched but unchanged leaves the
   # manifest old, and without this every later call would pay a compile it does not need
   touch "$manifest"
