@@ -41,7 +41,7 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
 | a clause's existence | `clause {verb: "delete" \| "insert_before", …}` |
 | a whole function | `clause {verb: "delete", file, name_arity}`, no `head`: every clause; the reply's `left` is each call still to fix |
 | public or private | `clause {verb: "visibility", file, name_arity, visibility}`: every clause at once |
-| which file a function lives in | `clause {verb: "move", file, name_arity, to, as?}` |
+| which file a function lives in; splitting a big module | `clause {verb: "move", file, name_arity: ["a/1", "b/2", …], to, as?, moduledoc?, delegate: true}`: ONE call per new module |
 | a function's `@spec` | `clause {verb: "spec", file, name_arity, code: SIGNATURE}`; no `code` removes it |
 | a module attribute | `attr {verb: "get" \| "set" \| "delete", file, name, value}` |
 | a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}`; `replace` with a whole test under `@tag` lines sets its tags |
@@ -73,8 +73,12 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 - **A head answers without its defaults.** `source, opts` finds `def f(source, opts \\ [])`.
 - **An ambiguous head is refused with the candidates**; `nth` picks one.
 - **`delete` takes the clause's `@doc`/`@spec` with it**; `insert_before` goes above them.
-- **`clause move` carries the function, not its call sites or aliases**: fix those after, with
-  `find calls`.
+- **A split is one `clause move` per new module**, not a script copying line ranges: name every
+  function that goes there. Its private helpers, the attributes and alias/import/require lines it
+  uses come along, a call back to the source is qualified, and `delegate: true` leaves a
+  `defdelegate` for each public one, so the old module's API and callers keep working. A helper a
+  staying function also calls is refused by name: move that caller too, or make the helper public
+  first. Without `delegate`, `left` is each call to fix, with `find calls`.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
   whole statement or its unique start (`total =`); a line of a test with the test's label as `head`,
   and a statement of the module itself (`defstruct`, `@type t ::`) with no clause named. A miss
@@ -92,8 +96,9 @@ that moved. `unformatted` means written but not formatted, and says why.
 
 Pass the reply's `version` back on your next edit to that file. If another session changed it
 since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
-created, to, from}`: `to` and `from` are each file's own reply, its `version` and stages;
-`created` is the new module's name when `to` did not exist. `rename` answers `{did, changed,
+created, moved, carried, attributes, directives, qualified, delegated, left, to, from}`: `to` and
+`from` are each file's own reply, its `version` and stages; `created` is the new module's name when
+`to` did not exist; `carried` the helpers that came along. `rename` answers `{did, changed,
 unchanged, skipped}`: `changed` is each file's own reply, `skipped` each file it could not parse
 or write, with why. Both doors give one reply: the CLI prints the MCP tool's map as one JSON
 line, and a refusal is the same sentence at either.
