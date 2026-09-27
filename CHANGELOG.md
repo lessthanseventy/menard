@@ -167,6 +167,23 @@ agents tripped on, fixed, and what they reached for first, made to work.
   whose mise config was not trusted answered a crash dump for its reason: OTP 27's `beam_lib`
   raised reading the plugin's atom chunk. Such a plugin is one that will not load, and the reply
   keeps mise's own "are not trusted" line, not its version and `--verbose` lines.
+- `directive add` opening a new block (the first `alias` after the `import`s) wrote it with no
+  blank line before it; Styler and Quokka added one, the bare formatter did not. It writes the
+  blank line, and `directive remove` of a block's only line takes its blank line with it.
+- `clause move` left a moved `@spec` naming a type the source defines (`t()`) as written, and the
+  destination did not compile. A public type is named by its module (`Cart.t()`, aliased); a
+  `@typep`, which no other module can name, is refused with what to do.
+- `clause move --delegate` copied a default into the delegate as written, where it is evaluated in
+  the source: one calling code that moved (`opts \\ defaults()`) called nothing. Such a function
+  gets a delegate per arity, each to the same arity, whose default is evaluated where it went.
+- `clause move` copied every import without `only:` whenever the moved code made a call nothing
+  defined, which a `use`-provided function looks like too: the destination gained an import it
+  did not use, which warns. Such an import goes only when it is the one directive that could
+  answer the call; otherwise none is copied and the reply's `unresolved` names the call and the
+  `use`/`import` lines it may come from.
+- `directive remove` of one member of `alias A.{B, C}` was refused, so `clause move` left a member
+  only the moved code used in the source, where it warns. The line is rewritten with the others
+  (`alias A.C` when one is left).
 
 ## 0.5.0
 

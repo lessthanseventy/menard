@@ -141,8 +141,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     moved, so the source's API and every caller keep working; without it, `left` names each call
     now pointing at nothing. A missing file is created, its module named from the path or by `as`,
     with `moduledoc` as its @moduledoc; `module` picks the destination module in a file with
-    several. It answers `{did, created, moved, carried, attributes, directives, qualified,
-    delegated, left, to, from}`: `to` and `from` are each file's reply, version and stages.
+    several. It answers `{did, created, moved, carried, attributes, directives, unresolved,
+    qualified, delegated, left, to, from}`: `to` and `from` are each file's reply, version and
+    stages; `unresolved` each call a `use` or an import without `only:` may answer, not copied.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply

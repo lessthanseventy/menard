@@ -44,9 +44,10 @@ defmodule Menard.Move do
 
   Returns `{:ok, reply}`: `created` (the new module's name, else nil), `moved`, `carried` (the
   private helpers that came along), `attributes` and `directives` (what the destination gained),
-  `qualified` (the calls back to the source that now name it), `delegated`, `left` (each call still
-  naming a moved function, without `delegate`), and `to` and `from`, each file's `Menard.write/3`
-  reply, its version and stages.
+  `unresolved` (each call only a `use` or an import without `only:` may answer, with those: not
+  copied, as the AST cannot say which), `qualified` (the calls back to the source, and its types,
+  that now name it), `delegated`, `left` (each call still naming a moved function, without
+  `delegate`), and `to` and `from`, each file's `Menard.write/3` reply, its version and stages.
   """
   @spec run(String.t(), String.t(), String.t() | [String.t()], keyword()) ::
           {:ok, map()} | {:error, String.t()}
@@ -123,6 +124,8 @@ defmodule Menard.Move do
         carried: src.taking |> Enum.reject(&(&1 in src.named)) |> Enum.map(&na/1),
         attributes: Enum.map(needs.values, &"@#{elem(&1, 0)}"),
         directives: directives,
+        unresolved:
+          Enum.map(needs.answered.open, &"#{na(&1)} (one of: #{Enum.join(needs.answered.from, "; ")})"),
         qualified: qualified,
         delegated: Enum.map(delegated, &na/1)
       }
@@ -280,7 +283,7 @@ defmodule Menard.Move do
   # with where it is written, and where it says `__MODULE__`. A typespec is read for its aliases and
   # `__MODULE__` only: `list(t())` there is a type, not a call to `list/1`.
   defp scan(code) do
-    empty = %{aliases: MapSet.new(), attributes: MapSet.new(), calls: [], modules: []}
+    empty = %{aliases: MapSet.new(), attributes: MapSet.new(), calls: [], modules: [], types: []}
 
     case Sourceror.parse_string(code) do
       {:ok, ast} ->
@@ -292,8 +295,8 @@ defmodule Menard.Move do
   end
 
   defp scan_node({:@, _, [{kind, _, [_ | _] = args}]}, acc) when kind in @typespecs do
-    {_, inner} = Macro.prewalk(args, %{acc | calls: []}, &scan_node/2)
-    {:typespec, %{inner | calls: acc.calls}}
+    {_, inner} = Macro.prewalk(typespec_body(kind, args), %{acc | calls: []}, &scan_node/2)
+    {:typespec, %{inner | calls: acc.calls, types: inner.calls ++ acc.types}}
   end
 
   # an attribute SET: its value is read, its name is not a call
@@ -313,6 +316,16 @@ defmodule Menard.Move do
     do: {node, %{acc | calls: [{{fun, length(args)}, meta} | acc.calls]}}
 
   defp scan_node(node, acc), do: {node, acc}
+
+  # What a spec's types are read from: its head's arguments, its return and its guard, not the head's
+  # name, which is the function's own.
+  defp typespec_body(kind, [{:when, _, [spec, guard]}]) when kind in [:spec, :callback, :macrocallback],
+    do: [typespec_body(kind, [spec]), guard]
+
+  defp typespec_body(kind, [{:"::", _, [head, return]}]) when kind in [:spec, :callback, :macrocallback],
+    do: [head_args(head), return]
+
+  defp typespec_body(_kind, args), do: args
 
   # The calls neither the module nor Kernel answers: an import's.
   defp unresolved(calls, graph) do
@@ -335,7 +348,7 @@ defmodule Menard.Move do
          scan: scan,
          values: values,
          aliases: MapSet.union(scan.aliases, from_values.aliases),
-         unresolved: unresolved(scan.calls ++ from_values.calls, src.graph)
+         answered: answering(src.source, src.mod, unresolved(scan.calls ++ from_values.calls, src.graph))
        }}
     end
   end
@@ -384,30 +397,62 @@ defmodule Menard.Move do
 
   # -- the destination ------------------------------------------------------
 
-  # A call back to a public function that stays, and `__MODULE__`, now name the source module: by
-  # its last segment, aliased, unless that name already means something else where the code lands.
+  # A call back to a public function that stays, a public type the source defines, and `__MODULE__`
+  # now name the source module: by its last segment, aliased, unless that name already means
+  # something else where the code lands. A type is named, not delegated: no stand-in exists for one.
   defp qualify(src, needs, dest) do
     staying = Map.drop(src.graph, src.taking)
     back = for {key, meta} <- needs.scan.calls, Map.has_key?(staying, key), do: {key, meta}
+    defined = types(src.module)
+    types = for {key, meta} <- needs.scan.types, Map.has_key?(defined, key), do: {key, meta}
+    macros = for {key, _} <- back, staying[key].kind in @macros, uniq: true, do: na(key)
+    private = for {key, _} <- types, defined[key] == :typep, uniq: true, do: key
 
-    case back |> Enum.filter(fn {key, _} -> staying[key].kind in @macros end) |> Enum.map(&na(elem(&1, 0))) do
-      [] ->
-        ref = source_ref(src.mod, needs, dest.module)
-
-        patches =
-          for({{fun, _}, meta} <- back, do: name_patch(meta, fun, "#{ref.name}.#{fun}")) ++
-            for(meta <- needs.scan.modules, do: name_patch(meta, :__MODULE__, ref.name))
-
-        qualified =
-          (back |> Enum.map(&na(elem(&1, 0))) |> Enum.uniq() |> Enum.sort()) ++
-            if(needs.scan.modules == [], do: [], else: ["__MODULE__"])
-
-        {:ok, if(patches == [], do: nil, else: ref), qualified, Menard.Source.patch(dest.code, patches)}
-
-      macros ->
+    cond do
+      macros != [] ->
         {:error,
-         "the moved code calls #{macros |> Enum.uniq() |> Enum.join(", ")}, a macro that stays in #{src.mod} — move it too"}
+         "the moved code calls #{Enum.join(macros, ", ")}, a macro that stays in #{src.mod} — move it too"}
+
+      private != [] ->
+        {:error, typep_refusal(private, src.mod)}
+
+      true ->
+        name_source(src.mod, needs, dest, back, types)
     end
+  end
+
+  defp name_source(mod, needs, dest, back, types) do
+    ref = source_ref(mod, needs, dest.module)
+
+    patches =
+      for({{fun, _}, meta} <- back ++ types, do: name_patch(meta, fun, "#{ref.name}.#{fun}")) ++
+        for(meta <- needs.scan.modules, do: name_patch(meta, :__MODULE__, ref.name))
+
+    qualified =
+      (back |> Enum.map(&na(elem(&1, 0))) |> Enum.uniq() |> Enum.sort()) ++
+        (types |> Enum.map(&"@type #{na(elem(&1, 0))}") |> Enum.uniq() |> Enum.sort()) ++
+        if(needs.scan.modules == [], do: [], else: ["__MODULE__"])
+
+    {:ok, if(patches == [], do: nil, else: ref), qualified, Menard.Source.patch(dest.code, patches)}
+  end
+
+  # The types a module defines: `{name, arity} => :type | :typep | :opaque`.
+  defp types(module) do
+    for {:@, _, [{kind, _, [{:"::", _, [{name, _, args}, _]}]}]} <- Tree.module_body(module),
+        kind in [:type, :typep, :opaque],
+        into: %{},
+        do: {{name, length(List.wrap(args))}, kind}
+  end
+
+  # A private type is named nowhere else, so a spec naming it cannot move as written; making it
+  # public, or rewriting the spec, is the caller's call.
+  defp typep_refusal(private, mod) do
+    names = Enum.map_join(private, ", ", &na/1)
+    statements = Enum.map_join(private, ", ", fn {name, _} -> "`@typep #{name}`" end)
+    them = Enum.map_join(private, ", ", fn {name, _} -> "#{mod}.#{name}()" end)
+
+    "refused, nothing written: the moved @spec names #{names}, a @typep of #{mod}, which no other module " <>
+      "can name. Make it a @type first (stmt replace of the module's #{statements}): the spec then names #{them}"
   end
 
   defp name_patch(meta, name, to) do
@@ -456,7 +501,7 @@ defmodule Menard.Move do
   end
 
   # The source's directives the moved code uses: an alias by its name, a require by its module's
-  # first or last segment, an import by a call only an import answers (by its `only:`, exactly).
+  # first or last segment, an import by a call it answers (`answering/3`).
   defp used(directives, needs) do
     Enum.filter(directives, fn
       {:alias, target, args} ->
@@ -467,7 +512,7 @@ defmodule Menard.Move do
         Enum.any?([hd(parts), List.last(parts)], &(String.to_atom(&1) in needs.aliases))
 
       {:import, _, _} = import ->
-        import_used?(import, needs.unresolved)
+        import in needs.answered.imports
     end)
   end
 
@@ -483,7 +528,9 @@ defmodule Menard.Move do
         [{a, _} = first | _] = src.spans[key]
         line = Enum.at(lines, a)
         indent = String.duplicate(" ", String.length(line) - String.length(String.trim_leading(line)))
-        {first, indent <> delegate(key, src.graph[key].nodes, ref.name)}
+
+        {first,
+         Enum.map_join(delegate(key, src.graph[key].nodes, ref.name, src.taking), "\n\n", &(indent <> &1))}
       end)
 
     out = Clause.cut(src.source, Enum.flat_map(src.taking, &src.spans[&1]), replace)
@@ -517,10 +564,13 @@ defmodule Menard.Move do
 
   # `defdelegate name(args), to: Dest`: each argument named from a clause that names it — a variable,
   # else a struct's module (`%User{}` is `user`), else `argN` — with the default the function gave
-  # it: a delegate's head carries defaults, and its one head covers every arity they make.
-  defp delegate({name, 0}, _nodes, to), do: "defdelegate #{name}, to: #{to}"
+  # it: a delegate's head carries defaults, and its one head covers every arity they make. A default
+  # is evaluated where the delegate is, so one calling code that moved (`opts \\ defaults()`, a
+  # helper that may be private there) cannot be copied: each arity delegates to the same arity
+  # instead, whose default is evaluated in the destination.
+  defp delegate({name, 0}, _nodes, to, _taking), do: ["defdelegate #{name}, to: #{to}"]
 
-  defp delegate({name, arity}, nodes, to) do
+  defp delegate({name, arity}, nodes, to, taking) do
     heads = Enum.map(nodes, fn {_kind, _, [head | _]} -> head_args(head) end)
 
     args =
@@ -531,20 +581,55 @@ defmodule Menard.Move do
         {Enum.find_value(at, &var_name/1) || Enum.find_value(at, &struct_name/1) || "arg#{i + 1}", default}
       end)
       |> unique()
-      |> Enum.map_join(", ", fn
-        {var, nil} -> var
-        {var, default} -> "#{var} \\\\ #{default}"
-      end)
 
-    "defdelegate #{name}(#{args}), to: #{to}"
+    if Enum.any?(args, fn {_var, default} -> default && calls_any?(default, taking) end) do
+      per_arity(name, args, to)
+    else
+      args =
+        Enum.map_join(args, ", ", fn
+          {var, nil} -> var
+          {var, default} -> "#{var} \\\\ #{Sourceror.to_string(default)}"
+        end)
+
+      ["defdelegate #{name}(#{args}), to: #{to}"]
+    end
   end
 
   defp head_args({:when, _, [call | _]}), do: head_args(call)
   defp head_args({_name, _, args}) when is_list(args), do: args
   defp head_args(_head), do: []
 
-  defp default({:\\, _, [_arg, default]}), do: Sourceror.to_string(default)
+  defp default({:\\, _, [_arg, default]}), do: default
   defp default(_arg), do: nil
+
+  # One delegate per arity the defaults make, each passing what it is given: every argument without
+  # a default, and the defaulted ones from the left as the arity has room, as Elixir fills them.
+  defp per_arity(name, args, to) do
+    required = Enum.count(args, &(elem(&1, 1) == nil))
+
+    for k <- required..length(args) do
+      {kept, _} =
+        Enum.flat_map_reduce(args, k - required, fn
+          {var, nil}, left -> {[var], left}
+          {var, _default}, left when left > 0 -> {[var], left - 1}
+          _arg, 0 -> {[], 0}
+        end)
+
+      if kept == [],
+        do: "defdelegate #{name}, to: #{to}",
+        else: "defdelegate #{name}(#{Enum.join(kept, ", ")}), to: #{to}"
+    end
+  end
+
+  defp calls_any?(ast, keys) do
+    ast
+    |> Macro.prewalk(&Deps.as_call/1)
+    |> Macro.prewalker()
+    |> Enum.any?(fn
+      {fun, _, args} when is_atom(fun) and is_list(args) -> {fun, length(args)} in keys
+      _node -> false
+    end)
+  end
 
   defp var_name({:\\, _, [arg, _]}), do: var_name(arg)
   defp var_name({:=, _, [left, right]}), do: var_name(left) || var_name(right)
@@ -633,13 +718,15 @@ defmodule Menard.Move do
     end
   end
 
-  # one of an `alias A.{B, C}` stays: it cannot go without rewriting its line
+  # one of an `alias A.{B, C}` leaves its line; one of an `alias A.{B, C}, opts` stays, as the
+  # options speak for every member
   defp unalias(source, target, mod) do
     with {:error, _} <- Directive.remove(source, :alias, target, module: mod), do: source
   end
 
   # An import the moved code used that nothing left calls into goes: an unused import warns, unless
-  # it says `warn: false`. One without `only:` counts any call no definition answers as its own.
+  # it says `warn: false`. Which import answers a call is decided as for the move (`answering/3`):
+  # one the AST cannot tie to a call stays, as the call may be its.
   defp unimported(out, src, needs) do
     with {:ok, module} <- scope(out, src.mod) do
       {_, calls} =
@@ -653,13 +740,12 @@ defmodule Menard.Move do
             {node, acc}
         end)
 
-      left = unresolved(calls, Deps.graph(module))
+      kept = answering(out, src.mod, unresolved(calls, Deps.graph(module))).imports
 
       out
       |> directives(src.mod)
       |> Enum.filter(fn {kind, _, args} = import ->
-        kind == :import and import_used?(import, needs.unresolved) and not import_used?(import, left) and
-          not quiet?(args)
+        kind == :import and import in needs.answered.imports and import not in kept and not quiet?(args)
       end)
       |> reduce(out, fn {:import, target, _}, acc ->
         Directive.remove(acc, :import, target, module: src.mod)
@@ -697,10 +783,38 @@ defmodule Menard.Move do
 
   defp directive_of(_node, _source, _mod), do: []
 
-  defp import_used?({:import, _target, args}, calls) do
-    case only(args) do
-      nil -> calls != []
-      only -> Enum.any?(calls, &(&1 in only))
+  # Which imports answer `calls`, the calls neither the module nor Kernel does. An `only:` import
+  # answers its list, exactly. What an import without one brings, or a `use`, the AST cannot say:
+  # such an import is taken to answer the rest only when it is the one directive that could, and
+  # otherwise none is, and the rest is `open`, with the directives it may come from.
+  defp answering(source, mod, calls) do
+    {bare, listed} =
+      source
+      |> directives(mod)
+      |> Enum.filter(&(elem(&1, 0) == :import))
+      |> Enum.split_with(&(only(elem(&1, 2)) == nil))
+
+    answers? = fn {:import, _, args}, call -> call in only(args) end
+    by_list = Enum.filter(listed, fn import -> Enum.any?(calls, &answers?.(import, &1)) end)
+    open = Enum.reject(calls, fn call -> Enum.any?(listed, &answers?.(&1, call)) end)
+    uses = uses(source, mod)
+
+    case {open, bare, uses} do
+      {[], _, _} -> %{imports: by_list, open: [], from: []}
+      {_, [one], []} -> %{imports: by_list ++ [one], open: [], from: []}
+      _ -> %{imports: by_list, open: open, from: uses ++ Enum.map(bare, &directive_text/1)}
+    end
+  end
+
+  # The module's `use` lines, as written.
+  defp uses(source, mod) do
+    case scope(source, mod) do
+      {:ok, module} ->
+        for {:use, _, [_ | _]} = node <- Tree.module_body(module),
+            do: Menard.Source.slice(source, Sourceror.get_range(node))
+
+      _ ->
+        []
     end
   end
 

@@ -18,6 +18,14 @@ defmodule Menard.MoveSplitTest do
     defmodule Split1.Shop.Stock do
       def take(n), do: n
     end
+
+    defmodule Split1.Greeter.Fns do
+      def greet(x), do: "hi " <> x
+    end
+
+    defmodule Split1.Greeter do
+      defmacro __using__(_opts), do: quote(do: import(Split1.Greeter.Fns))
+    end
     """)
 
     :ok
@@ -100,6 +108,7 @@ defmodule Menard.MoveSplitTest do
              @moduledoc "Prices and receipts."
 
              import Bitwise, only: [band: 2]
+
              alias Split1.Shop
              alias Split1.Tax
 
@@ -316,5 +325,227 @@ defmodule Menard.MoveSplitTest do
 
     assert {:error, "no nope/1 in Split6 — have: go/0"} =
              Menard.Move.run(file, Path.join(dir, "o.ex"), ["nope/1"], as: "O")
+  end
+
+  test "a moved @spec naming a type the source defines names the source's; a @typep is refused", %{
+    tmp_dir: dir
+  } do
+    file = Path.join(dir, "cart.ex")
+
+    File.write!(file, """
+    defmodule Split8.Cart do
+      @type t :: %{items: [item()]}
+      @type item :: %{price: number()}
+
+      @spec total(t()) :: number()
+      def total(%{items: items}), do: items |> Enum.map(& &1.price) |> Enum.sum()
+
+      @spec empty?(t()) :: boolean()
+      def empty?(cart), do: cart.items == []
+    end
+    """)
+
+    dest = Path.join(dir, "cart/sum.ex")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["total/1"], as: "Split8.Cart.Sum", delegate: true)
+
+    # a type is not a function: no delegate stands in for it, so the spec names it where it is
+    assert File.read!(dest) == """
+           defmodule Split8.Cart.Sum do
+             alias Split8.Cart
+
+             @spec total(Cart.t()) :: number()
+             def total(%{items: items}), do: items |> Enum.map(& &1.price) |> Enum.sum()
+           end
+           """
+
+    assert reply.qualified == ["@type t/0"]
+    assert compile([File.read!(dest), File.read!(file)]) == []
+    assert Module.concat(["Split8.Cart"]).total(%{items: [%{price: 2}, %{price: 3}]}) == 5
+
+    # a private type cannot be named from another module: which way out is the caller's call
+    priv = Path.join(dir, "priv.ex")
+
+    src = """
+    defmodule Split9 do
+      @typep n :: integer()
+
+      @spec double(n()) :: n()
+      def double(x), do: x * 2
+
+      @spec half(n()) :: n()
+      def half(x), do: div(x, 2)
+    end
+    """
+
+    File.write!(priv, src)
+    out = Path.join(dir, "priv/double.ex")
+
+    assert Menard.Move.run(priv, out, ["double/1"], as: "Split9.Double") ==
+             {:error,
+              "refused, nothing written: the moved @spec names n/0, a @typep of Split9, which no other " <>
+                "module can name. Make it a @type first (stmt replace of the module's `@typep n`): " <>
+                "the spec then names Split9.n()"}
+
+    assert File.read!(priv) == src
+    refute File.exists?(out)
+  end
+
+  test "a delegate's default that calls moved code is left to the destination: a delegate per arity", %{
+    tmp_dir: dir
+  } do
+    file = Path.join(dir, "opts.ex")
+
+    File.write!(file, """
+    defmodule Split10 do
+      def list(opts \\\\ defaults()), do: Keyword.merge(defaults(), opts)
+
+      def fetch(id, opts \\\\ defaults(), retries \\\\ 3), do: {id, opts, retries}
+
+      def page(n \\\\ 1), do: n
+
+      defp defaults, do: [limit: 10]
+    end
+    """)
+
+    dest = Path.join(dir, "opts/lists.ex")
+
+    assert {:ok, _reply} =
+             Menard.Move.run(file, dest, ["list/1", "fetch/3", "page/1"], as: "Split10.Lists", delegate: true)
+
+    # `defaults()` evaluated in the source would call what is no longer there, and it is private
+    # where it went: each arity delegates to the same arity, whose default is evaluated there. A
+    # default that calls nothing moved stays as written.
+    assert File.read!(file) == """
+           defmodule Split10 do
+             alias Split10.Lists
+
+             defdelegate list, to: Lists
+
+             defdelegate list(opts), to: Lists
+
+             defdelegate fetch(id), to: Lists
+
+             defdelegate fetch(id, opts), to: Lists
+
+             defdelegate fetch(id, opts, retries), to: Lists
+
+             defdelegate page(n \\\\ 1), to: Lists
+           end
+           """
+
+    assert compile([File.read!(dest), File.read!(file)]) == []
+    mod = Module.concat(["Split10"])
+    assert mod.list() == [limit: 10]
+    assert mod.list(limit: 2) == [limit: 2]
+    assert mod.fetch(7) == {7, [limit: 10], 3}
+    assert mod.fetch(7, [], 1) == {7, [], 1}
+    assert mod.page() == 1
+  end
+
+  test "an import without only: goes along only when nothing else could answer the call it makes", %{
+    tmp_dir: dir
+  } do
+    # alone, the bare import is what answers band/2: it goes, and the source, calling nothing of it
+    # now, loses it
+    file = Path.join(dir, "bits.ex")
+
+    File.write!(file, """
+    defmodule Split11 do
+      import Bitwise
+
+      def mask(x), do: band(x, 1)
+
+      def id(x), do: x
+    end
+    """)
+
+    assert {:ok, reply} =
+             Menard.Move.run(file, Path.join(dir, "bits/mask.ex"), ["mask/1"], as: "Split11.Mask")
+
+    assert reply.directives == ["import Bitwise"]
+    assert reply.unresolved == []
+    assert File.read!(file) == "defmodule Split11 do\n  def id(x), do: x\nend\n"
+
+    # beside a `use`, which may import anything, what the AST shows cannot say which one answers
+    # greet/1: neither is copied (a wrong guess is an unused import, which warns), and the reply
+    # names the call and where it may come from
+    file = Path.join(dir, "hi.ex")
+
+    src = """
+    defmodule Split12 do
+      use Split1.Greeter
+
+      import Bitwise
+
+      def hello(x), do: greet(x)
+
+      def mask(x), do: band(x, 1)
+    end
+    """
+
+    File.write!(file, src)
+    dest = Path.join(dir, "hi/hello.ex")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["hello/1"], as: "Split12.Hello", delegate: true)
+
+    assert File.read!(dest) == """
+           defmodule Split12.Hello do
+             def hello(x), do: greet(x)
+           end
+           """
+
+    assert reply.directives == []
+    assert reply.unresolved == ["greet/1 (one of: use Split1.Greeter; import Bitwise)"]
+
+    # the source keeps both: band/2 still needs one of them
+    assert File.read!(file) == """
+           defmodule Split12 do
+             use Split1.Greeter
+
+             import Bitwise
+
+             alias Split12.Hello
+
+             defdelegate hello(x), to: Hello
+
+             def mask(x), do: band(x, 1)
+           end
+           """
+
+    # with the `use` the reply names, it compiles clean
+    fixed = Menard.Directive.add(File.read!(dest), :use, "Split1.Greeter")
+    assert compile([fixed, File.read!(file)]) == []
+    assert Module.concat(["Split12"]).hello("x") == "hi x"
+  end
+
+  test "a multi-alias member only the moved code used leaves the source's line", %{tmp_dir: dir} do
+    file = Path.join(dir, "multi.ex")
+
+    File.write!(file, """
+    defmodule Split13 do
+      alias Split1.{Shop.Stock, Tax}
+
+      def price(p), do: Tax.add(p, 0.5)
+
+      def stock(n), do: Stock.take(n)
+    end
+    """)
+
+    dest = Path.join(dir, "multi/price.ex")
+    assert {:ok, _reply} = Menard.Move.run(file, dest, ["price/1"], as: "Split13.Price", delegate: true)
+
+    # Tax, unused in the source now, would warn: it leaves the multi-alias, Stock stays
+    assert File.read!(file) == """
+           defmodule Split13 do
+             alias Split1.Shop.Stock
+             alias Split13.Price
+
+             defdelegate price(p), to: Price
+
+             def stock(n), do: Stock.take(n)
+           end
+           """
+
+    assert compile([File.read!(dest), File.read!(file)]) == []
+    assert Module.concat(["Split13"]).price(2) == 3.0
   end
 end
