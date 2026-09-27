@@ -131,10 +131,18 @@ if Code.ensure_loaded?(Anubis.Server) do
     placement follows the code — a `defp` lands with the other private functions, a `def` with the
     public ones — unless `at` ("top"/"bottom") overrides it.
 
-    `move` carries EVERY clause of `name_arity`, with its `@doc`, `@spec` and comment, to the file
-    `to`. A missing file is created, its module named from the path or by `as`; `module` picks the
-    destination module in a file with several. Aliases and call sites are not touched — `deps` first.
-    It answers `{did, created, to, from}`: `to` and `from` are each file's reply, version and stages.
+    `move` takes functions to the file `to`: `name_arity` is one or several (a list, or "a/1,b/2"),
+    so splitting a big module is ONE call per new module. Each goes with every clause, its `@doc`,
+    `@spec` and comment. What the moved code needs comes along: the private helpers only it calls,
+    the attributes it reads, the alias/import/require lines it uses; a call back to a public
+    function that stays, and `__MODULE__`, now name the source. A private helper that a function
+    staying behind also calls is refused, naming both (move that caller too, or make the helper
+    public first). `delegate: true` leaves a `defdelegate` (defaults kept) for each public function
+    moved, so the source's API and every caller keep working; without it, `left` names each call
+    now pointing at nothing. A missing file is created, its module named from the path or by `as`,
+    with `moduledoc` as its @moduledoc; `module` picks the destination module in a file with
+    several. It answers `{did, created, moved, carried, attributes, directives, qualified,
+    delegated, left, to, from}`: `to` and `from` are each file's reply, version and stages.
     """
     use Anubis.Server.Component, type: :tool
     import Menard.MCP.Reply
@@ -164,7 +172,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       )
 
       field(:file, :string, required: true)
-      field(:name_arity, :string)
+      # `move` takes several: a list, or "a/1,b/2"
+      field(:name_arity, {:either, {:string, {:list, :string}}})
       field(:head, :string)
       field(:code, :string)
       field(:module, :string)
@@ -173,6 +182,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       field(:nth, :integer)
       field(:to, :string)
       field(:as, :string)
+      field(:moduledoc, :string)
+      field(:delegate, :boolean)
     end
 
     def call(params, frame), do: answer(frame, Verbs.Clause.run(params(params)))

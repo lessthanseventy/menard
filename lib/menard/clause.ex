@@ -218,7 +218,7 @@ defmodule Menard.Clause do
   end
 
   # The lines a clause OWNS: its `def`, the @doc/@spec/@impl written above it, and the comment above
-  # those. Zero-based and inclusive. Shared by `delete/4` and `move/4`, which must agree exactly —
+  # those. Zero-based and inclusive. Shared by `delete/4` and `spans/2` (a move), which must agree exactly —
   # a doc left behind by one re-attaches to whatever definition follows it.
   defp attached_span(ast, lines, %{range: %{end: [line: b, column: _]}} = clause) do
     a = attrs_start(ast, clause.range)
@@ -228,8 +228,6 @@ defmodule Menard.Clause do
   # spans are zero-based, as `attached_span/3` counts them
   defp drop_spans(source, spans),
     do: Menard.Source.delete_lines(source, for({a, b} <- spans, do: {a + 1, b + 1}))
-
-  defp span_text(lines, {a, b}), do: lines |> Enum.slice(a..b) |> Enum.join("\n")
 
   # Take the blank line after the span too, but only when the span was blank-separated above as
   # well — otherwise removing the last clause of a run closes a gap that was never there.
@@ -438,41 +436,51 @@ defmodule Menard.Clause do
   end
 
   @doc """
-  Move EVERY clause of `name/arity` out of `source` and into `dest`, carrying the `@doc`, `@spec`
-  and `@impl` written above it and the comment above those.
-
-  The whole function, never one clause — half of it in each file is the same mistake
-  `visibility/3` refuses. Attachments travel because that is the half of a move that fails
-  SILENTLY: a `@doc` left behind re-attaches to whatever definition follows it, and a `@spec`
-  left behind describes a head that is gone.
-
-  Returns `{:ok, source_without_it, dest_with_it}`. Aliases and call sites are deliberately NOT
-  touched — `deps FILE name/arity` names them, and which of them should travel is a judgement.
+  The lines `name_arity` owns: every clause with the `@doc`, `@spec` and `@impl` written above it and
+  the comment above those, as zero-based `{first, last}` spans in source order. What `Menard.Move`
+  takes out of one file and into another — the half of a move that fails SILENTLY is an attachment
+  left behind: a `@doc` re-attaches to whatever definition follows it, and a `@spec` describes a
+  head that is gone.
   """
-  @spec move(String.t(), String.t(), String.t(), keyword()) ::
-          {:ok, String.t(), String.t()} | {:error, String.t()}
-  def move(source, dest, name_arity, opts \\ []) do
+  @spec spans(String.t(), String.t()) ::
+          {:ok, [{non_neg_integer(), non_neg_integer()}]} | {:error, String.t()}
+  def spans(source, name_arity) do
     with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
          {:ok, ast} <- parse(source),
-         {:ok, scope} <- scope(ast, mod, name, arity),
-         {:ok, dest_ast} <- parse(dest),
-         {:ok, dest_module} <- module_scope(dest_ast, opts[:module]) do
+         {:ok, scope} <- scope(ast, mod, name, arity) do
       case clauses(scope, name, arity) do
         [] ->
           {:error, "no #{name}/#{arity} in this file"}
 
         found ->
           lines = String.split(source, "\n")
-          spans = Enum.map(found, &attached_span(ast, lines, &1))
-
-          code = spans |> Enum.map_join("\n", &span_text(lines, &1)) |> dedent()
-
-          moved = insert_into(dest, dest_module, nil, code)
-
-          {:ok, drop_spans(source, spans |> merge_spans() |> Enum.map(&with_trailing_blank(lines, &1))),
-           moved}
+          {:ok, found |> Enum.map(&attached_span(ast, lines, &1)) |> Enum.sort()}
       end
     end
+  end
+
+  @doc """
+  `source` without `spans` (zero-based, as `spans/2` gives them), the gap each leaves closed as
+  `delete/4` closes it — except a span `replace` maps to text, which that text stands in for: a
+  moved function's `defdelegate`, where the function was.
+  """
+  @spec cut(String.t(), [{non_neg_integer(), non_neg_integer()}], %{
+          optional({integer(), integer()}) => String.t()
+        }) ::
+          String.t()
+  def cut(source, spans, replace \\ %{}) do
+    lines = String.split(source, "\n")
+    {kept, dropped} = Enum.split_with(spans, &Map.has_key?(replace, &1))
+    drops = dropped |> merge_spans() |> Enum.map(&{with_trailing_blank(lines, &1), []})
+    edits = drops ++ Enum.map(kept, &{&1, String.split(Map.fetch!(replace, &1), "\n")})
+
+    edits
+    |> Enum.sort_by(fn {{a, _b}, _text} -> a end, :desc)
+    |> Enum.reduce(lines, fn {{a, b}, text}, acc ->
+      {head, rest} = Enum.split(acc, a)
+      head ++ text ++ Enum.drop(rest, b - a + 1)
+    end)
+    |> Enum.join("\n")
   end
 
   @doc """

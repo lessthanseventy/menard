@@ -2,10 +2,10 @@ defmodule Menard.Deps do
   @moduledoc """
   What one function actually references — the read before `clause move`.
 
-  A move carries the function, its `@doc`/`@spec` and the comment above it, and nothing else: its
-  body resolves against the SOURCE module's aliases, it may call private helpers other functions
-  also need, it may read attributes that do not travel, and every call site has to change. Which of
-  those travel is a judgement, and this is what it is made from.
+  A moved function's body resolves against the SOURCE module's aliases, it may call private helpers
+  other functions also need, and it may read the module's attributes. `clause move` carries what
+  only it needs and refuses a helper it shares (`graph/1` is its read); this is the same answer for
+  one function, asked before.
 
   `of/3` returns `%{locals, remotes, modules, attributes}`. `locals` is the part that decides the
   question: each is a function of THIS module that the queried one calls, with `shared_with` —
@@ -45,6 +45,24 @@ defmodule Menard.Deps do
     end
   end
 
+  @doc """
+  Every function the module node defines, by `{name, arity}`: its `kind`, its clauses (`nodes`) and
+  the `calls` they make to functions of the module — what `clause move` decides from which helpers
+  travel with a function and which are shared with one that stays.
+  """
+  @spec graph(Macro.t()) :: %{{atom(), arity()} => %{kind: atom(), nodes: [Macro.t()], calls: MapSet.t()}}
+  def graph(module) do
+    defs = definitions(module)
+    own = MapSet.new(defs, &key/1)
+
+    defs
+    |> Enum.group_by(&key/1, fn {_key, node} -> node end)
+    |> Map.new(fn {key, [{kind, _, _} | _] = nodes} ->
+      calls = Enum.reduce(nodes, empty(), &collect/2).calls
+      {key, %{kind: kind, nodes: nodes, calls: calls |> MapSet.new() |> MapSet.intersection(own)}}
+    end)
+  end
+
   defp report(mine, defs, want) do
     refs = Enum.reduce(mine, empty(), fn {_key, node}, acc -> collect(node, acc) end)
     own = MapSet.new(defs, &key/1)
@@ -78,11 +96,12 @@ defmodule Menard.Deps do
 
   # -- walking a body -------------------------------------------------------
 
-  # The BODY only. Walking the whole def node counts its own head as a call, so every function came
-  # back "shared with" itself and nothing ever looked free to move.
-  defp collect({_kind, _meta, args}, acc) when is_list(args) and args != [] do
-    args
-    |> List.last()
+  # The body, and the head's arguments and guard, but not the head's own name: walking the whole def
+  # node counted its head as a call, so every function came back "shared with" itself and nothing
+  # ever looked free to move. A default (`at \\ now()`) and a guard (`when k in @kinds`) are calls
+  # and reads as much as the body's, and they travel with the function.
+  defp collect({_kind, _meta, [head | rest]}, acc) do
+    [head_parts(head) | rest]
     |> Macro.prewalk(&as_call/1)
     |> Zipper.zip()
     |> Zipper.traverse(acc, fn zipper, found -> {zipper, absorb(Zipper.node(zipper), found)} end)
@@ -91,17 +110,21 @@ defmodule Menard.Deps do
 
   defp collect(_node, acc), do: acc
 
+  defp head_parts({:when, _meta, [call, guard]}), do: [head_parts(call), guard]
+  defp head_parts({_name, _meta, args}) when is_list(args), do: args
+  defp head_parts(_head), do: []
+
   # A pipeline step and a capture, written as the call they make: `x |> step()` is step/1, not
   # step/0, and `&step/1` calls step/1. Read as written, a helper two functions share looked free
   # to move.
-  defp as_call({:|>, _meta, [lhs, {fun, meta, args}]}) when is_list(args) or is_nil(args),
+  def as_call({:|>, _meta, [lhs, {fun, meta, args}]}) when is_list(args) or is_nil(args),
     do: {fun, meta, [lhs | List.wrap(args)]}
 
-  defp as_call({:&, _meta, [{:/, _, [{fun, meta, args}, {:__block__, _, [arity]}]}]})
-       when is_integer(arity) and (is_nil(args) or args == []),
-       do: {fun, meta, List.duplicate(:_, arity)}
+  def as_call({:&, _meta, [{:/, _, [{fun, meta, args}, {:__block__, _, [arity]}]}]})
+      when is_integer(arity) and (is_nil(args) or args == []),
+      do: {fun, meta, List.duplicate(:_, arity)}
 
-  defp as_call(node), do: node
+  def as_call(node), do: node
 
   # A remote call: `Mod.fun(args)`. Its module counts as a reference too — that is the alias that
   # has to travel with the code.
