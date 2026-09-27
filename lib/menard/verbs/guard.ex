@@ -43,6 +43,7 @@ defmodule Menard.Verbs.Guard do
 
       #{m} outline FILE                        what is in the file
       #{m} clause replace|rewrite|delete|insert-after FILE name/arity HEAD [CODE]
+      #{m} clause move FILE a/1,b/2,… --to NEW_FILE --delegate    a split: one call per new module
       #{m} stmt insert-after|replace|delete FILE name/arity HEAD MATCH [CODE]
       #{m} attr get|set|delete FILE NAME [VAL]
       #{m} block get|replace|add|delete FILE NAME [CODE]
@@ -62,6 +63,7 @@ defmodule Menard.Verbs.Guard do
 
       #{p}outline    {file}                                        what is in the file
       #{p}clause     {verb: replace|rewrite|insert_after|delete, file, name_arity, head, code}
+      #{p}clause     {verb: move, file, name_arity: ["a/1", "b/2", …], to, delegate: true}   a split: one call per new module
       #{p}stmt       {verb: replace|insert_after|delete, file, name_arity, head, match, code}
       #{p}attr       {verb: get|set|delete, file, name, value}
       #{p}block      {verb: get|replace|add|delete, file, name: "test", label, code}
