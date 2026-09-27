@@ -11,6 +11,3 @@ commit lands.
 - `clause move`: an import without `only:` is copied when the moved code makes any call nothing
   defines, which a `use`-provided function also looks like; two such imports are both copied, and
   one the code does not use warns. An unused member of `alias A.{B, C}` is left in the source.
-- `directive add` opens a new block (an `alias` after the `import`s) with no blank line before it;
-  a host's Styler/Quokka adds it, the bare formatter does not.
-

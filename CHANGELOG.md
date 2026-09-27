@@ -164,6 +164,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
   whose mise config was not trusted answered a crash dump for its reason: OTP 27's `beam_lib`
   raised reading the plugin's atom chunk. Such a plugin is one that will not load, and the reply
   keeps mise's own "are not trusted" line, not its version and `--verbose` lines.
+- `directive add` opening a new block (the first `alias` after the `import`s) wrote it with no
+  blank line before it; Styler and Quokka added one, the bare formatter did not. It writes the
+  blank line, and `directive remove` of a block's only line takes its blank line with it.
 
 ## 0.5.0
 
