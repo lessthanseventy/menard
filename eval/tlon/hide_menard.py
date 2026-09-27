@@ -41,7 +41,9 @@ def main(template, door):
     cut(t / "server/mix.exs",
         "      # Menard (hex.pm/packages/menard): AST-aware source edits + introspection on Sourceror; the\n"
         "      # coworkers' source verbs (Server.Source.Tools) call it — a runtime dep. From hex, never a\n"
-        "      # path: a nix build sees only this checkout.\n")
+        "      # path: a nix build sees only this checkout. Past 0.5, `Clause.replace_body/5` refuses a whole\n"
+        "      # clause (0.5 took it for a rewrite): `clause_edit(:replace, …)` in Server.Source.Tools must\n"
+        "      # send one to `Clause.rewrite/5` itself (menard's CHANGELOG, Unreleased).\n")
     cut(t / "docs/manual/tasks.md",
         "## menard\n\n| verb | does |\n|---|---|\n"
         "| `menard:check` | menard: its own gate — format + warnings-as-errors + tests |\n\n")
