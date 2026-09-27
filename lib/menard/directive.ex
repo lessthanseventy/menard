@@ -55,7 +55,7 @@ defmodule Menard.Directive do
       cond do
         found = Enum.find(body, &match(&1, kind, target)) ->
           {a, b} = Menard.Tree.line_span(found)
-          Menard.Source.delete_lines(source, a, b)
+          Menard.Source.delete_lines(source, a, b + alone(source, a, b))
 
         # dropping the line would take its siblings with it
         multi = Enum.find(body, &({kind, target} in directives(&1))) ->
@@ -65,6 +65,14 @@ defmodule Menard.Directive do
           source
       end
     end
+  end
+
+  # A directive alone in its block, a blank line above and below: 1, so the blank below goes too and
+  # the block leaves no double gap behind.
+  defp alone(source, a, b) do
+    lines = String.split(source, "\n")
+    blank? = &(String.trim(Enum.at(lines, &1 - 1, "x")) == "")
+    if a > 1 and blank?.(a - 1) and blank?.(b + 1), do: 1, else: 0
   end
 
   @doc "Every directive in the module, as `{kind, \"Mod.Name\"}` in source order — the read half."
@@ -120,8 +128,8 @@ defmodule Menard.Directive do
     below = Enum.filter(directives, &(rank(kind_of(&1)) > rank(kind)))
 
     cond do
-      above != [] -> after_line(source, List.last(above), line)
-      below != [] -> before_line(source, hd(below), line)
+      above != [] -> after_line(source, List.last(above), line, "\n")
+      below != [] -> before_line(source, hd(below), line, "\n")
       true -> after_preamble(source, module_node, body, line)
     end
   end
@@ -147,10 +155,10 @@ defmodule Menard.Directive do
     patch(source, at, gap <> "\n" <> String.duplicate(" ", col - 1) <> line)
   end
 
-  defp before_line(source, node, line) do
+  defp before_line(source, node, line, gap \\ "") do
     %{start: [line: first, column: col]} = Sourceror.get_range(node)
     at = %{start: [line: first, column: 1], end: [line: first, column: 1]}
-    patch(source, at, String.duplicate(" ", col - 1) <> line <> "\n")
+    patch(source, at, String.duplicate(" ", col - 1) <> line <> "\n" <> gap)
   end
 
   # -- reading directives ---------------------------------------------------

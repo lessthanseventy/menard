@@ -100,6 +100,7 @@ defmodule Menard.MoveSplitTest do
              @moduledoc "Prices and receipts."
 
              import Bitwise, only: [band: 2]
+
              alias Split1.Shop
              alias Split1.Tax
 
