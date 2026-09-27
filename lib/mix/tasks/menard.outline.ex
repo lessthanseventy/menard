@@ -13,7 +13,7 @@ defmodule Mix.Tasks.Menard.Outline do
 
   @impl true
   def run(argv) do
-    {opts, files, _} = OptionParser.parse(argv, strict: [json: :boolean])
+    {opts, files} = options(argv, json: :boolean)
     if files == [], do: usage("mix menard.outline [--json] FILE...")
 
     # every file that parses is outlined; one that does not fails the verb, or a caller going by

@@ -16,7 +16,7 @@ defmodule Mix.Tasks.Menard.Write do
 
   @impl true
   def run(argv) do
-    {flags, argv, _} = OptionParser.parse(argv, strict: [version: :string, force: :boolean])
+    {flags, argv} = options(argv, version: :string, force: :boolean)
 
     case argv do
       [file, code] ->

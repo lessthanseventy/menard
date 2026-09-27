@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Menard.Deps do
 
   @impl true
   def run(argv) do
-    {opts, args} = OptionParser.parse!(argv, strict: [module: :string, in: :string, to: :string])
+    {opts, args} = options(argv, module: :string, in: :string, to: :string)
 
     case args do
       ["add", spec] ->

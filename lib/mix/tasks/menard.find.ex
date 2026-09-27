@@ -19,7 +19,7 @@ defmodule Mix.Tasks.Menard.Find do
 
   @impl true
   def run(argv) do
-    {opts, args, _} = OptionParser.parse(argv, strict: [json: :boolean])
+    {opts, args} = options(argv, json: :boolean)
 
     case args do
       [kind, target | files] when files != [] ->

@@ -23,7 +23,7 @@ defmodule Mix.Tasks.Menard.Directive do
 
   @impl true
   def run(argv) do
-    {flags, argv, _} = OptionParser.parse(argv, strict: [module: :string, version: :string, force: :boolean])
+    {flags, argv} = options(argv, module: :string, version: :string, force: :boolean)
 
     case params(argv) do
       :usage -> usage(@usage)

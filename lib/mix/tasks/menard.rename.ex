@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Menard.Rename do
 
   @impl true
   def run(argv) do
-    {flags, args, _} = OptionParser.parse(argv, strict: @flags)
+    {flags, args} = options(argv, @flags)
 
     case args do
       [old, new | files] when files != [] ->

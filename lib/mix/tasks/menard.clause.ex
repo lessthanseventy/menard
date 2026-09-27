@@ -27,7 +27,7 @@ defmodule Mix.Tasks.Menard.Clause do
 
   @impl true
   def run(argv) do
-    {flags, argv, _} = OptionParser.parse(argv, strict: @flags)
+    {flags, argv} = options(argv, @flags)
 
     case params(argv) do
       :usage -> usage(@usage)
