@@ -852,6 +852,54 @@ defmodule Menard.HooksTest do
     assert gate_err(dir) == ""
   end
 
+  @tag :tmp_dir
+  test "format-report leaves a file a merge stopped on alone: git wrote its conflict markers", %{tmp_dir: dir} do
+    # a merge (or a stash pop) that stops on a conflict stores the file, markers and all, as a blob
+    # before writing it (git 2.55, checked): content the repo holds, so it is not formatted and named
+    # back as not parsing. This holds that, against a rule keyed on the index or HEAD instead.
+    host(dir)
+
+    git = fn args ->
+      System.cmd("git", ["-C", dir, "-c", "user.name=t", "-c", "user.email=t@t" | args],
+        stderr_to_stdout: true
+      )
+    end
+
+    file = Path.join(dir, "lib/m.ex")
+    File.write!(file, "defmodule M do\n  def f(x), do: x\nend\n")
+    {_, 0} = git.(["add", "-A"])
+    {_, 0} = git.(["commit", "-qm", "m"])
+    {_, 0} = git.(["checkout", "-qb", "other"])
+    File.write!(file, "defmodule M do\n  def f(x), do: x + 1\nend\n")
+    {_, 0} = git.(["commit", "-qam", "other"])
+    {_, 0} = git.(["checkout", "-q", "-"])
+    File.write!(file, "defmodule M do\n  def f(x), do: x + 2\nend\n")
+    {_, 0} = git.(["commit", "-qam", "mine"])
+
+    counting =
+      stub_menard(
+        dir,
+        "counting",
+        ~s(echo "$*" >>"$\(dirname "$0"\)/../calls"\nexec "#{@root}/bin/menard" "$@")
+      )
+
+    cmd = "cd #{dir} && git -c user.name=t -c user.email=t@t merge -q other"
+
+    call = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: cmd}
+    }
+
+    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting)
+    backdate_format_mark(call, dir)
+    {_, 1} = System.cmd("bash", ["-c", cmd], stderr_to_stdout: true)
+
+    assert {"", 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
+    assert File.read!(file) =~ "<<<<<<<"
+    refute File.exists?(Path.join(counting, "calls"))
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))
