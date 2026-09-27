@@ -614,3 +614,14 @@ committed, resume or redo the rest):
 Then: the test-suite review's 12 findings (docs/review/2026-09-26-fable.md), TODO.md's focus3
 re-plant, re-pin the plugins, and the round on ex_riverside (all vs A, Opus and Fable, 3 runs: the
 project tier of PLAN.md's model split).
+
+### Before the next rounds (2026-09-26, evening)
+
+The handoff's in-flight work is merged (refactor-ast, fix-eval-resume, the riverside reference
+patches), and so is everything after it: the gate's load-sensitive tests count work or retry
+their deadline, the review's Tests findings, focus3's step-1 plant (Tlön's own suite green on it,
+only the hidden tests catch it; validate.py 4 of 4), and every TODO.md entry, which is empty.
+`bin/menard run check` 892 tests green; eval/tests 57 OK (2 skipped: focus2's traces are not on
+this machine). Models now split by tier (PLAN.md): unit rounds (eval/cases) on haiku and sonnet,
+project rounds (eval/long, eval/tlon, eval/riverside) on opus and fable. Next: both rounds, each
+started with `--rebuild` so the arms are pinned to this main.
