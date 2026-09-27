@@ -625,7 +625,19 @@ only the hidden tests catch it; validate.py 4 of 4), and every TODO.md entry, wh
 this machine). Models now split by tier (PLAN.md): unit rounds (eval/cases) on haiku and sonnet,
 project rounds (eval/long, eval/tlon, eval/riverside) on opus and fable. Next: both rounds, each
 started with `--rebuild` so the arms are pinned to this main.
-- 19:05 riverside1 stopped after 2 sessions: `all` had been menard's hooks only, and manos' tools
+- ~18:50 riverside1 stopped after 2 sessions: `all` had been menard's hooks only, and manos' tools
   were loaded only by M, lazy-mcp and map-mcp. `all` is all of menard now (eval/tests/test_arms.py
   holds it). events.A.opus.1 kept; the hooks-only `all` rows moved to results/riverside1-void.
   Restarted as riverside1 (the runner skips the row it has), then focus3b.
+
+### riverside1 (18:31-20:09): ex_riverside `events`, opus and fable, A vs all, 3 runs
+
+- pass: all 6/6, A 5/6. The miss: events.A.fable.3, step 2's `.ics` escaped `,` but not `;`
+  (the ticket names both); step 3 failed on the same hidden test. Everything else clean.
+- all cost more: paired against A, new input +7.5k tokens (median; higher in 5 of 6 pairs),
+  +7 turns, +87 s agent time (slower in 6 of 6). Out tokens about even.
+- menard barely used. manos: `outline` 0.8 a run, nothing else; no `clause move` for the split,
+  which every run did with a Python script over line ranges. The skill loaded in 1 run of 6. 38
+  shell edits of .ex files in the all arm. The guard is not in the Claude Code plugin since
+  69059a4 (bench5: its blocks cost a turn each), so nothing steers an edit to a verb.
+- focus3b not started: paused after riverside1 by choice.
