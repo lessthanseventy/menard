@@ -900,6 +900,56 @@ defmodule Menard.HooksTest do
     refute File.exists?(Path.join(counting, "calls"))
   end
 
+  @tag :tmp_dir
+  test "stop-gate passes a stop the agent's own green gate already checked, and not a red one", %{
+    tmp_dir: dir
+  } do
+    # riverside1: the stop gate ran 12s at every step and never refused one: each agent had just run the
+    # gate itself, piped through tail. A green gate the agent ran on what it wrote is the stop gate's too.
+    host(dir)
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
+    File.write!(Path.join(dir, "menard-touched-g1"), dir <> "\n")
+
+    ran = fn session, command, stdout ->
+      call = %{tool_name: "Bash", session_id: session, tool_use_id: "t#{System.unique_integer([:positive])}"}
+      {_, 0} = report(Map.merge(call, %{hook_event_name: "PreToolUse", tool_input: %{command: command}}), dir)
+
+      report(
+        Map.merge(call, %{
+          hook_event_name: "PostToolUse",
+          tool_input: %{command: command},
+          tool_response: %{stdout: stdout}
+        }),
+        dir
+      )
+    end
+
+    # green, the way ExUnit 1.19, 1.20 and menard say it
+    for {session, command, stdout} <- [
+          {"g1", "mix precommit 2>&1 | tail -3", "Finished in 1.2 seconds\n5 tests, 0 failures\n"},
+          {"g2", "mix precommit 2>&1 | tail -2", "Result: 5/5 passed, 1 excluded\n"},
+          {"g3", "bin/menard run check", ~s({"ok":true,"failures":[],"failed":0,"tests":5}\n)}
+        ] do
+      File.write!(Path.join(dir, "menard-touched-#{session}"), dir <> "\n")
+      ran.(session, command, stdout)
+      assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: session}, dir)
+      assert gate_err(dir) =~ "nothing new since green"
+    end
+
+    # red, or not the gate: the stop gate still runs, and blocks
+    for {session, command, stdout} <- [
+          {"r1", "mix precommit 2>&1 | tail -3", "5 tests, 1 failure\n"},
+          {"r2", "mix precommit 2>&1 | tail -3", "** (Mix) Credo found 2 issues\n5 tests, 0 failures\n"},
+          {"r3", "mix test test/n_test.exs", "5 tests, 0 failures\n"},
+          {"r4", "bin/menard run check", ~s({"ok":false,"failures":[{"kind":"test"}],"failed":1,"tests":5}\n)}
+        ] do
+      File.write!(Path.join(dir, "menard-touched-#{session}"), dir <> "\n")
+      ran.(session, command, stdout)
+      {out, 0} = stop(%{hook_event_name: "Stop", session_id: session}, dir)
+      assert JSON.decode!(out)["decision"] == "block", "#{session} passed"
+    end
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

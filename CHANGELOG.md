@@ -114,6 +114,9 @@ agents tripped on, fixed, and what they reached for first, made to work.
 - `deps`: a head's defaults and guard count as what a function calls and reads (they travel with it).
 
 **Fixed**
+- The stop gate re-checked, at every step (12s), what the agent had just checked itself: in
+  riverside1 it never refused a stop. A gate the agent runs (`mix precommit`, `menard run check`)
+  whose output is green, nothing red in it, now counts as the stop gate's own green.
 - `clause move` dedented the code it moved, and a heredoc `@doc`'s text with it: the patch left
   the text at column 1 and only the formatter put it back.
 - Every CLI verb dropped a flag it could not read, and its value with it: `block add … --label

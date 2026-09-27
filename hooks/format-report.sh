@@ -17,6 +17,22 @@ cwd=$(jq -r '.cwd // empty' <<<"$payload")
 call=$(jq -r '.tool_use_id // "none"' <<<"$payload")
 mark="$(session_file format)-${call//[^A-Za-z0-9_-]/}"
 
+# The agent's own gate, green, is the stop gate's too: riverside1's stop gate ran 12s at every step
+# to re-check what the agent had just checked, and never refused one. `tail` hides the gate's exit
+# code, so its output decides: the tests' summary at 0 failures is the last step of a precommit
+# alias, which stops at its first failing step, so every step before it passed. Anything red in the
+# output keeps the stop gate on; so does a write after this (the count moves on).
+if [[ "$tool" == "Bash" && "$event" == "PostToolUse" ]]; then
+  cmd=$(jq -r '.tool_input.command // empty' <<<"$payload")
+  out=$(jq -r '.tool_response.stdout // empty' <<<"$payload")
+  touched=$(session_file touched)
+  if [[ -s "$touched" && "$cmd" =~ (mix[[:space:]]+precommit|menard[^\|\;\&]*[[:space:]]run[[:space:]]+check|mix[[:space:]]+menard\.run[[:space:]]+check) ]] &&
+    grep -qE '(^|[^0-9])0 failures|Result: ([0-9]+)/\2 passed|"ok":true' <<<"$out" &&
+    ! grep -qiE '[1-9][0-9]* failures?|"ok":false|\*\* \(|error|warning' <<<"$out"; then
+    wc -l <"$touched" >"$(session_file stop-green)"
+  fi
+fi
+
 # A shell command: a mark before it, and after it every Elixir file newer than the mark
 if [[ "$tool" == "Bash" && "$event" == "PreToolUse" ]]; then
   touch "$mark"
