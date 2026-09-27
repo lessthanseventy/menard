@@ -76,9 +76,8 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 - **A split is one `clause move` per new module**, not a script copying line ranges: name every
   function that goes there. Its private helpers, the attributes and alias/import/require lines it
   uses come along, a call back to the source is qualified, and `delegate: true` leaves a
-  `defdelegate` for each public one, so the old module's API and callers keep working. A helper a
-  staying function also calls is refused by name: move that caller too, or make the helper public
-  first. Without `delegate`, `left` is each call to fix, with `find calls`.
+  `defdelegate` for each public one, so the old module's API and callers keep working. A private helper a
+  staying function also calls stays, made public (`published`), and the moved code calls it there. Without `delegate`, `left` is each call to fix, with `find calls`.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
   whole statement or its unique start (`total =`); a line of a test with the test's label as `head`,
   and a statement of the module itself (`defstruct`, `@type t ::`) with no clause named. A miss
@@ -96,9 +95,9 @@ that moved. `unformatted` means written but not formatted, and says why.
 
 Pass the reply's `version` back on your next edit to that file. If another session changed it
 since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
-created, moved, carried, attributes, directives, unresolved, qualified, delegated, left, to, from}`:
+created, moved, carried, attributes, directives, unresolved, qualified, delegated, published, left, to, from}`:
 `to` and `from` are each file's own reply, its `version` and stages; `created` is the new module's
-name when `to` did not exist; `carried` the helpers that came along; `unresolved` each call a `use`
+name when `to` did not exist; `carried` the helpers that came along; `published` the ones that stayed, made public; `unresolved` each call a `use`
 or an import without `only:` may answer, which is not copied: add the one it names. `rename` answers `{did, changed,
 unchanged, skipped}`: `changed` is each file's own reply, `skipped` each file it could not parse
 or write, with why. Both doors give one reply: the CLI prints the MCP tool's map as one JSON
