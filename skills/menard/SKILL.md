@@ -41,7 +41,8 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
 | a clause's existence | `clause {verb: "delete" \| "insert_before", …}` |
 | a whole function | `clause {verb: "delete", file, name_arity}`, no `head`: every clause; the reply's `left` is each call still to fix |
 | public or private | `clause {verb: "visibility", file, name_arity, visibility}`: every clause at once |
-| which file a function lives in; splitting a big module | `clause {verb: "move", file, name_arity: ["a/1", "b/2", …], to, as?, moduledoc?, delegate: true}`: ONE call per new module |
+| which file a function lives in | `clause {verb: "move", file, name_arity: ["a/1", "b/2", …], to, as?, moduledoc?, delegate: true}` |
+| one module into several | `clause {verb: "split", file, plan: [{to, functions: ["a/1", …], as?, moduledoc?}, …]}`: the WHOLE split in one call |
 | a function's `@spec` | `clause {verb: "spec", file, name_arity, code: SIGNATURE}`; no `code` removes it |
 | a module attribute | `attr {verb: "get" \| "set" \| "delete", file, name, value}` |
 | a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}`; `replace` with a whole test under `@tag` lines sets its tags |
@@ -73,11 +74,14 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 - **A head answers without its defaults.** `source, opts` finds `def f(source, opts \\ [])`.
 - **An ambiguous head is refused with the candidates**; `nth` picks one.
 - **`delete` takes the clause's `@doc`/`@spec` with it**; `insert_before` goes above them.
-- **A split is one `clause move` per new module**, not a script copying line ranges: name every
-  function that goes there. Its private helpers, the attributes and alias/import/require lines it
-  uses come along, a call back to the source is qualified, and `delegate: true` leaves a
-  `defdelegate` for each public one, so the old module's API and callers keep working. A private helper a
-  staying function also calls stays, made public (`published`), and the moved code calls it there. Without `delegate`, `left` is each call to fix, with `find calls`.
+- **A split is ONE `clause split`**, not a script copying line ranges and not a move per
+  function: `plan` names every new module's file and the functions that go there. Each one's
+  private helpers, the attributes and alias/import/require lines it uses come along, a call back to
+  the source is qualified, and a `defdelegate` is left for each public function, so the old module's
+  API and callers keep working (`delegate: false` leaves none). A private helper a staying function
+  also calls stays, made public (`published`), and the moved code calls it there. All of it is
+  written or none: a refusal names the entry it stopped at. `clause move` is the same for one
+  destination; without `delegate`, `left` is each call to fix.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
   whole statement or its unique start (`total =`); a line of a test with the test's label as `head`,
   and a statement of the module itself (`defstruct`, `@type t ::`) with no clause named. A miss

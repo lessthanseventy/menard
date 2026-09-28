@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Wire menard into Claude Code via its plugin marketplace: the `menard` plugin, the formatting
-# hook (hooks/hooks.json). `--tools` adds `manos` (manos/), the MCP tools and their skill. No host
-# repo required.
+# Wire menard into Claude Code via its plugin marketplace: the `menard` plugin, its formatting
+# hook, MCP tools and skill. No host repo required.
 #
 # Per project by default: from an Elixir repo, `mise -C ~/path/to/menard run install:claude` (or
 # `scripts/install-claude.sh`) installs into THAT repo's .claude/settings.json, so menard's tools
@@ -15,12 +14,11 @@ plugins=(menard)
 for arg in "$@"; do
   case "$arg" in
     --user) scope=user ;;
-    --tools) plugins+=(manos) ;;
   esac
 done
 
 # Claude Code's plugin CLI (if the `claude` binary is on PATH). The marketplace is menard's own
-# .claude-plugin/marketplace.json; the plugins are menard@menard and manos@menard.
+# .claude-plugin/marketplace.json; the plugin is menard@menard.
 if command -v claude >/dev/null 2>&1; then
   echo "Adding menard marketplace and installing ${plugins[*]}…"
   claude plugin marketplace add "$repo"
@@ -41,11 +39,10 @@ menard is a Claude Code plugin. From a Claude Code session:
 
   /plugin marketplace add $repo
   /plugin install menard@menard     (choose project scope, from the Elixir repo)
-  /plugin install manos@menard      (optional: the MCP tools and their skill)
 
 menard formats every Elixir file an edit or a shell command writes, with the project's own
-formatter, and tells the agent what changed. manos adds the AST-aware tools, for a rename across
-files, finding callers and reading one function of a big module.
+formatter, and tells the agent what changed. Its AST-aware tools are there for a rename across
+files, finding callers, reading one function of a big module and splitting one.
 
 Restart Claude Code (or /resume) after installing.
 EOF
