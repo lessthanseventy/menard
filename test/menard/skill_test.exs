@@ -2,7 +2,7 @@ defmodule Menard.SkillTest do
   # The skill is the one copy of the reference: it must load, and name only verbs that exist.
   use ExUnit.Case, async: true
 
-  @skill Path.expand("../../manos/skills/menard/SKILL.md", __DIR__)
+  @skill Path.expand("../../skills/menard/SKILL.md", __DIR__)
 
   test "has the frontmatter Claude Code loads it by" do
     ["", front, _body] = @skill |> File.read!() |> String.split("---\n", parts: 3)

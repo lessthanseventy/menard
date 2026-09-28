@@ -17,7 +17,7 @@ Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.f
 
 ## Calling a tool
 
-- **Claude Code** (the `manos` plugin): MCP tools `mcp__plugin_manos_menard__<tool>`,
+- **Claude Code**: MCP tools `mcp__plugin_menard_menard__<tool>`,
   verb as an argument.
 - **pi**: `mcp({ tool: "menard__<tool>", args: {…} })`, the same arguments.
 - **CLI**, where there is no MCP: `menard <tool> <verb> FILE …`, the same fields in order; a

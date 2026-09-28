@@ -1,13 +1,24 @@
 {
-  "description": "Every Elixir file an edit or a shell command writes is formatted with its own project's formatter, plugins included; what the formatter changed goes back to the agent, and a file that does not parse is named. The MCP tools are a separate plugin, manos.",
+  "description": "Every Elixir file an edit or a shell command writes is formatted with its own project's formatter, plugins included; what the formatter changed goes back to the agent, and a file that does not parse is named. Each hook is a call to the MCP server already running (Menard.Hook): no process is started.",
   "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\""
+            "type": "mcp_tool",
+            "server": "plugin:menard:menard",
+            "tool": "hook",
+            "input": {
+              "event": "${hook_event_name}",
+              "tool": "${tool_name}",
+              "session": "${session_id}",
+              "call": "${tool_use_id}",
+              "cwd": "${cwd}",
+              "input": "${tool_input}",
+              "response": "${tool_response}"
+            },
+            "timeout": 120
           }
         ]
       }
@@ -17,8 +28,19 @@
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\"",
+            "type": "mcp_tool",
+            "server": "plugin:menard:menard",
+            "tool": "hook",
+            "input": {
+              "event": "${hook_event_name}",
+              "tool": "${tool_name}",
+              "session": "${session_id}",
+              "call": "${tool_use_id}",
+              "cwd": "${cwd}",
+              "input": "${tool_input}",
+              "response": "${tool_response}"
+            },
+            "timeout": 120,
             "statusMessage": "mix format"
           }
         ]
@@ -27,18 +49,40 @@
         "matcher": "Bash",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\"",
+            "type": "mcp_tool",
+            "server": "plugin:menard:menard",
+            "tool": "hook",
+            "input": {
+              "event": "${hook_event_name}",
+              "tool": "${tool_name}",
+              "session": "${session_id}",
+              "call": "${tool_use_id}",
+              "cwd": "${cwd}",
+              "input": "${tool_input}",
+              "response": "${tool_response}"
+            },
+            "timeout": 120,
             "statusMessage": "mix format"
           }
         ]
       },
       {
-        "matcher": "mcp__.*menard__.*",
+        "matcher": "mcp__plugin_menard_menard__(write|rename|clause|stmt|directive|attr|block|module|deps)",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\""
+            "type": "mcp_tool",
+            "server": "plugin:menard:menard",
+            "tool": "hook",
+            "input": {
+              "event": "${hook_event_name}",
+              "tool": "${tool_name}",
+              "session": "${session_id}",
+              "call": "${tool_use_id}",
+              "cwd": "${cwd}",
+              "input": "${tool_input}",
+              "response": "${tool_response}"
+            },
+            "timeout": 120
           }
         ]
       }
@@ -48,8 +92,19 @@
         "matcher": "Bash",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\"",
+            "type": "mcp_tool",
+            "server": "plugin:menard:menard",
+            "tool": "hook",
+            "input": {
+              "event": "${hook_event_name}",
+              "tool": "${tool_name}",
+              "session": "${session_id}",
+              "call": "${tool_use_id}",
+              "cwd": "${cwd}",
+              "input": "${tool_input}",
+              "response": "${tool_response}"
+            },
+            "timeout": 120,
             "statusMessage": "mix format"
           }
         ]

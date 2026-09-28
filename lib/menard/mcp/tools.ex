@@ -487,4 +487,39 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def call(params, frame), do: answer(frame, Verbs.Module.run(params(params)))
   end
+
+  defmodule Menard.MCP.Hook do
+    @moduledoc """
+    The harness calls this after a tool ran, not you: it formats the Elixir files the call wrote and
+    answers with what the formatter changed.
+    """
+    use Anubis.Server.Component, type: :tool
+    import Menard.MCP.Reply
+    alias Menard.Verbs
+
+    @impl true
+    def execute(params, frame), do: bounded(__MODULE__, params, frame)
+
+    # a `mcp_tool` hook fills these from the hook's payload (hooks/hooks.json); `input` and
+    # `response` are the tool's own, which the harness hands over as JSON text
+    schema do
+      field(:event, :string)
+      field(:tool, :string)
+      field(:session, :string)
+      field(:call, :string)
+      field(:cwd, :string)
+      field(:input, :string)
+      field(:response, :string)
+    end
+
+    # the harness reads the text as a command hook's stdout: a JSON object, or nothing to say. A
+    # file that could not be formatted blocks, which is how its reason reaches the agent.
+    def call(params, frame) do
+      case Verbs.Hook.run(params) do
+        {:ok, %{context: text, event: event}} -> ok(frame, Menard.Hook.context(text, event))
+        {:ok, %{problem: text}} -> ok(frame, %{decision: "block", reason: text})
+        {:ok, %{}} -> ok(frame, %{})
+      end
+    end
+  end
 end

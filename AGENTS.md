@@ -1,6 +1,6 @@
 # Working on menard
 
-**Using menard** (which verb for which change, and the traps): `manos/skills/menard/SKILL.md`. It ships
+**Using menard** (which verb for which change, and the traps): `skills/menard/SKILL.md`. It ships
 with the plugin as a skill, and it is the one copy of that reference.
 
 **Working on menard itself**, this repo:

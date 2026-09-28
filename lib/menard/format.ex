@@ -18,6 +18,7 @@ defmodule Menard.Format do
   but not formatted", never "not written".
   """
 
+  alias Menard.Format.Worker
   # Under load a host's own toolchain through mise took past 30s; 60s still leaves the MCP door's
   # 90s deadline room
   @timeout 60_000
@@ -83,22 +84,34 @@ defmodule Menard.Format do
   defp run_in(root, pairs, opts) do
     project = find_up(root, "mix.exs") || root
     ms = opts[:timeout] || @timeout
+
+    request = %{
+      root: root,
+      project: project,
+      cache: opts[:cache] || cache_dir(project),
+      plugins: Keyword.get(opts, :plugins, true),
+      files: pairs
+    }
+
+    case warm(request, ms, Keyword.get(opts, :warm, true)) do
+      {:ok, results} -> results
+      :timeout -> all(pairs, stopped(ms))
+      {:error, out} -> all(pairs, {:error, "the host's formatter failed: " <> said(out)})
+      :unavailable -> once(project, request, ms)
+    end
+  end
+
+  # the warm worker holds the host's plugins on its path, so a format without them is a process of
+  # its own, as is every format where nothing supervises a worker (`warm: false` asks for that)
+  defp warm(%{plugins: true, project: project} = request, ms, true), do: Worker.format(project, request, ms)
+  defp warm(_request, _ms, _warm), do: :unavailable
+
+  defp once(project, %{files: pairs} = request, ms) do
     dir = Path.join(System.tmp_dir!(), "menard-format-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     input = Path.join(dir, "in")
     output = Path.join(dir, "out")
-
-    File.write!(
-      input,
-      :erlang.term_to_binary(%{
-        root: root,
-        project: project,
-        cache: opts[:cache] || cache_dir(project),
-        plugins: Keyword.get(opts, :plugins, true),
-        files: pairs
-      })
-    )
-
+    File.write!(input, :erlang.term_to_binary(request))
     script = Application.app_dir(:menard, "priv/format.exs")
 
     {out, status} =
@@ -106,23 +119,18 @@ defmodule Menard.Format do
 
     try do
       cond do
-        status in [124, 137] ->
-          secs = max(div(ms + 500, 1000), 1)
-
-          all(
-            pairs,
-            {:error, "format did not finish in #{secs}s, and was stopped — file written UNFORMATTED"}
-          )
-
-        File.regular?(output) ->
-          output |> File.read!() |> :erlang.binary_to_term()
-
-        true ->
-          all(pairs, {:error, "the host's formatter failed: " <> said(out)})
+        status in [124, 137] -> all(pairs, stopped(ms))
+        File.regular?(output) -> output |> File.read!() |> :erlang.binary_to_term()
+        true -> all(pairs, {:error, "the host's formatter failed: " <> said(out)})
       end
     after
       File.rm_rf!(dir)
     end
+  end
+
+  defp stopped(ms) do
+    secs = max(div(ms + 500, 1000), 1)
+    {:error, "format did not finish in #{secs}s, and was stopped — file written UNFORMATTED"}
   end
 
   defp all(pairs, result), do: Map.new(pairs, fn {file, _content} -> {file, result} end)

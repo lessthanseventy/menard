@@ -178,6 +178,20 @@ defmodule Menard do
   end
 
   @doc """
+  `[exe | args]` as the host's toolchain runs it in `dir`, and a note for the caller when that is
+  not the toolchain the host pins: `mise exec` where the host pins one that is installed, else the
+  one on PATH.
+  """
+  @spec host_argv(String.t(), [String.t()]) :: {[String.t()], String.t()}
+  def host_argv(dir, argv) do
+    case host_toolchain(dir) do
+      {:mise, mise} -> {[mise, "exec", "-C", dir, "--" | argv], ""}
+      {:path, nil} -> {argv, ""}
+      {:path, why} -> {argv, "menard: #{why}\n"}
+    end
+  end
+
+  @doc """
   `[exe | args]` run in `dir` on the host's toolchain, as `host_mix/3` runs its mix: `elixir` for
   the formatter, which must not evaluate the host's `mix.exs`. `timeout:` is its deadline in ms;
   past it the process is killed and the status is 124 (137 when it would not stop); `label:` names
@@ -187,13 +201,7 @@ defmodule Menard do
     {timeout, opts} = Keyword.pop(opts, :timeout)
     {label, opts} = Keyword.pop(opts, :label, exe)
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
-
-    {exe, argv, note} =
-      case host_toolchain(dir) do
-        {:mise, mise} -> {mise, ["exec", "-C", dir, "--", exe | args], ""}
-        {:path, nil} -> {exe, args, ""}
-        {:path, why} -> {exe, args, "menard: #{why}\n"}
-      end
+    {[exe | argv], note} = host_argv(dir, [exe | args])
 
     # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
     # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;

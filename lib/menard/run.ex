@@ -301,7 +301,7 @@ defmodule Menard.Run do
   end
 
   # The project lints with credo when it has it: its lock names it, or its deps hold it
-  defp credo?(dir) do
+  def credo?(dir) do
     File.dir?(Path.join(dir, "deps/credo")) or
       case File.read(Path.join(dir, "mix.lock")) do
         {:ok, lock} -> lock =~ ~s("credo":)
