@@ -424,14 +424,14 @@ defmodule Menard.Clause do
   def insert_at(source, module, where, code) do
     with {:ok, ast} <- parse(source),
          {:ok, node} <- module_scope(ast, module) do
-      insert_into(source, node, where, code)
+      insert_into(source, ast, node, where, code)
     end
   end
 
-  defp insert_into(source, module_node, where, code) do
+  defp insert_into(source, ast, module_node, where, code) do
     case anchor(definitions(module_node), normalize_where(where), code) do
       nil -> insert_inside_empty(source, module_node, code)
-      {sibling, side} -> anchor_insert(source, sibling, side, code)
+      {sibling, side} -> anchor_insert(source, ast, sibling, side, code)
     end
   end
 
@@ -547,13 +547,17 @@ defmodule Menard.Clause do
 
   # A new FUNCTION, unlike a new clause of an existing one, is separated from its neighbour by a
   # blank line — clauses of one function are glued, functions are not.
-  defp anchor_insert(source, node, :top, code) do
-    %{start: [line: line, column: col]} = Sourceror.get_range(node)
+  # Above the definition's @doc/@spec and the comment above those, as `insert_before/5`: under them,
+  # they describe the new function, and the old one is left with none (it parses, so nothing says so)
+  defp anchor_insert(source, ast, node, :top, code) do
+    %{start: [line: _, column: col]} = range = Sourceror.get_range(node)
+    line = attrs_start(ast, range)
+    line = line - comment_lines_above(String.split(source, "\n"), line - 1)
     at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
     patch(source, at, indented(code, col) <> "\n\n")
   end
 
-  defp anchor_insert(source, node, :bottom, code) do
+  defp anchor_insert(source, _ast, node, :bottom, code) do
     %{start: [line: _, column: col], end: [line: line, column: last_col]} = Sourceror.get_range(node)
     at = %{start: [line: line, column: last_col], end: [line: line, column: last_col]}
     patch(source, at, "\n\n" <> indented(code, col))
