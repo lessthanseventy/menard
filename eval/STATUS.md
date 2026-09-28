@@ -730,7 +730,8 @@ results/focus3b-void. Restarted fresh.
 - The split verb: used once or twice a session by fable (never for the whole split), and by opus only
   in run 1; the other splits went through Bash and Write/manos `write` of new files, which the guard
   passes. The stop-gate skip fired in 7 of 18 menard steps; its full run is ~70 s on Tlön.
-- The usage-limit resume worked for real: at 03:17 the monthly spend limit stopped a step; the runner
-  waited to the reset (09:02 the next day), probed, redid the step and finished the round.
+- The usage-limit resume worked for real, twice (results/focus3b/waits.jsonl): at 01:33 the session
+  limit stopped a step (9 min wait), at 03:17 the weekly limit (30 h wait, to 09:02 on 09-28); each
+  time the runner waited to the reset, probed, redid the step, and it finished the round.
 - Reading, with riverside1-2: no quality bought on either codebase (every miss is the model's), cost
   about even to a little higher with menard, and the verbs are used only in part.
