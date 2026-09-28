@@ -708,3 +708,29 @@ into 8 modules and failed step 03 on split.py's symmetric 10% line bound (1765 -
 modules' headers, aliases and docs) before compile, credo and the tests ran, so it could not be
 regraded. The bound is now at most 10% fewer, 30% more, as riverside's; the row is in
 results/focus3b-void. Restarted fresh.
+
+### focus3b (2026-09-27 00:00 - 09-28 09:25): Tlön focus3, A vs all, opus and fable, 3 runs
+
+| arm, model | steps | sessions | turns | agent s | new in |
+|---|---|---|---|---|---|
+| A, opus | 8/9 | 3/3 | 71 | 688 | 234k |
+| all, opus | 8/9 | 2/3 | 68 | 934 | 248k |
+| A, fable | 8/9 | 3/3 | 50 | 968 | 239k |
+| all, fable | 7/9 | 3/3 | 41 | 808 | 244k |
+
+(A session passes on its last step; `steps` counts every step.)
+- Missed steps. A: opus.3 step 02 (the feature's hidden tests), fable.3 step 01 (the plant). all:
+  fable.2 and fable.3 step 01 (the plant: fable misses it in both arms, 3 of 6), opus.1 step 03, which
+  failed `credo --strict` on its own step-1 fix (Console.Fuzzy.filter nested 3 deep). The console's
+  .credo.exs is `strict: false` and its precommit runs no `--strict`, so neither the agent's gate nor
+  menard's stop gate (the project's strictness) could see it; the grader is stricter than the project,
+  for both arms alike.
+- all.opus.1 was the outlier: 166 turns, 29 min (step 2 slept twice with ScheduleWakeup around two stop-
+  gate refusals; step 3: 11 moves, 19 visibility calls, 17 Edits). Without it opus all is ~A.
+- The split verb: used once or twice a session by fable (never for the whole split), and by opus only
+  in run 1; the other splits went through Bash and Write/manos `write` of new files, which the guard
+  passes. The stop-gate skip fired in 7 of 18 menard steps; its full run is ~70 s on Tlön.
+- The usage-limit resume worked for real: at 03:17 the monthly spend limit stopped a step; the runner
+  waited to the reset (09:02 the next day), probed, redid the step and finished the round.
+- Reading, with riverside1-2: no quality bought on either codebase (every miss is the model's), cost
+  about even to a little higher with menard, and the verbs are used only in part.
