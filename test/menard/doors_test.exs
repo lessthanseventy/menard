@@ -5,6 +5,7 @@ defmodule Menard.DoorsTest do
   use ExUnit.Case, async: false
 
   alias Anubis.Server.Frame
+  alias Menard.Verbs.Noun
   alias Mix.Tasks.Menard.Where
 
   @moduletag :tmp_dir
@@ -180,17 +181,27 @@ defmodule Menard.DoorsTest do
            end) =~ "menard: no plugin"
   end
 
-  test "every MCP tool is a verb module's run/1 behind a deadline, and every mix task calls one" do
-    verbs = Path.wildcard(Path.expand("../../lib/menard/verbs/*.ex", __DIR__))
-    assert length(verbs) >= 14
+  test "every door is made from a noun, or calls the verb layer itself" do
+    assert length(Noun.modules()) >= 13
+    listed = for tool <- Menard.MCP.__components__(:tool), do: {tool.handler, tool.name}
 
-    for path <- verbs do
-      module = Module.concat(Menard.Verbs, path |> Path.basename(".ex") |> Macro.camelize())
+    for verbs <- Noun.modules(), noun = verbs.noun() do
+      assert function_exported?(verbs, :run, 1), "#{inspect(verbs)} has no run/1"
+      tool = Module.concat(Menard.MCP, Macro.camelize(noun.name))
+      assert Code.ensure_loaded?(tool), "no MCP tool for #{noun.name}"
+      assert {tool, noun.name} in listed, "the server does not list #{noun.name}"
 
-      assert Code.ensure_loaded?(module), "no module #{inspect(module)}"
-      assert function_exported?(module, :run, 1), "#{inspect(module)} has no run/1"
+      if noun[:cli] do
+        task = Module.concat(Mix.Tasks.Menard, Macro.camelize(noun.name))
+        assert Code.ensure_loaded?(task), "no mix task for #{noun.name}"
+        # every verb the schema names has a shape, and none it does not
+        named = for {:verb, :enum, opts} <- noun.fields, verb <- opts[:values], do: verb
+        shaped = for {verb, _args} <- noun.cli.shapes, verb, uniq: true, do: verb
+        assert Enum.sort(shaped) == Enum.sort(named), "#{noun.name}'s shapes and its verbs differ"
+      end
     end
 
+    # the tasks written by hand call the verb layer, as the ones made from a noun do
     for task <- Path.wildcard(Path.expand("../../lib/mix/tasks/menard.*.ex", __DIR__)),
         Path.basename(task) != "menard.mcp.ex" do
       assert File.read!(task) =~ ~r/\bVerbs\.[A-Z]\w+\.run\(/,

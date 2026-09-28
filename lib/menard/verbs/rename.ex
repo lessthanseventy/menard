@@ -9,6 +9,41 @@ defmodule Menard.Verbs.Rename do
 
   import Menard.Verbs
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "rename",
+      doc: """
+      Rename an identifier across files, AST-aware: every def head, call (local or remote), capture and
+      variable named `old` becomes `new`; strings stay, except the docs: in `@doc`/`@moduledoc` a mention
+      that reads as code (`old/1`, `A.old(x)` in a doctest, `` `old` ``) is renamed too, unless `docs`
+      is false. `only` narrows it to `functions` or `variables`;
+      `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
+      identifier's bytes move. `files` are paths or globs (`lib/**/*.ex`) under the launch root. The
+      reply lists the files `changed` (each with its version and stages), `unchanged`, and `skipped`
+      (not parseable or not written, with why).
+      """,
+      fields: [
+        {:old, :string, [required: true]},
+        {:new, :string, [required: true]},
+        {:files, {:list, :string}, [required: true]},
+        {:versions, {:list, :string}, []},
+        {:force, :boolean, []},
+        {:only, :enum, [values: ["functions", "variables"]]},
+        {:atoms, :boolean, []},
+        {:comments, :boolean, []},
+        {:docs, :boolean, []}
+      ],
+      cli: %{
+        flags: [version: {:keep, :versions}],
+        shapes: [
+          {nil, [:old, :new, {:rest, :files}]}
+        ]
+      }
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(p) do
     with :ok <- need(p, [:old, :new], "rename"),

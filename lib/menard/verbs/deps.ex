@@ -10,6 +10,40 @@ defmodule Menard.Verbs.Deps do
 
   @verbs ~w(refs add upgrade)
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "deps",
+      doc: """
+      Dependencies, both kinds. `verb` is:
+
+      - `refs` (the default): what one function references — the read before a move. Give `file` and
+        `name_arity`. Returns the local calls it makes (each with `shared_with`: the OTHER functions
+        here that also call it, so a helper with an empty list can travel and one with entries cannot),
+        the remote calls, the modules whose aliases must travel, and the attributes it reads.
+      - `add`: a project dependency, `spec` as written in mix.exs (`{:req, "~> 0.5"}`) or a bare name
+        looked up on Hex. Written into the deps list, fetched and compiled; the answer carries the lock
+        diff and the compile, `ok` false when either failed. A fetch that fails puts mix.exs back.
+      - `upgrade`: `apps` updated (all when none are named), through the host's own
+        `mix igniter.upgrade` when it has Igniter. `to` rewrites one app's requirement first.
+
+      `dir` is the mix project, under the root (default: the root).
+      """,
+      deadline: 600_000,
+      fields: [
+        {:verb, :enum, [values: ["refs", "add", "upgrade"]]},
+        {:file, :string, []},
+        {:name_arity, :string, []},
+        {:module, :string, []},
+        {:spec, :string, []},
+        {:apps, {:list, :string}, []},
+        {:to, :string, []},
+        {:dir, :string, []}
+      ]
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: "add"} = p) do
     with :ok <- need(p, [:spec], "deps add"),

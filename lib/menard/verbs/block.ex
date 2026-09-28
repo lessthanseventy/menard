@@ -6,6 +6,47 @@ defmodule Menard.Verbs.Block do
 
   @verbs ~w(get replace add delete relabel list)
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "block",
+      doc: """
+      The body of a macro's `do` block — `schema do`, `describe "…" do`, `test "…" do`. Not a clause,
+      so no clause verb reaches one. `verb` is `get`, `replace` (body := `code`), `list`, or `relabel`
+      (`label` becomes `new_label`). `label` is the macro's first string argument, which is what makes
+      `describe`/`test` addressable; several blocks of one name with no label is refused, listing them.
+      `add` writes a NEW block — at the end of the block named by `in` (a describe, by its label), else
+      after the last sibling of that name, else at the end of the module.
+      """,
+      fields: [
+        {:version, :string, []},
+        {:force, :boolean, []},
+        {:verb, :enum, [values: ["get", "replace", "add", "delete", "list", "relabel"], required: true]},
+        {:file, :string, [required: true]},
+        {:name, :string, []},
+        {:code, :string, []},
+        {:label, :string, []},
+        {:new_label, :string, []},
+        {:args, :string, []},
+        {:in, :string, []},
+        {:module, :string, []},
+        {:tag, :string, []}
+      ],
+      cli: %{
+        flags: [tag: {:keep, :tag}],
+        shapes: [
+          {"get", [:file, :name]},
+          {"list", [:file]},
+          {"replace", [:file, :name, :code]},
+          {"add", [:file, :name, :code]},
+          {"delete", [:file, :name]},
+          {"relabel", [:file, :name, :label, :new_label]}
+        ]
+      }
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: "list"} = p) do
     with :ok <- need(p, [:file], "block list"),

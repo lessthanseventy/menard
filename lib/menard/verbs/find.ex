@@ -6,6 +6,24 @@ defmodule Menard.Verbs.Find do
 
   @kinds ~w(calls defs aliases)
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "find",
+      doc: """
+      grep that knows the code: `kind` is `calls` (target: "fun" or "Mod.fun", alias-aware), `defs`
+      (target: "name" or "name/arity") or `aliases` (target: "Mod.Sub"). Strings and comments never
+      match. `files` may be globs, under the launch root.
+      """,
+      fields: [
+        {:kind, :enum, [values: ["calls", "defs", "aliases"], required: true]},
+        {:target, :string, [required: true]},
+        {:files, {:list, :string}, [required: true]}
+      ]
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(p) do
     with :ok <- need(p, [:kind, :target], "find"),
