@@ -328,6 +328,18 @@ defmodule Menard.ClauseTest do
                  "defp helper, do: :h\n\n  def two_lines do\n    \"one\ntwo\"\n  end\n"
                )
     end
+
+    test ":top goes above the first definition's @doc, @spec and comment, not between them and it" do
+      # Found 2026-09-28: the new function landed under the first def's @spec, which then described
+      # the new function, and its own was left with none. It parses, so nothing said so.
+      source =
+        "defmodule A do\n  # how it goes\n  @doc \"Goes.\"\n  @spec go(term()) :: term()\n  def go(x), do: x\nend\n"
+
+      out = Clause.insert_at(source, nil, :top, "def zero, do: 0")
+
+      assert out ==
+               "defmodule A do\n  def zero, do: 0\n\n  # how it goes\n  @doc \"Goes.\"\n  @spec go(term()) :: term()\n  def go(x), do: x\nend\n"
+    end
   end
 
   describe "delete takes the attributes attached to the clause" do
