@@ -83,7 +83,9 @@ defmodule Menard.Hook do
   # per call: per session, a second call in flight moved the first one's mark past the files it had
   # written, and they went unformatted.
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
-    File.touch!(mark(hook))
+    # written, not touched: File.touch! sets whole seconds, which dates the mark before files written
+    # earlier in its own second, and they read as the command's
+    File.write!(mark(hook), "")
     :quiet
   end
 
