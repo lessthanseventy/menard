@@ -3,6 +3,8 @@ defmodule Menard.BinTest do
   # `run` → one JSON line). Not async: it deletes and rebuilds a build of menard's, its own env's.
   use ExUnit.Case, async: false
 
+  alias Menard.Verbs.Noun
+
   # A verb run without --frozen compiles menard first, and in a fresh worktree every dep with it:
   # 28 s cold at load average 17, past ExUnit's 60 s default on a host loaded 60 and more
   @moduletag timeout: 300_000
@@ -117,9 +119,13 @@ defmodule Menard.BinTest do
     assert out =~ "menard: no verb nosuch"
     [_, listed] = Regex.run(~r/\(([a-z|]+)\)/, out)
 
-    tasks =
+    # the tasks written by hand, and the ones made from a noun (lib/mix/tasks/menard.ex)
+    written =
       for task <- Path.wildcard(Path.join(@root, "lib/mix/tasks/menard.*.ex")),
           do: task |> Path.basename(".ex") |> String.replace_prefix("menard.", "")
+
+    made = for verbs <- Noun.modules(), noun = verbs.noun(), noun[:cli], do: noun.name
+    tasks = written ++ made
 
     assert Enum.sort(String.split(listed, "|")) == Enum.sort(tasks)
   end

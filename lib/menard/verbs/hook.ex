@@ -7,6 +7,27 @@ defmodule Menard.Verbs.Hook do
   with what the formatter changed, or `problem` with the files that could not be formatted.
   """
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "hook",
+      doc: """
+      The harness calls this after a tool ran, not you: it formats the Elixir files the call wrote and
+      answers with what the formatter changed.
+      """,
+      fields: [
+        {:event, :string, []},
+        {:tool, :string, []},
+        {:session, :string, []},
+        {:call, :string, []},
+        {:cwd, :string, []},
+        {:input, :string, []},
+        {:response, :string, []}
+      ]
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{payload: %{} = payload}), do: {:ok, reply(Menard.Hook.run(payload), payload["hook_event_name"])}
 

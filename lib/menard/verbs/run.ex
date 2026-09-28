@@ -10,6 +10,30 @@ defmodule Menard.Verbs.Run do
 
   @verbs ~w(check test format compile credo)
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "run",
+      doc: """
+      Run a verb in a mix project under the root and get ONE structured answer: `check` (the
+      project's `mix precommit`: format, warnings-as-errors, tests), `test` (args: files, file:line,
+      and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,
+      `--changed` for the lines changed since the last commit). `dir` defaults to the root.
+
+      Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
+      `warning`, `format` or `credo`, `message` says why, `at` is `file:line`. A test failure adds `name`,
+      `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`.
+      """,
+      deadline: 600_000,
+      fields: [
+        {:verb, :enum, [values: ["check", "test", "format", "compile", "credo"], required: true]},
+        {:args, {:list, :string}, []},
+        {:dir, :string, []}
+      ]
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: verb} = p) when verb in @verbs do
     with {:ok, dir} <- resolve(p[:dir] || ".", p) do

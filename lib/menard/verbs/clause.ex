@@ -6,6 +6,85 @@ defmodule Menard.Verbs.Clause do
 
   @verbs ~w(replace rewrite delete insert_after insert_before insert_at move visibility spec get)
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "clause",
+      doc: """
+      Edit ONE function or clause. Address it by `name_arity` ("go/1"; "Mod.go/1" where several
+      modules define it) and `head`: the clause's CURRENT head as `outline` prints it (args as written;
+      guard and parens optional), "" or none for a function's only clause. What it becomes goes in
+      `code`. A miss lists the heads that exist; two clauses that share a head are told apart by `nth`.
+      An ExUnit `test` is a macro, not a clause: `block` reaches it.
+
+      `verb`:
+      - `replace`: the clause's body := `code`.
+      - `rewrite`: the WHOLE clause, head included, for changed args or a guard: from `total(cart)` to
+        `total(cart, rate)` is `name_arity: "total/1"`, `head: "cart"`.
+      - `insert_after`, `insert_before`: `code` is a new clause beside this one. `insert_at`: a new
+        function with no sibling, into `module`; a `defp` lands with the private functions, a `def`
+        with the public ones, unless `at` says.
+      - `get`, `delete`: with no `head`, the whole function, every clause, its `@doc` and `@spec` too;
+        `delete` answers `left`, each call still to fix.
+      - `visibility`: every clause public or private at once.
+      - `spec`: `code` is the `@spec` signature; none deletes it.
+      - `move`: functions to the file `to`, several at once (`name_arity` a list, or "a/1,b/2"). What
+        they need comes along: private helpers, attributes, alias/import/require lines. `delegate: true`
+        leaves a `defdelegate` for each public one, so callers keep working. A missing file is created
+        (`as` names its module, `moduledoc` its doc). The reply says what moved, what came along and
+        what is left to fix.
+      """,
+      fields: [
+        {:version, :string, []},
+        {:force, :boolean, []},
+        {:verb, :enum,
+         [
+           values: [
+             "replace",
+             "rewrite",
+             "delete",
+             "insert_after",
+             "insert_before",
+             "insert_at",
+             "move",
+             "visibility",
+             "spec",
+             "get"
+           ],
+           required: true
+         ]},
+        {:file, :string, [required: true]},
+        {:name_arity, {:either, {:string, {:list, :string}}}, []},
+        {:head, :string, []},
+        {:code, :string, []},
+        {:module, :string, []},
+        {:at, :enum, [values: ["top", "bottom"]]},
+        {:visibility, :enum, [values: ["public", "private"]]},
+        {:nth, :integer, []},
+        {:to, :string, []},
+        {:as, :string, []},
+        {:moduledoc, :string, []},
+        {:delegate, :boolean, []}
+      ],
+      cli: %{
+        shapes: [
+          {"get", [:file, :name_arity, {:optional, :head}]},
+          {"delete", [:file, :name_arity, {:optional, :head}]},
+          {"replace", [:file, :name_arity, :head, :code]},
+          {"rewrite", [:file, :name_arity, :head, :code]},
+          {"insert_after", [:file, :name_arity, :head, :code]},
+          {"insert_before", [:file, :name_arity, :head, :code]},
+          {"insert_at", [:file, :module, :code]},
+          {"insert_at", [:file, :module, :at, :code]},
+          {"move", [:file, :name_arity]},
+          {"spec", [:file, :name_arity, {:optional, :code}]},
+          {"visibility", [:file, :name_arity, :visibility]}
+        ]
+      }
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: "get"} = p) do
     with :ok <- need(p, [:file, :name_arity], "clause get"),

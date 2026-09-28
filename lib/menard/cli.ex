@@ -5,6 +5,8 @@ defmodule Menard.CLI do
   error, so a caller reads one line and gates on the exit status. Only a door prints or raises.
   """
 
+  alias Menard.Verbs.Noun
+
   @doc """
   A verb's result as the CLI's answer: `{:ok, reply}` is one JSON line; `{:error, reason}` is the
   `Mix.raise`. A write that could not be formatted says so on stderr too — the reply carries it,
@@ -25,6 +27,55 @@ defmodule Menard.CLI do
     reply = answer(result)
     if reply[:ok] == false, do: exit({:shutdown, 1})
     reply
+  end
+
+  @doc """
+  A noun's mix task (`Menard.Verbs.Noun`): `argv` read by the noun's `cli`, its verb run, the
+  result answered. An argv no shape takes raises the usage, made from the same shapes.
+  """
+  @spec run(module(), [String.t()]) :: map()
+  def run(verbs, argv) do
+    noun = verbs.noun()
+    flags = Noun.flags(noun)
+    {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
+
+    case shaped(noun.cli.shapes, args) do
+      nil -> usage(Noun.usage(noun))
+      params -> answer(verbs.run(given |> flagged(flags) |> Map.merge(from_stdin(params, noun))))
+    end
+  end
+
+  # a flag fills its field; one that repeats (`--tag a --tag b`) fills it with every value, none with []
+  defp flagged(given, flags) do
+    Map.new(flags, fn
+      {flag, {:keep, field}} -> {field, Keyword.get_values(given, flag)}
+      {flag, {_type, field}} -> {field, given[flag]}
+    end)
+    |> Map.reject(fn {_field, value} -> is_nil(value) end)
+  end
+
+  # the first shape of the verb that takes the arguments, as the params they fill
+  defp shaped(shapes, args) do
+    Enum.find_value(shapes, fn
+      {nil, fields} -> fill(fields, args, %{})
+      {verb, fields} -> if verb == verb(List.first(args) || ""), do: fill(fields, tl(args), %{verb: verb})
+    end)
+  end
+
+  defp fill([], [], params), do: params
+  defp fill([{:optional, _field}], [], params), do: params
+  defp fill([{:optional, field}], [arg], params), do: Map.put(params, field, arg)
+  defp fill([{:rest, field}], [_ | _] = args, params), do: Map.put(params, field, args)
+
+  defp fill([field | fields], [arg | args], params) when is_atom(field),
+    do: fill(fields, args, Map.put(params, field, arg))
+
+  defp fill(_fields, _args, _params), do: nil
+
+  defp from_stdin(params, noun) do
+    for field <- get_in(noun, [:cli, :stdin]) || [], is_map_key(params, field), reduce: params do
+      params -> Map.update!(params, field, &stdin(&1, "menard.#{noun.name}"))
+    end
   end
 
   @doc "The usage line, raised: a call the verbs do not take."

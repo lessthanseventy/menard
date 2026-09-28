@@ -13,6 +13,27 @@ defmodule Menard.Verbs.Outline do
   @verbs ~w(file map where)
   @cap 12_000
 
+  @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
+  @spec noun() :: Menard.Verbs.Noun.t()
+  def noun do
+    %{
+      name: "outline",
+      doc: """
+      A file as an outline (`file`): modules, defs with arity/kind/head/spec/doc, line spans. Read
+      before editing: each def's `head` is the address `clause` and `stmt` take. `verb: "map"`: every
+      module under a `lib/` of the project, its file and public functions (a dozen each unless `all`),
+      the map an agent starts with. `verb: "where"`: for each `FILE:LINE` in `at`, the module and
+      function whose lines hold it — what a grep hit sits in.
+      """,
+      fields: [
+        {:verb, :enum, [values: ["file", "map", "where"]]},
+        {:file, :string, []},
+        {:at, {:list, :string}, []},
+        {:all, :boolean, []}
+      ]
+    }
+  end
+
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: "map"} = p) do
     root = p[:root] || Menard.caller_dir()
