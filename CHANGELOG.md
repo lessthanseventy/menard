@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+**One plugin, its hooks inside the server**
+- `manos` is merged into `menard`: one Claude Code plugin, the hook, the MCP tools and the skill.
+  The tools are `mcp__plugin_menard_menard__<tool>`, and load on demand (no `alwaysLoad`): a
+  session starts ~440 tokens larger with the plugin, against ~4,700 with the schemas up front.
+- The format hook is `Menard.Hook`, reached by `mcp_tool` hooks in the server already running, and
+  the host's formatter is kept warm, one VM per project (`Menard.Format.Worker`): 6-9 ms a write
+  once warm, from 0.8-1.0 s. `menard hook` is the same hook for a harness that can only run a
+  command; `hooks/format-report.sh` calls it.
+- `clause split`: a module into several in one call, `plan` a `{to, functions, as?, moduledoc?}`
+  per new module, all written or none, delegates left unless `delegate: false`. On ex_riverside's
+  862-line `events.ex`: 34 functions and 19 helpers into three modules in one call, where `clause
+  move` took a call per module with fix-ups between.
+- A noun is declared once (`Menard.Verbs.Noun`, `noun/0` in each verb module), and the MCP tools
+  and the editing nouns' mix tasks are generated from it. The CLI's usage is made from the same
+  shapes, and every field is also a flag.
+
+**Fixed**
+- `clause insert_at` with `top` landed between the first definition and the `@doc`/`@spec` above
+  it, which then described the new function.
+- The format hook missed a file a shell command wrote within the second of its mark, and took one
+  written just before it for the command's.
+
 From an eval of agents editing a Phoenix fixture with and without menard (`eval/`): what the
 agents tripped on, fixed, and what they reached for first, made to work.
 

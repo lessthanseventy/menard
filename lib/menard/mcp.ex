@@ -19,8 +19,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       # an agent reads this before its first call: in the eval, 4 of 6 learned it from the guard instead
       instructions: """
       Use these only where grep, sed and Edit guess: a rename across files (rename), who calls a
-      function (find), a function moved with its docs (clause move), one function out of a file too
-      big to read (outline, then clause get). Any other edit is cheaper as a plain Edit or Write, and
+      function (find), a function moved with its docs (clause move), a module split into several in
+      one call (clause split), one function out of a file too big to read (outline, then clause get). Any other edit is cheaper as a plain Edit or Write, and
       every Elixir file written is formatted after: don't reach for these for it. A clause is addressed
       by its head, a test or describe by its label. A write's reply is every change it made: no need
       to Read the file back. Finish on run {verb: "check"}: format, warnings-as-errors and the tests

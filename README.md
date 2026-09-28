@@ -129,27 +129,31 @@ self-located from `import.meta.url`: pi loads an extension as a `data:` URL, whe
 `mise run install:pi` wires the extension, the MCP server, and the skill into `~/.pi/agent/`.
 Idempotent — re-running updates paths without duplicating. No ficciones, no Nix required.
 
-## Claude Code plugins
+## The Claude Code plugin
 
-Two plugins ship from this repo's marketplace, and the first is enough on its own.
+One plugin, `menard` (this directory: `.claude-plugin/plugin.json`, `hooks/hooks.json`,
+`skills/menard/SKILL.md`): an MCP server, and hooks that are calls to it.
 
-**`menard`** (this directory: `.claude-plugin/plugin.json`, `hooks/hooks.json`) is one hook,
-`hooks/format-report.sh`. Every `.ex`/`.exs` an `Edit`/`Write` or a shell command writes is
-formatted with its *own* project's formatter, plugins included (Styler, the HEEx formatter). What
-the formatter changed goes back to the agent as context, so its next `Edit` is written against the
-file as it is now; a file that does not parse is named, with the compiler's why. For a shell
-command it marks the time before and formats every Elixir file newer than the mark after, on
-`PostToolUseFailure` too, since Claude Code runs `PostToolUse` only when a tool succeeds.
+**The hook.** Every `.ex`/`.exs` an `Edit`/`Write` or a shell command writes is formatted with its
+*own* project's formatter, plugins included (Styler, the HEEx formatter). What the formatter
+changed goes back to the agent as context, so its next `Edit` is written against the file as it is
+now; a file that does not parse is named, with the compiler's why. For a shell command it marks
+the time before and formats every Elixir file newer than the mark after, on `PostToolUseFailure`
+too, since Claude Code runs `PostToolUse` only when a tool succeeds. Each hook is a `mcp_tool`
+call to the server already running (`Menard.Hook`), and the project's formatter is kept warm
+between writes (`Menard.Format.Worker`): 6-9 ms a write, where a script that started a VM for
+menard and another for the host's formatter took 0.8-1.0 s.
 
-**`manos`** (`manos/`) is menard's hands: the MCP tools and the skill that says which fits
-(`manos/skills/menard/SKILL.md`). Install it beside `menard` for what an edit by hand does badly:
-a rename across files, who calls what, one function read out of a big module, a function moved
-with its docs. Its schemas cost ~3.7k tokens in every turn, so it earns its place on projects
-where those edits are common.
+**The tools** are for what an edit by hand does badly: a rename across files, who calls what, one
+function read out of a big module, a function moved with its docs, a module split in one call.
+Claude Code loads their schemas on demand (behind its tool search): with the plugin installed a
+session starts ~440 tokens larger, against ~4,700 with every schema loaded up front.
 
-Why this split: the eval (`eval/STATUS.md`, bench5) measured menard as it used to ship, tools
-plus a guard blocking `Edit` on modules, against the formatting hook alone. The hook gave the
-same clean output at the cost of no menard at all; the tools cost 46% more for sonnet and paid
-only on renames and big-file reads. The guard is gone from Claude Code: its blocks were a turn
-each and bought nothing measurable over the hook. `hooks/menard-only.sh`, `shell-edits.sh`,
-`read-hint.sh` and `prefer-menard-run.sh` stay for the pi adapter.
+Why this shape: the eval (`eval/STATUS.md`, bench5) measured the tools plus a guard blocking `Edit`
+on modules against the formatting hook alone. The hook gave the same clean output at the cost of
+no menard at all; the tools, their schemas in every turn, cost 46% more for sonnet and paid only
+on renames and big-file reads. So the hook is what every write gets, the tools wait until they are
+asked for, and the guard is gone from Claude Code: its blocks were a turn each and bought nothing
+measurable over the hook. `hooks/format-report.sh` is the same hook for a harness that can only
+run a command (`menard hook`); `hooks/menard-only.sh`, `shell-edits.sh`, `read-hint.sh` and
+`prefer-menard-run.sh` stay for the pi adapter.

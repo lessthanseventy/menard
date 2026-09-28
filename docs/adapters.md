@@ -26,7 +26,7 @@ Everything harness-specific is wiring. The Claude Code plugin is one adapter, no
   `hooks/read-hint.sh` (a big module read whole) read Claude Code's hook payload and say their piece
   on stderr with exit 2; `MENARD_TOOL_PREFIX` names the harness's MCP tools. pi feeds them the same
   payload shape.
-- **Format after a write:** `menard run format --in DIR FILE`, which already works on a broken host.
+- **Format after a write:** `menard hook`, the harness's hook payload on stdin (`Menard.Hook`: format, report, credo on the lines changed), or `menard run format --in DIR FILE` alone; both work on a broken host. A harness whose hooks can call an MCP tool calls the server's `hook` tool instead, and starts no process.
 - **MCP:** `menard mcp`, with `MENARD_ROOT` set to the project the harness is working in.
 - **The reference:** one source, `skills/menard/SKILL.md`. Each harness gets it however it finds
   such things.
@@ -35,7 +35,7 @@ Everything harness-specific is wiring. The Claude Code plugin is one adapter, no
 
 | harness | MCP | guard | advice | reference |
 |---|---|---|---|---|
-| Claude Code | the `manos` plugin (manos/.claude-plugin/plugin.json), opt-in | none since bench5: the `menard` plugin formats instead (hooks/format-report.sh) | the format hook's report, as `additionalContext` | `manos`' skill |
+| Claude Code | the `menard` plugin (.claude-plugin/plugin.json), its tools loaded on demand | none since bench5: the plugin formats instead (`Menard.Hook`, a `mcp_tool` hook into the server) | the hook's report, as `additionalContext` | the plugin's skill |
 | pi | `mcp.json` mcpServers.menard (`mise run install:pi`) | `tool_call` extension → `menard guard` (pi/extension.ts) | `tool_result` → the same scripts (pi/advice.ts) | the skill, wired by install:pi |
 | Cursor, opencode, … | their MCP config | whatever pre-edit hook they have, or none | whatever post-tool hook they have | their rules mechanism |
 

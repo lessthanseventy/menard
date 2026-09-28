@@ -4,7 +4,7 @@ defmodule Menard.Verbs.Clause do
   import Menard.Verbs
   alias Menard.Clause
 
-  @verbs ~w(replace rewrite delete insert_after insert_before insert_at move visibility spec get)
+  @verbs ~w(replace rewrite delete insert_after insert_before insert_at move split visibility spec get)
 
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
   @spec noun() :: Menard.Verbs.Noun.t()
@@ -34,6 +34,9 @@ defmodule Menard.Verbs.Clause do
         leaves a `defdelegate` for each public one, so callers keep working. A missing file is created
         (`as` names its module, `moduledoc` its doc). The reply says what moved, what came along and
         what is left to fix.
+      - `split`: a module into several in ONE call. `plan` is a list, one `{to, functions, as?,
+        moduledoc?}` per new module; all of it is written or none. Each is a `move`, and leaves
+        delegates unless `delegate: false`.
       """,
       fields: [
         {:version, :string, []},
@@ -48,6 +51,7 @@ defmodule Menard.Verbs.Clause do
              "insert_before",
              "insert_at",
              "move",
+             "split",
              "visibility",
              "spec",
              "get"
@@ -65,7 +69,15 @@ defmodule Menard.Verbs.Clause do
         {:to, :string, []},
         {:as, :string, []},
         {:moduledoc, :string, []},
-        {:delegate, :boolean, []}
+        {:delegate, :boolean, []},
+        {:plan,
+         {:list,
+          %{
+            to: {:required, :string},
+            functions: {:required, {:list, :string}},
+            as: :string,
+            moduledoc: :string
+          }}, []}
       ],
       cli: %{
         shapes: [
@@ -78,6 +90,7 @@ defmodule Menard.Verbs.Clause do
           {"insert_at", [:file, :module, :code]},
           {"insert_at", [:file, :module, :at, :code]},
           {"move", [:file, :name_arity]},
+          {"split", [:file, {:rest, :plan}]},
           {"spec", [:file, :name_arity, {:optional, :code}]},
           {"visibility", [:file, :name_arity, :visibility]}
         ]
@@ -114,6 +127,17 @@ defmodule Menard.Verbs.Clause do
              root: p[:root]
            ) do
       {:ok, Map.put(moved, :did, "move #{Enum.join(names, ", ")} to #{Path.basename(dest)}")}
+    end
+  end
+
+  # The whole plan or none of it (`Menard.Split`). An entry is the MCP door's object, or the CLI's
+  # `DEST=a/1,b/2`.
+  def run(%{verb: "split"} = p) do
+    with :ok <- need(p, [:file, :plan], "clause split"),
+         {:ok, file} <- resolve(p.file, p),
+         {:ok, plan} <- plan(p.plan, p),
+         :ok <- fresh(file, p) do
+      Menard.Split.run(file, plan, delegate: p[:delegate] != false, root: p[:root])
     end
   end
 
@@ -177,6 +201,45 @@ defmodule Menard.Verbs.Clause do
   defp change("visibility", source, na, _head, _code, want, _opts), do: Clause.visibility(source, na, want)
   # the function's, not a clause's: no head. `code` is the signature, absent deletes it
   defp change("spec", source, na, _head, code, _want, _opts), do: Clause.spec(source, na, blank(code))
+
+  defp plan(entries, p) do
+    Enum.reduce_while(List.wrap(entries), {:ok, []}, fn entry, {:ok, plan} ->
+      with {:ok, %{to: to} = entry} <- entry(entry),
+           {:ok, dest} <- resolve(to, p) do
+        {:cont, {:ok, plan ++ [%{entry | to: dest}]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # the CLI's entry with an `as` or a `moduledoc` is the MCP door's object, as JSON
+  defp entry("{" <> _ = json) do
+    case JSON.decode(json) do
+      {:ok, %{} = entry} -> entry(entry)
+      _ -> {:error, "a plan entry in braces is a JSON object, got #{inspect(json)}"}
+    end
+  end
+
+  defp entry(text) when is_binary(text) do
+    # at the last `=`: a path may hold one, the names after it do not
+    case Regex.run(~r/^(.+)=([^=]+)$/, text) do
+      [_, to, names] -> {:ok, %{to: to, functions: names}}
+      _ -> {:error, "a plan entry is DEST=a/1,b/2, got #{inspect(text)}"}
+    end
+  end
+
+  defp entry(%{} = entry) do
+    entry = Map.new(entry, fn {key, value} -> {to_string(key), value} end)
+
+    case entry do
+      %{"to" => to, "functions" => names} when is_binary(to) and names not in [nil, [], ""] ->
+        {:ok, %{to: to, functions: names, as: entry["as"], moduledoc: entry["moduledoc"]}}
+
+      _ ->
+        {:error, "a plan entry needs `to` (the new module's file) and `functions`, got #{inspect(entry)}"}
+    end
+  end
 
   defp blank(""), do: nil
   defp blank(code), do: code
