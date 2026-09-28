@@ -39,6 +39,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     component(Menard.MCP.Outline, name: "outline")
     component(Menard.MCP.Find, name: "find")
     component(Menard.MCP.Run, name: "run")
+    component(Menard.MCP.Hook, name: "hook")
 
     # A call the schema refuses was a protocol error, "Invalid params", its why in the error's data,
     # which Claude Code does not show: the eval's agent asked clause for verb "get" and learned nothing.

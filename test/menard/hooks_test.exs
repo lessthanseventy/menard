@@ -170,15 +170,15 @@ defmodule Menard.HooksTest do
 
     scripts = fn event ->
       for %{"matcher" => "Bash", "hooks" => list} <- hooks["hooks"][event] || [],
-          %{"command" => cmd} <- list,
-          do: cmd
+          %{"type" => "mcp_tool", "tool" => tool} <- list,
+          do: tool
     end
 
     for event <- ["PreToolUse", "PostToolUse", "PostToolUseFailure"],
         do:
           assert(
-            Enum.any?(scripts.(event), &(&1 =~ "format-report.sh")),
-            "#{event} on Bash runs no format-report"
+            "hook" in scripts.(event),
+            "#{event} on Bash does not call the hook tool"
           )
   end
 
@@ -310,16 +310,7 @@ defmodule Menard.HooksTest do
     # hook's 60s, and the agent heard nothing
     host(dir)
 
-    counting =
-      stub_menard(
-        dir,
-        "counting",
-        ~s(echo "$*" >>"$\(dirname "$0"\)/../calls"\nexec "#{@root}/bin/menard" "$@")
-      )
-
-    formats = fn ->
-      Path.join(counting, "calls") |> File.read!() |> String.split("\n") |> Enum.count(&(&1 =~ "run format"))
-    end
+    counting = counting()
 
     bash = fn cmd ->
       %{tool_name: "Bash", session_id: "t#{System.unique_integer([:positive])}", tool_input: %{command: cmd}}
@@ -336,7 +327,9 @@ defmodule Menard.HooksTest do
     {out, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
     for f <- files, do: assert(File.read!(f) =~ "  def f(x), do: x\n")
     assert out =~ "lib/m3.ex was reformatted"
-    assert formats.() == 1
+    # the files the command wrote (the host's own mix.exs among them), in one call
+    assert_received {:ran, "format", [_, _, _ | _]}
+    refute_received {:ran, "format", _}
   end
 
   @tag :tmp_dir
@@ -356,12 +349,7 @@ defmodule Menard.HooksTest do
     git.(["add", "-A"])
     git.(["commit", "-qm", "m"])
 
-    counting =
-      stub_menard(
-        dir,
-        "counting",
-        ~s(echo "$*" >>"$\(dirname "$0"\)/../calls"\nexec "#{@root}/bin/menard" "$@")
-      )
+    counting = counting()
 
     shell = fn cmd ->
       call = %{
@@ -386,7 +374,7 @@ defmodule Menard.HooksTest do
 
     assert {"", 0} = shell.("git -C #{dir} checkout -q -- lib")
     assert File.read!(file) == unformatted
-    refute File.exists?(Path.join(counting, "calls"))
+    refute_received {:ran, _, _}
   end
 
   @tag :tmp_dir
@@ -420,14 +408,16 @@ defmodule Menard.HooksTest do
     host(dir)
     File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
 
-    linting =
-      stub_menard(dir, "linting", """
-      echo "$*" >>"$(dirname "$0")/../calls"
-      case "$2" in
-        format) echo '{"ok":true,"failures":[],"changed":[]}' ;;
-        credo) echo '{"ok":false,"failures":[{"kind":"credo","at":"lib/m2.ex:1","message":"a nit"}]}' ;;
-      esac
-      """)
+    test = self()
+
+    linting = fn _dir, verb, args ->
+      send(test, {:ran, verb, args})
+
+      case verb do
+        "format" -> %{ok: true, failures: [], changed: []}
+        "credo" -> %{ok: false, failures: [%{kind: "credo", at: "lib/m2.ex:1", message: "a nit"}]}
+      end
+    end
 
     call = %{
       tool_name: "Bash",
@@ -442,12 +432,8 @@ defmodule Menard.HooksTest do
     {out, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, linting)
     assert JSON.decode!(out)["hookSpecificOutput"]["additionalContext"] =~ "  lib/m2.ex:1 a nit"
 
-    credo =
-      Path.join(linting, "calls") |> File.read!() |> String.split("\n") |> Enum.filter(&(&1 =~ "run credo"))
-
-    assert [line] = credo
-    assert line =~ "lib/m1.ex"
-    assert line =~ "lib/m2.ex"
+    assert_received {:ran, "credo", ["--changed", "lib/m1.ex", "lib/m2.ex" | _]}
+    refute_received {:ran, "credo", _}
   end
 
   @tag :tmp_dir
@@ -876,12 +862,7 @@ defmodule Menard.HooksTest do
     File.write!(file, "defmodule M do\n  def f(x), do: x + 2\nend\n")
     {_, 0} = git.(["commit", "-qam", "mine"])
 
-    counting =
-      stub_menard(
-        dir,
-        "counting",
-        ~s(echo "$*" >>"$\(dirname "$0"\)/../calls"\nexec "#{@root}/bin/menard" "$@")
-      )
+    counting = counting()
 
     cmd = "cd #{dir} && git -c user.name=t -c user.email=t@t merge -q other"
 
@@ -897,7 +878,7 @@ defmodule Menard.HooksTest do
 
     assert {"", 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting)
     assert File.read!(file) =~ "<<<<<<<"
-    refute File.exists?(Path.join(counting, "calls"))
+    refute_received {:ran, _, _}
   end
 
   @tag :tmp_dir
@@ -951,8 +932,8 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "stop-gate checks what manos wrote through MCP, not what it only read", %{tmp_dir: dir} do
-    # riverside2 events.all.fable.3: `clause replace`, `block add` and `directive add` through manos,
+  test "stop-gate checks what menard wrote through MCP, not what it only read", %{tmp_dir: dir} do
+    # riverside2 events.all.fable.3: `clause replace`, `block add` and `directive add` through MCP,
     # and the stop gate said "nothing written this session": its list is the format hook's, which saw
     # no Edit, Write or Bash. A menard write through MCP is a write.
     host(dir)
@@ -963,25 +944,44 @@ defmodule Menard.HooksTest do
         %{
           hook_event_name: "PostToolUse",
           session_id: session,
-          tool_name: "mcp__plugin_manos_menard__" <> tool,
+          tool_name: "mcp__plugin_menard_menard__" <> tool,
           tool_input: input
         },
         dir
       )
     end
 
-    # a read through manos writes nothing: no gate
+    # a read through MCP writes nothing: no gate
     {_, 0} = mcp.("m1", "clause", %{verb: "get", file: "lib/n.ex", name_arity: "f/1"})
     {_, 0} = mcp.("m1", "outline", %{file: "lib/n.ex"})
     assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "m1"}, dir)
     assert gate_err(dir) =~ "nothing written"
 
-    # a write through manos is gated like any other
+    # a write through MCP is gated like any other
     {_, 0} =
       mcp.("m2", "clause", %{verb: "replace", file: "lib/n.ex", name_arity: "f/1", head: "f(x)", code: "x"})
 
     {out, 0} = stop(%{hook_event_name: "Stop", session_id: "m2"}, dir)
     assert JSON.decode!(out)["decision"] == "block"
+  end
+
+  @tag @tag :tmp_dir
+  test "format-report formats what a shell command wrote within the second of its mark", %{tmp_dir: dir} do
+    # a stat's time is whole seconds: newer-than-the-mark missed every file a quick command wrote
+    host(dir)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "printf"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir, counting())
+    file = Path.join(dir, "lib/m.ex")
+    File.write!(file, "defmodule M do\n  def   f(x), do: x\nend\n")
+    {out, 0} = report(Map.put(bash, :hook_event_name, "PostToolUse"), dir, counting())
+    assert out =~ "lib/m.ex was reformatted"
+    assert File.read!(file) =~ "  def f(x), do: x\n"
   end
 
   defp bigread(payload, dir) do
@@ -1038,7 +1038,31 @@ defmodule Menard.HooksTest do
   defp gate_err_file(dir), do: Path.join(dir, "menard-gate.err")
   defp gate_err(dir), do: File.read!(gate_err_file(dir))
 
-  defp report(payload, dir, root \\ @root) do
+  # the real run verbs, each call sent to the test as `{:ran, verb, args}`
+  defp counting do
+    test = self()
+
+    fn dir, verb, args ->
+      send(test, {:ran, verb, args})
+      Menard.Run.result(dir, verb, args)
+    end
+  end
+
+  defp report(payload, dir, root \\ @root)
+
+  # With a run function in place of a plugin root, the hook runs here, in this process, and answers
+  # as its script would: what it formats and lints with is the test's to count or to stub.
+  defp report(payload, dir, run) when is_function(run) do
+    payload = payload |> Map.put(:cwd, dir) |> JSON.encode!() |> JSON.decode!()
+
+    case Menard.Hook.run(payload, state_dir: dir, run: run) do
+      :quiet -> {"", 0}
+      {:context, text} -> {JSON.encode!(Menard.Hook.context(text, payload["hook_event_name"])), 0}
+      {:problem, text} -> {text, 2}
+    end
+  end
+
+  defp report(payload, dir, root) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
 

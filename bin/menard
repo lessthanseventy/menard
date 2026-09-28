@@ -43,7 +43,7 @@ if ((!frozen)) && ! cmp -s mix.lock "$fetched"; then
 fi
 
 # every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
-verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|version"
+verbs="outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|hook|version"
 
 verb="${1:-}"
 [[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }

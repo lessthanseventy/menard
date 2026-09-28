@@ -395,4 +395,52 @@ defmodule Menard.HostFormatTest do
     assert status != 0, "the host's formatter (pid #{pid}) outlived its deadline"
     assert File.read!(file) == "defmodule S do\nend\n"
   end
+
+  test "the formatter is kept warm: a second format is answered by the VM the first started", %{tmp_dir: dir} do
+    # the host's VM takes 0.4s to start, which a session paid on every write
+    plugin = plug(dir, "Pid", ~S|"# " <> System.pid() <> "\n" <> contents|)
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "a.ex", "defmodule A do\nend\n")
+
+    vm = fn opts ->
+      {:ok, "# " <> formatted, _split} =
+        Menard.format_staged(file, File.read!(file), [cache: Path.join(dir, "cache")] ++ opts)
+
+      formatted |> String.split("\n") |> hd()
+    end
+
+    first = vm.([])
+    assert vm.([]) == first
+    # asked for a process of its own, it is one
+    assert vm.(warm: false) != first
+
+    # the plugins are held as first loaded: a lock that changed since is a new VM
+    File.write!(Path.join(dir, "mix.lock"), "%{}\n")
+    assert vm.([]) != first
+  end
+
+  test "a plugin that prints is no part of the answer", %{tmp_dir: dir} do
+    # the worker's channel is its own: menard's stdout is the MCP channel, and a host's plugin may print
+    plugin = plug(dir, "Loud", ~S|IO.puts("loud"); IO.puts(:stderr, "louder"); contents|)
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "a.ex", "defmodule A do\nend\n")
+
+    out =
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert {:ok, "defmodule A do\nend\n", _split} =
+                 Menard.format_staged(file, File.read!(file), cache: Path.join(dir, "cache"))
+      end)
+
+    assert out == ""
+  end
+
+  test "a formatter whose VM died says why, and the next format starts another", %{tmp_dir: dir} do
+    plugin = plug(dir, "Dies", ~S|if contents =~ "die", do: System.halt(3), else: contents|)
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "a.ex", "defmodule A do\nend\n")
+    format = &Menard.format_staged(file, &1, cache: Path.join(dir, "cache"))
+
+    assert {:error, "the host's formatter failed" <> _} = format.("# die\n")
+    assert {:ok, "defmodule A do\nend\n", _split} = format.("defmodule A do\nend\n")
+  end
 end

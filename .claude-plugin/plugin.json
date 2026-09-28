@@ -1,7 +1,7 @@
 {
   "name": "menard",
   "version": "0.5.0",
-  "description": "Elixir, formatted as it is written: every file an agent's edit or shell command writes is formatted with the project's own formatter and plugins, the change reported back, a file that does not parse named. The AST-aware MCP tools are the separate plugin manos.",
+  "description": "Elixir, formatted as it is written: every file an agent's edit or shell command writes is formatted with the project's own formatter and plugins, the change reported back, a file that does not parse named. And AST-aware tools for what an edit by hand does badly: a rename across files, who calls a function, one function of a big module, a module split.",
   "author": {
     "name": "Andrew Moore"
   },
@@ -12,5 +12,17 @@
     "refactoring",
     "sourceror",
     "code-editing"
-  ]
+  ],
+  "mcpServers": {
+    "menard": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/menard",
+      "args": [
+        "mcp"
+      ],
+      "timeout": 620000,
+      "env": {
+        "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
 }
