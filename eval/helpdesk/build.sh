@@ -25,6 +25,10 @@ def swap(path, old, new):
     Path(path).write_text(s.replace(old, new))
 # credo, at its default level, in the gate the installer wrote
 swap("mix.exs", '      {:bandit, "~> 1.5"}\n', '      {:bandit, "~> 1.5"},\n      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}\n')
+# SQLite takes one writer at a time, and the installer's test pool is five: async tests fail now
+# and then with "Database busy" (desk1: a session met it and made this change itself). Not what
+# the eval measures, so it is settled here, the same for both arms.
+swap("config/test.exs", "  pool_size: 5,\n", "  pool_size: 1,\n")
 swap("mix.exs", 'precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]',
      'precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "credo", "test"]')
 PY

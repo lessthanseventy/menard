@@ -774,6 +774,9 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
         if m["cost_usd"] is not None:
             m["cost_usd"], spent = m["cost_usd"] - spent, m["cost_usd"]
             progress["spent"] = spent
+        # the tree as the step left it: desk1's steps that were red and green by the next could not be
+        # looked into, with only the session's last diff kept
+        (out_dir / "traces" / f"{rid}.{step.name}.diff").write_text(diff_metrics(ws, [])[1])
         snap = ws.parent / f"{ws.name}.check"
         shutil.rmtree(snap, ignore_errors=True)
         subprocess.run(["cp", "-a", "--reflink=auto", str(ws), str(snap)], check=True)

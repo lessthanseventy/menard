@@ -793,3 +793,17 @@ Menard pinned at a95c049. Six sessions, one at a time, no usage-limit wait. Pair
 - To fix before another round: that assertion; a step graded on its own acceptance tests, so one
   miss does not fail every step after it; and whether the red-then-green steps are SQLite under
   async tests.
+
+### After desk1: three fixes to the harness (2026-09-29)
+
+- The assertion with.2 failed on is gone (`list_breached` asked about a time before a late
+  response was made).
+- A step is graded on the session's own tests and its own acceptance tests. The earlier steps'
+  acceptance tests run after, and what they say is a note in the check's output; step 09, a
+  refactor, still holds all of them to its verdict.
+- The red-then-green steps were not flaky tests: three sessions' final trees, acceptance tests
+  in, ran green 40 times of 40, at the installer's test pool of five and at one. They were the
+  tree as it stood at that step, which desk1 did not keep: the runner now saves each step's diff
+  (`traces/RID.NN.diff`). One session did meet SQLite's "Database busy" under async tests and set
+  the test pool to one itself; the template has that now, the same for both arms.
+- validate.py: 27 of 27 under the new grading.
