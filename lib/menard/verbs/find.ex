@@ -14,7 +14,9 @@ defmodule Menard.Verbs.Find do
       doc: """
       grep that knows the code: `kind` is `calls` (target: "fun" or "Mod.fun", alias-aware), `defs`
       (target: "name" or "name/arity") or `aliases` (target: "Mod.Sub"). Strings and comments never
-      match. `files` may be globs, under the launch root.
+      match. `files` may be globs, under the launch root. `calls` of "Mod.fun" also asks the
+      language server: what it finds that the AST cannot (a call through an import, a
+      defdelegate, an apply) comes back as `kind: reference`, and `lsp` says what answered.
       """,
       fields: [
         {:kind, :enum, [values: ["calls", "defs", "aliases"], required: true]},
@@ -35,8 +37,75 @@ defmodule Menard.Verbs.Find do
           file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
         end)
 
-      {:ok, %{hits: hits}}
+      {:ok, with_lsp(%{hits: hits}, p, files)}
     end
+  end
+
+  # `calls` of `Mod.fun` also asks the language server, which sees the calls the AST cannot: one
+  # through an `import`, a `defdelegate`, a `use`, an `apply`. What only it found is a `reference`,
+  # not a `call`. `lsp` says what answered: the server's name, or why the hits are the AST's alone.
+  defp with_lsp(reply, %{kind: "calls", target: target} = p, files) do
+    case String.split(target, ".") do
+      [_fun] ->
+        reply
+
+      parts ->
+        project = Path.expand(p[:root] || Menard.caller_dir())
+        {mod, fun} = {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
+
+        case references(project, mod, fun) do
+          {:ok, locations} ->
+            %{reply | hits: reply.hits ++ only_lsp(locations, reply.hits, files)}
+            |> Map.put(:lsp, Menard.Lsp.server())
+
+          :warming ->
+            Map.put(
+              reply,
+              :lsp,
+              "#{Menard.Lsp.server()} is starting or indexing: these hits are the AST's alone"
+            )
+
+          :off ->
+            Map.put(
+              reply,
+              :lsp,
+              "no language server here (only the MCP server keeps one): these hits are the AST's alone"
+            )
+        end
+    end
+  end
+
+  defp with_lsp(reply, _p, _files), do: reply
+
+  # every clause of the function, asked where it is defined in the project's lib/
+  defp references(project, mod, fun) do
+    sites =
+      for file <- Path.wildcard(Path.join(project, "lib/**/*.ex")),
+          source = File.read!(file),
+          String.contains?(source, fun),
+          {line, column} <- Menard.Find.def_sites(source, mod, fun),
+          do: {file, line, column}
+
+    Enum.reduce_while(sites, {:ok, []}, fn {file, line, column}, {:ok, acc} ->
+      case Menard.Lsp.references(project, file, line, column, 5_000) do
+        {:ok, found} -> {:cont, {:ok, acc ++ found}}
+        other -> {:halt, other}
+      end
+    end)
+  end
+
+  # in the files asked about, on a line the AST has no hit on; a `@spec` names the function without
+  # referring to it, and a server that counts one says nothing about who calls it
+  defp only_lsp(locations, hits, files) do
+    seen = MapSet.new(hits, &{&1.file, &1.line})
+    asked = MapSet.new(files)
+
+    for %{file: file, line: line, column: column} <- Enum.uniq(locations),
+        file in asked,
+        not MapSet.member?(seen, {file, line}),
+        text = file |> File.read!() |> String.split("\n") |> Enum.at(line - 1) |> String.trim(),
+        not String.starts_with?(text, "@spec "),
+        do: %{file: file, line: line, column: column, kind: :reference, text: text}
   end
 
   defp patterns(%{files: [_ | _] = files} = p), do: resolve_all(files, p)

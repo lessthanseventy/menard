@@ -25,5 +25,14 @@
         "MENARD_SCRIPTS": "off"
       }
     }
+  },
+  "lspServers": {
+    "expert": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/lsp",
+      "extensionToLanguage": {
+        ".ex": "elixir",
+        ".exs": "elixir"
+      }
+    }
   }
 }

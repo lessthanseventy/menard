@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+**The Elixir language server**
+- The plugin wires expert into Claude Code's `LSP` tool (`lspServers`), through `bin/lsp`, the one
+  place that names the server: `MENARD_LSP` swaps it (`expert`, `elixir-ls`) for Claude Code and
+  menard alike. It needs expert with #907: v0.1.10 stops answering once Claude Code rejects its
+  `registerCapability` (expert #904).
+- `find calls Mod.fun` asks the server too, which the MCP server keeps warm (`Menard.Lsp`): a call
+  through an `import`, a `defdelegate`, a `use` or an `apply` comes back as `kind: reference`, and
+  `lsp` says what answered, or that the hits are the AST's alone (starting, indexing, the CLI).
+
 **One plugin, its hooks inside the server**
 - `manos` is merged into `menard`: one Claude Code plugin, the hook, the MCP tools and the skill.
   The tools are `mcp__plugin_menard_menard__<tool>`, and load on demand (no `alwaysLoad`): a
