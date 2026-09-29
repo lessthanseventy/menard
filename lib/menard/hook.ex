@@ -86,6 +86,8 @@ defmodule Menard.Hook do
     # written, not touched: File.touch! sets whole seconds, which dates the mark before files written
     # earlier in its own second, and they read as the command's
     File.write!(mark(hook), "")
+    # a command between two Edits: they are no run of Edits
+    File.rm(session_file(hook, "edits"))
     :quiet
   end
 
@@ -103,7 +105,49 @@ defmodule Menard.Hook do
 
   defp tool(hook) do
     file = hook.response["filePath"] || hook.input["file_path"]
-    written(List.wrap(file), hook, fn files, _dir -> files end)
+    answer = written(List.wrap(file), hook, fn files, _dir -> files end)
+    # kept for what is said of a script's edits (`scripted/2`), which an Edit is not
+    File.rm(session_file(hook, "written-#{hook.call}"))
+    in_a_run(answer, hook)
+  end
+
+  # Edits one after another, a model call each: desk3's sonnet made 83 of them in a session and
+  # called `edit` in none, its description loaded or not. Said at the third of a run, when it is
+  # what the agent is doing, and once a session: a note at the start of a session, on what it
+  # might do, cost its tokens in every round that tried one and changed nothing.
+  @run 3
+
+  defp in_a_run(answer, %{tool: tool} = hook) when tool in ["Edit", "MultiEdit"] do
+    count = session_file(hook, "edits")
+    noted = session_file(hook, "batched")
+    File.write!(count, ".", [:append])
+
+    if File.stat!(count).size == @run and not File.exists?(noted) do
+      File.write!(noted, "")
+      note(answer, run_note())
+    else
+      answer
+    end
+  end
+
+  defp in_a_run(answer, _hook), do: answer
+
+  defp run_note do
+    """
+    That is #{@run} Edits in a row, a call each. menard's `edit` makes several replacements in one \\
+    call, in one file or many, all written or none, and `--then test` runs the tests after:
+      #{menard()} edit --then test - <<'EOF'
+      lib/a.ex
+      <<<<<<< SEARCH
+      the text to find
+      =======
+      the text to put there
+      >>>>>>> REPLACE
+      lib/b.ex
+      <<<<<<< SEARCH
+      …
+      EOF\\
+    """
   end
 
   defp written(files, hook, keep) do
@@ -157,10 +201,10 @@ defmodule Menard.Hook do
 
   defp script_note(script, edited) do
     """
-    #{Enum.join(edited, ", ")}: edited by a #{script} script. `menard edit` makes replacements like \
+    #{Enum.join(edited, ", ")}: edited by a #{script} script. menard's `edit` makes replacements like \
     these in one call, in as many files: it refuses, and says which, when a text is not there (a \
     script's replace says nothing), and `--then test` runs the tests after.
-      menard edit --then test - <<'EOF'
+      #{menard()} edit --then test - <<'EOF'
       lib/a.ex
       <<<<<<< SEARCH
       the text to find
@@ -170,6 +214,11 @@ defmodule Menard.Hook do
       EOF\
     """
   end
+
+  # This menard, by its path: the plugin's bin/ is the LAST place a shell looks, so a bare `menard`
+  # is whichever one the PATH holds before it (an older install of the user's; in the eval, a stub
+  # that says no such command). menard runs from its own root, whoever starts it.
+  defp menard, do: Path.join(File.cwd!(), "bin/menard")
 
   defp note(:quiet, note), do: {:context, note <> "\n"}
   defp note({kind, text}, note), do: {kind, text <> note <> "\n"}

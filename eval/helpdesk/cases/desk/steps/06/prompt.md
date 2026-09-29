@@ -1,7 +1,7 @@
 **Ticket 6: the desk in the browser**
 
 Three LiveView pages, no login. The acceptance suite drives them with `Phoenix.LiveViewTest` by
-the ids below.
+the ids below, and so should your own tests: there is no browser here to open them in.
 
 `/tickets` (the list):
 

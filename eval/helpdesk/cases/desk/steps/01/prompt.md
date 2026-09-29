@@ -3,6 +3,9 @@ comes as tickets, one at a time, in this session. After each, an acceptance suit
 run against the interface the ticket names: keep module names, function names, arities and return
 shapes exactly as written. Write your own tests as well. The project's gate is `mix precommit`.
 
+There is no browser here, and no network but the package hosts: a page is checked by its tests
+(`Phoenix.LiveViewTest`), not by starting the server and opening it.
+
 **Ticket 1: tickets**
 
 Support staff need tickets to work on.
