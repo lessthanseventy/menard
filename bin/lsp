@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# The Elixir language server, on stdio, run from the project it serves. The one place that names
+# it: the Claude Code plugin's lspServers and menard's own client (Menard.Lsp) both start this, so
+# MENARD_LSP swaps it for both.
+set -euo pipefail
+
+case "${MENARD_LSP:-expert}" in
+  expert) exec expert --stdio ;;
+  elixir-ls) exec elixir-ls ;;
+  *) echo "MENARD_LSP=$MENARD_LSP: not a server menard knows (expert, elixir-ls)" >&2 && exit 2 ;;
+esac

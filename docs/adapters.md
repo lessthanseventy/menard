@@ -28,6 +28,9 @@ Everything harness-specific is wiring. The Claude Code plugin is one adapter, no
   payload shape.
 - **Format after a write:** `menard hook`, the harness's hook payload on stdin (`Menard.Hook`: format, report, credo on the lines changed), or `menard run format --in DIR FILE` alone; both work on a broken host. A harness whose hooks can call an MCP tool calls the server's `hook` tool instead, and starts no process.
 - **MCP:** `menard mcp`, with `MENARD_ROOT` set to the project the harness is working in.
+- **The language server:** `bin/lsp` starts the Elixir LSP on stdio (`MENARD_LSP`: `expert`, the
+  default, or `elixir-ls`). A harness with LSP support points at it (Claude Code: the plugin's
+  `lspServers`); menard's own client (`Menard.Lsp`, warmed by the MCP server) starts the same script.
 - **The reference:** one source, `skills/menard/SKILL.md`. Each harness gets it however it finds
   such things.
 

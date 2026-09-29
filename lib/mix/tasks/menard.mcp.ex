@@ -26,6 +26,8 @@ defmodule Mix.Tasks.Menard.Mcp do
 
     logs_to_stderr()
     {:ok, _} = Supervisor.start_child(Menard.Supervisor, {Menard.MCP, transport: :stdio})
+    # started now, so its index is built by the first `find` that asks it
+    Menard.Lsp.warm(Menard.MCP.root())
 
     # The transport stops when the client closes stdin, and the VM goes with it: kept alive, the
     # server of a client that died without killing it lingers for good.

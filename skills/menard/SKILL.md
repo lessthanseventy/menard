@@ -53,7 +53,7 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
 | one whole module of several | `module {verb: "replace", file, module, code}` |
 | a `@doc` or a `#` comment | a plain Edit: a string and a comment are prose, and the guard passes an edit that changes only those |
 | a name, everywhere | `rename {old, new, files: ["lib/**/*.ex", "test/**/*.exs"]}` |
-| who calls what | `find {kind: "calls" \| "defs" \| "aliases", target, files}`: strings and comments never match |
+| who calls what | `find {kind: "calls" \| "defs" \| "aliases", target, files}`: strings and comments never match; `calls` of `Mod.fun` adds the language server's `reference`s (below) |
 | what a function uses, who calls its helpers | `deps {verb: "refs", file, name_arity}` |
 | a project dependency | `deps {verb: "add", spec}` or `{verb: "upgrade", apps?, to?}`: fetches, compiles, answers with the lock diff |
 | a whole new file | `write {file, code}` |
@@ -68,6 +68,21 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
   total(cart, rate) do … end"}`: the arity is the old one.
 
 A function name repeated across modules is `Mod.Name.fun/2`.
+
+## The language server
+
+Claude Code also has the Elixir language server (expert, the plugin's `lspServers`), through its
+`LSP` tool: definition, hover and references at a position. menard's MCP server keeps its own,
+and `find calls Mod.fun` merges its answer in: a call through an `import`, a `defdelegate`, a `use`
+or an `apply` comes back as `kind: "reference"`, which the AST alone cannot see. The reply's `lsp`
+says what answered; "the AST's alone" means the server was still starting or indexing, or there
+is none (the CLI keeps none).
+
+- **An empty LSP answer in a server's first half-minute is not "no callers".** Until it has
+  indexed, a server answers nothing, or a short list. Ask `find` before deleting a function
+  the LSP tool says nothing calls.
+- `MENARD_LSP` picks the server, for both (`expert`, `elixir-ls`): `bin/lsp` is the one place
+  that starts it.
 
 ## Traps
 

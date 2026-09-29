@@ -194,6 +194,31 @@ defmodule Menard.Find do
 
   defp def_of(_node, _aliases, _name, _arity), do: nil
 
+  @doc """
+  Where each clause of `mod`'s `fun` names it in its head, as `{line, column}`: the position a
+  language server's references take. A module nested in `mod` keeps its own.
+  """
+  @spec def_sites(String.t(), String.t(), String.t()) :: [{pos_integer(), pos_integer()}]
+  def def_sites(source, mod, fun) do
+    with {:ok, ast} <- Menard.Source.parse(source),
+         modules = Menard.Tree.modules(ast),
+         {^mod, node} <- List.keyfind(modules, mod, 0) do
+      nested = for {name, n} <- modules, String.starts_with?(name, mod <> "."), do: lines(n)
+
+      for %{line: l, column: c, kind: kind} <- defs(source, fun),
+          l in lines(node),
+          not Enum.any?(nested, &(l in &1)),
+          do: {l, c + String.length(Atom.to_string(kind)) + 1}
+    else
+      _ -> []
+    end
+  end
+
+  defp lines(node) do
+    %{start: [line: first, column: _], end: [line: last, column: _]} = Sourceror.get_range(node)
+    first..last
+  end
+
   @doc "Where module `mod` is aliased (`alias A.B` or `alias A.{B, C}`)."
   @spec aliases(String.t(), String.t()) :: [hit()]
   def aliases(source, mod) do
