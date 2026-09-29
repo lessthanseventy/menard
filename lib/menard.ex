@@ -308,6 +308,41 @@ defmodule Menard do
   def jsonable(other), do: other
 
   @doc """
+  A reply as the JSON both doors write: `jsonable/1`, what happened first (`ok`, `did`, the
+  counts) and what is only passed back or opened later last (`file`, `version`, `log`), the rest by
+  name. A map's own order was the VM's: `version`'s hash first, and a reader that kept the first 60
+  characters (the transcripts: 53 of 64 `cut -c1-60` on clause) saw nothing else.
+  """
+  @spec encode(term()) :: String.t()
+  def encode(reply), do: reply |> jsonable() |> ordered() |> IO.iodata_to_binary()
+
+  @first ~w(ok did tests failed)
+  @last ~w(file version log)
+
+  defp ordered(%{__struct__: _} = struct), do: JSON.encode!(struct)
+
+  defp ordered(map) when is_map(map) do
+    pairs =
+      map
+      |> Enum.map(fn {k, v} -> {to_string(k), v} end)
+      |> Enum.sort_by(fn {k, _} -> rank(k) end)
+      |> Enum.map(fn {k, v} -> [JSON.encode!(k), ?:, ordered(v)] end)
+
+    [?{, Enum.intersperse(pairs, ?,), ?}]
+  end
+
+  defp ordered(list) when is_list(list), do: [?[, list |> Enum.map(&ordered/1) |> Enum.intersperse(?,), ?]]
+  defp ordered(other), do: JSON.encode!(other)
+
+  defp rank(key) do
+    cond do
+      i = Enum.find_index(@first, &(&1 == key)) -> {0, i, ""}
+      i = Enum.find_index(@last, &(&1 == key)) -> {2, i, ""}
+      true -> {1, 0, key}
+    end
+  end
+
+  @doc """
   Every `{file, version}` still current, or the stale refusal for the first that is not: for the
   verbs that write several files (`rename`, `clause move`), checked before any of them is written.
   """

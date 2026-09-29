@@ -13,6 +13,29 @@ defmodule Menard.WriteReplyTest do
     path
   end
 
+  test "a reply is written what-happened first and hash last: a reader of its first 60 characters saw only the hash" do
+    json =
+      Menard.encode(%{
+        version: "sha256:abc",
+        file: "/a/b.ex",
+        stages: [%{stage: :patch, hunks: []}],
+        did: "replace go/1"
+      })
+
+    assert json ==
+             ~s({"did":"replace go/1","stages":[{"hunks":[],"stage":"patch"}],"file":"/a/b.ex","version":"sha256:abc"})
+
+    assert JSON.decode!(Menard.encode(%{log: "l", failures: [], ok: false, tests: 3})) == %{
+             "log" => "l",
+             "failures" => [],
+             "ok" => false,
+             "tests" => 3
+           }
+
+    assert Menard.encode(%{log: "l", failures: [], ok: false, tests: 3}) =~
+             ~r/^\{"ok":false,"tests":3,"failures"/
+  end
+
   describe "Menard.write/3 — the staged reply" do
     test "returns the reply shape: did, file, version, stages", %{tmp_dir: dir} do
       file = write_file(dir, "a.ex", "defmodule A do\n  def go, do: :a\nend\n")
