@@ -1024,6 +1024,11 @@ defmodule Menard.HooksTest do
     {out, 0} = shell.("echo python3", fn -> :ok end)
     assert out == ""
 
+    # a word inside a heredoc is no script: `lines(node)` in menard's own edit read as node
+    edit = "bin/menard edit - <<'E'\nlib/m.ex\n<<<<<<< SEARCH\nf(x)\n=======\nlines(node)\n>>>>>>> REPLACE\nE"
+    {out, 0} = shell.(edit, fn -> File.write!(file, "defmodule M do\n  def f(x), do: node(x)\nend\n") end)
+    refute out =~ "menard edit"
+
     {out, 0} = shell.(python, fn -> File.write!(file, "defmodule M do\n  def   h(x), do: x\nend\n") end)
     context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
     assert context =~ "lib/m.ex was reformatted"
