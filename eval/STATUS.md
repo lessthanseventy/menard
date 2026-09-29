@@ -735,3 +735,30 @@ results/focus3b-void. Restarted fresh.
   time the runner waited to the reset, probed, redid the step, and it finished the round.
 - Reading, with riverside1-2: no quality bought on either codebase (every miss is the model's), cost
   about even to a little higher with menard, and the verbs are used only in part.
+
+### The two-arm runner and the helpdesk suite (2026-09-28)
+
+menard changed shape, so the rounds above measured something that no longer ships: one plugin now
+(manos merged in), its hooks `mcp_tool` calls into the server (6-9 ms a write once warm, from
+0.8-1.0 s), its tools loaded on demand (+438 tokens at session start, against +4,685 up front),
+and `clause split` for a whole split in one call.
+
+- The runner has two arms, `without` and `with` (the plugin as a user installs it, nothing added).
+- `eval/helpdesk`: a help desk built from `mix phx.new` (SQLite, credo in the installer's
+  `precommit`), case `desk`, nine steps in one session. 01-07 build it (tickets, the status flow,
+  staff and assignment, comments, response targets in business hours, three LiveView pages, a JSON
+  API and a CSV export); 08 renames a function and adds a required argument across its callers;
+  09 splits the context the session wrote. Each prompt pins the interface its acceptance tests call.
+- Graders validated both ways, no model: `reference/validate.py`, 27 of 27 (9 right answers pass,
+  18 wrong ones fail). The reference caught two graders that were wrong (a controller action named
+  `transition` failed step 08; the split's facade limit of 40% was what the reference itself
+  left) and two menard bugs (`insert_at top` under a `@spec`; a helper called without its default
+  argument left behind by a move), all fixed.
+- Smoke, step 01 only, haiku, one run an arm: both pass, clean, CI green first. In `with` the
+  plugin's 42 hook calls all answered, 9 with a report for the agent; `without` has no word of
+  menard in its trace. One run: its numbers say the plumbing works and nothing else.
+- To run: `MENARD_EVAL_WORK=/tmp/desk-eval eval/run.py ROUND --suite eval/helpdesk --models
+  claude-fable-5-1 --runs 5 --rebuild` (a work path that does not name menard: the arm without
+  would read it).
+- Known about the baseline: the installer's `precommit` runs `mix format`, and its AGENTS.md sends
+  agents to `mix precommit` when done, so the arm without formats whenever it runs its gate.
