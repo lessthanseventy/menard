@@ -762,3 +762,34 @@ and `clause split` for a whole split in one call.
   would read it).
 - Known about the baseline: the installer's `precommit` runs `mix format`, and its AGENTS.md sends
   agents to `mix precommit` when done, so the arm without formats whenever it runs its gate.
+
+### desk1 (2026-09-28 21:52 - 23:25): helpdesk, fable, without vs with, 3 runs
+
+Menard pinned at a95c049. Six sessions, one at a time, no usage-limit wait. Paired by run.
+
+| | without (runs 1, 2, 3) | with (runs 1, 2, 3) | with − without, median (range) |
+|---|---|---|---|
+| final state passes | 3/3 | 2/3 | |
+| steps passed as graded | 9, 7, 9 | 8, 4, 9 | |
+| new input + output tokens | 196k, 210k, 212k | 188k, 230k, 190k | −7.5k (−22k to +20k) |
+| turns | 31, 37, 39 | 29, 36, 30 | −2 (−9 to −1) |
+| agent seconds | 829, 924, 900 | 833, 1058, 804 | +4 (−96 to +134) |
+| red test runs | 3, 1, 2 | 1, 2, 1 | |
+| CI green first | 3/3 | 3/3 | |
+| credo left | 0, 0, 0 | 0, 0, 0 | |
+
+- **No difference this round can show.** With was lower on tokens in two pairs and higher in one,
+  and the spread between runs of one arm (196k to 212k, 188k to 230k) is as wide as the gap
+  between arms. Three pairs.
+- **Menard had almost nothing to act on.** Fable wrote the whole app through Bash (20-28 calls a
+  session, no Edit or Write, a Read or two), already formatted: of 130 hook calls in the three
+  with sessions, all answered, 9 had anything to report (2,189 characters in all). No menard tool
+  was called in any session, the rename of step 08 and the split of step 09 included.
+- **The failures are the harness's and the model's, not menard's.** with.2 fails steps 05-09 on
+  one acceptance assertion (list_breached asked about a time before a late response was made:
+  the prompt defines it, and the question is unnatural), 199 of 200 tests green at step 09; set
+  aside, with.2 passes every step. with.1's step 03 and without.2's steps 04 and 05 failed and
+  passed from the next step on: the session's own tests, red at that step.
+- To fix before another round: that assertion; a step graded on its own acceptance tests, so one
+  miss does not fail every step after it; and whether the red-then-green steps are SQLite under
+  async tests.
