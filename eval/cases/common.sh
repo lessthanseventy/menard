@@ -19,11 +19,11 @@ formatted() {
 }
 
 # the same over the files the run changed or added under the current directory only, the hidden/
-# test files the check copied in left out (they are formatted to another project's rules): a
+# test files the check copied in (test/hidden/, acceptance/) left out (they are formatted to another project's rules): a
 # whole-tree check trips on those, and on nothing the agent did
 formatted_changes() {
   files=$({ git diff --name-only --relative --diff-filter=AM eval-base -- .; git ls-files -o --exclude-standard; } \
-    | grep -E '\.(ex|exs|heex)$' | grep -v '^test/hidden/')
+    | grep -E '\.(ex|exs|heex)$' | grep -vE '^(test/hidden|acceptance)/')
   # shellcheck disable=SC2086
   [ -z "$files" ] || mix format --check-formatted $files >/dev/null 2>&1 || echo "NOTE: unformatted"
 }
