@@ -53,12 +53,15 @@ fi
 self="$PWD/bin/menard"
 
 # every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
-verbs="edit|outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|hook|version"
+verbs="help|edit|outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|hook|version"
 
 verb="${1:-}"
-[[ -n "$verb" ]] || { echo "usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
+# `--help`, and `VERB --help`: the help, of everything or of the verb
+case "$verb" in --help | -h) verb=help && set -- help "${@:2}" ;; esac
+case "${2:-}" in --help | -h) set -- help "$verb" && verb=help ;; esac
+[[ -n "$verb" ]] || { echo "usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs); $self --help says what each is for" >&2; exit 2; }
 # refused here, not by mix's "task could not be found" after a compile
-[[ "|$verbs|" == *"|$verb|"* ]] || { echo "menard: no verb $verb — usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
+[[ "|$verbs|" == *"|$verb|"* ]] || { echo "menard: no verb $verb — usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs); $self --help says what each is for" >&2; exit 2; }
 shift
 
 # `--stdin`: the LAST argument comes from stdin — multi-line CODE full of quotes and backslashes,
