@@ -100,7 +100,12 @@ defmodule Menard.Verbs.Noun do
   def usage(%{name: name, cli: %{shapes: shapes}} = noun) do
     lines =
       for {verb, args} <- shapes do
-        Enum.join(["mix menard.#{name}"] ++ List.wrap(verb && dashed(verb)) ++ Enum.map(args, &label/1), " ")
+        # a verb by the one name both doors give it: the CLI's `insert-after` was taken to MCP,
+        # which refused it
+        Enum.join(
+          ["mix menard.#{name}"] ++ List.wrap(verb && to_string(verb)) ++ Enum.map(args, &label/1),
+          " "
+        )
       end
 
     flags = Enum.map_join(flags(noun), " ", fn {flag, _} -> "--" <> dashed(flag) end)
