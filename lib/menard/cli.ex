@@ -35,7 +35,7 @@ defmodule Menard.CLI do
   """
   @spec run(module(), [String.t()]) :: map()
   def run(verbs, argv) do
-    noun = verbs.noun()
+    noun = Noun.of(verbs)
     flags = Noun.flags(noun)
     {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
 

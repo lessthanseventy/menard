@@ -237,4 +237,38 @@ defmodule Menard.DoorsTest do
     assert File.read!(Path.join(dir, "lib/a_test.exs")) =~ ~s(test "one")
     refute File.exists?(Path.join(dir, "lib/w.ex"))
   end
+
+  test "edit is one reply at both doors, from a list and from search/replace blocks", %{tmp_dir: dir} do
+    a = Path.join(dir, "lib/a.ex")
+    before = File.read!(a)
+
+    assert {:ok, from_mcp} =
+             mcp(Menard.MCP.Edit, %{
+               edits: [
+                 %{file: "lib/a.ex", old: "  @limit 5", new: "  @limit 6"},
+                 %{file: "lib/a.ex", old: "def two(n), do: n", new: "def two(n), do: n + 0"}
+               ]
+             })
+
+    after_mcp = File.read!(a)
+    File.write!(a, before)
+
+    blocks =
+      "lib/a.ex\n<<<<<<< SEARCH\n  @limit 5\n=======\n  @limit 6\n>>>>>>> REPLACE\n" <>
+        "lib/a.ex\n<<<<<<< SEARCH\ndef two(n), do: n\n=======\ndef two(n), do: n + 0\n>>>>>>> REPLACE\n"
+
+    assert {:ok, from_cli} = cli(Mix.Tasks.Menard.Edit, [blocks])
+    assert File.read!(a) == after_mcp
+    assert from_mcp["did"] == "edit a.ex: 2 replacements"
+    strip = &Map.update!(&1, "changed", fn files -> Enum.map(files, fn file -> same(file) end) end)
+    assert strip.(from_mcp) == strip.(from_cli)
+
+    # and a refusal is the same sentence
+    miss = [%{file: "lib/a.ex", old: "def three", new: "x"}]
+    assert {:error, why} = mcp(Menard.MCP.Edit, %{edits: miss})
+    assert why =~ "lib/a.ex: this text is not there"
+
+    assert {:error, ^why} =
+             cli(Mix.Tasks.Menard.Edit, ["lib/a.ex\n<<<<<<< SEARCH\ndef three\n=======\nx\n>>>>>>> REPLACE\n"])
+  end
 end

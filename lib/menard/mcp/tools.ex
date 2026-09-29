@@ -86,7 +86,7 @@ if Code.ensure_loaded?(Anubis.Server) do
   # Every tool, made from its noun (`Menard.Verbs.Noun`): the noun's `doc` is what an agent reads
   # before its first call, its `fields` the schema, and the tool's answer its verb's result.
   for verbs <- Menard.Verbs.Noun.modules() do
-    noun = verbs.noun()
+    noun = Menard.Verbs.Noun.of(verbs)
 
     fields =
       for {name, type, opts} <- noun.fields,
