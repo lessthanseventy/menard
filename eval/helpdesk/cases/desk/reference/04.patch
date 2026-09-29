@@ -1,0 +1,499 @@
+diff --git a/lib/desk/staff.ex b/lib/desk/staff.ex
+new file mode 100644
+index 0000000..a16cc77
+--- /dev/null
++++ b/lib/desk/staff.ex
+@@ -0,0 +1,27 @@
++defmodule Desk.Staff do
++  @moduledoc "The agents who work the desk."
++
++  import Ecto.Query
++
++  alias Desk.Repo
++  alias Desk.Staff.Agent
++  alias Desk.Tickets
++
++  def create_agent(attrs), do: %Agent{} |> Agent.changeset(attrs) |> Repo.insert()
++
++  def get_agent!(id), do: Repo.get!(Agent, id)
++
++  def list_agents, do: Repo.all(from a in Agent, order_by: [asc: a.name, asc: a.id])
++
++  def list_active_agents,
++    do: Repo.all(from a in Agent, where: a.active, order_by: [asc: a.name, asc: a.id])
++
++  @doc "Take an agent off the desk, and off the tickets they were working."
++  def deactivate_agent(%Agent{} = agent) do
++    Repo.transact(fn ->
++      agent = agent |> Ecto.Changeset.change(active: false) |> Repo.update!()
++      Tickets.release(agent)
++      {:ok, agent}
++    end)
++  end
++end
+diff --git a/lib/desk/staff/agent.ex b/lib/desk/staff/agent.ex
+new file mode 100644
+index 0000000..f8a859f
+--- /dev/null
++++ b/lib/desk/staff/agent.ex
+@@ -0,0 +1,22 @@
++defmodule Desk.Staff.Agent do
++  @moduledoc "Someone who works tickets."
++  use Ecto.Schema
++
++  import Ecto.Changeset
++
++  schema "agents" do
++    field :name, :string
++    field :email, :string
++    field :active, :boolean, default: true
++
++    timestamps(type: :utc_datetime)
++  end
++
++  def changeset(agent, attrs) do
++    agent
++    |> cast(attrs, [:name, :email])
++    |> update_change(:email, &(&1 |> String.trim() |> String.downcase()))
++    |> validate_required([:name, :email])
++    |> unique_constraint(:email)
++  end
++end
+diff --git a/lib/desk/tickets.ex b/lib/desk/tickets.ex
+new file mode 100644
+index 0000000..76e0334
+--- /dev/null
++++ b/lib/desk/tickets.ex
+@@ -0,0 +1,202 @@
++defmodule Desk.Tickets do
++  @moduledoc "Tickets: filing them and finding them."
++
++  import Ecto.Query
++
++  alias Desk.Repo
++  alias Desk.Staff.Agent
++  alias Desk.Tickets.Comment
++  alias Desk.Tickets.Event
++  alias Desk.Tickets.Ticket
++
++  @at_work [:new, :open, :pending]
++
++  @moves %{
++    new: [:open],
++    open: [:pending, :resolved],
++    pending: [:open, :resolved],
++    resolved: [:open, :closed],
++    closed: []
++  }
++
++  @doc "File a ticket. It starts new, whatever the attributes say."
++  def create_ticket(attrs) do
++    Repo.transact(fn ->
++      with {:ok, ticket} <- %Ticket{} |> Ticket.changeset(attrs) |> Repo.insert() do
++        record(ticket, "created", nil, "new")
++        {:ok, ticket}
++      end
++    end)
++  end
++
++  def get_ticket!(id), do: Repo.get!(Ticket, id)
++
++  @doc """
++  Tickets, the most urgent first and the oldest first within a priority. `opts` narrows the list:
++  `status:` and `priority:`.
++  """
++  def list_tickets(opts \\ []) do
++    Ticket
++    |> narrow(opts)
++    |> order_by([t],
++      asc:
++        fragment(
++          "CASE ? WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END",
++          t.priority
++        ),
++      asc: t.inserted_at,
++      asc: t.id
++    )
++    |> Repo.all()
++  end
++
++  defp narrow(query, opts) do
++    Enum.reduce(opts, query, fn
++      {:status, status}, query -> where(query, [t], t.status == ^status)
++      {:priority, priority}, query -> where(query, [t], t.priority == ^priority)
++      {:assignee, :none}, query -> where(query, [t], is_nil(t.assignee_id))
++      {:assignee, id}, query -> where(query, [t], t.assignee_id == ^id)
++    end)
++  end
++
++  @doc "The statuses a ticket in `status` may move to."
++  def allowed_transitions(status), do: Map.fetch!(@moves, status)
++
++  @doc "Move a ticket, if the flow allows the move."
++  def transition(%Ticket{status: from} = ticket, to) do
++    if to in allowed_transitions(from), do: move(ticket, to), else: {:error, :invalid_transition}
++  end
++
++  def list_events(%Ticket{id: id}) do
++    Repo.all(
++      from e in Event, where: e.ticket_id == ^id, order_by: [asc: e.inserted_at, asc: e.id]
++    )
++  end
++
++  @doc "Give a ticket to an agent. A new ticket is opened by it."
++  def assign(%Ticket{status: :closed}, %Agent{}), do: {:error, :closed}
++  def assign(%Ticket{}, %Agent{active: false}), do: {:error, :inactive_agent}
++
++  def assign(%Ticket{} = ticket, %Agent{} = agent) do
++    Repo.transact(fn ->
++      {:ok, opened} = if ticket.status == :new, do: move(ticket, :open), else: {:ok, ticket}
++      assigned = opened |> Ecto.Changeset.change(assignee_id: agent.id) |> Repo.update!()
++      record(assigned, "assigned", id_text(ticket.assignee_id), id_text(agent.id))
++      {:ok, assigned}
++    end)
++  end
++
++  def unassign(%Ticket{assignee_id: nil} = ticket), do: {:ok, ticket}
++
++  def unassign(%Ticket{} = ticket) do
++    Repo.transact(fn ->
++      free = ticket |> Ecto.Changeset.change(assignee_id: nil) |> Repo.update!()
++      record(free, "unassigned", id_text(ticket.assignee_id), nil)
++      {:ok, free}
++    end)
++  end
++
++  @doc "Give a ticket to the active agent with the least at work."
++  def auto_assign(%Ticket{} = ticket) do
++    load =
++      from t in Ticket,
++        where: t.status in ^@at_work and not is_nil(t.assignee_id),
++        group_by: t.assignee_id,
++        select: %{agent_id: t.assignee_id, count: count(t.id)}
++
++    least =
++      Repo.one(
++        from a in Agent,
++          left_join: l in subquery(load),
++          on: l.agent_id == a.id,
++          where: a.active,
++          order_by: [asc: coalesce(l.count, 0), asc: a.id],
++          limit: 1
++      )
++
++    if least, do: assign(ticket, least), else: {:error, :no_agents}
++  end
++
++  @doc "Take an agent off every ticket of theirs still at work."
++  def release(%Agent{id: id}) do
++    Ticket
++    |> where([t], t.assignee_id == ^id and t.status in ^@at_work)
++    |> Repo.all()
++    |> Enum.each(&unassign/1)
++  end
++
++  @doc """
++  Say something on a ticket. An agent's public comment leaves a ticket waiting on the requester,
++  and the requester's word opens it again; a note between agents moves nothing.
++  """
++  def add_comment(%Ticket{status: :closed}, _attrs), do: {:error, :closed}
++
++  def add_comment(%Ticket{} = ticket, attrs) do
++    Repo.transact(fn ->
++      with {:ok, comment} <-
++             %Comment{ticket_id: ticket.id} |> Comment.changeset(attrs) |> Repo.insert() do
++        {:ok, %{comment: comment, ticket: ticket |> answered(comment) |> moved_by(comment)}}
++      end
++    end)
++  end
++
++  def list_comments(%Ticket{id: id}, opts \\ []) do
++    Comment
++    |> where([c], c.ticket_id == ^id)
++    |> then(&if(opts[:internal] == false, do: where(&1, [c], not c.internal), else: &1))
++    |> order_by([c], asc: c.inserted_at, asc: c.id)
++    |> Repo.all()
++  end
++
++  defp answered(%Ticket{first_response_at: nil} = ticket, %Comment{
++         author_kind: :agent,
++         internal: false
++       }),
++       do: ticket |> Ecto.Changeset.change(first_response_at: now()) |> Repo.update!()
++
++  defp answered(ticket, _comment), do: ticket
++
++  defp moved_by(ticket, comment) do
++    case {comment, ticket.status} do
++      {%Comment{internal: true}, _} ->
++        ticket
++
++      {%Comment{author_kind: :agent}, status} when status in [:new, :open] ->
++        move!(ticket, :pending)
++
++      {%Comment{author_kind: :requester}, status} when status in [:pending, :resolved] ->
++        move!(ticket, :open)
++
++      _ ->
++        ticket
++    end
++  end
++
++  defp move!(ticket, to) do
++    {:ok, ticket} = move(ticket, to)
++    ticket
++  end
++
++  defp id_text(nil), do: nil
++  defp id_text(id), do: Integer.to_string(id)
++
++  # the move itself, with its times and its event: whether it may be made is the caller's to say
++  defp move(%Ticket{status: from} = ticket, to) do
++    Repo.transact(fn ->
++      ticket = ticket |> Ecto.Changeset.change([status: to] ++ times(to)) |> Repo.update!()
++      record(ticket, "status", Atom.to_string(from), Atom.to_string(to))
++      {:ok, ticket}
++    end)
++  end
++
++  defp times(:resolved), do: [resolved_at: now()]
++  defp times(:closed), do: [closed_at: now()]
++  defp times(:open), do: [resolved_at: nil]
++  defp times(_status), do: []
++
++  defp now, do: DateTime.utc_now(:second)
++
++  defp record(ticket, kind, from, to) do
++    Repo.insert!(%Event{ticket_id: ticket.id, kind: kind, from: from, to: to})
++  end
++end
+diff --git a/lib/desk/tickets/comment.ex b/lib/desk/tickets/comment.ex
+new file mode 100644
+index 0000000..947d3ae
+--- /dev/null
++++ b/lib/desk/tickets/comment.ex
+@@ -0,0 +1,38 @@
++defmodule Desk.Tickets.Comment do
++  @moduledoc "Something said on a ticket, by an agent or by the requester; an agent's may be a note between agents."
++  use Ecto.Schema
++
++  import Ecto.Changeset
++
++  schema "ticket_comments" do
++    field :author_kind, Ecto.Enum, values: [:agent, :requester]
++    field :body, :string
++    field :internal, :boolean, default: false
++
++    belongs_to :ticket, Desk.Tickets.Ticket
++    belongs_to :agent, Desk.Staff.Agent
++
++    timestamps(type: :utc_datetime)
++  end
++
++  def changeset(comment, attrs) do
++    comment
++    |> cast(attrs, [:author_kind, :agent_id, :body, :internal])
++    |> validate_required([:author_kind, :body])
++    |> by_author()
++  end
++
++  defp by_author(changeset) do
++    case get_field(changeset, :author_kind) do
++      :agent -> validate_required(changeset, [:agent_id])
++      :requester -> changeset |> put_change(:agent_id, nil) |> no_note()
++      nil -> changeset
++    end
++  end
++
++  defp no_note(changeset) do
++    if get_field(changeset, :internal),
++      do: add_error(changeset, :internal, "is for agents"),
++      else: changeset
++  end
++end
+diff --git a/lib/desk/tickets/event.ex b/lib/desk/tickets/event.ex
+new file mode 100644
+index 0000000..455f96c
+--- /dev/null
++++ b/lib/desk/tickets/event.ex
+@@ -0,0 +1,14 @@
++defmodule Desk.Tickets.Event do
++  @moduledoc "One thing that happened to a ticket: it was filed, it moved, it changed hands."
++  use Ecto.Schema
++
++  schema "ticket_events" do
++    field :kind, :string
++    field :from, :string
++    field :to, :string
++
++    belongs_to :ticket, Desk.Tickets.Ticket
++
++    timestamps(type: :utc_datetime, updated_at: false)
++  end
++end
+diff --git a/lib/desk/tickets/ticket.ex b/lib/desk/tickets/ticket.ex
+new file mode 100644
+index 0000000..2d86daa
+--- /dev/null
++++ b/lib/desk/tickets/ticket.ex
+@@ -0,0 +1,38 @@
++defmodule Desk.Tickets.Ticket do
++  @moduledoc "A request for help: who asked, what for, how urgent, and where it stands."
++  use Ecto.Schema
++
++  import Ecto.Changeset
++
++  @priorities [:low, :normal, :high, :urgent]
++  @statuses [:new, :open, :pending, :resolved, :closed]
++
++  schema "tickets" do
++    field :subject, :string
++    field :body, :string
++    field :requester_email, :string
++    field :priority, Ecto.Enum, values: @priorities, default: :normal
++    field :status, Ecto.Enum, values: @statuses, default: :new
++    field :resolved_at, :utc_datetime
++    field :closed_at, :utc_datetime
++    field :first_response_at, :utc_datetime
++
++    belongs_to :assignee, Desk.Staff.Agent
++
++    timestamps(type: :utc_datetime)
++  end
++
++  def priorities, do: @priorities
++  def statuses, do: @statuses
++
++  @doc "A new ticket's changeset: its status is not the caller's to set."
++  def changeset(ticket, attrs) do
++    ticket
++    |> cast(attrs, [:subject, :body, :requester_email, :priority])
++    |> update_change(:subject, &String.trim/1)
++    |> update_change(:requester_email, &(&1 |> String.trim() |> String.downcase()))
++    |> validate_required([:subject, :body, :requester_email])
++    |> validate_length(:subject, max: 120)
++    |> validate_format(:requester_email, ~r/^[^\s@]+@[^\s@]+$/)
++  end
++end
+diff --git a/priv/repo/migrations/20260301000001_create_tickets.exs b/priv/repo/migrations/20260301000001_create_tickets.exs
+new file mode 100644
+index 0000000..a4a9715
+--- /dev/null
++++ b/priv/repo/migrations/20260301000001_create_tickets.exs
+@@ -0,0 +1,17 @@
++defmodule Desk.Repo.Migrations.CreateTickets do
++  use Ecto.Migration
++
++  def change do
++    create table(:tickets) do
++      add :subject, :string, null: false
++      add :body, :text, null: false
++      add :requester_email, :string, null: false
++      add :priority, :string, null: false, default: "normal"
++      add :status, :string, null: false, default: "new"
++
++      timestamps(type: :utc_datetime)
++    end
++
++    create index(:tickets, [:status])
++  end
++end
+diff --git a/priv/repo/migrations/20260301000002_status_flow.exs b/priv/repo/migrations/20260301000002_status_flow.exs
+new file mode 100644
+index 0000000..f1fd57e
+--- /dev/null
++++ b/priv/repo/migrations/20260301000002_status_flow.exs
+@@ -0,0 +1,21 @@
++defmodule Desk.Repo.Migrations.StatusFlow do
++  use Ecto.Migration
++
++  def change do
++    alter table(:tickets) do
++      add :resolved_at, :utc_datetime
++      add :closed_at, :utc_datetime
++    end
++
++    create table(:ticket_events) do
++      add :ticket_id, references(:tickets, on_delete: :delete_all), null: false
++      add :kind, :string, null: false
++      add :from, :string
++      add :to, :string
++
++      timestamps(type: :utc_datetime, updated_at: false)
++    end
++
++    create index(:ticket_events, [:ticket_id])
++  end
++end
+diff --git a/priv/repo/migrations/20260301000003_agents.exs b/priv/repo/migrations/20260301000003_agents.exs
+new file mode 100644
+index 0000000..33e9073
+--- /dev/null
++++ b/priv/repo/migrations/20260301000003_agents.exs
+@@ -0,0 +1,21 @@
++defmodule Desk.Repo.Migrations.Agents do
++  use Ecto.Migration
++
++  def change do
++    create table(:agents) do
++      add :name, :string, null: false
++      add :email, :string, null: false
++      add :active, :boolean, null: false, default: true
++
++      timestamps(type: :utc_datetime)
++    end
++
++    create unique_index(:agents, [:email])
++
++    alter table(:tickets) do
++      add :assignee_id, references(:agents, on_delete: :nilify_all)
++    end
++
++    create index(:tickets, [:assignee_id])
++  end
++end
+diff --git a/priv/repo/migrations/20260301000004_comments.exs b/priv/repo/migrations/20260301000004_comments.exs
+new file mode 100644
+index 0000000..0e678f1
+--- /dev/null
++++ b/priv/repo/migrations/20260301000004_comments.exs
+@@ -0,0 +1,21 @@
++defmodule Desk.Repo.Migrations.Comments do
++  use Ecto.Migration
++
++  def change do
++    create table(:ticket_comments) do
++      add :ticket_id, references(:tickets, on_delete: :delete_all), null: false
++      add :agent_id, references(:agents, on_delete: :nilify_all)
++      add :author_kind, :string, null: false
++      add :body, :text, null: false
++      add :internal, :boolean, null: false, default: false
++
++      timestamps(type: :utc_datetime)
++    end
++
++    create index(:ticket_comments, [:ticket_id])
++
++    alter table(:tickets) do
++      add :first_response_at, :utc_datetime
++    end
++  end
++end
+diff --git a/test/desk/tickets_test.exs b/test/desk/tickets_test.exs
+new file mode 100644
+index 0000000..624e4f1
+--- /dev/null
++++ b/test/desk/tickets_test.exs
+@@ -0,0 +1,12 @@
++defmodule Desk.TicketsTest do
++  use Desk.DataCase, async: true
++
++  alias Desk.Tickets
++
++  test "a ticket is filed new" do
++    assert {:ok, ticket} =
++             Tickets.create_ticket(%{subject: "s", body: "b", requester_email: "a@b.c"})
++
++    assert ticket.status == :new
++  end
++end
