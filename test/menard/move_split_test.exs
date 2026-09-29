@@ -578,4 +578,39 @@ defmodule Menard.MoveSplitTest do
     assert compile([File.read!(dest), File.read!(file)]) == []
     assert Module.concat(["Split13"]).price(2) == 3.0
   end
+
+  test "a helper called without its default argument is the helper all the same: carried, or made public where it is shared",
+       %{tmp_dir: dir} do
+    # Found 2026-09-28, splitting the helpdesk reference: `record(t, kind, from, to, actor \\ :system)`
+    # called as record/4 was no function the move knew, so it neither went nor was made public, and
+    # the new module called a function it did not have. It parsed, and did not compile.
+    file = Path.join(dir, "log.ex")
+
+    File.write!(file, """
+    defmodule Split3 do
+      def a(x), do: note(x)
+      def b(x), do: note(x, "b") <> only_b(x)
+      def c(x), do: x
+      defp note(x, by \\\\ "system"), do: "\#{x} by \#{by}"
+      defp only_b(x, times \\\\ 2), do: String.duplicate("\#{x}", times)
+    end
+    """)
+
+    # note/2 is shared with a/1, which stays: public, and called there. only_b/2 is b's alone: it goes.
+    dest = Path.join(dir, "log/out.ex")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["b/1"], as: "Split3.Out", delegate: true)
+    assert reply.published == ["note/2"]
+    assert reply.carried == ["only_b/2"]
+
+    source = File.read!(file)
+    assert source =~ ~s|  def note(x, by \\\\ "system")|
+    refute source =~ "only_b"
+    assert File.read!(dest) =~ ~s|Split3.note(x, "b")|
+    assert File.read!(dest) =~ "defp only_b(x, times"
+
+    assert compile([File.read!(dest), source]) == []
+    split = Module.concat(["Split3"])
+    assert split.a(1) == "1 by system"
+    assert split.b(2) == "2 by b22"
+  end
 end
