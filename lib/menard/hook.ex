@@ -276,10 +276,7 @@ defmodule Menard.Hook do
     """
   end
 
-  # This menard, by its path: the plugin's bin/ is the LAST place a shell looks, so a bare `menard`
-  # is whichever one the PATH holds before it (an older install of the user's; in the eval, a stub
-  # that says no such command). menard runs from its own root, whoever starts it.
-  defp menard, do: Path.join(File.cwd!(), "bin/menard")
+  defp menard, do: Menard.bin()
 
   defp note(:quiet, note), do: {:context, note <> "\n"}
   defp note({kind, text}, note), do: {kind, text <> note <> "\n"}

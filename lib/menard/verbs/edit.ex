@@ -25,7 +25,6 @@ defmodule Menard.Verbs.Edit do
       written unless all of it is. Elixir is parse-checked, and every file formatted with its
       project's formatter: the reply says what the formatter changed, and nothing of what you
       wrote. `then` runs `test`, `check` or `compile` after, its answer in `run`.
-      The CLI takes the edits on stdin as search/replace blocks (`menard edit [--then test] -`).
       """,
       deadline: 600_000,
       fields: [

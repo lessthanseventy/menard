@@ -23,8 +23,23 @@ class Arms(unittest.TestCase):
     def test_without_loads_nothing(self):
         self.assertEqual(plugin_dirs("without"), [])
 
-    def test_there_are_two_arms_and_no_other_is_run(self):
-        self.assertEqual(run.ARMS, ("without", "with"))
+    def test_a_variant_is_the_plugin_with_its_settings_and_nothing_else(self):
+        self.assertEqual(plugin_dirs("with-full"), [str(run.PLUGINS / "with-full")])
+        with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.object(run, "PLUGINS", Path(tmp)):
+            run.build_plugins(force=True)
+            shipped = json.loads((run.REPO / ".claude-plugin/plugin.json").read_text())
+            for arm, settings in run.VARIANTS.items():
+                root = Path(tmp) / arm
+                for same in ["hooks/hooks.json", "hooks/session-start.sh", "skills/menard/SKILL.md", "bin/menard"]:
+                    self.assertEqual((root / same).read_bytes(), (run.REPO / same).read_bytes(), f"{arm} {same}")
+                manifest = json.loads((root / ".claude-plugin/plugin.json").read_text())
+                env = manifest["mcpServers"]["menard"].pop("env")
+                was = shipped["mcpServers"]["menard"]["env"]
+                self.assertEqual(env, {**was, **settings}, arm)
+                self.assertEqual(manifest["mcpServers"]["menard"], {k: v for k, v in shipped["mcpServers"]["menard"].items() if k != "env"})
+
+    def test_no_arm_but_these_is_run(self):
+        self.assertEqual(run.ARMS, ("without", "with", "with-narrow", "with-full"))
         with unittest.mock.patch.object(sys, "argv", ["run.py", "r", "--arms", "without,all"]):
             with self.assertRaises(SystemExit) as refused:
                 run.main()

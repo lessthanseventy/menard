@@ -80,7 +80,11 @@ defmodule Menard.CLI do
 
   @doc "The usage line, raised: a call the verbs do not take."
   @spec usage(String.t()) :: no_return()
-  def usage(text), do: Mix.raise("usage: " <> text)
+  def usage(text), do: Mix.raise("usage: " <> as_run(text))
+
+  @doc "Each `mix menard.VERB` of `text` as the verb is run here (`Menard.command/1`)."
+  @spec as_run(String.t()) :: String.t()
+  def as_run(text), do: Regex.replace(~r/mix menard\.(\w+)/, text, fn _all, verb -> Menard.command(verb) end)
 
   @doc """
   The flags and arguments of `argv`, or the usage raised for any flag the verb cannot read: an unknown

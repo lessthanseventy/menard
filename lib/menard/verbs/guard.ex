@@ -33,7 +33,7 @@ defmodule Menard.Verbs.Guard do
   end
 
   defp refusal(path, nil) do
-    m = Path.join(File.cwd!(), "bin/menard")
+    m = Menard.bin()
 
     """
     Blocked: #{path} is an Elixir module.

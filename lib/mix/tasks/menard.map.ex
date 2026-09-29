@@ -17,6 +17,11 @@ defmodule Mix.Tasks.Menard.Map do
   def run(argv) do
     {:ok, %{modules: modules, cut: cut}} = Verbs.Outline.run(%{verb: "map", all: "--all" in argv})
     Enum.each(modules, &Mix.shell().info(Verbs.Outline.line(&1)))
-    if cut > 0, do: Mix.shell().info("… #{cut} more modules not shown: `menard outline FILE` reads one whole")
+
+    if cut > 0,
+      do:
+        Mix.shell().info(
+          "… #{cut} more modules not shown: `#{Menard.command("outline")} FILE` reads one whole"
+        )
   end
 end

@@ -13,6 +13,22 @@ defmodule Menard do
   @doc "The directory the caller stood in."
   def caller_dir, do: System.get_env("MENARD_CWD") || File.cwd!()
 
+  @doc """
+  This menard as a shell runs it, by its path. Whatever menard tells an agent to run, it names by
+  this: a plugin's `bin/` is the LAST place the harness's shell looks, so a bare `menard` is
+  whichever one the PATH holds before it (an older install of the user's; in the eval, a stub that
+  says no such command). `bin/menard` runs every verb from menard's own root, whoever starts it.
+  """
+  @spec bin() :: String.t()
+  def bin, do: Path.join(File.cwd!(), "bin/menard")
+
+  @doc """
+  `verb` as it is run: by `bin/0` where menard runs from its own checkout, and as the mix task
+  (`mix menard.VERB`) where it is a project's dependency and has no `bin/` of its own.
+  """
+  @spec command(String.t()) :: String.t()
+  def command(verb), do: if(File.regular?(bin()), do: "#{bin()} #{verb}", else: "mix menard.#{verb}")
+
   @doc "A path as the caller meant it: absolute stays, relative joins the caller's directory."
   def resolve(path), do: Path.expand(path, caller_dir())
 
