@@ -23,6 +23,12 @@ defmodule Menard.FindTest do
     assert hd(hits).text =~ "Channels.general(ws.id)"
   end
 
+  test "calls: through an alias with as:" do
+    src = "defmodule D do\n  alias Server.Channels, as: C\n  def go, do: C.general(1)\nend\n"
+    assert [%{line: 3}] = Find.calls(src, "Server.Channels.general")
+    assert [%{line: 2}] = Find.aliases(src, "Server.Channels")
+  end
+
   test "calls: a local call by bare name" do
     assert [%{line: 7}] = Find.calls(@src, "general")
   end

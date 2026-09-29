@@ -225,7 +225,7 @@ defmodule Menard.Find do
     walk(source, &alias_of(&1, &2, mod))
   end
 
-  defp alias_of({:alias, _meta, [{:__aliases__, _, parts}]} = node, _aliases, mod) do
+  defp alias_of({:alias, _meta, [{:__aliases__, _, parts} | _as]} = node, _aliases, mod) do
     if Menard.Source.alias_name(parts) == mod, do: {:alias, node}, else: nil
   end
 
@@ -303,6 +303,10 @@ defmodule Menard.Find do
       case Zipper.node(z) do
         {:alias, _, [{:__aliases__, _, parts}]} ->
           {z, Map.put(acc, to_string(List.last(parts)), Menard.Source.alias_name(parts, current))}
+
+        # `alias A.B, as: C`: C is the short name, which Elixir allows only unnested
+        {:alias, _, [{:__aliases__, _, parts}, [{{:__block__, _, [:as]}, {:__aliases__, _, as}}]]} ->
+          {z, Map.put(acc, Menard.Source.alias_name(as), Menard.Source.alias_name(parts, current))}
 
         {:alias, _, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} ->
           {z,
