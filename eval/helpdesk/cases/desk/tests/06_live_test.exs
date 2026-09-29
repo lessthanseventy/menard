@@ -6,6 +6,9 @@ defmodule Desk.Hidden.LiveTest do
 
   alias Desk.Tickets
 
+  # A status is matched whatever its case: the prompt has the element hold the status, and a page
+  # that shows "Open" holds it (desk3's with.1 failed the step on the capital alone).
+
   # the ids of the tickets listed, in the page's order
   defp listed(html) do
     ~r/id="ticket-(\d+)"/
@@ -22,8 +25,8 @@ defmodule Desk.Hidden.LiveTest do
     {:ok, view, html} = live(conn, ~p"/tickets")
     assert listed(html) == [urgent.id, open.id, low.id]
     assert view |> element("#ticket-#{open.id}") |> render() =~ "Open thing"
-    assert view |> element("#ticket-#{open.id}") |> render() =~ "open"
-    assert view |> element("#ticket-#{low.id}") |> render() =~ "new"
+    assert view |> element("#ticket-#{open.id}") |> render() =~ ~r/open/i
+    assert view |> element("#ticket-#{low.id}") |> render() =~ ~r/new/i
     assert html =~ ~s(href="/tickets/new")
   end
 
@@ -77,7 +80,7 @@ defmodule Desk.Hidden.LiveTest do
     ticket = through!(ticket!(), [:open])
     {:ok, view, _html} = live(conn, ~p"/tickets/#{ticket.id}")
 
-    assert view |> element("#ticket-status") |> render() =~ "open"
+    assert view |> element("#ticket-status") |> render() =~ ~r/open/i
     assert has_element?(view, "#transition-pending")
     assert has_element?(view, "#transition-resolved")
     refute has_element?(view, "#transition-open")
@@ -85,7 +88,7 @@ defmodule Desk.Hidden.LiveTest do
 
     view |> element("#transition-resolved") |> render_click()
     assert Tickets.get_ticket!(ticket.id).status == :resolved
-    assert view |> element("#ticket-status") |> render() =~ "resolved"
+    assert view |> element("#ticket-status") |> render() =~ ~r/resolved/i
     assert has_element?(view, "#transition-closed")
     assert has_element?(view, "#transition-open")
     refute has_element?(view, "#transition-pending")
@@ -104,7 +107,7 @@ defmodule Desk.Hidden.LiveTest do
     assert Tickets.get_ticket!(ticket.id).assignee_id == al.id
     assert view |> element("#assignee") |> render() =~ "Al Assigned"
     # assigned, a new ticket is open
-    assert view |> element("#ticket-status") |> render() =~ "open"
+    assert view |> element("#ticket-status") |> render() =~ ~r/open/i
   end
 
   test "the comment form adds the agent's comment, and the page shows what it did", %{conn: conn} do
@@ -142,7 +145,7 @@ defmodule Desk.Hidden.LiveTest do
              Enum.map([first, note, reply], &"#{&1.id}")
 
     # the public comment made the ticket pending
-    assert view |> element("#ticket-status") |> render() =~ "pending"
+    assert view |> element("#ticket-status") |> render() =~ ~r/pending/i
     assert has_element?(view, "#transition-open")
   end
 end
