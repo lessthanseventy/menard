@@ -5,7 +5,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Anubis.Server.Response
     alias Menard.Verbs
 
-    def ok(frame, payload), do: {:reply, Response.json(Response.tool(), Menard.jsonable(payload)), frame}
+    def ok(frame, payload), do: {:reply, Response.text(Response.tool(), Menard.encode(payload)), frame}
     def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
 
     @doc "A verb's result (`Menard.Verbs`) as the tool's answer: the reply as is, the reason as a tool error."

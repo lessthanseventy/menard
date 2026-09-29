@@ -14,7 +14,7 @@ defmodule Menard.CLI do
   """
   @spec answer(Menard.Verbs.result()) :: map()
   def answer({:ok, reply}) do
-    Mix.shell().info(JSON.encode!(Menard.jsonable(reply)))
+    Mix.shell().info(Menard.encode(reply))
     if reason = reply[:unformatted], do: Mix.shell().error("menard: " <> reason)
     reply
   end
