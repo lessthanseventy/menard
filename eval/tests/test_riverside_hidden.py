@@ -44,7 +44,7 @@ class MenardHidden(unittest.TestCase):
         return {p.removeprefix("./") for p in out.split()}
 
     def test_arm_a_has_no_word_of_menard(self):
-        ws = self.workspace("A")
+        ws = self.workspace("without")
         self.assertEqual(sorted(self.mentions(ws)), [])
         self.assertNotIn("menard", str(ws).lower())
         settings = (ws / ".claude" / "settings.json").read_text()
@@ -56,7 +56,7 @@ class MenardHidden(unittest.TestCase):
         self.assertNotIn("menard", tasks.lower())
 
     def test_the_run_env_names_databases_of_its_own_and_a_dead_llm(self):
-        ws = self.workspace("A")
+        ws = self.workspace("without")
         env = run.suite_env(CASE, "events.A.m.1", ws)
         self.assertEqual(env["MIX_TEST_PARTITION"], "_events_a_m_1")
         self.assertEqual(env["EX_RIVERSIDE_DEV_DB"], "ex_riverside_dev_events_a_m_1")

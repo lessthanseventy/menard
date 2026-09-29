@@ -16,8 +16,11 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["A", "B", "hook", "run-cli", "compile", "big-read", "stop", "all", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
+ARMS = ["without", "with", "A", "B", "hook", "run-cli", "compile", "big-read", "stop", "all", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
 ARM_TEXT = {
+    "without": "Claude Code and nothing else",
+    "with": "the menard plugin as a user installs it: its hooks, MCP tools and skill",
+    # the arms of the rounds before the two-arm runner (2026-09-28), kept to read their rows
     "A": "no menard",
     # B is menard as shipped at the round's commit: through bench5 the MCP tools, the guard hook and
     # the skill; from bench6 the formatting hook alone (69059a4)
@@ -114,10 +117,16 @@ def unbalanced(rows):
     return [(key, dict(c)) for key, c in sorted(counts.items()) if len(set(c.values())) > 1]
 
 
-def paired(rows, base="A"):
+def base_of(rows):
+    """The arm the others are read against: `without`, or A in the rounds before it had that name."""
+    return "without" if any(r["arm"] == "without" for r in rows) else "A"
+
+
+def paired(rows, base=None):
     """Each arm against `base` on the same (case, model, n), the run that differs only by the arm:
     per metric the cells where the arm was lower / higher and the delta's median and range, and
     the pass outcomes side by side. An unmatched run pairs with nothing."""
+    base = base or base_of(rows)
     cells = defaultdict(dict)
     for r in rows:
         cells[(r["case"], r["model"], r["n"])][r["arm"]] = r
@@ -141,7 +150,8 @@ def paired(rows, base="A"):
     return out
 
 
-def paired_table(rows, base="A"):
+def paired_table(rows, base=None):
+    base = base or base_of(rows)
     p = paired(rows, base)
     if not p:
         return f"(no arm shares a (case, model, n) with {base})"
@@ -298,8 +308,9 @@ def render(rows, rounds):
         md += [f"- {case} · {model}: " + ", ".join(f"{a} {n}" for a, n in sorted(c.items())) for (case, model), c in bad]
         md.append("")
 
-    md.append("## Paired deltas vs A\n\nEach arm against A on the same (case, model, n): the sign is the evidence, the count of "
-              "cells where the arm was lower / higher; Δ = arm − A.\n\n" + paired_table(rows, "A") + "\n")
+    base = base_of(rows)
+    md.append(f"## Paired deltas vs {base}\n\nEach arm against {base} on the same (case, model, n): the sign is the evidence, "
+              f"the count of cells where the arm was lower / higher; Δ = arm − {base}.\n\n" + paired_table(rows, base) + "\n")
     md.append("## By arm\n\n" + table(grouped(rows, lambda r: "all"), "") + "\n")
     md.append("## By model\n\n" + table(sorted(grouped(rows, lambda r: r["model"]), key=lambda kv: MODELS.index(kv[0]) if kv[0] in MODELS else 9), "model") + "\n")
     md.append("## By task kind\n\n" + table(grouped(rows, lambda r: r["kind"]), "kind") + "\n")
@@ -353,7 +364,7 @@ def render(rows, rounds):
     md.append("\n## Gap signals (menard arms)\n")
     kinds = defaultdict(list)
     for r in rows:
-        if r["arm"] != "A":
+        if r["arm"] not in ("A", "without"):
             for g in r["gaps"]:
                 kinds[g["kind"]].append((r["id"], g))
     for kind, evs in sorted(kinds.items()):
@@ -364,7 +375,7 @@ def render(rows, rounds):
 
     md.append("\n## menard tool failures (menard arms)\n")
     for r in rows:
-        if r["arm"] != "A":
+        if r["arm"] not in ("A", "without"):
             for f in r["failures"]:
                 if f["tool"].startswith("menard:"):
                     md.append(f"- `{r['id']}` {f['tool']}: {f['text'][:220].replace(chr(10), ' ⏎ ')}")

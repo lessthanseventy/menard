@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""menard vs. no menard: run eval cases headless, one fresh fixture copy per run.
+"""With menard and without: run eval cases headless, one fresh copy of the template per run.
 
-    eval/run.py ROUND --cases a,b --arms A,B,C --models claude-sonnet-5 --runs 2
+    eval/run.py ROUND --suite eval/SUITE --models claude-fable-5-1 --runs 5
 
-Arms: A no plugin; B the plugin (a pinned copy of this repo); C the same copy with
-hooks/hooks.json emptied. Each run appends one JSON line to eval/results/ROUND/runs.jsonl and
-keeps its stream-json trace next to it. `claude plugin eval` is not used: its sandbox cannot start
-Erlang (see STATUS.md), and it has no shell grader and no third arm.
+Two arms. `without`: Claude Code and nothing else. `with`: the menard plugin as a user installs it
+(a pinned copy of this repo: its hooks, MCP tools and skill), and nothing the eval adds to it. The
+arms run in pairs, their order within a pair shuffled by the round's seed. Each run appends one
+JSON line to eval/results/ROUND/runs.jsonl and keeps its stream-json trace next to it. `claude
+plugin eval` is not used: its sandbox cannot start Erlang (see STATUS.md), and it has no shell
+grader.
 """
 
 import argparse
@@ -123,81 +125,19 @@ def build_template(suite, force=False):
     subprocess.run(["chmod", "-R", "a-w", str(TEMPLATE)], check=True)
 
 
+ARMS = ("without", "with")
+
+
 def build_plugins(force=False):
-    """Pinned copies of the plugin, so editing this repo mid-eval changes no run. C has no hooks; L
-    loads the MCP tools up front (`alwaysLoad`, undocumented) instead of behind ToolSearch."""
-    # L (the tools always loaded) is gone: manos loads them up front, and menard has none
-    for arm in ["B", "C", "H", "M", "hook", "cli", "grep", "map", "lazy-mcp", "stop", "map-mcp", "run-cli", "compile", "big-read", "all"]:
-        dest = PLUGINS / arm
-        if dest.exists() and not force:
-            continue
-        shutil.rmtree(dest, ignore_errors=True)
-        # worktrees: .claude/worktrees holds whole checkouts of this repo, one per agent at work
-        ignore = shutil.ignore_patterns(".git", "eval", "tmp", "doc", "erl_crash.dump", ".worktrees", "worktrees", "pi")
-        shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
-        if arm == "C":
-            (dest / "hooks" / "hooks.json").write_text('{"hooks": {}}\n')
-        # H: no tools, no skill, no guard: only a hook that formats each Elixir file written and
-        # names one that does not parse. Is menard's clean output the tools', or the formatting?
-        if arm == "H":
-            # every script the arm's hooks.json names, and nothing else to run
-            for f in (EVAL / "arms" / "H").iterdir():
-                shutil.copy(f, dest / "hooks" / f.name)
-            shutil.rmtree(dest / "skills", ignore_errors=True)
-            manifest = dest / ".claude-plugin" / "plugin.json"
-            d = json.loads(manifest.read_text())
-            d.pop("mcpServers", None)
-            manifest.write_text(json.dumps(d, indent=2) + "\n")
-        # four ways to keep manos' reach without its ~5,600 tokens of schema on every turn (bench6):
-        # `cli` teaches the CLI in a few lines, `grep` answers a grep with each hit's function, `map`
-        # gives a map of the project at the start, `lazy-mcp` keeps the MCP tools but deferred behind
-        # ToolSearch. `hook` is B under a name that says what it is
-        # `stop` checks what the agent changed when it ends its turn (compile, credo on its lines, the
-        # stale tests) and refuses the stop while that is red, and a `git commit` waits for the whole
-        # gate; `map-mcp` is the map and manos together, which neither alone would show
-        extra = {"cli": [("SessionStart", None, "session-cli.sh")], "grep": [("PostToolUse", "Bash", "grep-where.sh")],
-                 "map": [("SessionStart", None, "session-map.sh")], "map-mcp": [("SessionStart", None, "session-map.sh")],
-                 "stop": [("Stop", None, "stop-gate.sh"), ("PreToolUse", "Bash", "commit-gate.sh")], "run-cli": [("SessionStart", None, "session-run.sh")],
-                 "big-read": [("PreToolUse", "Read", "big-read.sh")],
-                 # everything the hook-side arms add, together
-                 "all": [("SessionStart", None, "session-run.sh"), ("PreToolUse", "Read", "big-read.sh"),
-                         ("Stop", None, "stop-gate.sh"), ("PreToolUse", "Bash", "commit-gate.sh"),
-                         ("PreToolUse", "Edit|MultiEdit|Write|NotebookEdit", "menard-only.sh")]}.get(arm, [])
-        # `all`'s scripts the shipped plugin no longer has (the guard)
-        if arm == "all":
-            for f in (EVAL / "arms" / "all").iterdir():
-                shutil.copy(f, dest / "hooks" / f.name)
-        for event, matcher, script in extra:
-            hooks_json = dest / "hooks" / "hooks.json"
-            d = json.loads(hooks_json.read_text())
-            hook = {"type": "command", "command": f'bash "${{CLAUDE_PLUGIN_ROOT}}/hooks/{script}"'}
-            # the gates run a suite, past the default hook timeout, and a hook that times out lets the stop
-            # or the commit through. Tlön measured (fresh workspace): run check 52 s server + 15 s console,
-            # a first test --stale 56 s; 300 is ~4x the worst, room for a loaded machine
-            if script in ("stop-gate.sh", "commit-gate.sh"):
-                hook["timeout"] = 300
-            entry = {"hooks": [hook]}
-            if matcher:
-                entry["matcher"] = matcher
-            d["hooks"].setdefault(event, []).append(entry)
-            hooks_json.write_text(json.dumps(d, indent=2) + "\n")
-        # `compile`: the format hook also compiles and names warnings in the files written (a flag, so
-        # the shipped hook is unchanged until the round says it earns it)
-        if arm in ("compile", "all"):
-            hooks_json = dest / "hooks" / "hooks.json"
-            text = hooks_json.read_text().replace('bash \\"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\\"',
-                                                  'MENARD_HOOK_COMPILE=1 bash \\"${CLAUDE_PLUGIN_ROOT}/hooks/format-report.sh\\"')
-            hooks_json.write_text(text)
-        if arm == "lazy-mcp":
-            manifest = dest / "manos" / ".claude-plugin" / "plugin.json"
-            d = json.loads(manifest.read_text())
-            d["mcpServers"]["menard"].pop("alwaysLoad", None)
-            manifest.write_text(json.dumps(d, indent=2) + "\n")
-        if arm == "L":
-            manifest = dest / ".claude-plugin" / "plugin.json"
-            d = json.loads(manifest.read_text())
-            d["mcpServers"]["menard"]["alwaysLoad"] = True
-            manifest.write_text(json.dumps(d, indent=2) + "\n")
+    """The `with` arm's plugin: a pinned copy of this repo as it is now, so editing the repo
+    mid-round changes no run. As shipped: nothing is added to it and nothing taken out."""
+    dest = PLUGINS / "with"
+    if dest.exists() and not force:
+        return
+    shutil.rmtree(dest, ignore_errors=True)
+    # worktrees: .claude/worktrees holds whole checkouts of this repo, one per agent at work
+    ignore = shutil.ignore_patterns(".git", "eval", "tmp", "doc", "erl_crash.dump", ".worktrees", "worktrees", "pi")
+    shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
 
 
 def warm_plugins():
@@ -218,7 +158,7 @@ def prepare(case_dir, ws, arm):
         if code != 0:
             sys.exit(f"{case_dir.name}: setup.sh failed:\n{out}")
     # the project as this arm would find it (eval/tlon: its AGENTS.md sends tests through menard, which
-    # arm A has not got), before the base commit so the diff never sees it
+    # the arm without has not got), before the base commit so the diff never sees it
     arm_setup = case_dir.parent.parent / "arm_setup.sh"
     if arm_setup.exists():
         code, out = sh(["bash", str(arm_setup), arm, str(PLUGINS / arm)], ws)
@@ -228,21 +168,6 @@ def prepare(case_dir, ws, arm):
     for cmd in ["git init -q", "git add -A", "git -c user.name=eval -c user.email=eval@x commit -qm base",
                 "git tag eval-base"]:
         sh(cmd, ws)
-
-
-def build_skill_arm(arm, force=False):
-    """`S-<variant>`: arm B with its skill swapped for eval/skills/<variant>.md, or none (`S-none`).
-    `SL-<variant>`: the same on arm L, the tools always loaded."""
-    dest = PLUGINS / arm
-    if dest.exists() and not force:
-        return
-    shutil.rmtree(dest, ignore_errors=True)
-    base, variant = arm.split("-", 1)
-    shutil.copytree(PLUGINS / ("L" if base == "SL" else "B"), dest, symlinks=True)
-    if variant == "none":
-        shutil.rmtree(dest / "skills")
-    else:
-        shutil.copy(EVAL / "skills" / f"{variant}.md", dest / "skills" / "menard" / "SKILL.md")
 
 
 def claude_cmd(prompt, model, arm, resume=None, persist=False):
@@ -255,12 +180,8 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd += ["--resume", resume] if resume else []
     cmd += [] if persist else ["--no-session-persistence"]
     cmd += ["--effort", EFFORT] if EFFORT else []
-    if arm != "A":
-        cmd += ["--plugin-dir", str(PLUGINS / arm)]
-    # M: menard (the formatting hook) and manos (the tools) beside it, as `install-claude.sh --tools`;
-    # `all` is all of menard, so its tools too
-    if arm in ("M", "lazy-mcp", "map-mcp", "all"):
-        cmd += ["--plugin-dir", str(PLUGINS / arm / "manos")]
+    if arm == "with":
+        cmd += ["--plugin-dir", str(PLUGINS / "with")]
     return cmd
 
 
@@ -410,7 +331,6 @@ def trace_metrics(trace_path, ws):
     for c in calls:
         name, inp = c["name"], c["input"]
         k = classify(name, inp)
-        # the plugin's name is in the prefix: menard's once, manos' since the tools moved there
         short = k["short"]
         by_name[short] = by_name.get(short, 0) + 1
         res = results.get(c["id"], {})
@@ -1123,7 +1043,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("round")
     ap.add_argument("--cases", default="")
-    ap.add_argument("--arms", default="A,B,C")
+    ap.add_argument("--arms", default=",".join(ARMS), help="without, with, or both (the default)")
     ap.add_argument("--models", default="claude-sonnet-5")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--rebuild", action="store_true")
@@ -1132,6 +1052,9 @@ def main():
     ap.add_argument("--stop-at", default="", help="HH:MM local; start no run after it")
     ap.add_argument("--seed", type=int, default=None, help="the arm order's seed (default: drawn, and kept in results/ROUND/seed)")
     a = ap.parse_args()
+    unknown = [arm for arm in a.arms.split(",") if arm not in ARMS]
+    if unknown:
+        sys.exit(f"no arm {', '.join(unknown)}: the arms are {' and '.join(ARMS)}")
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         signal.signal(sig, stop)
 
@@ -1145,9 +1068,6 @@ def main():
     build_template(suite, a.rebuild)
     build_plugins(a.rebuild)
     warm_plugins()
-    for arm in a.arms.split(","):
-        if arm.startswith(("S-", "SL-")):
-            build_skill_arm(arm, a.rebuild)
     cases = sorted(p.parent for p in [*(suite / "cases").glob("*/prompt.md"), *(suite / "cases").glob("*/steps")])
     if a.cases:
         want = a.cases.split(",")
@@ -1189,7 +1109,7 @@ def main():
 def schedule(cases, arms, models, runs, seed):
     """Every (case, arm, model, n) in the order they run: run by run, model by model, case by case,
     and within each the arms in an order `seed` shuffles, so no arm always goes first (wall time and
-    the prompt cache's warmth followed the arm when A always did) while drift in the API over the
+    the prompt cache's warmth followed the arm that always went first) while drift in the API over the
     window still hits every arm alike. The same seed gives the same order."""
     rng = random.Random(seed)
     out = []

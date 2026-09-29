@@ -37,7 +37,7 @@ while True:
                 if c.get("type") == "tool_use":
                     inp = c.get("input", {})
                     what = inp.get("command") or inp.get("file_path") or json.dumps(inp)
-                    print(f"  {c['name'].replace('mcp__plugin_manos_menard__', 'manos:')}: {str(what)[:140]}", flush=True)
+                    print(f"  {c['name'].replace('mcp__plugin_menard_menard__', 'menard:')}: {str(what)[:140]}", flush=True)
         elif e.get("subtype") == "hook_response" and (e.get("output") or "").strip():
             try:
                 ctx = json.loads(e["output"])["hookSpecificOutput"]["additionalContext"]

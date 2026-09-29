@@ -93,7 +93,7 @@ def patched(b, probe=None):
 
 
 def ws_of(b, case, n=1):
-    return b.work / "runs" / b.out.name / f"{case.name}.A.m.{n}"
+    return b.work / "runs" / b.out.name / f"{case.name}.without.m.{n}"
 
 
 class TestDetection(unittest.TestCase):
@@ -221,7 +221,7 @@ class TestRedo(unittest.TestCase):
         cls.control = bench(cls._dir.name, ci=True)
         plan(cls.control, {})
         with patched(cls.control):
-            cls.control_row = run.run_one(cls.control.long, "A", "m", 1, cls.control.out)
+            cls.control_row = run.run_one(cls.control.long, "without", "m", 1, cls.control.out)
 
     @classmethod
     def tearDownClass(cls):
@@ -242,7 +242,7 @@ class TestRedo(unittest.TestCase):
         b = self.b
         plan(b, {"step two": ["limit"]})
         with patched(b) as p:
-            row = run.run_one(b.long, "A", "m", 1, b.out)
+            row = run.run_one(b.long, "without", "m", 1, b.out)
         self.assertTrue(row["pass"])
         # the redo started where the cut attempt did, which is where the uninterrupted run's step started
         self.assertEqual(start_of(b, "step two", 1), start_of(b, "step two", 0))
@@ -267,7 +267,7 @@ class TestRedo(unittest.TestCase):
         b = self.b
         plan(b, {"step one": ["stderr"]})
         with patched(b) as p:
-            row = run.run_one(b.long, "A", "m", 1, b.out)
+            row = run.run_one(b.long, "without", "m", 1, b.out)
         self.assertTrue(row["pass"])
         redo = start_of(b, "step one", 1)
         # a fresh session, and the dead one's transcript and hook state are gone
@@ -280,7 +280,7 @@ class TestRedo(unittest.TestCase):
         b = self.b
         plan(b, {"CI failed": ["overload"]})
         with patched(b) as p:
-            row = run.run_one(b.long, "A", "m", 1, b.out)
+            row = run.run_one(b.long, "without", "m", 1, b.out)
         self.assertTrue(row["ci"]["green"])
         self.assertEqual(row["ci"]["rounds"], 1)
         self.assertEqual(start_of(b, "CI failed", 1), start_of(b, "CI failed", 0))
@@ -291,7 +291,7 @@ class TestRedo(unittest.TestCase):
         b = self.b
         plan(b, {"the one task": ["limit"]})
         with patched(b):
-            row = run.run_one(b.one, "A", "m", 1, b.out)
+            row = run.run_one(b.one, "without", "m", 1, b.out)
         self.assertTrue(row["pass"])
         # a single case keeps no session: the redo is a fresh one, from the same workspace and hook state
         self.assertEqual(start_of(b, "the one task", 1), dict(start_of(b, "the one task", 0), sid="sess2"))
@@ -303,7 +303,7 @@ class TestRedo(unittest.TestCase):
         plan(b, {"step two": ["limit"] * run.MAX_REDOS})
         with patched(b) as p:
             with self.assertRaises(run.RoundStop) as stopped:
-                run.run_one(b.long, "A", "m", 1, b.out)
+                run.run_one(b.long, "without", "m", 1, b.out)
         self.assertIn("02", str(stopped.exception))
         self.assertEqual(len(p.sleeps), run.MAX_REDOS - 1)
         self.assertFalse((b.out / "runs.jsonl").exists())
@@ -312,7 +312,7 @@ class TestRedo(unittest.TestCase):
         # the limit lifted, the same command again
         plan(b, {})
         with patched(b):
-            row = run.run_one(b.long, "A", "m", 1, b.out)
+            row = run.run_one(b.long, "without", "m", 1, b.out)
         self.assertTrue(row["pass"])
         self.assertEqual(len(calls(b, "step one")), 1)
         self.assertEqual([r["point"] for r in row["resumes"]], ["02"])
@@ -326,7 +326,7 @@ def child(d):
     """A runner that the kill test kills mid-step."""
     b = bench(d, ci=True)
     with patched(b):
-        run.run_one(b.long, "A", "m", 1, b.out)
+        run.run_one(b.long, "without", "m", 1, b.out)
 
 
 class TestResume(unittest.TestCase):
@@ -348,7 +348,7 @@ class TestResume(unittest.TestCase):
             fake = int((b.state / "hanging").read_text())
             plan(b, {})
             with patched(b) as p:
-                row = run.run_one(b.long, "A", "m", 1, b.out)
+                row = run.run_one(b.long, "without", "m", 1, b.out)
             self.assertTrue(row["pass"])
             self.assertEqual(row["steps_passed"], 3)
             self.assertEqual(len(calls(b, "step one")), 1)
@@ -365,7 +365,7 @@ class TestResume(unittest.TestCase):
                 control = bench(c, ci=True)
                 plan(control, {})
                 with patched(control):
-                    run.run_one(control.long, "A", "m", 1, control.out)
+                    run.run_one(control.long, "without", "m", 1, control.out)
                 self.assertEqual(start_of(b, "step two", 1), start_of(control, "step two"))
                 self.assertEqual(start_of(b, "step three"), start_of(control, "step three"))
 
@@ -373,10 +373,10 @@ class TestResume(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             b = bench(d)
             (b.out / "traces").mkdir(parents=True)
-            (b.out / "traces" / "long1.A.m.1.01.jsonl").write_text(fixture("ok.jsonl"))
+            (b.out / "traces" / "long1.without.m.1.01.jsonl").write_text(fixture("ok.jsonl"))
             plan(b, {})
             with patched(b) as p:
-                row = run.run_one(b.long, "A", "m", 1, b.out)
+                row = run.run_one(b.long, "without", "m", 1, b.out)
             self.assertTrue(row["pass"])
             self.assertTrue(any("redone from the start" in line for line in p.logs))
 
@@ -387,7 +387,7 @@ class TestMain(unittest.TestCase):
         b.out = Path(d) / "results" / "r1"
         b.out.mkdir(parents=True)
         (b.out / "runs.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-        argv = ["run.py", "r1", "--arms", "A", "--models", "m", "--cases", "long1,one", "--suite", str(Path(d) / "suite"), "--seed", "1"]
+        argv = ["run.py", "r1", "--arms", "without", "--models", "m", "--cases", "long1,one", "--suite", str(Path(d) / "suite"), "--seed", "1"]
         with patched(b), contextlib.ExitStack() as stack:
             for name in ("build_template", "build_plugins", "warm_plugins", "cleanup", "remove_workspace"):
                 stack.enter_context(unittest.mock.patch.object(run, name, lambda *a, **k: None))
@@ -405,8 +405,8 @@ class TestMain(unittest.TestCase):
             started.append(f"{case.name}.{arm}.{model}.{n}")
             return {"pass": True, "clean": True, "turns": 1, "cost_usd": 0.0, "wall_s": 1, "tool_errors": 0, "red_runs": 0, "tools": {}}
         with tempfile.TemporaryDirectory() as d:
-            self.main(d, [{"id": "long1.A.m.1"}], run_one)
-        self.assertEqual(started, ["one.A.m.1"])
+            self.main(d, [{"id": "long1.without.m.1"}], run_one)
+        self.assertEqual(started, ["one.without.m.1"])
 
     def test_a_round_stop_exits_cleanly_with_its_reason(self):
         def run_one(case, arm, model, n, out_dir):
