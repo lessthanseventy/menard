@@ -67,12 +67,12 @@ find PATTERN FILES                             where a thing is
 deps FILE name/arity                           what a function calls
 deps    add [--in DIR] SPEC|NAME · upgrade [APPS] [--to REQ]   a project dependency, fetched and compiled
 attr    get|set|delete|list  FILE NAME [VALUE]
-clause  replace|rewrite|delete|insert-after|insert-before  FILE name/arity HEAD [CODE] [--nth N]
-clause  insert-at FILE (Mod|-) top|bottom CODE
+clause  replace|rewrite|delete|insert_after|insert_before  FILE name/arity HEAD [CODE] [--nth N]
+clause  insert_at FILE (Mod|-) top|bottom CODE
 clause  move FILE name/arity --to DEST [--as Mod.Name]   with its doc, spec and comment
 clause  spec FILE name/arity [SPEC]                 the function's @spec
 clause  visibility FILE name/arity public|private
-stmt    insert-after|insert-before|replace|delete|list  FILE name/arity HEAD MATCH [CODE]
+stmt    insert_after|insert_before|replace|delete|list  FILE name/arity HEAD MATCH [CODE]
 block   get|replace|add|delete|relabel|list  FILE NAME [CODE] [--label L] [--args CONTEXT]
 module  add|list FILE [CODE]
 module  replace FILE Mod.Name CODE              one whole module, in a file of several

@@ -42,9 +42,9 @@ defmodule Menard.Verbs.Guard do
     what they write — not with text substitution:
 
       #{m} outline FILE                        what is in the file
-      #{m} clause replace|rewrite|delete|insert-after FILE name/arity HEAD [CODE]
+      #{m} clause replace|rewrite|delete|insert_after FILE name/arity HEAD [CODE]
       #{m} clause move FILE a/1,b/2,… --to NEW_FILE --delegate    a split: one call per new module
-      #{m} stmt insert-after|replace|delete FILE name/arity HEAD MATCH [CODE]
+      #{m} stmt insert_after|replace|delete FILE name/arity HEAD MATCH [CODE]
       #{m} attr get|set|delete FILE NAME [VAL]
       #{m} block get|replace|add|delete FILE NAME [CODE]
       #{m} rename OLD NEW [--atoms] [--comments] FILES

@@ -28,7 +28,7 @@ defmodule Menard.HelpTest do
   test "a verb's help is its examples, the calls it takes and what it says of itself" do
     assert {:ok, %{text: text}} = Help.run(%{verb: "clause"})
     assert text =~ "#{Menard.bin()} clause split lib/shop.ex"
-    assert text =~ "#{Menard.bin()} clause insert-at FILE MODULE CODE"
+    assert text =~ "#{Menard.bin()} clause insert_at FILE MODULE CODE"
     assert text =~ "the clause's CURRENT head"
 
     assert {:ok, %{text: text}} = Help.run(%{verb: "edit"})
