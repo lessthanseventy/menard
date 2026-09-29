@@ -807,3 +807,49 @@ Menard pinned at a95c049. Six sessions, one at a time, no usage-limit wait. Pair
   (`traces/RID.NN.diff`). One session did meet SQLite's "Database busy" under async tests and set
   the test pool to one itself; the template has that now, the same for both arms.
 - validate.py: 27 of 27 under the new grading.
+
+### desk3 (2026-09-29 09:41 - 10:56): helpdesk, sonnet, without vs with, 1 run
+
+Menard at 1078e20 (with `edit` and the script note). One session an arm: the first sonnet
+baseline on this suite, and a look at whether the new work is used. Regraded after (regrade.py),
+both rows judged by graders f08bb4fb.
+
+| | without | with |
+|---|---|---|
+| steps passed, regraded (as first graded) | 9/9 (8/9) | 9/9 (8/9) |
+| clean, CI green first, credo left | yes, yes, 0 | yes, yes, 0 |
+| turns | 329 | 257 |
+| agent seconds | 2,407 | 2,018 |
+| new input + output tokens | 625k | 523k |
+| tool errors, red test runs | 15, 3 | 10, 1 |
+
+| step | without: turns, s, tokens | with: turns, s, tokens |
+|---|---|---|
+| 01 tickets | 20, 84, 44k | 18, 110, 45k |
+| 02 status flow | 16, 98, 31k | 17, 99, 27k |
+| 03 staff | 31, 197, 51k | 26, 204, 51k |
+| 04 comments | 24, 140, 38k | 17, 139, 37k |
+| 05 response targets | 20, 183, 41k | 13, 168, 38k |
+| 06 LiveView pages | 121, 1018, 239k | 89, 724, 165k |
+| 07 API and export | 30, 297, 61k | 19, 212, 51k |
+| 08 rename + argument | 55, 250, 79k | 46, 212, 62k |
+| 09 split | 12, 139, 41k | 12, 151, 47k |
+
+- **With was 16% lower on tokens and on time, and one run an arm cannot say it is menard's.**
+  72% of the token gap is step 06, and step 06 in both arms is mostly not editing: 51 of the 119
+  tool calls without, and 40 of 87 with, start the dev server or drive a browser (playwright, by
+  the `run` skill both sessions loaded), most of them failing in the sandbox. How long a session
+  fights the browser is its own, not the plugin's.
+- **None of menard's tools was called, `edit` included**, through MCP or through Bash. Sonnet
+  edits with Edit and Write (83 and 33 without, 56 and 27 with), not with scripts: the one scripted
+  edit of Elixir in the with session is a perl in-place rename in step 08, which the hook's note
+  answered, with nothing after it to do differently. The Python heredoc `edit` was built for is
+  fable's and opus's habit, not sonnet's.
+- **The hooks**: 333 calls, all answered; 12 had something to say (9 reformats, 2 credo, 1 note).
+- **The graders**: two more faults found by real runs, both fixed and the rows regraded (no
+  minutes at all from outside business hours; a status shown with a capital), and six found by
+  reading for their like. Four in two rounds: each asked what my reference did, not what the
+  prompt asked, which validate.py cannot see, being made of my own answers. A failed step is
+  replayed from its saved diff before it is believed.
+- The sonnet baseline stands for later rounds of this suite (basis agent c17ccd43, Claude Code
+  2.1.283): one row. Two more would give it a spread.
