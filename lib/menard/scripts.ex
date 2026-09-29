@@ -89,14 +89,15 @@ defmodule Menard.Scripts do
       …
       EOF
     A new file is a block with nothing to find, or a heredoc (`cat > lib/new.ex <<'EOF'`). \
-    #{other(mode)}\
+    #{other(mode, menard)}\
     """
   end
 
-  defp other(:full),
+  defp other(:full, _menard),
     do: "Any other script is Elixir: `elixir -e '…'`, or `mix run -e '…'` for the project's own code."
 
-  defp other(:narrow), do: "A name changed everywhere it is used is `#{~s(menard rename OLD NEW FILES…)}`."
+  defp other(:narrow, menard),
+    do: "A name changed everywhere it is used is `#{menard} rename OLD NEW FILES…`."
 
   # the interpreter a command runs, by a word where a command starts: `grep python notes.md` runs none
   defp interpreter(command) do

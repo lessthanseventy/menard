@@ -128,7 +128,15 @@ def build_template(suite, force=False):
     subprocess.run(["chmod", "-R", "a-w", str(TEMPLATE)], check=True)
 
 
-ARMS = ("without", "with")
+# The arms with menard, and what each sets in the plugin's server environment: `with` is the plugin
+# as a user installs it; the others are that plugin with a setting of its own turned on, to see
+# what the setting costs and buys before it is anyone's default.
+VARIANTS = {
+    "with": {},
+    "with-narrow": {"MENARD_SCRIPTS": "narrow", "MENARD_RUNS": "rewrite"},
+    "with-full": {"MENARD_SCRIPTS": "full", "MENARD_RUNS": "rewrite"},
+}
+ARMS = ("without", *VARIANTS)
 
 
 def basis(suite):
@@ -178,9 +186,14 @@ def baseline(case, model, found):
 
 
 def build_plugins(force=False):
-    """The `with` arm's plugin: a pinned copy of this repo as it is now, so editing the repo
-    mid-round changes no run. As shipped: nothing is added to it and nothing taken out."""
-    dest = PLUGINS / "with"
+    """Each arm's plugin: a pinned copy of this repo as it is now, so editing the repo mid-round
+    changes no run. `with` is as shipped, nothing added and nothing taken out; a variant differs
+    from it by its settings in the server's environment, and by nothing else."""
+    for arm, settings in VARIANTS.items():
+        build_plugin(PLUGINS / arm, settings, force)
+
+
+def build_plugin(dest, settings, force):
     if dest.exists() and not force:
         return
     shutil.rmtree(dest, ignore_errors=True)
@@ -192,12 +205,17 @@ def build_plugins(force=False):
     dirty = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "lib", "bin", "hooks", "skills", "priv",
                             ".claude-plugin", "mix.exs", "mix.lock"], capture_output=True, text=True).stdout.strip()
     (dest / ".pinned").write_text(sha + ("+changes" if dirty else "") + "\n")
+    if settings:
+        manifest = dest / ".claude-plugin" / "plugin.json"
+        d = json.loads(manifest.read_text())
+        d["mcpServers"]["menard"]["env"].update(settings)
+        manifest.write_text(json.dumps(d, indent=2) + "\n")
 
 
 def pinned(arm):
     """The menard a row's arm ran: the commit its plugin was copied at, None for the arm without."""
-    mark = PLUGINS / "with" / ".pinned"
-    return mark.read_text().strip() if arm == "with" and mark.exists() else None
+    mark = PLUGINS / arm / ".pinned"
+    return mark.read_text().strip() if arm in VARIANTS and mark.exists() else None
 
 
 def warm_plugins():
@@ -240,8 +258,8 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd += ["--resume", resume] if resume else []
     cmd += [] if persist else ["--no-session-persistence"]
     cmd += ["--effort", EFFORT] if EFFORT else []
-    if arm == "with":
-        cmd += ["--plugin-dir", str(PLUGINS / "with")]
+    if arm in VARIANTS:
+        cmd += ["--plugin-dir", str(PLUGINS / arm)]
     return cmd
 
 
@@ -1152,7 +1170,7 @@ def main():
     SEED = a.seed if a.seed is not None else int(seed_file.read_text()) if seed_file.exists() else random.randrange(1 << 32)
     seed_file.write_text(f"{SEED}\n")
     log(f"{time.strftime('%H:%M')} {a.round} seed={SEED} arms={a.arms or 'with, and without where there is no baseline'}")
-    arms = a.arms.split(",") if a.arms else list(ARMS)
+    arms = a.arms.split(",") if a.arms else ["without", "with"]
     # without is a baseline: run where this basis has too few of it, not at every round
     kept = {}
     for case in cases:

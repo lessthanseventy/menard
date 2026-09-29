@@ -38,7 +38,7 @@ cat >&2 <<MSG
 menard: \`$verb\` has a structured door — \`$m $want [--in DIR]\` returns one line
 ({"ok":…,"tests":…,"failures":[…]}) with each failure carrying its source, instead of output to
 grep. \`$m run check\` is format + warnings-as-errors + tests in one call.
-Exception: while editing menard ITSELF, plain mix is right — \`menard run\` would run the
+Exception: while editing menard ITSELF, plain mix is right — \`$m run\` would run the
 half-edited code.
 MSG
 exit 2

@@ -16,10 +16,12 @@ from collections import defaultdict
 from pathlib import Path
 
 EVAL = Path(__file__).resolve().parent
-ARMS = ["without", "with", "A", "B", "hook", "run-cli", "compile", "big-read", "stop", "all", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
+ARMS = ["without", "with", "with-narrow", "with-full", "A", "B", "hook", "run-cli", "compile", "big-read", "stop", "all", "cli", "grep", "map", "map-mcp", "lazy-mcp", "M", "H", "L", "C"]
 ARM_TEXT = {
     "without": "Claude Code and nothing else",
     "with": "the menard plugin as a user installs it: its hooks, MCP tools and skill",
+    "with-narrow": "with, and a script that names an Elixir file refused; a piped test run rewritten to `menard run`",
+    "with-full": "with, and python, perl, ruby and node refused outright; a piped test run rewritten to `menard run`",
     # the arms of the rounds before the two-arm runner (2026-09-28), kept to read their rows
     "A": "no menard",
     # B is menard as shipped at the round's commit: through bench5 the MCP tools, the guard hook and

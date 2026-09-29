@@ -2,6 +2,12 @@
 # `menard VERB ARGS…` → `mix menard.VERB ARGS…` from menard's own project.
 set -euo pipefail
 
+# All of it in one group, read whole before any of it runs: bash reads a script as it goes, so
+# this file edited while it ran (menard editing its own launcher, 2026-09-29) went on from the
+# changed bytes ("ondition:: command not found"), after its work was done and with a failing exit.
+# `--frozen` is no help there: it runs the last build of the Elixir, through this same file.
+{
+
 # mix has to run from menard's own project, so the caller's directory — what every verb resolves a
 # relative path against (Menard.caller_dir/0) — rides MENARD_CWD. A mise task with `dir =` set has
 # already moved us, and left the real one in MISE_ORIGINAL_CWD.
@@ -42,13 +48,17 @@ if ((!frozen)) && ! cmp -s mix.lock "$fetched"; then
   cp mix.lock "$fetched"
 fi
 
+# this menard, by its path, in whatever it tells its caller to run: a bare `menard` is whichever one
+# the caller's PATH holds first, and a plugin's bin/ is the last place the harness's shell looks
+self="$PWD/bin/menard"
+
 # every lib/mix/tasks/menard.*.ex (a test holds the two to each other)
 verbs="edit|outline|find|deps|attr|clause|stmt|block|module|directive|rename|write|run|map|where|mcp|guard|hook|version"
 
 verb="${1:-}"
-[[ -n "$verb" ]] || { echo "usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
+[[ -n "$verb" ]] || { echo "usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
 # refused here, not by mix's "task could not be found" after a compile
-[[ "|$verbs|" == *"|$verb|"* ]] || { echo "menard: no verb $verb — usage: menard [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
+[[ "|$verbs|" == *"|$verb|"* ]] || { echo "menard: no verb $verb — usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs)" >&2; exit 2; }
 shift
 
 # `--stdin`: the LAST argument comes from stdin — multi-line CODE full of quotes and backslashes,
@@ -96,7 +106,7 @@ if ((!frozen)) && stale; then
   if ! quietly "${run[@]}" mix compile; then
     rm -rf "$ebin" && mkdir -p "$ebin" && cp -a "$good/." "$ebin/"
     rm -rf "$good"
-    echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: menard --frozen $verb …" >&2
+    echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: $self --frozen $verb …" >&2
     exit 1
   fi
   rm -rf "$good"
@@ -152,3 +162,4 @@ if ((status != 0)) && grep -q "Writer crashed (:epipe)" "$err"; then
 fi
 cat "$err" >&2
 exit "$status"
+}

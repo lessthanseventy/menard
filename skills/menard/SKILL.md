@@ -21,7 +21,9 @@ Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.f
   verb as an argument.
 - **pi**: `mcp({ tool: "menard__<tool>", args: {…} })`, the same arguments.
 - **CLI**, where there is no MCP: `menard <tool> <verb> FILE …`, the same fields in order; a
-  wrong call prints the usage. CODE full of quotes goes in a file, passed with `--stdin`.
+  wrong call prints the usage. CODE full of quotes goes in a file, passed with `--stdin`. Run it
+  by its path (`<the plugin's directory>/bin/menard`, as menard's own messages name it): a bare
+  `menard` is whichever one the PATH holds first, which in Claude Code is not the plugin's.
 
 `file` is relative to the project.
 

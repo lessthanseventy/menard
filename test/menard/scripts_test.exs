@@ -99,5 +99,7 @@ defmodule Menard.ScriptsTest do
     assert Scripts.upfront(:full, @menard) =~ "There is no python"
     assert Scripts.upfront(:full, @menard) =~ "elixir -e"
     assert Scripts.upfront(:narrow, @menard) =~ "Scripts for anything else run"
+    # no menard is named but by its path: a bare one is whichever the PATH holds first
+    refute Scripts.upfront(:narrow, @menard) =~ ~r/(?<![\w\/])menard (edit|rename|run)/
   end
 end
