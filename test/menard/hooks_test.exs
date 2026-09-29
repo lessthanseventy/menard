@@ -1028,11 +1028,63 @@ defmodule Menard.HooksTest do
     context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
     assert context =~ "lib/m.ex was reformatted"
     assert context =~ "lib/m.ex: edited by a python3 script"
-    assert context =~ "menard edit --then test - <<'EOF'"
+    assert context =~ "#{@root}/bin/menard edit --then test - <<'EOF'"
 
     # once: said again at every script, it is noise
     {out, 0} = shell.(python, fn -> File.write!(file, "defmodule M do\n  def i(x), do: x\nend\n") end)
     refute out =~ "menard edit"
+  end
+
+  @tag @tag :tmp_dir
+  test "the third Edit of a run is told of edit, once a session; a command between two Edits ends the run", %{
+    tmp_dir: dir
+  } do
+    # desk3: sonnet made 83 Edits in a session, a model call each, and called edit in none
+    host(dir)
+    file = Path.join(dir, "lib/m.ex")
+    File.write!(file, "defmodule M do\n  def f(x), do: x\nend\n")
+    session = "t#{System.unique_integer([:positive])}"
+
+    edit = fn tool ->
+      call = %{
+        hook_event_name: "PostToolUse",
+        tool_name: tool,
+        session_id: session,
+        tool_input: %{file_path: file}
+      }
+
+      report(Map.put(call, :tool_use_id, "c#{System.unique_integer([:positive])}"), dir, counting())
+    end
+
+    bash = fn ->
+      call = %{
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        session_id: session,
+        tool_input: %{command: "ls"}
+      }
+
+      {"", 0} = report(Map.put(call, :tool_use_id, "c#{System.unique_integer([:positive])}"), dir, counting())
+    end
+
+    # two Edits, a command, two Edits: no run of three
+    assert {"", 0} = edit.("Edit")
+    assert {"", 0} = edit.("Edit")
+    bash.()
+    assert {"", 0} = edit.("Edit")
+    # a Write is a new file's content, not a replacement: it neither counts nor ends the run
+    assert {"", 0} = edit.("Write")
+    assert {"", 0} = edit.("Edit")
+
+    {out, 0} = edit.("Edit")
+    context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
+    assert context =~ "3 Edits in a row"
+    assert context =~ "#{@root}/bin/menard edit --then test - <<'EOF'"
+
+    # once: the fourth, and the next run of three, say nothing
+    for _ <- 1..5, do: assert({"", 0} = edit.("Edit"))
+    # no file of a call's writes is left behind
+    assert Path.wildcard(Path.join(dir, "menard-written-*")) == []
   end
 
   defp bigread(payload, dir) do

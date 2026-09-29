@@ -14,7 +14,9 @@
   or none, `then` a run verb after. What a capable model writes a Python heredoc for (in the
   eval's traces its usual way of editing Elixir), whose `replace` says nothing when the text is
   not there: `edit` refuses, and says which. The CLI reads search/replace blocks from stdin. A
-  script that edited a module is told of it by the hook, once a session, after the fact.
+  script that edited a module is told of it by the hook, once a session, after the fact; so is
+  the third Edit of a run of them. Both name this menard by its path: a plugin's `bin/` is the
+  last place a shell looks, and a bare `menard` is whichever one the PATH holds before it.
 - `clause split`: a module into several in one call, `plan` a `{to, functions, as?, moduledoc?}`
   per new module, all written or none, delegates left unless `delegate: false`. On ex_riverside's
   862-line `events.ex`: 34 functions and 19 helpers into three modules in one call, where `clause
