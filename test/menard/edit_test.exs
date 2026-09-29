@@ -166,5 +166,10 @@ defmodule Menard.EditTest do
 
     assert {:error, why} = Menard.Edit.blocks("lib/a.ex\n<<<<<<< SEARCH\nx\n")
     assert why =~ "======="
+
+    # Found 2026-09-29, by the one who wrote it: a stray separator went into the file as text
+    stray = "lib/a.ex\n<<<<<<< SEARCH\nx\n=======\ny\n\n=======\n>>>>>>> REPLACE\n"
+    assert {:error, why} = Menard.Edit.blocks(stray)
+    assert why =~ "a second `=======`"
   end
 end

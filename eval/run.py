@@ -35,6 +35,9 @@ EFFORT = None
 TIMEOUT = 900
 # the round's arm-order seed (schedule/5), in every row so a round can be re-run in the same order
 SEED = None
+# what a row was measured on (basis/1): the suite's files and the Claude Code that ran it. A
+# `without` row is a baseline for every later round of the same basis, and for no other
+BASIS = None
 
 
 def sh(cmd, cwd, timeout=600, env=None):
@@ -128,6 +131,35 @@ def build_template(suite, force=False):
 ARMS = ("without", "with")
 
 
+def basis(suite):
+    """What a round's rows were measured on: a hash of the suite's files (its build, its prompts,
+    its graders and their tests; not the reference answers, which no run sees) and of the checks
+    every suite shares, and the Claude Code that ran. A prompt reworded, a grader fixed, a new
+    Claude Code: another basis, and the rows before it are no baseline for the rows after."""
+    import hashlib
+    h = hashlib.sha256()
+    files = [p for p in sorted(suite.rglob("*")) if p.is_file() and "__pycache__" not in p.parts
+             and "reference" not in p.parts and "results" not in p.parts]
+    for p in files:
+        h.update(str(p.relative_to(suite)).encode() + b"\0" + p.read_bytes() + b"\0")
+    common = EVAL / "cases" / "common.sh"
+    if common.exists():
+        h.update(b"common.sh\0" + common.read_bytes() + b"\0")
+    version = subprocess.run(["claude", "--version"], capture_output=True, text=True).stdout.strip()
+    return {"suite": h.hexdigest()[:16], "claude": version}
+
+
+def baseline(case, model, found):
+    """The `without` rows of any round measured on this round's basis, for `case` and `model`."""
+    rows = []
+    for f in sorted((EVAL / "results").glob("*/runs.jsonl")):
+        for line in f.read_text().splitlines():
+            r = json.loads(line) if line.strip() else {}
+            if r.get("arm") == "without" and r.get("basis") == found and r.get("case") == case and r.get("model") == model:
+                rows.append(dict(r, round=f.parent.name))
+    return rows
+
+
 def build_plugins(force=False):
     """The `with` arm's plugin: a pinned copy of this repo as it is now, so editing the repo
     mid-round changes no run. As shipped: nothing is added to it and nothing taken out."""
@@ -138,6 +170,17 @@ def build_plugins(force=False):
     # worktrees: .claude/worktrees holds whole checkouts of this repo, one per agent at work
     ignore = shutil.ignore_patterns(".git", "eval", "tmp", "doc", "erl_crash.dump", ".worktrees", "worktrees", "pi")
     shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
+    # which menard: the commit, and whether the tree held changes not in it
+    sha = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "lib", "bin", "hooks", "skills", "priv",
+                            ".claude-plugin", "mix.exs", "mix.lock"], capture_output=True, text=True).stdout.strip()
+    (dest / ".pinned").write_text(sha + ("+changes" if dirty else "") + "\n")
+
+
+def pinned(arm):
+    """The menard a row's arm ran: the commit its plugin was copied at, None for the arm without."""
+    mark = PLUGINS / "with" / ".pinned"
+    return mark.read_text().strip() if arm == "with" and mark.exists() else None
 
 
 def warm_plugins():
@@ -877,7 +920,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     cleanup(case_dir, rid, ws, env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
-        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n, "wall_s": wall, "agent_wall_s": wall,
+        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "basis": BASIS, "menard": pinned(arm), "n": n, "wall_s": wall, "agent_wall_s": wall,
         "timed_out": timed_out,
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
@@ -918,7 +961,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env, progress):
     tokens = {k: sum(s["tokens"][k] for s in steps) for k in ("input", "output", "cache_read", "cache_write")}
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
     row = {
-        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "n": n,
+        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "basis": BASIS, "menard": pinned(arm), "n": n,
         # the runner's own time on it: no limit's wait, no attempt it cut short, no checkpoint's copy
         "wall_s": round(progress["wall_s"] + time.time() - progress["_mark"] - progress["_paused"], 1),
         "agent_wall_s": round(total("agent_wall_s"), 1),
@@ -1046,7 +1089,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("round")
     ap.add_argument("--cases", default="")
-    ap.add_argument("--arms", default=",".join(ARMS), help="without, with, or both (the default)")
+    ap.add_argument("--arms", default="", help="without, with, or both; by default with, and without only for a "
+                    "case and model that have fewer than --runs baseline rows on this basis")
     ap.add_argument("--models", default="claude-sonnet-5")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--rebuild", action="store_true")
@@ -1055,7 +1099,7 @@ def main():
     ap.add_argument("--stop-at", default="", help="HH:MM local; start no run after it")
     ap.add_argument("--seed", type=int, default=None, help="the arm order's seed (default: drawn, and kept in results/ROUND/seed)")
     a = ap.parse_args()
-    unknown = [arm for arm in a.arms.split(",") if arm not in ARMS]
+    unknown = [arm for arm in a.arms.split(",") if arm and arm not in ARMS]
     if unknown:
         sys.exit(f"no arm {', '.join(unknown)}: the arms are {' and '.join(ARMS)}")
     for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -1081,15 +1125,30 @@ def main():
     if (out_dir / "runs.jsonl").exists():
         done = {json.loads(l)["id"] for l in (out_dir / "runs.jsonl").read_text().splitlines() if l.strip()}
 
+    global BASIS
+    BASIS = basis(suite)
+    log(f"{time.strftime('%H:%M')} {a.round} basis: suite {BASIS['suite']}, {BASIS['claude']}")
+
     # the round's seed: given, kept from its first start (a resumed round keeps its order), or drawn
     global SEED
     seed_file = out_dir / "seed"
     SEED = a.seed if a.seed is not None else int(seed_file.read_text()) if seed_file.exists() else random.randrange(1 << 32)
     seed_file.write_text(f"{SEED}\n")
-    log(f"{time.strftime('%H:%M')} {a.round} seed={SEED} arms={a.arms}")
-    for case, arm, model, n in schedule(cases, a.arms.split(","), a.models.split(","), a.runs, SEED):
+    log(f"{time.strftime('%H:%M')} {a.round} seed={SEED} arms={a.arms or 'with, and without where there is no baseline'}")
+    arms = a.arms.split(",") if a.arms else list(ARMS)
+    # without is a baseline: run where this basis has too few of it, not at every round
+    kept = {}
+    for case in cases:
+        for model in a.models.split(","):
+            kept[(case.name, model)] = 0 if a.arms else len(baseline(case.name, model, BASIS))
+            if kept[(case.name, model)] >= a.runs:
+                log(f"{time.strftime('%H:%M')} {a.round} {case.name} {model}: without is the baseline, "
+                    f"{kept[(case.name, model)]} rows on this basis")
+    for case, arm, model, n in schedule(cases, arms, a.models.split(","), a.runs, SEED):
         rid = f"{case.name}.{arm}.{model}.{n}"
         if rid in done:
+            continue
+        if arm == "without" and kept[(case.name, model)] >= a.runs:
             continue
         if a.stop_at and time.strftime("%H:%M") >= a.stop_at:
             print(f"stop-at {a.stop_at} reached", flush=True)
