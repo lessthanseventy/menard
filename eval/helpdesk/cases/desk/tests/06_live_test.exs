@@ -8,7 +8,10 @@ defmodule Desk.Hidden.LiveTest do
 
   # the ids of the tickets listed, in the page's order
   defp listed(html) do
-    ~r/id="ticket-(\d+)"/ |> Regex.scan(html, capture: :all_but_first) |> List.flatten() |> Enum.map(&String.to_integer/1)
+    ~r/id="ticket-(\d+)"/
+    |> Regex.scan(html, capture: :all_but_first)
+    |> List.flatten()
+    |> Enum.map(&String.to_integer/1)
   end
 
   test "the list holds every ticket, in list_tickets' order, with its subject and status", %{conn: conn} do
@@ -31,6 +34,7 @@ defmodule Desk.Hidden.LiveTest do
     {:ok, view, _html} = live(conn, ~p"/tickets")
     assert view |> form("#filters", %{status: "open"}) |> render_change() |> listed() == [open.id]
     assert view |> form("#filters", %{status: "closed"}) |> render_change() |> listed() == []
+
     assert view |> form("#filters", %{status: ""}) |> render_change() |> listed() |> Enum.sort() ==
              Enum.sort([new.id, open.id])
   end
@@ -57,7 +61,15 @@ defmodule Desk.Hidden.LiveTest do
       |> form("#ticket-form", %{ticket: %{subject: "", body: "B", requester_email: "nope"}})
       |> render_submit()
 
-    assert html =~ "can&#39;t be blank"
+    # the errors are the changeset's, whatever the app has them say
+    assert {:error, changeset} = Tickets.create_ticket(%{subject: "", body: "B", requester_email: "nope"})
+
+    messages =
+      for {_field, {message, _opts}} <- changeset.errors,
+          do: message |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+    assert Enum.any?(messages, &(html =~ &1)), "none of #{inspect(messages)} is on the page"
+    assert has_element?(view, "#ticket-form")
     assert Tickets.list_tickets() == []
   end
 
@@ -104,8 +116,11 @@ defmodule Desk.Hidden.LiveTest do
     {:ok, view, html} = live(conn, ~p"/tickets/#{ticket.id}")
     assert view |> element("#comments #comment-#{first.id}") |> render() =~ "First words"
     # the agents to pick from are the active ones
-    assert html =~ ~s(value="#{al.id}")
-    refute html =~ ~s(value="#{gone.id}")
+    # in the select, not anywhere on the page: an id is a small number, and a page has many
+    agents = view |> element(~s(#comment-form select[name="comment[agent_id]"])) |> render()
+    assert agents =~ ~s(value="#{al.id}")
+    refute agents =~ ~s(value="#{gone.id}")
+    assert html =~ "First words"
 
     view
     |> form("#comment-form", %{comment: %{body: "A note between us", agent_id: al.id, internal: "true"}})

@@ -132,21 +132,38 @@ ARMS = ("without", "with")
 
 
 def basis(suite):
-    """What a round's rows were measured on: a hash of the suite's files (its build, its prompts,
-    its graders and their tests; not the reference answers, which no run sees) and of the checks
-    every suite shares, and the Claude Code that ran. A prompt reworded, a grader fixed, a new
-    Claude Code: another basis, and the rows before it are no baseline for the rows after."""
+    """What a round's rows were measured on, in two parts.
+
+    `agent` is what a session meets: how the template is built, its prompts, the settings and the
+    environment it runs under, with `claude`, the Claude Code that ran. A prompt reworded or a new
+    Claude Code is another basis, and the rows before it are no baseline for the rows after.
+
+    `graders` is what judges it after: the checks and their acceptance tests, which no session
+    sees. A grader fixed changes no token and no turn of a run already made, only its verdict, and
+    that is made again from the run's saved diffs (eval/regrade.py), not by running it again.
+
+    The reference answers are in neither: no run sees them, and no verdict comes from them."""
     import hashlib
-    h = hashlib.sha256()
+    met, judged = hashlib.sha256(), hashlib.sha256()
     files = [p for p in sorted(suite.rglob("*")) if p.is_file() and "__pycache__" not in p.parts
              and "reference" not in p.parts and "results" not in p.parts]
     for p in files:
+        h = met if p.name in AGENT_MEETS else judged
         h.update(str(p.relative_to(suite)).encode() + b"\0" + p.read_bytes() + b"\0")
     common = EVAL / "cases" / "common.sh"
     if common.exists():
-        h.update(b"common.sh\0" + common.read_bytes() + b"\0")
+        judged.update(b"common.sh\0" + common.read_bytes() + b"\0")
     version = subprocess.run(["claude", "--version"], capture_output=True, text=True).stdout.strip()
-    return {"suite": h.hexdigest()[:16], "claude": version}
+    return {"agent": met.hexdigest()[:16], "graders": judged.hexdigest()[:16], "claude": version}
+
+
+# the files of a suite a session meets, by name; every other is a grader's
+AGENT_MEETS = {"build.sh", "arm_setup.sh", "agent_env.sh", "cleanup.sh", "settings.json", "prompt.md", "setup.sh", "ci", "kind"}
+
+
+def same_start(a, b):
+    """Two rows' bases are one a baseline holds across: what the session met, and the Claude Code."""
+    return bool(a) and bool(b) and a.get("agent") is not None and (a.get("agent"), a.get("claude")) == (b.get("agent"), b.get("claude"))
 
 
 def baseline(case, model, found):
@@ -155,7 +172,7 @@ def baseline(case, model, found):
     for f in sorted((EVAL / "results").glob("*/runs.jsonl")):
         for line in f.read_text().splitlines():
             r = json.loads(line) if line.strip() else {}
-            if r.get("arm") == "without" and r.get("basis") == found and r.get("case") == case and r.get("model") == model:
+            if r.get("arm") == "without" and same_start(r.get("basis"), found) and r.get("case") == case and r.get("model") == model:
                 rows.append(dict(r, round=f.parent.name))
     return rows
 
@@ -1127,7 +1144,7 @@ def main():
 
     global BASIS
     BASIS = basis(suite)
-    log(f"{time.strftime('%H:%M')} {a.round} basis: suite {BASIS['suite']}, {BASIS['claude']}")
+    log(f"{time.strftime('%H:%M')} {a.round} basis: agent {BASIS['agent']}, graders {BASIS['graders']}, {BASIS['claude']}")
 
     # the round's seed: given, kept from its first start (a resumed round keeps its order), or drawn
     global SEED

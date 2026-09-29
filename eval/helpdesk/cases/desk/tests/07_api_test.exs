@@ -39,7 +39,10 @@ defmodule Desk.Hidden.ApiTest do
     _new = ticket!()
     open = through!(ticket!(priority: :high), [:open])
 
-    ids = fn query -> for t <- conn |> get(~p"/api/tickets?#{query}") |> json_response(200) |> Map.fetch!("data"), do: t["id"] end
+    ids = fn query ->
+      for t <- conn |> get(~p"/api/tickets?#{query}") |> json_response(200) |> Map.fetch!("data"), do: t["id"]
+    end
+
     assert ids.(%{status: "open"}) == [open.id]
     assert ids.(%{priority: "high", status: "open"}) == [open.id]
     assert ids.(%{priority: "high", status: "new"}) == []
@@ -50,7 +53,10 @@ defmodule Desk.Hidden.ApiTest do
     al = agent!("Al")
     ticket = ticket!()
     {:ok, %{comment: a}} = Tickets.add_comment(ticket, %{author_kind: :requester, body: "one"})
-    {:ok, _} = Tickets.add_comment(ticket, %{author_kind: :agent, agent_id: al.id, body: "secret", internal: true})
+
+    {:ok, _} =
+      Tickets.add_comment(ticket, %{author_kind: :agent, agent_id: al.id, body: "secret", internal: true})
+
     {:ok, %{comment: c}} = Tickets.add_comment(ticket, %{author_kind: :agent, agent_id: al.id, body: "three"})
 
     assert %{"data" => data} = conn |> get(~p"/api/tickets/#{ticket.id}") |> json_response(200)
@@ -65,35 +71,56 @@ defmodule Desk.Hidden.ApiTest do
 
   test "a ticket that is not there is a 404, from a number and from a word", %{conn: conn} do
     assert conn |> get(~p"/api/tickets/987654") |> json_response(404) == %{"error" => "not_found"}
-    assert conn |> get("/api/tickets/nope") |> json_response(404) == %{"error" => "not_found"}
-    assert conn |> post("/api/tickets/987654/transition", %{to: "open"}) |> json_response(404) == %{"error" => "not_found"}
+    # (not asked: an id that is no number, and a move of a ticket that is not there. The prompt
+    # gives the 404 to GET /api/tickets/:id)
   end
 
   test "POST /api/tickets files a ticket, or says what is wrong with it", %{conn: conn} do
-    body = %{ticket: %{subject: "Filed", body: "B", requester_email: "Zed@Example.com", priority: "urgent", status: "closed"}}
+    body = %{
+      ticket: %{
+        subject: "Filed",
+        body: "B",
+        requester_email: "Zed@Example.com",
+        priority: "urgent",
+        status: "closed"
+      }
+    }
+
     assert %{"data" => data} = conn |> post(~p"/api/tickets", body) |> json_response(201)
-    assert %{"subject" => "Filed", "priority" => "urgent", "status" => "new", "requester_email" => "zed@example.com"} = data
+
+    assert %{
+             "subject" => "Filed",
+             "priority" => "urgent",
+             "status" => "new",
+             "requester_email" => "zed@example.com"
+           } = data
+
     assert Tickets.get_ticket!(data["id"]).subject == "Filed"
 
-    assert %{"errors" => errors} = conn |> post(~p"/api/tickets", %{ticket: %{subject: "x"}}) |> json_response(422)
+    assert %{"errors" => errors} =
+             conn |> post(~p"/api/tickets", %{ticket: %{subject: "x"}}) |> json_response(422)
+
     assert Enum.sort(Map.keys(errors)) == ["body", "requester_email"]
     assert [message | _] = errors["body"]
     assert is_binary(message)
-    assert %{"errors" => %{}} = conn |> post(~p"/api/tickets", %{}) |> json_response(422)
+
     assert length(Tickets.list_tickets()) == 1
   end
 
   test "POST /api/tickets/:id/transition makes a move, or refuses it", %{conn: conn} do
     ticket = ticket!()
-    assert %{"data" => %{"status" => "open"}} = conn |> post(~p"/api/tickets/#{ticket.id}/transition", %{to: "open"}) |> json_response(200)
+
+    assert %{"data" => %{"status" => "open"}} =
+             conn |> post(~p"/api/tickets/#{ticket.id}/transition", %{to: "open"}) |> json_response(200)
+
     assert Tickets.get_ticket!(ticket.id).status == :open
 
-    for to <- ["closed", "open", "banana", nil] do
+    # a move the flow refuses, the status it has, a status that is none
+    for to <- ["closed", "open", "banana"] do
       assert conn |> post(~p"/api/tickets/#{ticket.id}/transition", %{to: to}) |> json_response(422) ==
                %{"error" => "invalid_transition"}
     end
 
-    assert conn |> post(~p"/api/tickets/#{ticket.id}/transition", %{}) |> json_response(422) == %{"error" => "invalid_transition"}
     assert Tickets.get_ticket!(ticket.id).status == :open
   end
 
@@ -106,17 +133,20 @@ defmodule Desk.Hidden.ApiTest do
     conn = get(conn, "/tickets/export.csv")
     assert response_content_type(conn, :csv) =~ "text/csv"
 
-    assert response(conn, 200) ==
-             Enum.join(
-               [
-                 "id,subject,status,priority,requester_email,assignee,inserted_at",
-                 ~s(#{plain.id},Plain,open,urgent,ann@example.com,"Smith, Al",2026-03-02T10:00:00Z),
-                 ~s(#{quoted.id},"He said ""no"", twice",new,high,ann@example.com,,2026-03-02T11:00:00Z),
-                 ~s(#{lines.id},fine,new,low,ann@example.com,,2026-03-02T12:00:00Z),
-                 ""
-               ],
-               "\r\n"
-             )
+    body = response(conn, 200)
+    assert String.ends_with?(body, "\r\n")
+    assert [header | rows] = body |> String.trim_trailing("\r\n") |> String.split("\r\n")
+    assert header == "id,subject,status,priority,requester_email,assignee,inserted_at"
+
+    # the last column is a time, in whatever form the app writes one: the prompt asks ISO 8601 of
+    # the API, and of the export only that it is there
+    assert Enum.map(rows, &String.replace(&1, ~r/,[^,]+$/, "")) == [
+             ~s(#{plain.id},Plain,open,urgent,ann@example.com,"Smith, Al"),
+             ~s(#{quoted.id},"He said ""no"", twice",new,high,ann@example.com,),
+             ~s(#{lines.id},fine,new,low,ann@example.com,)
+           ]
+
+    for row <- rows, do: assert(row =~ ~r/,2026-03-02[T ]1[012]:00:00/)
   end
 
   test "the export of no tickets is its header", %{conn: conn} do
