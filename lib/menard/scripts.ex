@@ -100,7 +100,9 @@ defmodule Menard.Scripts do
     do: "A name changed everywhere it is used is `#{menard} rename OLD NEW FILES…`."
 
   # the interpreter a command runs, by a word where a command starts: `grep python notes.md` runs none
-  defp interpreter(command) do
+  @doc "The interpreter `command` runs (python, perl, ruby, node) where a command starts, never in a heredoc, or nil."
+  @spec interpreter(String.t()) :: String.t() | nil
+  def interpreter(command) do
     case Regex.run(@runs, outside_heredocs(command)) do
       [_, script] -> script
       nil -> nil

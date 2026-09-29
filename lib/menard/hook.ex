@@ -229,13 +229,11 @@ defmodule Menard.Hook do
   # (`s = s.replace(old, new)` in a Python heredoc, file after file), and one whose replace says
   # nothing when it finds nothing. Said once a session, after the fact and of files the command did
   # write: what a command will do cannot be read off its text, and a guess that refuses one costs
-  # a turn.
-  @scripts ~r/(?:^|[\s;&|(])(python3?|perl|ruby|node)\b/
-
+  # a turn. The interpreter is read as Menard.Scripts reads it: a word in a heredoc runs nothing.
   defp scripted(answer, hook) do
     noted = session_file(hook, "scripted")
 
-    with [_, script] <- Regex.run(@scripts, hook.input["command"] || ""),
+    with script when is_binary(script) <- Menard.Scripts.interpreter(hook.input["command"] || ""),
          false <- File.exists?(noted),
          [_ | _] = edited <- edited(hook) do
       File.write!(noted, "")
