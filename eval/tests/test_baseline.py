@@ -12,7 +12,7 @@ import report  # noqa: E402
 import run  # noqa: E402
 import test_report  # noqa: E402
 
-BASIS = {"suite": "abc", "claude": "2.1.283 (Claude Code)"}
+BASIS = {"agent": "abc", "graders": "g1", "claude": "2.1.283 (Claude Code)"}
 
 
 def row(arm, n, basis=BASIS, model="m"):
@@ -50,20 +50,27 @@ class Basis(unittest.TestCase):
             first = run.basis(suite)
             (suite / "cases" / "c" / "reference" / "01.patch").write_text("an answer")
             self.assertEqual(run.basis(suite), first)
+            # a grader fixed judges the same runs again: what the session met is what it was
+            (suite / "cases" / "c" / "check.sh").write_text("exit 0")
+            fixed = run.basis(suite)
+            self.assertEqual(fixed["agent"], first["agent"])
+            self.assertNotEqual(fixed["graders"], first["graders"])
             (suite / "cases" / "c" / "prompt.md").write_text("do it well")
-            self.assertNotEqual(run.basis(suite)["suite"], first["suite"])
+            self.assertNotEqual(run.basis(suite)["agent"], fixed["agent"])
             self.assertIn("Claude Code", first["claude"])
 
 
 class Baseline(unittest.TestCase):
     def test_the_baseline_is_the_without_rows_of_the_same_basis_case_and_model(self):
-        other = {"suite": "changed", "claude": BASIS["claude"]}
+        other = {"agent": "changed", "graders": "g1", "claude": BASIS["claude"]}
         rounds = {"r1": [row("without", 1), row("without", 2), row("with", 1)],
                   "r0": [row("without", 1, basis=other), row("without", 1, basis=None), row("without", 1, model="n")]}
         with Results(rounds):
             found = run.baseline("desk", "m", BASIS)
             self.assertEqual([(r["round"], r["n"]) for r in found], [("r1", 1), ("r1", 2)])
-            self.assertEqual(run.baseline("desk", "m", {"suite": "abc", "claude": "2.2.0"}), [])
+            self.assertEqual(run.baseline("desk", "m", dict(BASIS, claude="2.2.0")), [])
+            # judged by other graders it is a baseline still, its verdicts to be made again
+            self.assertEqual(len(run.baseline("desk", "m", dict(BASIS, graders="g2"))), 2)
 
     def test_a_round_that_ran_no_without_is_lent_the_baseline_and_pairs_with_none_of_it(self):
         rounds = {"r1": [row("without", 1), row("without", 2)], "r2": [row("with", 1), row("with", 2)]}

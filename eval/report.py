@@ -54,17 +54,18 @@ def load(rounds):
 
 def borrowed(rows, rounds):
     """The baseline of a round that ran no `without`: the `without` rows of other rounds measured on
-    the same basis (the suite's files and the Claude Code, run.basis), for the same case and model.
+    the same start (what a session met and the Claude Code, run.basis), for the same case and model.
     Marked `borrowed`: they ran at another time, so they pair with no row here."""
     out = []
-    cells = {(r["case"], r["model"], json.dumps(r.get("basis"), sort_keys=True)) for r in rows if r.get("basis")}
+    start = lambda b: json.dumps([(b or {}).get("agent"), (b or {}).get("claude")])
+    cells = {(r["case"], r["model"], start(r["basis"])) for r in rows if (r.get("basis") or {}).get("agent")}
     have = {(r["case"], r["model"]) for r in rows if r["arm"] == "without"}
     for f in sorted((EVAL / "results").glob("*/runs.jsonl")):
         if f.parent.name in rounds:
             continue
         for l in open(f):
             r = json.loads(l) if l.strip() else {}
-            cell = (r.get("case"), r.get("model"), json.dumps(r.get("basis"), sort_keys=True))
+            cell = (r.get("case"), r.get("model"), start(r.get("basis")))
             if r.get("arm") == "without" and cell in cells and cell[:2] not in have:
                 out.append(dict(r, round=f.parent.name, borrowed=True))
     return out
@@ -333,6 +334,10 @@ def render(rows, rounds):
         n = sum(1 for r in rows if r.get("borrowed"))
         md.append(f"**Baseline**: the {n} `without` rows are from {', '.join(lent)}, measured on the same suite and "
                   "Claude Code at another time. Read arm against arm under By arm; nothing here is paired with them.\n")
+    judged = sorted({(r.get("basis") or {}).get("graders") or "unknown" for r in rows})
+    if len(judged) > 1:
+        md.append(f"**WARNING: judged by different graders** ({', '.join(judged)}): the pass, clean and step counts "
+                  "below are not comparable until the rounds are regraded (eval/regrade.py). Tokens, turns and times are.\n")
     base = base_of(rows)
     md.append(f"## Paired deltas vs {base}\n\nEach arm against {base} on the same (case, model, n): the sign is the evidence, "
               f"the count of cells where the arm was lower / higher; Δ = arm − {base}.\n\n" + paired_table(rows, base) + "\n")

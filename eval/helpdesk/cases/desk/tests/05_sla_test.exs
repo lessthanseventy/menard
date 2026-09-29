@@ -33,7 +33,8 @@ defmodule Desk.Hidden.SLATest do
     assert SLA.add_business_minutes(~U[2026-03-02 06:00:00Z], 60) == ~U[2026-03-02 10:00:00Z]
     assert SLA.add_business_minutes(~U[2026-03-02 20:00:00Z], 60) == ~U[2026-03-03 10:00:00Z]
     assert SLA.add_business_minutes(~U[2026-03-02 17:00:00Z], 30) == ~U[2026-03-03 09:30:00Z]
-    assert SLA.add_business_minutes(~U[2026-03-02 20:10:45Z], 0) == ~U[2026-03-03 09:00:00Z]
+    # (not asked: no minutes at all from outside business hours. The prompt says where a count
+    # starts, not what there is when there is nothing to count)
   end
 
   test "a weekend is skipped, from inside it and across it" do
