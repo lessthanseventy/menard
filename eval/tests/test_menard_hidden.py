@@ -64,7 +64,7 @@ class MenardHidden(unittest.TestCase):
         return {p.removeprefix("./") for p in out.split()}
 
     def test_arm_a_has_no_door_and_no_word_of_menard(self):
-        ws = self.workspace("A")
+        ws = self.workspace("without")
         self.assertEqual(sorted(self.mentions(ws) - ALLOWED.keys()), [])
         self.assertFalse((ws / "tasks/menard.toml").exists())
         self.assertFalse((ws / "scripts/menard.sh").exists())
@@ -76,11 +76,11 @@ class MenardHidden(unittest.TestCase):
         self.assertNotIn("menard", tasks.lower())
 
     def test_an_arm_with_menard_gets_its_door_back(self):
-        if not (run.PLUGINS / "all" / "bin" / "menard").exists():
-            self.skipTest("no pinned `all` plugin")
-        ws = self.workspace("all")
+        if not (run.PLUGINS / "with" / "bin" / "menard").exists():
+            self.skipTest("no pinned `with` plugin")
+        ws = self.workspace("with")
         self.assertTrue((ws / "tasks/menard.toml").exists())
-        self.assertIn(str(run.PLUGINS / "all" / "bin" / "menard"), (ws / "scripts/menard.sh").read_text())
+        self.assertIn(str(run.PLUGINS / "with" / "bin" / "menard"), (ws / "scripts/menard.sh").read_text())
         self.assertIn('"tasks/menard.toml"', (ws / "mise.toml").read_text())
 
 
