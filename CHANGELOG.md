@@ -21,6 +21,9 @@
 **Fixed**
 - `clause insert_at` with `top` landed between the first definition and the `@doc`/`@spec` above
   it, which then described the new function.
+- `clause move` and `clause split` took a call that leaves a default argument out (`record/4`, of
+  `record(a, b, c, d, e \\\\ :x)`) for no function of the module: the helper neither went along nor
+  was made public, and the new module did not compile.
 - The format hook missed a file a shell command wrote within the second of its mark, and took one
   written just before it for the command's.
 

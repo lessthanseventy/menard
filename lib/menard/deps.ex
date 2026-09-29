@@ -53,25 +53,56 @@ defmodule Menard.Deps do
   @spec graph(Macro.t()) :: %{{atom(), arity()} => %{kind: atom(), nodes: [Macro.t()], calls: MapSet.t()}}
   def graph(module) do
     defs = definitions(module)
-    own = MapSet.new(defs, &key/1)
+    defined = defined(defs)
 
     defs
     |> Enum.group_by(&key/1, fn {_key, node} -> node end)
     |> Map.new(fn {key, [{kind, _, _} | _] = nodes} ->
       calls = Enum.reduce(nodes, empty(), &collect/2).calls
-      {key, %{kind: kind, nodes: nodes, calls: calls |> MapSet.new() |> MapSet.intersection(own)}}
+      {key, %{kind: kind, nodes: nodes, calls: own(calls, defined)}}
     end)
+  end
+
+  @doc """
+  The function of `graph` that a call to `name/arity` reaches: the one of that arity, else one with
+  more arguments whose defaults make up the difference (`record(a, b, c \\\\ :x)` called as
+  record/2). nil when the module defines neither.
+  """
+  @spec reached(%{{atom(), arity()} => map()}, {atom(), arity()}) :: {atom(), arity()} | nil
+  def reached(graph, call),
+    do: resolve(call, defined(for {key, %{nodes: nodes}} <- graph, n <- nodes, do: {key, n}))
+
+  # every function defined, with how few arguments a call to it may give
+  defp defined(defs) do
+    defs
+    |> Enum.group_by(&key/1, fn {_key, {_kind, _meta, [head | _]}} -> defaults(head) end)
+    |> Map.new(fn {{_name, arity} = key, defaults} -> {key, arity - Enum.max(defaults)} end)
+  end
+
+  defp defaults({:when, _meta, [call | _guard]}), do: defaults(call)
+  defp defaults({_name, _meta, args}) when is_list(args), do: Enum.count(args, &match?({:\\, _, [_, _]}, &1))
+  defp defaults(_head), do: 0
+
+  defp resolve({name, arity} = call, defined) do
+    if is_map_key(defined, call) do
+      call
+    else
+      Enum.find(Map.keys(defined), fn {n, a} = key -> n == name and a > arity and defined[key] <= arity end)
+    end
+  end
+
+  # the calls that are to this module's own functions, each as the function it reaches
+  defp own(calls, defined) do
+    for call <- calls, key = resolve(call, defined), into: MapSet.new(), do: key
   end
 
   defp report(mine, defs, want) do
     refs = Enum.reduce(mine, empty(), fn {_key, node}, acc -> collect(node, acc) end)
-    own = MapSet.new(defs, &key/1)
 
     locals =
       refs.calls
-      |> Enum.filter(&MapSet.member?(own, &1))
+      |> own(defined(defs))
       |> Enum.reject(&(&1 == want))
-      |> Enum.uniq()
       |> Enum.sort()
       |> Enum.map(fn call -> %{call: name(call), shared_with: shared_with(defs, call, want)} end)
 
@@ -88,7 +119,7 @@ defmodule Menard.Deps do
   defp shared_with(defs, target, want) do
     defs
     |> Enum.reject(&(key(&1) == want))
-    |> Enum.filter(fn {_key, node} -> target in collect(node, empty()).calls end)
+    |> Enum.filter(fn {_key, node} -> target in own(collect(node, empty()).calls, defined(defs)) end)
     |> Enum.map(&name(key(&1)))
     |> Enum.uniq()
     |> Enum.sort()

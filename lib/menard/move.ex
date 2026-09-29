@@ -434,7 +434,13 @@ defmodule Menard.Move do
   # something else where the code lands. A type is named, not delegated: no stand-in exists for one.
   defp qualify(src, needs, dest) do
     staying = Map.drop(src.graph, src.taking)
-    back = for {key, meta} <- needs.scan.calls, Map.has_key?(staying, key), do: {key, meta}
+    # as the function it reaches: a call that leaves a default out names a smaller arity
+    back =
+      for {call, meta} <- needs.scan.calls,
+          key = Deps.reached(src.graph, call),
+          Map.has_key?(staying, key),
+          do: {key, meta}
+
     defined = types(src.module)
     types = for {key, meta} <- needs.scan.types, Map.has_key?(defined, key), do: {key, meta}
     macros = for {key, _} <- back, staying[key].kind in @macros, uniq: true, do: na(key)
