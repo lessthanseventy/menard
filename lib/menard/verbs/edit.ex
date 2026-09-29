@@ -7,6 +7,8 @@ defmodule Menard.Verbs.Edit do
 
   import Menard.Verbs
 
+  alias Menard.Verbs.Run
+
   @then ~w(test check compile)
 
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
@@ -54,7 +56,7 @@ defmodule Menard.Verbs.Edit do
   end
 
   defp then_run(reply, %{then: verb} = p) when is_binary(verb) do
-    {:ok, run} = Menard.Verbs.Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb}))
+    {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb}))
     %{reply | did: reply.did <> ", then run #{verb}"} |> Map.put(:run, run)
   end
 
