@@ -34,6 +34,7 @@ heads are in what you read. Then match the SHAPE of the change, not its size:
 
 | changing | call |
 |---|---|
+| text, in several places or several files | `edit {edits: [{file, old, new}, …], then?: "test"}`: ONE call, where you would write a script |
 | what a function does | `clause {verb: "replace", file, name_arity, head, code: BODY}` |
 | its head, args or guard | `clause {verb: "rewrite", …, code: "def …"}` |
 | one expression inside it | `stmt {verb: "replace", file, name_arity, head, match, code}` |
@@ -68,6 +69,12 @@ A function name repeated across modules is `Mod.Name.fun/2`.
 
 ## Traps
 
+- **Several replacements are one `edit`, not a script.** Each `old` is found exactly once, as the
+  edits before it left the file, or the whole call is refused and says which text was not there
+  (a script's `replace` that finds nothing says nothing, and the edit is believed made). Nothing
+  is written unless all of it is; `all: true` takes every occurrence; an empty `old` makes a new
+  file. Through the shell it reads search/replace blocks: `menard edit --then test - <<'EOF'`,
+  then for each: the file, `<<<<<<< SEARCH`, the text, `=======`, the new text, `>>>>>>> REPLACE`.
 - **`test` and `describe` are macros, not functions**: `block` reaches them by `label`.
 - **A zero-arity clause, or a function's only clause, takes `head: ""`.** Among several it is
   refused with their heads: copy one.

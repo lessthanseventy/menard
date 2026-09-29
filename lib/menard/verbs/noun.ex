@@ -47,6 +47,7 @@ defmodule Menard.Verbs.Noun do
   @spec modules() :: [module()]
   def modules do
     [
+      Verbs.Edit,
       Verbs.Write,
       Verbs.Rename,
       Verbs.Clause,
@@ -61,6 +62,17 @@ defmodule Menard.Verbs.Noun do
       Verbs.Run,
       Verbs.Hook
     ]
+  end
+
+  @doc """
+  The noun `verbs` declares. The doors are made from it while menard compiles, in an order the
+  compiler chooses: asked of a module not compiled yet, `noun/0` was undefined, and a fresh
+  checkout built or did not by that order. So the module is waited for first.
+  """
+  @spec of(module()) :: t()
+  def of(verbs) do
+    Code.ensure_compiled!(verbs)
+    verbs.noun()
   end
 
   @doc "The ms a door waits for the noun's verbs."

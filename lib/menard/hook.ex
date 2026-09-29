@@ -95,7 +95,7 @@ defmodule Menard.Hook do
     if File.exists?(mark) do
       files = newer(hook.root, mark)
       File.rm(mark)
-      files |> not_ignored(hook.root) |> written(hook, &not_held/2)
+      files |> not_ignored(hook.root) |> written(hook, &not_held/2) |> scripted(hook)
     else
       :quiet
     end
@@ -120,6 +120,60 @@ defmodule Menard.Hook do
     )
   end
 
+  # A script that edited modules: in the eval's traces the way a capable model edits Elixir
+  # (`s = s.replace(old, new)` in a Python heredoc, file after file), and one whose replace says
+  # nothing when it finds nothing. Said once a session, after the fact and of files the command did
+  # write: what a command will do cannot be read off its text, and a guess that refuses one costs
+  # a turn.
+  @scripts ~r/(?:^|[\s;&|(])(python3?|perl|ruby|node)\b/
+
+  defp scripted(answer, hook) do
+    noted = session_file(hook, "scripted")
+
+    with [_, script] <- Regex.run(@scripts, hook.input["command"] || ""),
+         false <- File.exists?(noted),
+         [_ | _] = edited <- edited(hook) do
+      File.write!(noted, "")
+      note(answer, script_note(script, edited))
+    else
+      _ -> answer
+    end
+  end
+
+  # the modules this call changed that were there before it: the ones git tracks
+  defp edited(hook) do
+    touched = hook |> session_file("written-#{hook.call}") |> File.read() |> lines()
+    File.rm(session_file(hook, "written-#{hook.call}"))
+
+    for line <- touched, [dir, rel] = String.split(line, "|", parts: 2), tracked?(dir, rel), do: rel
+  end
+
+  defp tracked?(dir, rel) do
+    match?(
+      {_, 0},
+      System.cmd("git", ["-C", dir, "ls-files", "--error-unmatch", "--", rel], stderr_to_stdout: true)
+    )
+  end
+
+  defp script_note(script, edited) do
+    """
+    #{Enum.join(edited, ", ")}: edited by a #{script} script. `menard edit` makes replacements like \
+    these in one call, in as many files: it refuses, and says which, when a text is not there (a \
+    script's replace says nothing), and `--then test` runs the tests after.
+      menard edit --then test - <<'EOF'
+      lib/a.ex
+      <<<<<<< SEARCH
+      the text to find
+      =======
+      the text to put there
+      >>>>>>> REPLACE
+      EOF\
+    """
+  end
+
+  defp note(:quiet, note), do: {:context, note <> "\n"}
+  defp note({kind, text}, note), do: {kind, text <> note <> "\n"}
+
   # a problem carries what was reformatted in the same call with it, or the next Edit on those files
   # is written against a stale read
   defp answer([], [], []), do: :quiet
@@ -134,6 +188,13 @@ defmodule Menard.Hook do
   defp report(hook, dir, files) do
     # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
     touched(hook, dir)
+    # what this call wrote, for what is said of a script that did (`scripted/2`)
+    for file <- files,
+        do:
+          File.write!(session_file(hook, "written-#{hook.call}"), "#{dir}|#{Path.relative_to(file, dir)}\n", [
+            :append
+          ])
+
     before = Map.new(files, &{&1, File.read!(&1)})
     reply = hook.run.(dir, "format", files)
     failed = Map.new(reply[:failures] || [], &{&1.at, &1.message})

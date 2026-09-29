@@ -984,6 +984,57 @@ defmodule Menard.HooksTest do
     assert File.read!(file) =~ "  def f(x), do: x\n"
   end
 
+  @tag @tag :tmp_dir
+  test "a script that edited a module is told of edit, once a session, and only of what it did edit", %{
+    tmp_dir: dir
+  } do
+    # the eval's traces: a capable model edits Elixir with a Python heredoc, file after file
+    host(dir)
+    file = Path.join(dir, "lib/m.ex")
+    File.write!(file, "defmodule M do\n  def f(x), do: x\nend\n")
+    {_, 0} = System.cmd("git", ["-C", dir, "add", "-A"])
+    session = "t#{System.unique_integer([:positive])}"
+
+    shell = fn cmd, write ->
+      call = %{
+        tool_name: "Bash",
+        session_id: session,
+        tool_use_id: "c#{System.unique_integer([:positive])}",
+        tool_input: %{command: cmd}
+      }
+
+      {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting())
+      write.()
+      report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting())
+    end
+
+    python = "python3 - <<'E'\np='lib/m.ex'\ns=open(p).read()\nopen(p,'w').write(s.replace('f(x)','g(x)'))\nE"
+
+    # a file the script made is no edit of a module
+    {out, 0} = shell.(python, fn -> File.write!(Path.join(dir, "lib/new.ex"), "defmodule New do\nend\n") end)
+    refute out =~ "menard edit"
+
+    # sed is no script
+    {out, 0} =
+      shell.("sed -i s/f/g/ lib/m.ex", fn -> File.write!(file, "defmodule M do\n  def g(x), do: x\nend\n") end)
+
+    refute out =~ "menard edit"
+
+    # a command that only names python, and wrote nothing
+    {out, 0} = shell.("echo python3", fn -> :ok end)
+    assert out == ""
+
+    {out, 0} = shell.(python, fn -> File.write!(file, "defmodule M do\n  def   h(x), do: x\nend\n") end)
+    context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
+    assert context =~ "lib/m.ex was reformatted"
+    assert context =~ "lib/m.ex: edited by a python3 script"
+    assert context =~ "menard edit --then test - <<'EOF'"
+
+    # once: said again at every script, it is noise
+    {out, 0} = shell.(python, fn -> File.write!(file, "defmodule M do\n  def i(x), do: x\nend\n") end)
+    refute out =~ "menard edit"
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

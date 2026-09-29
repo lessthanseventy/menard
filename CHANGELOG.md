@@ -10,6 +10,11 @@
   the host's formatter is kept warm, one VM per project (`Menard.Format.Worker`): 6-9 ms a write
   once warm, from 0.8-1.0 s. `menard hook` is the same hook for a harness that can only run a
   command; `hooks/format-report.sh` calls it.
+- `edit`: replacements of text, several in a file and in several files, in one call, all written
+  or none, `then` a run verb after. What a capable model writes a Python heredoc for (in the
+  eval's traces its usual way of editing Elixir), whose `replace` says nothing when the text is
+  not there: `edit` refuses, and says which. The CLI reads search/replace blocks from stdin. A
+  script that edited a module is told of it by the hook, once a session, after the fact.
 - `clause split`: a module into several in one call, `plan` a `{to, functions, as?, moduledoc?}`
   per new module, all written or none, delegates left unless `delegate: false`. On ex_riverside's
   862-line `events.ex`: 34 functions and 19 helpers into three modules in one call, where `clause
