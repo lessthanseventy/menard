@@ -1,0 +1,129 @@
+diff --git a/lib/desk/tickets.ex b/lib/desk/tickets.ex
+new file mode 100644
+index 0000000..8267a8b
+--- /dev/null
++++ b/lib/desk/tickets.ex
+@@ -0,0 +1,43 @@
++defmodule Desk.Tickets do
++  @moduledoc "Tickets: filing them and finding them."
++
++  import Ecto.Query
++
++  alias Desk.Repo
++  alias Desk.Tickets.Ticket
++
++  @doc "File a ticket. It starts new, whatever the attributes say."
++  def create_ticket(attrs) do
++    %Ticket{}
++    |> Ticket.changeset(attrs)
++    |> Repo.insert()
++  end
++
++  def get_ticket!(id), do: Repo.get!(Ticket, id)
++
++  @doc """
++  Tickets, the most urgent first and the oldest first within a priority. `opts` narrows the list:
++  `status:` and `priority:`.
++  """
++  def list_tickets(opts \\ []) do
++    Ticket
++    |> narrow(opts)
++    |> order_by([t],
++      asc:
++        fragment(
++          "CASE ? WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END",
++          t.priority
++        ),
++      asc: t.inserted_at,
++      asc: t.id
++    )
++    |> Repo.all()
++  end
++
++  defp narrow(query, opts) do
++    Enum.reduce(opts, query, fn
++      {:status, status}, query -> where(query, [t], t.status == ^status)
++      {:priority, priority}, query -> where(query, [t], t.priority == ^priority)
++    end)
++  end
++end
+diff --git a/lib/desk/tickets/ticket.ex b/lib/desk/tickets/ticket.ex
+new file mode 100644
+index 0000000..617dff9
+--- /dev/null
++++ b/lib/desk/tickets/ticket.ex
+@@ -0,0 +1,33 @@
++defmodule Desk.Tickets.Ticket do
++  @moduledoc "A request for help: who asked, what for, how urgent, and where it stands."
++  use Ecto.Schema
++
++  import Ecto.Changeset
++
++  @priorities [:low, :normal, :high, :urgent]
++  @statuses [:new, :open, :pending, :resolved, :closed]
++
++  schema "tickets" do
++    field :subject, :string
++    field :body, :string
++    field :requester_email, :string
++    field :priority, Ecto.Enum, values: @priorities, default: :normal
++    field :status, Ecto.Enum, values: @statuses, default: :new
++
++    timestamps(type: :utc_datetime)
++  end
++
++  def priorities, do: @priorities
++  def statuses, do: @statuses
++
++  @doc "A new ticket's changeset: its status is not the caller's to set."
++  def changeset(ticket, attrs) do
++    ticket
++    |> cast(attrs, [:subject, :body, :requester_email, :priority])
++    |> update_change(:subject, &String.trim/1)
++    |> update_change(:requester_email, &(&1 |> String.trim() |> String.downcase()))
++    |> validate_required([:subject, :body, :requester_email])
++    |> validate_length(:subject, max: 120)
++    |> validate_format(:requester_email, ~r/^[^\s@]+@[^\s@]+$/)
++  end
++end
+diff --git a/priv/repo/migrations/20260301000001_create_tickets.exs b/priv/repo/migrations/20260301000001_create_tickets.exs
+new file mode 100644
+index 0000000..a4a9715
+--- /dev/null
++++ b/priv/repo/migrations/20260301000001_create_tickets.exs
+@@ -0,0 +1,17 @@
++defmodule Desk.Repo.Migrations.CreateTickets do
++  use Ecto.Migration
++
++  def change do
++    create table(:tickets) do
++      add :subject, :string, null: false
++      add :body, :text, null: false
++      add :requester_email, :string, null: false
++      add :priority, :string, null: false, default: "normal"
++      add :status, :string, null: false, default: "new"
++
++      timestamps(type: :utc_datetime)
++    end
++
++    create index(:tickets, [:status])
++  end
++end
+diff --git a/test/desk/tickets_test.exs b/test/desk/tickets_test.exs
+new file mode 100644
+index 0000000..624e4f1
+--- /dev/null
++++ b/test/desk/tickets_test.exs
+@@ -0,0 +1,12 @@
++defmodule Desk.TicketsTest do
++  use Desk.DataCase, async: true
++
++  alias Desk.Tickets
++
++  test "a ticket is filed new" do
++    assert {:ok, ticket} =
++             Tickets.create_ticket(%{subject: "s", body: "b", requester_email: "a@b.c"})
++
++    assert ticket.status == :new
++  end
++end

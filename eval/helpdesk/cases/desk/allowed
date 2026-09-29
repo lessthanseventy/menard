@@ -1,0 +1,11 @@
+lib/**
+test/**
+priv/**
+config/**
+assets/**
+mix.exs
+mix.lock
+README.md
+AGENTS.md
+.formatter.exs
+.credo.exs
