@@ -145,7 +145,23 @@ defmodule Menard.Edit do
   defp upto(lines, mark, file) do
     case Enum.split_while(lines, &(&1 != mark)) do
       {_text, []} -> {:error, "#{file}: a block has no `#{mark}` line"}
-      {text, [^mark | rest]} -> {:ok, Enum.join(text, "\n"), rest}
+      {text, [^mark | rest]} -> unmarked(text, rest, file)
+    end
+  end
+
+  # A marker inside a block's text is a block written wrong far more often than it is the text: a
+  # second `=======` was taken for a line of the replacement, and written into the file.
+  @marks ["<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE"]
+
+  defp unmarked(text, rest, file) do
+    case Enum.find(text, &(&1 in @marks)) do
+      nil ->
+        {:ok, Enum.join(text, "\n"), rest}
+
+      mark ->
+        {:error,
+         "#{file}: a block holds a second `#{mark}` line. If the text itself has that line, " <>
+           "make this edit through the MCP tool, whose edits are fields"}
     end
   end
 end
