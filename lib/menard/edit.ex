@@ -19,8 +19,9 @@ defmodule Menard.Edit do
         }
 
   @doc """
-  Make `edits` (absolute paths), in order. `{:ok, reply}`: `changed`, each file's `Menard.write/3`
-  reply (its version and stages), in the order the files were first named, and `replacements`.
+  Make `edits` (absolute paths), in order. `{:ok, reply}`: `changed`, each file's path and version,
+  and the stages after the patch that changed anything (the formatter's, the plugins'), in the
+  order the files were first named, and `replacements`.
   An `old` of `""` makes a file that is not there, of `new`. `root:` is what a refusal names its
   file under.
   """
@@ -33,7 +34,7 @@ defmodule Menard.Edit do
     before = Map.new(files, &{&1, File.read(&1)})
 
     with {:ok, contents} <- replaced(edits, before),
-         :ok <- parsed(files, contents),
+         :ok <- parsed(files, contents, before),
          {:ok, changed} <- written(files, contents, before) do
       {:ok, %{changed: changed, replacements: length(edits)}}
     else
@@ -77,15 +78,25 @@ defmodule Menard.Edit do
 
   defp line(text, at), do: text |> binary_part(0, at) |> String.split("\n") |> length() |> to_string()
 
-  defp parsed(files, contents) do
+  defp parsed(files, contents, before) do
     Enum.find_value(files, :ok, fn file ->
       {:ok, text} = contents[file]
-
-      case Menard.Write.checked(file, text) do
-        {:ok, _content} -> nil
-        {:error, why} -> {:error, refusal(file, "with these edits it is #{why}")}
-      end
+      checked(file, text, before[file])
     end)
+  end
+
+  # nil when the file may be written as `text`, the refusal when not
+  defp checked(file, text, was) do
+    original = with {:ok, original} <- was, do: original
+    original = if is_binary(original), do: original, else: ""
+
+    with {:ok, content} <- Menard.Write.checked(file, text),
+         :ok <- Menard.Write.together(file, original, content) do
+      nil
+    else
+      {:error, "not parseable" <> _ = why} -> {:error, refusal(file, "with these edits it is #{why}")}
+      {:error, why} -> {:error, refusal(file, why)}
+    end
   end
 
   defp written(files, contents, before) do
@@ -95,13 +106,24 @@ defmodule Menard.Edit do
 
       case Menard.write(file, text, did: "edit #{Path.basename(file)}") do
         {:ok, reply} ->
-          {:cont, {:ok, done ++ [reply]}}
+          {:cont, {:ok, done ++ [lean(reply)]}}
 
         {:error, why} ->
           restore(Enum.map(done, & &1.file) ++ [file], before)
           {:halt, {:error, refusal(file, why)}}
       end
     end)
+  end
+
+  # The patch is what the caller wrote, to the letter: said back, a reply was the call over again.
+  # What is news is what came after it, the formatter's changes and the plugins', and only where
+  # there were any.
+  defp lean(reply) do
+    after_it = for %{stage: stage, hunks: [_ | _]} = s <- reply.stages, stage != :patch, do: s
+
+    reply
+    |> Map.take([:file, :version, :unformatted])
+    |> Map.merge(if(after_it == [], do: %{}, else: %{stages: after_it}))
   end
 
   defp restore(files, before) do

@@ -45,9 +45,11 @@ defmodule Menard do
     ]
   end
 
-  defp checked(file, content) do
-    case Menard.Write.checked(file, content) do
-      {:ok, patched} -> {:ok, patched}
+  defp checked(file, content, original) do
+    with {:ok, patched} <- Menard.Write.checked(file, content),
+         :ok <- Menard.Write.together(file, original, patched) do
+      {:ok, patched}
+    else
       {:error, reason} -> {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
     end
   end
@@ -121,7 +123,7 @@ defmodule Menard do
     original = if File.regular?(file), do: File.read!(file), else: ""
 
     with :ok <- fresh(file, original, opts),
-         {:ok, patched} <- checked(file, content) do
+         {:ok, patched} <- checked(file, content, original) do
       {formatted, split, format_error} =
         case format_staged(file, patched) do
           {:ok, f, split} -> {f, split, nil}

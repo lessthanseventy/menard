@@ -37,8 +37,11 @@ defmodule Menard.EditTest do
     # written through the one pipeline: parse-checked, and formatted by the project's formatter
     assert read(dir, "lib/a.ex") == "defmodule A do\n  def uno, do: 1\n  def two, do: 22\nend\n"
     assert read(dir, "lib/b.ex") =~ "A.uno()"
-    assert [%{file: a, version: "sha256:" <> _, stages: [_ | _]}, %{file: b}] = reply.changed
+    assert [%{file: a, version: "sha256:" <> _} = first, %{file: b} = second] = reply.changed
     assert {Path.basename(a), Path.basename(b)} == {"a.ex", "b.ex"}
+    # what the caller wrote is not said back: what the formatter made of it is, where it made anything
+    assert [%{stage: :formatter, hunks: [%{added: ["  def uno, do: 1"]}]}] = first.stages
+    refute is_map_key(second, :stages)
   end
 
   test "a text that is not there refuses the whole call, and says which", %{tmp_dir: dir} do
@@ -171,5 +174,42 @@ defmodule Menard.EditTest do
     stray = "lib/a.ex\n<<<<<<< SEARCH\nx\n=======\ny\n\n=======\n>>>>>>> REPLACE\n"
     assert {:error, why} = Menard.Edit.blocks(stray)
     assert why =~ "a second `=======`"
+  end
+
+  test "an edit that would put a function between the clauses of another is refused: it parses, and does not build",
+       %{tmp_dir: dir} do
+    # Found 2026-09-29, twice in an hour, by the one who wrote edit: a helper written under the clause
+    # that calls it, above that function's next clause. The compiler warns that the clauses are not
+    # grouped, and a build with warnings as errors fails.
+    File.write!(Path.join(dir, "lib/t.ex"), """
+    defmodule T do
+      def tool(:a), do: a()
+      def tool(:b), do: :b
+
+      defp a, do: :a
+    end
+    """)
+
+    before = read(dir, "lib/t.ex")
+
+    assert {:error, why} =
+             edit(dir, [
+               %{
+                 file: "lib/t.ex",
+                 old: "  def tool(:a), do: a()\n",
+                 new: "  def tool(:a), do: helped(a())\n\n  defp helped(x), do: x\n\n"
+               }
+             ])
+
+    assert why =~ "lib/t.ex"
+    assert why =~ "helped/1"
+    assert why =~ "between the clauses of tool/1"
+    assert why =~ "nothing was written"
+    assert read(dir, "lib/t.ex") == before
+
+    # a file that had its clauses apart already is not refused for it: that is not this edit's doing
+    apart = "defmodule U do\n  def f(1), do: 1\n  def g, do: 0\n  def f(2), do: 2\nend\n"
+    File.write!(Path.join(dir, "lib/u.ex"), apart)
+    assert {:ok, _} = edit(dir, [%{file: "lib/u.ex", old: "def g, do: 0", new: "def g, do: :zero"}])
   end
 end

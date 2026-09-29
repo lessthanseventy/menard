@@ -29,6 +29,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       case verbs.run(params) do
         {:ok, %{context: text, event: event}} -> ok(frame, Menard.Hook.context(text, event))
         {:ok, %{problem: text}} -> ok(frame, %{decision: "block", reason: text})
+        {:ok, %{deny: text}} -> ok(frame, Menard.Hook.denial(text))
+        {:ok, %{rewrite: input}} -> ok(frame, Menard.Hook.rewrite(input))
         {:ok, %{}} -> ok(frame, %{})
       end
     end

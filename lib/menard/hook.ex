@@ -8,8 +8,10 @@ defmodule Menard.Hook do
   changed.
 
   `run/2` takes the harness's hook payload (Claude Code's, string keys) and answers `:quiet`,
-  `{:context, text}` (for the agent, beside the tool's result) or `{:problem, text}` (a file that
-  could not be formatted). Both doors call it: the MCP tool `hook`, which a `mcp_tool` hook reaches
+  `{:context, text}` (for the agent, beside the tool's result), `{:problem, text}` (a file that
+  could not be formatted), `{:deny, text}` (a command this session does not run,
+  `Menard.Scripts`) or `{:rewrite, input}` (the tool's input, as it is to run: `Menard.Piped`).
+  Both doors call it: the MCP tool `hook`, which a `mcp_tool` hook reaches
   in the server already running, and `menard hook`, for a harness that can only run a command.
 
   The session's state is files under the temp directory (`state_dir:` overrides it), shared with
@@ -18,11 +20,19 @@ defmodule Menard.Hook do
   `menard-format-SESSION-CALL` mark per shell command in flight.
   """
 
+  alias Menard.Piped
+  alias Menard.Scripts
+
   @prune ~w(_build deps .git node_modules)
   @diff_lines 40
   @moved "Edit against these lines as they are now, not as you last read them."
 
-  @type answer :: :quiet | {:context, String.t()} | {:problem, String.t()}
+  @type answer ::
+          :quiet
+          | {:context, String.t()}
+          | {:problem, String.t()}
+          | {:deny, String.t()}
+          | {:rewrite, map()}
 
   @doc """
   The hook for `payload`. `run:` is the run verb it formats and lints with (`Menard.Run.result/3`),
@@ -39,6 +49,30 @@ defmodule Menard.Hook do
   @spec context(String.t(), String.t() | nil) :: map()
   def context(text, event),
     do: %{hookSpecificOutput: %{hookEventName: event || "PostToolUse", additionalContext: text}}
+
+  @doc "A call refused before it runs, as the harness reads it from a PreToolUse hook."
+  @spec denial(String.t()) :: map()
+  def denial(text) do
+    %{
+      hookSpecificOutput: %{
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: text
+      }
+    }
+  end
+
+  @doc "A call's input as it is to run in place of what was given, as the harness reads it."
+  @spec rewrite(map()) :: map()
+  def rewrite(input) do
+    %{
+      hookSpecificOutput: %{
+        hookEventName: "PreToolUse",
+        permissionDecision: "allow",
+        updatedInput: input
+      }
+    }
+  end
 
   # what the harness said of the call
   defp call(payload) do
@@ -82,13 +116,21 @@ defmodule Menard.Hook do
   # A shell command: a mark before it, and after it every Elixir file newer than the mark. One mark
   # per call: per session, a second call in flight moved the first one's mark past the files it had
   # written, and they went unformatted.
+  # what is so in this session, said before its first call (`Menard.Scripts`)
+  defp tool(%{event: "SessionStart"}) do
+    runs = if Piped.on?(), do: Piped.upfront(menard())
+
+    case Enum.reject([Scripts.upfront(Scripts.mode(), menard()), runs], &is_nil/1) do
+      [] -> :quiet
+      said -> {:context, Enum.join(said, "\n\n")}
+    end
+  end
+
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
-    # written, not touched: File.touch! sets whole seconds, which dates the mark before files written
-    # earlier in its own second, and they read as the command's
-    File.write!(mark(hook), "")
-    # a command between two Edits: they are no run of Edits
-    File.rm(session_file(hook, "edits"))
-    :quiet
+    case Scripts.refused(hook.input["command"] || "", Scripts.mode(), menard()) do
+      nil -> hook |> marked() |> piped(hook)
+      why -> {:deny, why}
+    end
   end
 
   defp tool(%{tool: "Bash"} = hook) do
@@ -109,6 +151,25 @@ defmodule Menard.Hook do
     # kept for what is said of a script's edits (`scripted/2`), which an Edit is not
     File.rm(session_file(hook, "written-#{hook.call}"))
     in_a_run(answer, hook)
+  end
+
+  # a test run and its pipe, run through `menard run` in their place: the call goes on, as that
+  defp piped(:quiet, hook) do
+    with true <- Piped.on?(),
+         command when is_binary(command) <- Piped.rewritten(hook.input["command"] || "", menard()) do
+      {:rewrite, Map.put(hook.input, "command", command)}
+    else
+      _ -> :quiet
+    end
+  end
+
+  defp marked(hook) do
+    # written, not touched: File.touch! sets whole seconds, which dates the mark before files written
+    # earlier in its own second, and they read as the command's
+    File.write!(mark(hook), "")
+    # a command between two Edits: they are no run of Edits
+    File.rm(session_file(hook, "edits"))
+    :quiet
   end
 
   # Edits one after another, a model call each: desk3's sonnet made 83 of them in a session and
