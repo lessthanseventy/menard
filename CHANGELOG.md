@@ -25,6 +25,17 @@
   and the editing nouns' mix tasks are generated from it. The CLI's usage is made from the same
   shapes, and every field is also a flag.
 
+- Two bans on scripts in another language, off unless set (`MENARD_SCRIPTS` in the plugin's
+  server environment): `narrow` refuses a script that names an Elixir file, and `sed -i` on one;
+  `full` refuses python, perl, ruby and node outright. Either is said at the start of the session,
+  as what is so there, and again in the refusal.
+- A test run piped through tail, head or grep is run through `menard run` in its place
+  (`MENARD_RUNS=rewrite`): rewritten before it runs, not refused, so no call is lost.
+- No write puts a function between the clauses of another, where they were together: it parses,
+  and a build with warnings as errors fails.
+- `edit`'s reply is each file's version and what the formatter changed: what the caller wrote is
+  not said back.
+
 **Fixed**
 - `clause insert_at` with `top` landed between the first definition and the `@doc`/`@spec` above
   it, which then described the new function.

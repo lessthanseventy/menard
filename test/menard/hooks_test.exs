@@ -1087,6 +1087,58 @@ defmodule Menard.HooksTest do
     assert Path.wildcard(Path.join(dir, "menard-written-*")) == []
   end
 
+  @tag @tag :tmp_dir
+  test "under a ban the session is told at its start, and a script is refused before it runs", %{tmp_dir: dir} do
+    host(dir)
+    python = "python3 - <<'E'\nopen('lib/m.ex','w').write('x')\nE"
+
+    call = fn event, tool, command ->
+      %{
+        hook_event_name: event,
+        tool_name: tool,
+        session_id: "s1",
+        tool_use_id: "c1",
+        tool_input: %{command: command}
+      }
+    end
+
+    script = fn name, payload, mode ->
+      input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
+      File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
+
+      System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/#{name}"), input],
+        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}, {"MENARD_SCRIPTS", mode}],
+        stderr_to_stdout: true
+      )
+    end
+
+    # no ban: nothing is said, nothing refused, and no menard is started to say so
+    assert {"", 0} = script.("session-start.sh", call.("SessionStart", nil, nil), "off")
+    allowed = Map.put(call.("PreToolUse", "Bash", python), :tool_use_id, "c0")
+    assert {"", 0} = script.("format-report.sh", allowed, "off")
+
+    for {mode, said} <- [{"narrow", "no script edits an Elixir file"}, {"full", "There is no python"}] do
+      {out, 0} = script.("session-start.sh", call.("SessionStart", nil, nil), mode)
+      start = JSON.decode!(out)["hookSpecificOutput"]
+      assert start["hookEventName"] == "SessionStart"
+      assert start["additionalContext"] =~ said
+      assert start["additionalContext"] =~ "#{@root}/bin/menard edit --then test"
+
+      {out, 0} = script.("format-report.sh", call.("PreToolUse", "Bash", python), mode)
+      refusal = JSON.decode!(out)["hookSpecificOutput"]
+      assert refusal["permissionDecision"] == "deny"
+      assert refusal["permissionDecisionReason"] =~ "python3 does not"
+      # a command refused is no command in flight: it left no mark to find files by
+      refute File.exists?(Path.join(dir, "menard-format-s1-c1"))
+    end
+
+    # a script that names no Elixir file: refused by the full ban alone
+    other = "python3 -c 'print(1)'"
+    assert {"", 0} = script.("format-report.sh", call.("PreToolUse", "Bash", other), "narrow")
+    {out, 0} = script.("format-report.sh", call.("PreToolUse", "Bash", other), "full")
+    assert out =~ "deny"
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

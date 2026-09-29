@@ -21,7 +21,8 @@
       ],
       "timeout": 620000,
       "env": {
-        "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}"
+        "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}",
+        "MENARD_SCRIPTS": "off"
       }
     }
   }

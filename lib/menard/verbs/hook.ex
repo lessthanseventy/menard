@@ -4,7 +4,8 @@ defmodule Menard.Verbs.Hook do
   `Menard.Hook`. The payload is the harness's own (`payload`, Claude Code's hook JSON as a map), or
   its fields as a `mcp_tool` hook fills them: `event`, `tool`, `session`, `call`, `cwd`, and the
   tool's `input` and `response` as JSON text. The reply is `%{}` with nothing to say, `context`
-  with what the formatter changed, or `problem` with the files that could not be formatted.
+  with what the formatter changed, `problem` with the files that could not be formatted, or `deny`
+  with why the command is one this session does not run.
   """
 
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
@@ -48,6 +49,8 @@ defmodule Menard.Verbs.Hook do
   defp reply(:quiet, _event), do: %{}
   defp reply({:context, text}, event), do: %{context: text, event: event || "PostToolUse"}
   defp reply({:problem, text}, _event), do: %{problem: text}
+  defp reply({:deny, text}, _event), do: %{deny: text}
+  defp reply({:rewrite, input}, _event), do: %{rewrite: input}
 
   # a placeholder the harness could not fill (no `tool_response` before the tool ran) is no object
   defp object(text) when is_binary(text) do
