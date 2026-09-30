@@ -143,19 +143,23 @@ defmodule Menard.Verbs.Clause do
 
   # no head: the whole function, every clause. The reply names each call still left, lib and test,
   # so the agent fixes or deletes those on purpose; tests are never deleted for it.
+  # Several at once: `name_arity` a list or `a/1,b/2`, all deleted or none, and `left` the calls to
+  # any of them that are still in the file after it, or anywhere else.
   def run(%{verb: "delete"} = p) when not is_map_key(p, :head) or p.head == nil do
     with :ok <- need(p, [:file, :name_arity], "clause delete"),
+         names = Menard.Move.names(p.name_arity),
          {:ok, file} <- resolve(p.file, p),
          {:ok, source} <- read(file),
-         out when is_binary(out) <- Clause.delete_function(source, p.name_arity),
+         out when is_binary(out) <- delete_all(source, names),
          {:ok, reply} <-
            Menard.write(
              file,
              out,
-             [did: "delete #{p.name_arity}, every clause, in #{Path.basename(file)}"] ++ stale(p)
+             [did: "delete #{Enum.join(names, ", ")}, every clause, in #{Path.basename(file)}"] ++ stale(p)
            ) do
-      {:ok,
-       Map.put(reply, :left, Menard.Find.left(p[:root] || Menard.caller_dir(), file, source, p.name_arity))}
+      root = p[:root] || Menard.caller_dir()
+      left = names |> Enum.flat_map(&Menard.Find.left(root, file, source, &1)) |> Enum.uniq()
+      {:ok, Map.put(reply, :left, left)}
     end
   end
 
@@ -263,4 +267,13 @@ defmodule Menard.Verbs.Clause do
   end
 
   defp fresh(_file, _params), do: :ok
+
+  defp delete_all(source, names) do
+    Enum.reduce_while(names, source, fn name, acc ->
+      case Clause.delete_function(acc, name) do
+        out when is_binary(out) -> {:cont, out}
+        error -> {:halt, error}
+      end
+    end)
+  end
 end
