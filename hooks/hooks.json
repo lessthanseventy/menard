@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Agent|Task",
+        "matcher": "Bash|Agent|Task|Read",
         "hooks": [
           {
             "type": "mcp_tool",
@@ -25,7 +25,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|MultiEdit|Read",
         "hooks": [
           {
             "type": "mcp_tool",

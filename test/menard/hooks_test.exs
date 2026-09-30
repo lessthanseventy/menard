@@ -1125,6 +1125,65 @@ defmodule Menard.HooksTest do
     assert Menard.Hook.run(payload.("Summarize what this project does"), state_dir: dir) == :quiet
   end
 
+  @tag :tmp_dir
+  test "a module read again is answered with what changed since the last read, not read whole", %{
+    tmp_dir: dir
+  } do
+    # desk5's with session read lib/desk/tickets.ex whole six times, 11 rereads in all: each time the
+    # file it had, and the few lines that had changed
+    file = Path.join(dir, "lib/a.ex")
+    File.mkdir_p!(Path.dirname(file))
+    lines = for n <- 1..20, do: "  def f#{n}, do: #{n}\n"
+    File.write!(file, "defmodule A do\n" <> Enum.join(lines) <> "end\n")
+
+    read = fn event, input ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => event,
+          "tool_name" => "Read",
+          "session_id" => "r1",
+          "tool_use_id" => "t#{System.unique_integer([:positive])}",
+          "cwd" => dir,
+          "tool_input" => Map.merge(%{"file_path" => file}, input)
+        },
+        state_dir: dir
+      )
+    end
+
+    # the first read is read
+    assert read.("PreToolUse", %{}) == :quiet
+    read.("PostToolUse", %{})
+
+    # again, unchanged: nothing to read
+    assert {:deny, why} = read.("PreToolUse", %{})
+    assert why =~ "lib/a.ex is unchanged since you read it"
+
+    # changed: the change is the answer, and becomes what was read
+    File.write!(file, String.replace(File.read!(file), "def f3, do: 3", "def f3, do: :three"))
+    assert {:deny, why} = read.("PreToolUse", %{})
+    assert why =~ "lib/a.ex changed since you read it"
+    assert why =~ "L4"
+    assert why =~ "-  def f3, do: 3"
+    assert why =~ "+  def f3, do: :three"
+    assert why =~ "edit"
+    assert {:deny, why} = read.("PreToolUse", %{})
+    assert why =~ "unchanged since you read it"
+
+    # a part of it is read, as asked
+    assert read.("PreToolUse", %{"offset" => 5, "limit" => 3}) == :quiet
+
+    # rewritten past half its lines, the file itself is shorter to read than its diff
+    File.write!(file, "defmodule A do\n  def g, do: 1\nend\n")
+    assert read.("PreToolUse", %{}) == :quiet
+
+    # not Elixir: read
+    other = Path.join(dir, "notes.md")
+    File.write!(other, "x\n")
+    input = %{"file_path" => other}
+    read.("PostToolUse", input)
+    assert read.("PreToolUse", input) == :quiet
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

@@ -121,6 +121,32 @@ defmodule Menard.Hook do
     {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
   end
 
+  # A module read whole again (desk5: tickets.ex six times, 11 rereads in a session): answered with
+  # what changed since the read, or that nothing did, and that answer is then what was read. A part
+  # of one is read; so is a file that is not Elixir, and one rewritten past half its lines, whose
+  # diff would be longer than it.
+  defp tool(%{tool: "Read", event: "PreToolUse"} = hook) do
+    file = hook.input["file_path"]
+
+    with true <- whole?(hook.input) and elixir_file?(file),
+         {:ok, seen} <- File.read(read_path(hook, file)),
+         {:ok, now} <- File.read(file) do
+      reread(hook, file, seen, now)
+    else
+      _ -> :quiet
+    end
+  end
+
+  defp tool(%{tool: "Read"} = hook) do
+    file = hook.input["file_path"]
+
+    if whole?(hook.input) and elixir_file?(file) do
+      with {:ok, text} <- File.read(file), do: File.write!(read_path(hook, file), text)
+    end
+
+    :quiet
+  end
+
   defp tool(%{tool: tool, event: "PreToolUse"} = hook) when tool in ["Agent", "Task"] do
     case Scripts.delegated(hook.input["prompt"] || "", menard()) do
       nil -> :quiet
@@ -224,6 +250,41 @@ defmodule Menard.Hook do
   end
 
   defp menard, do: Menard.bin()
+
+  defp reread(hook, file, seen, now) do
+    rel = Path.relative_to(file, hook.root)
+    hunks = Menard.Diff.hunks(seen, now)
+    changed = hunks |> Enum.map(&(length(&1.removed) + length(&1.added))) |> Enum.sum()
+
+    cond do
+      hunks == [] ->
+        {:deny, "#{rel} is unchanged since you read it: what you read is what it holds."}
+
+      changed * 2 > length(String.split(now, "\n")) ->
+        :quiet
+
+      true ->
+        File.write!(read_path(hook, file), now)
+
+        lines =
+          Enum.map_join(hunks, "\n", fn h ->
+            Enum.join(
+              ["L#{h.start}:"] ++ Enum.map(h.removed, &("-" <> &1)) ++ Enum.map(h.added, &("+" <> &1)),
+              "\n"
+            )
+          end)
+
+        {:deny,
+         "#{rel} changed since you read it; these are the lines that did, and the file is now what you " <>
+           "read with them:\n#{lines}\nTo change it, menard's edit: the Edit tool asks for a fresh Read " <>
+           "of a file changed since it was read."}
+    end
+  end
+
+  defp whole?(input), do: input["offset"] == nil and input["limit"] == nil
+  # a Read's file: the hook's own elixir?/1 takes a project's relative path
+  defp elixir_file?(file), do: is_binary(file) and Path.extname(file) in [".ex", ".exs", ".heex"]
+  defp read_path(hook, file), do: session_file(hook, "read-" <> Base.encode16(:crypto.hash(:md5, file)))
 
   defp note(:quiet, note), do: {:context, note <> "\n"}
   defp note({kind, text}, note), do: {kind, text <> note <> "\n"}
