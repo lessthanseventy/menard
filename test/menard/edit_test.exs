@@ -228,4 +228,39 @@ defmodule Menard.EditTest do
     File.write!(Path.join(dir, "lib/u.ex"), apart)
     assert {:ok, _} = edit(dir, [%{file: "lib/u.ex", old: "def g, do: 0", new: "def g, do: :zero"}])
   end
+
+  @tag :tmp_dir
+  test "an old text as clause get gives it, at column 0, is found where it sits deeper, and new goes in at that depth",
+       %{tmp_dir: dir} do
+    # clause get and block get give code at column 0; pasted into edit's `old`, it missed a doc that
+    # sat six spaces deep, and the edit was made again with the file's indentation
+    File.write!(Path.join(dir, "lib/d.ex"), """
+    defmodule D do
+      def noun do
+        %{
+          doc: \"\"\"
+          first line
+          second line
+          \"\"\"
+        }
+      end
+    end
+    """)
+
+    assert {:ok, reply} =
+             edit(dir, [
+               %{
+                 file: "lib/d.ex",
+                 old: "first line\nsecond line",
+                 new: "first line\nsecond line\n\nthird line"
+               }
+             ])
+
+    assert read(dir, "lib/d.ex") =~ "      second line\n\n      third line\n      \"\"\""
+    assert reply.indented == ["lib/d.ex: found 6 spaces deeper than given, and written there"]
+
+    # found at two depths, it is refused as text found twice is
+    File.write!(Path.join(dir, "lib/e.ex"), "defmodule E do\n  x = 1\n    x = 1\nend\n")
+    assert {:error, _} = edit(dir, [%{file: "lib/e.ex", old: "x = 1\n", new: "x = 2\n"}])
+  end
 end
