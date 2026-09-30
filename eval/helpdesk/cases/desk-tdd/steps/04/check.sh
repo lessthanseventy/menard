@@ -1,0 +1,1 @@
+../../../desk/steps/04/check.sh
