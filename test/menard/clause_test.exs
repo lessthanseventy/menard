@@ -925,4 +925,14 @@ defmodule Menard.ClauseTest do
     assert Clause.rewrite(src, "is_x/1", "x", "defguard is_x(x) when is_atom(x)") ==
              String.replace(src, "when is_integer(x)", "when is_atom(x)")
   end
+
+  test "cut: two spans whose blank lines touch, the last above the module end, leave the end" do
+    # block move found it: a test and the helper under it, the helper last before `end`. Each span
+    # took the blank line between them, the two cuts overlapped, and the second, applied after the
+    # first, took the module's `end`
+    source = "defmodule M do\n  def a, do: 1\n\n  def b, do: 2\n\n  defp h, do: 3\nend\n"
+    out = Menard.Clause.cut(source, [{3, 3}, {5, 5}])
+    assert out =~ ~r/def a, do: 1\n\s*end\n$/
+    assert {:ok, _} = Code.string_to_quoted(out)
+  end
 end
