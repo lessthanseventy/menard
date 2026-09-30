@@ -11,6 +11,8 @@ defmodule Menard.Edit do
   formatter, and a write that fails puts back the ones before it.
   """
 
+  @def_kinds Menard.Tree.def_kinds()
+
   @type edit :: %{
           required(:file) => String.t(),
           required(:old) => String.t(),
@@ -33,10 +35,13 @@ defmodule Menard.Edit do
     files = edits |> Enum.map(& &1.file) |> Enum.uniq()
     before = Map.new(files, &{&1, File.read(&1)})
 
-    with {:ok, contents} <- replaced(edits, before),
+    with {:ok, contents, moved} <- replaced(edits, before),
          :ok <- parsed(files, contents, before),
          {:ok, changed} <- written(files, contents, before) do
-      {:ok, %{changed: changed, replacements: length(edits)}}
+      root = opts[:root] || File.cwd!()
+      moved = for {file, what} <- moved, do: "#{Path.relative_to(file, root)}: #{what}"
+      reply = %{changed: changed, replacements: length(edits)}
+      {:ok, if(moved == [], do: reply, else: Map.put(reply, :moved, moved))}
     else
       # a file as the caller named it: under `root:`, where there is one
       {:error, {file, why}} ->
@@ -45,10 +50,16 @@ defmodule Menard.Edit do
   end
 
   defp replaced(edits, before) do
-    Enum.reduce_while(edits, {:ok, before}, fn edit, {:ok, contents} ->
+    Enum.reduce_while(edits, {:ok, before, []}, fn edit, {:ok, contents, moved} ->
       case replace(contents[edit.file], edit) do
-        {:ok, text} -> {:cont, {:ok, Map.put(contents, edit.file, {:ok, text})}}
-        {:error, why} -> {:halt, {:error, refusal(edit.file, why)}}
+        {:ok, text} ->
+          {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved}}
+
+        {:ok, text, what} ->
+          {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved ++ [{edit.file, what}]}}
+
+        {:error, why} ->
+          {:halt, {:error, refusal(edit.file, why)}}
       end
     end)
   end
@@ -63,10 +74,91 @@ defmodule Menard.Edit do
   defp replace({:ok, text}, %{old: old, new: new} = edit) do
     case {:binary.matches(text, old), edit[:all] == true} do
       {[], _all} -> {:error, "this text is not there:\n#{old}"}
-      {[_one], _all} -> {:ok, String.replace(text, old, new)}
+      {[{at, length}], _all} -> placed(text, edit, at + length)
       {_several, true} -> {:ok, String.replace(text, old, new)}
       {several, false} -> {:error, several(text, old, several)}
     end
+  end
+
+  # New functions written under a clause, the clause left as it was (`new` is `old` and more), where
+  # the function has more clauses below: there they would split it, which parses and does not
+  # build. They have one place to go, after its last clause, and go there; the reply says so. An
+  # edit that changes the text it is anchored on is refused as before: where it meant it is not sure.
+  defp placed(text, %{old: old, new: new} = edit, anchor_end) do
+    plain = String.replace(text, old, new)
+
+    with "" <> added when added != "" <- appended(old, new),
+         {:error, _} <- Menard.Write.together(edit.file, text, plain),
+         {:ok, at, {name, arity}} <- after_run(text, anchor_end, String.ends_with?(old, "\n")),
+         moved = binary_part(text, 0, at) <> added <> binary_part(text, at, byte_size(text) - at),
+         :ok <- Menard.Write.together(edit.file, text, moved) do
+      {:ok, moved, "#{defined(added)} after the last clause of #{name}/#{arity}, not between its clauses"}
+    else
+      _ -> {:ok, plain}
+    end
+  end
+
+  defp appended(old, new),
+    do:
+      if(String.starts_with?(new, old), do: binary_part(new, byte_size(old), byte_size(new) - byte_size(old)))
+
+  # Where the added text goes when the anchor ends inside a function's run of clauses: after the
+  # run's last line, at the same line boundary the anchor ended on (the start of the next line when
+  # it took its newline, else that line's end), so the blank lines come out as they were written.
+  defp after_run(text, anchor_end, took_newline?) do
+    line =
+      text |> binary_part(0, anchor_end - if(took_newline?, do: 1, else: 0)) |> String.split("\n") |> length()
+
+    with {:ok, ast} <- Menard.Source.parse(text),
+         clauses = for({_name, node} <- Menard.Tree.modules(ast), clauses <- [runs(node)], do: clauses),
+         {key, last} <- Enum.find_value(clauses, &enclosing(&1, line)) do
+      starts = [0 | for({at, 1} <- :binary.matches(text, "\n"), do: at + 1)]
+      at = if took_newline?, do: Enum.at(starts, last), else: Enum.at(starts, last) - 1
+      {:ok, at, key}
+    end
+  end
+
+  # each module's definitions as runs of one function's consecutive clauses: {key, first, last}
+  defp runs(module) do
+    module
+    |> Menard.Tree.definitions()
+    |> Enum.flat_map(fn {_kind, _meta, [head | _]} = d ->
+      case {Menard.Tree.name_arity(head), Menard.Tree.line_span(d)} do
+        {{name, arity}, {first, last}} when is_atom(name) -> [{{name, arity}, first, last}]
+        _ -> []
+      end
+    end)
+    |> Enum.chunk_by(&elem(&1, 0))
+    |> Enum.map(fn [{key, first, _} | _] = run -> {key, first, run |> List.last() |> elem(2)} end)
+  end
+
+  # the run the anchor ends inside of, short of its last clause: {key, its last line}
+  defp enclosing(runs, line) do
+    Enum.find_value(runs, fn {key, first, last} ->
+      if line >= first and line < last, do: {key, last}
+    end)
+  end
+
+  defp defined(added) do
+    names =
+      case Menard.Source.parse(added) do
+        {:ok, {:__block__, _, forms}} -> forms
+        {:ok, form} -> [form]
+        _ -> []
+      end
+      |> Enum.flat_map(fn
+        {kind, _, [head | _]} when kind in @def_kinds ->
+          case Menard.Tree.name_arity(head) do
+            {name, arity} when is_atom(name) -> ["#{name}/#{arity}"]
+            _ -> []
+          end
+
+        _ ->
+          []
+      end)
+      |> Enum.uniq()
+
+    if names == [], do: "the added text", else: Enum.join(names, ", ")
   end
 
   defp several(text, old, found) do
