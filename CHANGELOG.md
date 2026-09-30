@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+**One menard, no settings**
+- `MENARD_SCRIPTS` and `MENARD_RUNS` are gone: what `full` and `rewrite` did is what menard does.
+  No python, perl, ruby or node; a piped test run is run through `menard run`. A ban that was off
+  by default was one no session met.
+- Reading code a verb reads exactly is refused with that call: `grep "def NAME" -A N` and
+  `sed -n '/def NAME/,/end/p'` (clause get), a `sed -n 'N,Mp'` that is one function or test (clause
+  get, block get), `grep "Mod.fun"` (find calls). Only under lib/ and test/; any other grep runs.
+- `find calls` takes a module by the end of its name (`Piped.on?` finds `Menard.Piped.on?`).
+- `block add --tag tmp_dir` writes `@tag :tmp_dir`: a bare name is the tag.
+
 **Tests, as the functions are**
 - `block move`: tests and describes into another test file, as `clause move` takes functions: their
   `@tag` lines and comment, the private helpers only they call, the attributes and alias/import
@@ -47,12 +57,6 @@
   and the editing nouns' mix tasks are generated from it. The CLI's usage is made from the same
   shapes, and every field is also a flag.
 
-- Two bans on scripts in another language, off unless set (`MENARD_SCRIPTS` in the plugin's
-  server environment): `narrow` refuses a script that names an Elixir file, and `sed -i` on one;
-  `full` refuses python, perl, ruby and node outright. Either is said at the start of the session,
-  as what is so there, and again in the refusal.
-- A test run piped through tail, head or grep is run through `menard run` in its place
-  (`MENARD_RUNS=rewrite`): rewritten before it runs, not refused, so no call is lost.
 - No write puts a function between the clauses of another, where they were together: it parses,
   and a build with warnings as errors fails.
 - `edit`'s reply is each file's version and what the formatter changed: what the caller wrote is

@@ -16,5 +16,18 @@ with the plugin as a skill, and it is the one copy of that reference.
   silent unless the build fails. Read the reply as it comes: if you find yourself filtering it,
   the reply is wrong, so fix menard.
 - Found a bug and can't fix it now? It goes in `TODO.md`, not a chat message.
+
+**This repo is where menard is dogfooded.** You work under the same hooks every user does: no
+python/perl/ruby/node, a function read with `clause get` rather than `grep -A`/`sed -n`, callers
+with `find`. When menard gets in your way, that is the finding, not a detour:
+
+- a refusal that is wrong, or points at a call that answers nothing: fix the refusal;
+- a verb you skipped for a workaround (`edit` to delete four functions because `clause delete`
+  takes one; a script because nothing moved a test): make the verb fit, so you would have used it;
+- a reply you pipe through `cut`/`head`/`python` to read: change the reply;
+- a bug a verb wrote into a file: a failing test first, then the fix.
+
+Each as its own small commit, before the change you were making, so the fix is in the build that
+the rest of your work runs on. What you can't fix now goes in `TODO.md`.
 - Design direction: `docs/scope.md` (what earns a verb), `docs/live.md` (the reply every verb
   should give), `docs/adapters.md` (one core, a thin adapter per harness).

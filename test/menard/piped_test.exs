@@ -48,9 +48,4 @@ defmodule Menard.PipedTest do
       assert Piped.rewritten(command, @menard) == nil, "#{inspect(command)} was rewritten"
     end
   end
-
-  test "it is on where the environment says so" do
-    refute Piped.on?()
-    assert Piped.upfront(@menard) =~ "/p/bin/menard run test"
-  end
 end

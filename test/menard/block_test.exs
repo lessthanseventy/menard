@@ -276,6 +276,11 @@ defmodule Menard.BlockTest do
       )
 
     assert out =~ ~s(    @tag :tmp_dir\n    @tag timeout: 5_000\n    test "c", %{tmp_dir: dir} do)
+
+    # a bare name is the tag, as `--tag tmp_dir` means it: written as it was, `@tag tmp_dir` is a
+    # variable, and the test file did not compile
+    out = Block.add(@src, "test", "c", "assert dir", in: "two", args: "%{tmp_dir: dir}", tag: ["tmp_dir"])
+    assert out =~ ~s(    @tag :tmp_dir\n    test "c")
   end
 
   test "add with no macro name is refused, naming the fix, not written as unparseable code" do
