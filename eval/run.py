@@ -1124,8 +1124,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("round")
     ap.add_argument("--cases", default="")
-    ap.add_argument("--arms", default="", help="without, with, or both; by default with, and without only for a "
-                    "case and model that have fewer than --runs baseline rows on this basis")
+    ap.add_argument("--arms", default="", help="a comma list of without, with, with-narrow, with-full; by default "
+                    "without and with. without runs only for a case and model with fewer than --runs baseline rows on this basis")
     ap.add_argument("--models", default="claude-sonnet-5")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--rebuild", action="store_true")
@@ -1175,7 +1175,8 @@ def main():
     kept = {}
     for case in cases:
         for model in a.models.split(","):
-            kept[(case.name, model)] = 0 if a.arms else len(baseline(case.name, model, BASIS))
+            # lent to any round that runs without, named or by default: a variant is judged against it too
+            kept[(case.name, model)] = len(baseline(case.name, model, BASIS)) if "without" in arms else 0
             if kept[(case.name, model)] >= a.runs:
                 log(f"{time.strftime('%H:%M')} {a.round} {case.name} {model}: without is the baseline, "
                     f"{kept[(case.name, model)]} rows on this basis")
