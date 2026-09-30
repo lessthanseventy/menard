@@ -21,6 +21,10 @@ defmodule Menard.Verbs.Run do
       and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,
       `--changed` for the lines changed since the last commit). `dir` defaults to the root.
 
+      While you work, `test` with the test files of what you changed: seconds, and their failures
+      alone. `check` once, when the change is done: it is the whole suite and more (a session that
+      ran it after every edit spent twice the suite runs of one that did not).
+
       Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
       `warning`, `format` or `credo`, `message` says why, `at` is `file:line`. A test failure adds `name`,
       `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`.
