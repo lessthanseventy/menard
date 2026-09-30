@@ -651,4 +651,23 @@ defmodule Menard.MCPTest do
     assert response.content |> hd() |> Map.fetch!("text") |> JSON.decode!() |> Map.fetch!("body") ==
              "assert 2"
   end
+
+  test "clause delete takes several functions: one call, and the calls left to each", %{root: root} do
+    # deleting four dead helpers took an `edit` that cut them out by hand, with no `left` to say whether
+    # they were dead: one function a call was a call each
+    File.write!(
+      Path.join(root, "lib/b.ex"),
+      "defmodule B do\n  def keep, do: one()\n\n  defp one, do: 1\n  defp two, do: 2\n  defp three, do: two()\nend\n"
+    )
+
+    response =
+      call(Menard.MCP.Clause, %{verb: "delete", file: "lib/b.ex", name_arity: ["one/0", "two/0", "three/0"]})
+
+    refute response.isError
+    assert File.read!(Path.join(root, "lib/b.ex")) == "defmodule B do\n  def keep, do: one()\nend\n"
+    reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
+    assert reply["did"] =~ "delete one/0, two/0, three/0"
+    # what is still called: one/0, by keep; two/0's caller went with it
+    assert reply["left"] == ["lib/b.ex:2: one()"]
+  end
 end
