@@ -1,0 +1,27 @@
+22:10 desk7 basis: agent b5d10d7c451637b4, graders f08bb4fb472b0c7a, 2.1.283 (Claude Code)
+22:10 desk7 seed=4090243101 arms=with, and without where there is no baseline
+22:10 desk7 desk claude-sonnet-5: without is the baseline, 1 rows on this basis
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+  3 process(es) left running in the workspace, killed
+22:41 desk7 desk.with.claude-sonnet-5.1: PASS turns=211 cost=8.848 wall=1806.2s tool_errors=7 red_runs=3 tools={'Bash': 27, 'Read': 39, 'Edit': 24, 'Write': 25, 'ToolSearch': 4, 'menard:run': 22, 'menard:edit': 17, 'menard:outline': 3, 'menard:clause': 41}
+22:52 desk7 desk.without.claude-opus-5-5.1: PASS turns=50 cost=3.127 wall=678.6s tool_errors=0 red_runs=3 tools={'Bash': 41}
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+  2 process(es) left running in the workspace, killed
+23:04 desk7 desk.with.claude-opus-5-5.1: PASS turns=43 cost=3.149 wall=736.9s tool_errors=3 red_runs=3 tools={'Bash': 34}
+23:04 desk7 basis: agent b5d10d7c451637b4, graders f08bb4fb472b0c7a, 2.1.283 (Claude Code)
+23:04 desk7 seed=4090243101 arms=without
+23:34 desk7 desk.without.claude-sonnet-5.1: FAIL turns=202 cost=9.266 wall=1771.8s tool_errors=0 red_runs=0 tools={'Bash': 76, 'Read': 35, 'Edit': 54, 'Write': 28}
