@@ -105,7 +105,7 @@ defmodule Menard.ScriptsTest do
     for innocent <- [
           ~s(grep -rn "tax_rate" config),
           ~s(grep -rn "TODO" lib),
-          ~s(grep -c "def " lib/cart.ex),
+          ~s(grep -c "TODO" lib/cart.ex),
           ~s(grep -n "def total" lib/cart.ex),
           ~s(grep -rn "def total" -A 5 README.md),
           "sed -n '1,20p' mix.exs",
@@ -146,5 +146,40 @@ defmodule Menard.ScriptsTest do
         ] do
       assert Scripts.refused(no, @menard, dir) =~ "does not run here", no
     end
+  end
+
+  @tag :tmp_dir
+  test "a test read by its label with grep -A is refused with block get; a pattern over several labels runs",
+       %{tmp_dir: dir} do
+    # desk5: `grep -n "records a created event" -A 8 test/desk/tickets_test.exs` went through, the read
+    # refusal knowing only `def NAME`: a test, read by its label, is block get's
+    File.mkdir_p!(Path.join(dir, "test"))
+
+    File.write!(
+      Path.join(dir, "test/cart_test.exs"),
+      "defmodule CartTest do\n  use ExUnit.Case\n\n  test \"records a created event\" do\n    assert 1\n  end\n\n  test \"records a moved event\" do\n    assert 2\n  end\nend\n"
+    )
+
+    assert Scripts.refused(~s(grep -n "records a created event" -A 8 test/cart_test.exs), @menard, dir) =~
+             ~s(#{@menard} block get test/cart_test.exs test --label "records a created event")
+
+    # a pattern over two labels reads neither, and runs; so does one without context
+    assert Scripts.refused(~s(grep -n "records a" -A 3 test/cart_test.exs), @menard, dir) == nil
+    assert Scripts.refused(~s(grep -n "records a created event" test/cart_test.exs), @menard, dir) == nil
+
+    # the file's structure, listed or counted (every test, every describe, every def), is its outline:
+    # a count of `test "` also counts one in a string
+    for listing <- [
+          ~s(grep -n "test \\"" -A 3 test/cart_test.exs),
+          ~s(grep -n 'describe "' test/cart_test.exs),
+          ~s(grep -c "test \\"" test/cart_test.exs),
+          ~s(grep -n "def " test/cart_test.exs)
+        ] do
+      assert Scripts.refused(listing, @menard, dir) =~ "#{@menard} outline test/cart_test.exs", listing
+    end
+
+    # a count of text, and a list of files, read no code
+    assert Scripts.refused(~s(grep -c "TODO" test/cart_test.exs), @menard, dir) == nil
+    assert Scripts.refused(~s(grep -l "test \\"" test/cart_test.exs), @menard, dir) == nil
   end
 end
