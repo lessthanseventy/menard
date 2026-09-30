@@ -471,7 +471,15 @@ defmodule Menard.Clause do
   def cut(source, spans, replace \\ %{}) do
     lines = String.split(source, "\n")
     {kept, dropped} = Enum.split_with(spans, &Map.has_key?(replace, &1))
-    drops = dropped |> merge_spans() |> Enum.map(&{with_trailing_blank(lines, &1), []})
+    # merged again once each has taken its blank line: two that took the same one overlapped, and
+    # the second cut, made after the first, took the line under it (a module's `end`)
+    drops =
+      dropped
+      |> merge_spans()
+      |> Enum.map(&with_trailing_blank(lines, &1))
+      |> merge_spans()
+      |> Enum.map(&{&1, []})
+
     edits = drops ++ Enum.map(kept, &{&1, String.split(Map.fetch!(replace, &1), "\n")})
 
     edits
