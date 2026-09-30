@@ -182,7 +182,10 @@ defmodule Menard.ScriptsTest do
           ~s(grep -n "test \\"" -A 3 test/cart_test.exs),
           ~s(grep -n 'describe "' test/cart_test.exs),
           ~s(grep -c "test \\"" test/cart_test.exs),
-          ~s(grep -n "def " test/cart_test.exs)
+          ~s(grep -n "def " test/cart_test.exs),
+          # desk7: a component's functions with their attrs and slots, the outline's now
+          ~s{grep -n "^  def \\\\|^  attr\\\\|^  slot" test/cart_test.exs},
+          ~s{grep -nE "^  (def|attr|slot) " test/cart_test.exs}
         ] do
       assert Scripts.refused(listing, @menard, dir) =~ "#{@menard} outline test/cart_test.exs", listing
     end

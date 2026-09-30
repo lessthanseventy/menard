@@ -149,4 +149,37 @@ defmodule Menard.OutlineTest do
       assert {:ok, _} = Menard.Clause.find(src, "#{d.name}/#{d.arity}", d.head, [])
     end
   end
+
+  test "a function component's attr and slot lines are in its outline, as its head is" do
+    # desk7 step 6 listed core_components.ex with grep "^  def \|^  attr\|^  slot": a component's attrs
+    # and slots are what calling it takes, and the outline left them out
+    src = ~S'''
+    defmodule Web.Components do
+      use Phoenix.Component
+
+      @doc "A button."
+      attr :type, :string, default: nil
+      attr :rest, :global
+      slot :inner_block, required: true
+
+      def button(assigns) do
+        ~H"<button type={@type} {@rest}>{render_slot(@inner_block)}</button>"
+      end
+
+      def plain(x), do: x
+    end
+    '''
+
+    assert {:ok, [m]} = Outline.run(src)
+    [button, plain] = m.defs
+    assert button.doc == "A button."
+
+    assert button.attrs == [
+             "attr :type, :string, default: nil",
+             "attr :rest, :global",
+             "slot :inner_block, required: true"
+           ]
+
+    assert plain.attrs == []
+  end
 end
