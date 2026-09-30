@@ -9,7 +9,8 @@
 - Reading code a verb reads exactly is refused with that call: `grep "def NAME" -A N` and
   `sed -n '/def NAME/,/end/p'` (clause get), a `sed -n 'N,Mp'` that is one function or test (clause
   get, block get), `grep "Mod.fun"` (find calls), one test or describe by its label with `grep -A`
-  (block get), a subagent sent to find a function's calls (find calls),
+  (block get), a subagent sent to find a function's calls (find calls), a module Read whole again
+  (answered with what changed since the last Read, or that nothing did),
   a file's structure listed or counted (`grep -n 'test "'`, `grep -c "def "`: outline). Only under
   lib/ and test/; any other grep runs, and a program the project tracks may run.
 - `find calls` takes a module by the end of its name (`Piped.on?` finds `Menard.Piped.on?`).
