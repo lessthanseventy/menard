@@ -309,15 +309,32 @@ defmodule Menard.Block do
   # `describe`, so a top-level-only walk would miss most of them.
   defp blocks(source, opts) do
     with {:ok, ast} <- parse(source),
-         {:ok, module} <- Tree.module_scope(ast, opts[:module]) do
+         {:ok, scopes} <- scopes(ast, opts) do
       found =
-        module
-        |> Zipper.zip()
-        |> Zipper.traverse_while([], &collect_block/2)
-        |> elem(1)
-        |> Enum.reverse()
+        scopes
+        |> Enum.flat_map(fn module ->
+          module |> Zipper.zip() |> Zipper.traverse_while([], &collect_block/2) |> elem(1) |> Enum.reverse()
+        end)
+        # a nested module is walked in its parent's walk as well
+        |> Enum.uniq_by(&Tree.start_line/1)
 
       {:ok, found}
+    end
+  end
+
+  # a label says which block wherever it is: with one and no module named, every module is looked in
+  defp scopes(ast, opts) do
+    label = opts[:label]
+
+    case Tree.module_scope(ast, opts[:module]) do
+      {:ok, module} ->
+        {:ok, [module]}
+
+      {:error, "several modules" <> _} when is_binary(label) ->
+        {:ok, Enum.map(Tree.modules(ast), &elem(&1, 1))}
+
+      error ->
+        error
     end
   end
 
