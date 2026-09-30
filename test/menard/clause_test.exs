@@ -945,4 +945,24 @@ defmodule Menard.ClauseTest do
     assert {:ok, clause} = Menard.Clause.find(src, "run/2", "edits, opts")
     assert clause.range.start[:line] == 5
   end
+
+  @tag :tmp_dir
+  test "a name with no arity is the one function of that name; of several, the arities are named", %{
+    tmp_dir: dir
+  } do
+    # desk7 (opus): `menard clause get lib/desk_web/components/layouts.ex app` was refused, "expected
+    # [Mod.]name/arity", the file holding one app/1: an agent's first guess is the name alone
+    file = Path.join(dir, "l.ex")
+
+    File.write!(
+      file,
+      "defmodule L do\n  def app(assigns), do: assigns\n\n  def two(a), do: a\n  def two(a, b), do: {a, b}\nend\n"
+    )
+
+    assert {:ok, %{code: code}} = Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "app"})
+    assert code =~ "def app(assigns)"
+
+    assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "two"})
+    assert why =~ "two/1, two/2"
+  end
 end

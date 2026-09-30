@@ -99,6 +99,13 @@ defmodule Menard.Verbs.Clause do
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
+  # a name with no arity, as an agent first writes it (desk7: `clause get … layouts.ex app`, refused
+  # "expected name/arity"): the one function of that name in the file; of several, their arities
+  def run(%{name_arity: na, file: file} = p)
+      when is_binary(na) and is_binary(file) and not is_map_key(p, :arity_given) do
+    with {:ok, p} <- arity(p), do: run(Map.put(p, :arity_given, true))
+  end
+
   def run(%{verb: "get"} = p) do
     with :ok <- need(p, [:file, :name_arity], "clause get"),
          {:ok, file} <- resolve(p.file, p),
@@ -276,4 +283,24 @@ defmodule Menard.Verbs.Clause do
       end
     end)
   end
+
+  defp arity(%{name_arity: na} = p) do
+    with false <- String.contains?(na, ["/", ","]),
+         {:ok, file} <- resolve(p.file, p),
+         {:ok, source} <- File.read(file),
+         {:ok, modules} <- Menard.Outline.run(source) do
+      name = na |> String.split(".") |> List.last()
+      arities = for m <- all_modules(modules), d <- m.defs, to_string(d.name) == name, uniq: true, do: d.arity
+
+      case arities do
+        [one] -> {:ok, %{p | name_arity: "#{na}/#{one}"}}
+        [] -> {:ok, p}
+        many -> {:error, "#{na} has #{Enum.map_join(many, ", ", &"#{name}/#{&1}")} here: name one"}
+      end
+    else
+      _ -> {:ok, p}
+    end
+  end
+
+  defp all_modules(modules), do: Enum.flat_map(modules, &[&1 | all_modules(&1.modules)])
 end
