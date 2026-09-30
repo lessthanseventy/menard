@@ -124,6 +124,10 @@ def build_template(suite, force=False):
             code, out = sh(cmd, TEMPLATE, timeout=1200)
             if code != 0:
                 sys.exit(f"template: `{cmd}` failed:\n{out[-3000:]}")
+    # the language server's build and index, as a project worked in before has them (warm_expert.exs)
+    code, out = sh(["mix", "run", str(EVAL / "warm_expert.exs"), str(TEMPLATE)], REPO, timeout=900)
+    if code != 0:
+        sys.exit(f"template: warming expert failed:\n{out[-3000:]}")
     # nothing may write into the copy every run starts from, an agent that wandered here included
     subprocess.run(["chmod", "-R", "a-w", str(TEMPLATE)], check=True)
 
