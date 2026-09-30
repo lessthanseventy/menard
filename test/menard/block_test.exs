@@ -493,4 +493,15 @@ defmodule Menard.BlockTest do
     # tags above a body are not the test's: there is nothing to put them over
     assert {:error, "an @tag" <> _} = Block.replace(src, "test", "@tag :slow\nassert 2", label: "two")
   end
+
+  test "a label finds its block in whichever module of the file holds it" do
+    # mcp_test.exs holds three modules: `block get … --label` was refused, "name one", though the label
+    # named one test of all of them
+    src =
+      "defmodule ATest do\n  use ExUnit.Case\n  test \"a\" do\n    assert 1\n  end\nend\n\ndefmodule BTest do\n  use ExUnit.Case\n  test \"b\" do\n    assert 2\n  end\nend\n"
+
+    assert Block.get(src, "test", label: "b") == "assert 2"
+    assert {:error, why} = Block.get(src, "test", [])
+    assert why =~ "several modules"
+  end
 end
