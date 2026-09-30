@@ -130,7 +130,7 @@ defmodule Menard.Run do
   # issue in `failures`, at the alias's own strictness. `--strict` asked of an alias that lints at
   # credo's default level runs credo --strict as well: dropped, it passed a gate it was asked to fail.
   defp credo_named(reply, out, run, strict?) do
-    alias_strict? = File.read!(Path.join(run.dir, "mix.exs")) =~ "credo --strict"
+    alias_strict? = credo_strict?(run.dir)
 
     cond do
       not credo?(run.dir) ->
@@ -148,6 +148,15 @@ defmodule Menard.Run do
 
       true ->
         reply
+    end
+  end
+
+  @doc "Whether `dir`'s project gates with `credo --strict`: what a lint of it must match."
+  @spec credo_strict?(String.t()) :: boolean()
+  def credo_strict?(dir) do
+    case File.read(Path.join(dir, "mix.exs")) do
+      {:ok, mix} -> mix =~ "credo --strict"
+      _ -> false
     end
   end
 

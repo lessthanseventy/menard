@@ -323,8 +323,12 @@ defmodule Menard.Hook do
   defp credo(_hook, _dir, []), do: []
 
   defp credo(hook, dir, rels) do
+    # as strict as the project's gate: at credo's default a strict-only check (AliasUsage) passed
+    # every write, and failed the gate
+    strict = if Menard.Run.credo_strict?(dir), do: ["--strict"], else: []
+
     with true <- Menard.Run.credo?(dir),
-         [_ | _] = found <- hook.run.(dir, "credo", ["--changed" | rels])[:failures] do
+         [_ | _] = found <- hook.run.(dir, "credo", ["--changed" | rels] ++ strict)[:failures] do
       ["credo, on lines you changed:\n" <> Enum.map_join(found, "\n", &"  #{&1[:at]} #{&1.message}")]
     else
       _ -> []
