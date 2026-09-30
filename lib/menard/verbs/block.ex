@@ -1,10 +1,10 @@
 defmodule Menard.Verbs.Block do
-  @moduledoc "The `block` verbs (`Menard.Verbs`): `get`, `replace`, `add`, `delete`, `relabel`, `list`."
+  @moduledoc "The `block` verbs (`Menard.Verbs`): `get`, `replace`, `add`, `delete`, `relabel`, `list`, `move`."
 
   import Menard.Verbs
   alias Menard.Block
 
-  @verbs ~w(get replace add delete relabel list)
+  @verbs ~w(get replace add delete relabel list move)
 
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
   @spec noun() :: Menard.Verbs.Noun.t()
@@ -17,21 +17,28 @@ defmodule Menard.Verbs.Block do
       (`label` becomes `new_label`). `label` is the macro's first string argument, which is what makes
       `describe`/`test` addressable; several blocks of one name with no label is refused, listing them.
       `add` writes a NEW block — at the end of the block named by `in` (a describe, by its label), else
-      after the last sibling of that name, else at the end of the module.
+      after the last sibling of that name, else at the end of the module. `move` takes tests and
+      describes (`label`: one, or a list) to the test file `to`, created if missing (as the module
+      its path names, or `as`), with the private helpers only they call, the attributes and
+      alias/import lines they use, their @tag lines; a created file gets the source's `use` and
+      `setup`. A helper a staying test calls too is refused: it belongs in test/support.
       """,
       fields: [
         {:version, :string, []},
         {:force, :boolean, []},
-        {:verb, :enum, [values: ["get", "replace", "add", "delete", "list", "relabel"], required: true]},
+        {:verb, :enum,
+         [values: ["get", "replace", "add", "delete", "list", "relabel", "move"], required: true]},
         {:file, :string, [required: true]},
         {:name, :string, []},
         {:code, :string, []},
-        {:label, :string, []},
+        {:label, {:either, {:string, {:list, :string}}}, []},
         {:new_label, :string, []},
         {:args, :string, []},
         {:in, :string, []},
         {:module, :string, []},
-        {:tag, :string, []}
+        {:tag, :string, []},
+        {:to, :string, []},
+        {:as, :string, []}
       ],
       cli: %{
         flags: [tag: {:keep, :tag}],
@@ -41,7 +48,8 @@ defmodule Menard.Verbs.Block do
           {"replace", [:file, :name, :code]},
           {"add", [:file, :name, :code]},
           {"delete", [:file, :name]},
-          {"relabel", [:file, :name, :label, :new_label]}
+          {"relabel", [:file, :name, :label, :new_label]},
+          {"move", [:file, {:rest, :label}]}
         ]
       }
     }
@@ -89,6 +97,17 @@ defmodule Menard.Verbs.Block do
       edit(p, &"relabel #{p.name}#{label(p)} in #{&1}", fn source ->
         Block.relabel(source, p.name, p.label, p.new_label, module: p[:module])
       end)
+    end
+  end
+
+  def run(%{verb: "move"} = p) do
+    labels = List.wrap(p[:label])
+
+    with :ok <- need(p, [:file, :label, :to], "block move"),
+         {:ok, file} <- resolve(p.file, p),
+         {:ok, dest} <- resolve(p.to, p),
+         {:ok, moved} <- Menard.Move.blocks(file, dest, labels, as: p[:as]) do
+      {:ok, Map.put(moved, :did, "move #{Enum.map_join(labels, ", ", &inspect/1)} to #{Path.basename(dest)}")}
     end
   end
 

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+**Tests, as the functions are**
+- `block move`: tests and describes into another test file, as `clause move` takes functions: their
+  `@tag` lines and comment, the private helpers only they call, the attributes and alias/import
+  lines they use; a created file gets the source's `use` and `setup`. A helper a staying test
+  calls too is refused (a test calling into another test module fails when its file runs alone).
+- `outline` of a test file lists its setups, tests and describes with their lines; `where
+  FILE:LINE` names the test a line is in; `block list` no longer names a `for` inside a test.
+- `edit` puts a function added under a clause after the function's last clause, and says so
+  (`moved`), where it refused and told the caller to.
+- Replies are written `ok`/`did` first and the version hash last.
+- Fixed: cutting two spans whose blank lines touch, the last just above a module's `end`, took the
+  `end` (`clause move`/`block move` of a function and the helper under it).
+
 **The Elixir language server**
 - The plugin wires expert into Claude Code's `LSP` tool (`lspServers`), through `bin/lsp`, the one
   place that names the server: `MENARD_LSP` swaps it (`expert`, `elixir-ls`) for Claude Code and

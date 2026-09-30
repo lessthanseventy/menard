@@ -50,6 +50,7 @@ FILE:LINE` names the test a line (a failure's, a grep hit's) sits in. Then match
 | a function's `@spec` | `clause {verb: "spec", file, name_arity, code: SIGNATURE}`; no `code` removes it |
 | a module attribute | `attr {verb: "get" \| "set" \| "delete", file, name, value}` |
 | a test, describe, schema | `block {verb: "add" \| "replace" \| "delete" \| "relabel", file, name: "test", label, code, in?, args?, tag?}`; `replace` with a whole test under `@tag` lines sets its tags |
+| tests into another test file | `block {verb: "move", file, label: ["a", …], to, as?}`: their @tags, the helpers only they call, the attributes and aliases they use go too; a new file gets the `use` and `setup`. A helper a staying test calls is refused: put it in test/support |
 | an alias/import/use/require, a `doctest` | `directive {verb: "add" \| "replace" \| "remove", file, kind, target}` |
 | one whole module of several | `module {verb: "replace", file, module, code}` |
 | a `@doc` or a `#` comment | a plain Edit: a string and a comment are prose, and the guard passes an edit that changes only those |

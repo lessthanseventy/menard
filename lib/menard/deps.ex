@@ -64,6 +64,20 @@ defmodule Menard.Deps do
   end
 
   @doc """
+  `graph/1` with `blocks` in it too: each `{key, node}` a do-block that is no function (a `test`, a
+  `describe`, a `setup`), with the module's functions it calls. What `block move` reaches a test's
+  helpers from, and sees a helper shared with a test that stays by.
+  """
+  @spec graph(Macro.t(), [{term(), Macro.t()}]) :: %{term() => map()}
+  def graph(module, blocks) do
+    defined = defined(definitions(module))
+
+    for {key, {kind, _, _} = node} <- blocks, into: graph(module) do
+      {key, %{kind: kind, nodes: [node], calls: own(collect(node, empty()).calls, defined)}}
+    end
+  end
+
+  @doc """
   The function of `graph` that a call to `name/arity` reaches: the one of that arity, else one with
   more arguments whose defaults make up the difference (`record(a, b, c \\\\ :x)` called as
   record/2). nil when the module defines neither.
