@@ -23,11 +23,17 @@ defmodule Menard.Lsp do
   @spec server() :: String.t()
   def server, do: System.get_env("MENARD_LSP") || "expert"
 
-  @doc "Start `project`'s server, if menard runs supervised and none is up; returns at once."
+  @doc """
+  Start `project`'s server, if menard runs supervised, `project` is a mix project and none is up;
+  returns at once. A directory with no mix.exs gives a server nothing to build, and it would burn
+  a core finding that out.
+  """
   @spec warm(String.t()) :: :ok
   def warm(project) do
-    if Process.whereis(Menard.Lsp.Workers),
-      do: DynamicSupervisor.start_child(Menard.Lsp.Workers, {__MODULE__, Path.expand(project)})
+    project = Path.expand(project)
+
+    if Process.whereis(Menard.Lsp.Workers) && File.exists?(Path.join(project, "mix.exs")),
+      do: DynamicSupervisor.start_child(Menard.Lsp.Workers, {__MODULE__, project})
 
     :ok
   end
