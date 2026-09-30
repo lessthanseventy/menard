@@ -121,6 +121,13 @@ defmodule Menard.Hook do
     {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
   end
 
+  defp tool(%{tool: tool, event: "PreToolUse"} = hook) when tool in ["Agent", "Task"] do
+    case Scripts.delegated(hook.input["prompt"] || "", menard()) do
+      nil -> :quiet
+      why -> {:deny, why}
+    end
+  end
+
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
     case Scripts.refused(hook.input["command"] || "", menard(), hook.root) do
       nil -> hook |> marked() |> piped(hook)

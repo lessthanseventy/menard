@@ -101,6 +101,31 @@ defmodule Menard.Scripts do
       "every function's lines, `#{menard} find calls Mod.fun DIRS` for who calls it."
   end
 
+  @doc """
+  Why a subagent is not sent, or nil: one sent to find the calls of a function (desk5: an Explore
+  agent, 1,404 characters of prompt, for what `find calls` answers in one call). A prompt that asks
+  for the references, usages or callers of a `Mod.fun`, and is no bigger job than that.
+  """
+  @spec delegated(String.t(), String.t()) :: String.t() | nil
+  def delegated(prompt, menard) when byte_size(prompt) < 2_000 do
+    asks? =
+      String.match?(prompt, ~r/\b(references?|usages?|uses of|callers?|call sites?|calls? (to|it|of))\b/i)
+
+    target =
+      ~r/\b((?:[A-Z]\w*\.)+[a-z_]\w*[?!]?)/
+      |> Regex.scan(prompt, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.max_by(&String.length/1, fn -> nil end)
+
+    if asks? and target do
+      "a subagent to find the calls of #{target}: #{menard} find calls #{target} lib test answers it in one " <>
+        "call (the `find` tool, kind calls): every call site, by the AST, strings, comments and names that " <>
+        "only share its word left out."
+    end
+  end
+
+  def delegated(_prompt, _menard), do: nil
+
   defp instead(menard) do
     """
     Text is replaced, in one file or many, in one call, with menard's edit: every text found exactly \
@@ -251,7 +276,7 @@ defmodule Menard.Scripts do
          literal = String.replace(pattern, "\\", ""),
          [{what, call, _}] <-
            for(
-             {what, "" <> call, _} = item <- items(modules, file, menard),
+             {what, "" <> call, _} = item <- items(modules, file, menard) ++ describes(modules, file, menard),
              String.contains?(call, " block get "),
              String.contains?(what, literal),
              do: item
@@ -263,6 +288,14 @@ defmodule Menard.Scripts do
   end
 
   defp test_read(_pattern, _paths, _menard, _root), do: nil
+
+  # each describe, for a read of one by its label; not among `items/3`, where a range in one of its
+  # tests would meet it as well and read as two
+  defp describes(modules, file, menard) do
+    for m <- modules, %{kind: :describe, label: label, lines: lines} <- m.tests, label do
+      {"describe #{inspect(label)}", "#{menard} block get #{file} describe --label #{inspect(label)}", lines}
+    end ++ Enum.flat_map(modules, &describes(&1.modules, file, menard))
+  end
 
   defp grep_args([], flags, rest), do: {flags, Enum.reverse(rest)}
 

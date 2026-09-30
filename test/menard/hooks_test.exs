@@ -168,16 +168,21 @@ defmodule Menard.HooksTest do
     # (found in the eval: arm H's shell hook, 2026-09-25)
     hooks = @root |> Path.join("hooks/hooks.json") |> File.read!() |> JSON.decode!()
 
-    scripts = fn event ->
-      for %{"matcher" => "Bash", "hooks" => list} <- hooks["hooks"][event] || [],
+    # a matcher is a set of tools, `Bash|Agent|Task`
+    scripts = fn event, on ->
+      for %{"matcher" => matcher, "hooks" => list} <- hooks["hooks"][event] || [],
+          on in String.split(matcher, "|"),
           %{"type" => "mcp_tool", "tool" => tool} <- list,
           do: tool
     end
 
+    # a subagent sent to search is asked about before it starts (Scripts.delegated/2)
+    assert "hook" in scripts.("PreToolUse", "Agent")
+
     for event <- ["PreToolUse", "PostToolUse", "PostToolUseFailure"],
         do:
           assert(
-            "hook" in scripts.(event),
+            "hook" in scripts.(event, "Bash"),
             "#{event} on Bash does not call the hook tool"
           )
   end
@@ -1097,6 +1102,27 @@ defmodule Menard.HooksTest do
       # a command refused is no command in flight: it left no mark to find files by
       refute File.exists?(Path.join(dir, "menard-format-s1-c1"))
     end
+  end
+
+  @tag :tmp_dir
+  test "a subagent sent to find a function's calls is refused before it starts, with the find that answers it",
+       %{tmp_dir: dir} do
+    payload = fn prompt ->
+      %{
+        "hook_event_name" => "PreToolUse",
+        "tool_name" => "Agent",
+        "session_id" => "a1",
+        "tool_use_id" => "t1",
+        "cwd" => dir,
+        "tool_input" => %{"subagent_type" => "Explore", "prompt" => prompt}
+      }
+    end
+
+    search = "Find every reference to Desk.Tickets.transition/2 in lib/ and test/, as file:line."
+    assert {:deny, why} = Menard.Hook.run(payload.(search), state_dir: dir)
+    assert why =~ "find calls Desk.Tickets.transition lib test"
+
+    assert Menard.Hook.run(payload.("Summarize what this project does"), state_dir: dir) == :quiet
   end
 
   defp bigread(payload, dir) do

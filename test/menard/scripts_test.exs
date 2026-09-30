@@ -163,6 +163,15 @@ defmodule Menard.ScriptsTest do
     assert Scripts.refused(~s(grep -n "records a created event" -A 8 test/cart_test.exs), @menard, dir) =~
              ~s(#{@menard} block get test/cart_test.exs test --label "records a created event")
 
+    # a describe read by its label is block get's too
+    File.write!(
+      Path.join(dir, "test/desc_test.exs"),
+      "defmodule DescTest do\n  use ExUnit.Case\n\n  describe \"add_comment/3\" do\n    test \"adds\" do\n      assert 1\n    end\n  end\nend\n"
+    )
+
+    assert Scripts.refused(~s(grep -n "describe \\"add_comment" -A 25 test/desc_test.exs), @menard, dir) =~
+             ~s(#{@menard} block get test/desc_test.exs describe --label "add_comment/3")
+
     # a pattern over two labels reads neither, and runs; so does one without context
     assert Scripts.refused(~s(grep -n "records a" -A 3 test/cart_test.exs), @menard, dir) == nil
     assert Scripts.refused(~s(grep -n "records a created event" test/cart_test.exs), @menard, dir) == nil
@@ -181,5 +190,26 @@ defmodule Menard.ScriptsTest do
     # a count of text, and a list of files, read no code
     assert Scripts.refused(~s(grep -c "TODO" test/cart_test.exs), @menard, dir) == nil
     assert Scripts.refused(~s(grep -l "test \\"" test/cart_test.exs), @menard, dir) == nil
+  end
+
+  test "a subagent sent to find a function's callers is answered with find calls" do
+    # desk5 step 08: an Explore subagent, 1,404 characters of prompt, to list the calls of
+    # Desk.Tickets.transition/2 apart from the event name and element ids that share its word: what
+    # find calls does in one call, strings and comments never matched
+    prompt =
+      "search the whole codebase (lib/ and test/) for every reference to `Tickets.transition`, `transition(` " <>
+        "(the Desk.Tickets.transition/2 function), and any place that calls it. List findings as file:line."
+
+    why = Scripts.delegated(prompt, @menard)
+    assert why =~ "#{@menard} find calls Desk.Tickets.transition lib test"
+
+    # a job that is more than a search runs, callers mentioned or not; so does a search of no function
+    assert Scripts.delegated(
+             "Implement the export feature. " <> String.duplicate("Keep its callers working. ", 100),
+             @menard
+           ) == nil
+
+    assert Scripts.delegated("Find every reference to the word transition in the docs", @menard) == nil
+    assert Scripts.delegated("Review Desk.Tickets.transition/2 for bugs", @menard) == nil
   end
 end
