@@ -1188,7 +1188,9 @@ def main():
         rid = f"{case.name}.{arm}.{model}.{n}"
         if rid in done:
             continue
-        if arm == "without" and kept[(case.name, model)] >= a.runs:
+        # the baseline is topped up to --runs, not run --runs times again: n counts from 1 in every
+        # round, so a round with one baseline row lent runs n=1 and skips the rest
+        if arm == "without" and kept[(case.name, model)] + n > a.runs:
             continue
         if a.stop_at and time.strftime("%H:%M") >= a.stop_at:
             print(f"stop-at {a.stop_at} reached", flush=True)
