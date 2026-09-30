@@ -432,8 +432,24 @@ defmodule Menard.HooksTest do
     {out, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, linting)
     assert JSON.decode!(out)["hookSpecificOutput"]["additionalContext"] =~ "  lib/m2.ex:1 a nit"
 
-    assert_received {:ran, "credo", ["--changed", "lib/m1.ex", "lib/m2.ex" | _]}
+    assert_received {:ran, "credo", ["--changed", "lib/m1.ex", "lib/m2.ex" | _] = args}
+    refute "--strict" in args
     refute_received {:ran, "credo", _}
+
+    # a project that gates with `credo --strict` is linted so at the write too: a check only strict
+    # runs (AliasUsage) passed every edit, and failed the gate
+    File.write!(
+      Path.join(dir, "mix.exs"),
+      File.read!(Path.join(dir, "mix.exs")) <> "# precommit: credo --strict\n"
+    )
+
+    call = %{call | session_id: "t#{System.unique_integer([:positive])}"}
+    {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, linting)
+    backdate_format_mark(call, dir)
+    File.write!(Path.join(dir, "lib/m3.ex"), "defmodule M3 do\nend\n")
+    {_, 0} = report(Map.put(call, :hook_event_name, "PostToolUse"), dir, linting)
+    assert_received {:ran, "credo", ["--changed" | _] = args}
+    assert "--strict" in args
   end
 
   @tag :tmp_dir
