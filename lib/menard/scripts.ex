@@ -24,10 +24,71 @@ defmodule Menard.Scripts do
   """
   @spec refused(String.t(), String.t(), String.t() | nil) :: String.t() | nil
   def refused(command, menard, root \\ nil) do
-    case interpreter(command) do
-      nil -> read(command, menard, root)
-      script -> "#{script} does not run here. " <> instead(menard)
+    script = interpreter(command)
+
+    if script && not programs?(command, root),
+      do: "#{script} does not run here. " <> instead(menard),
+      else: read(command, menard, root)
+  end
+
+  # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
+  # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file
+  # git does not track (one the agent just wrote) are scripts. `cd DIR &&` before one is followed.
+  defp programs?(_command, nil), do: false
+
+  defp programs?(command, root) do
+    runs =
+      command
+      |> outside_heredocs()
+      |> commands()
+      |> Enum.map_reduce(root, fn segment, base ->
+        case unwrapped(words(segment)) do
+          ["cd", dir | _] -> {nil, Path.expand(dir, base)}
+          [first | args] = words -> {if(interpreter?(first), do: {base, args}), base} |> then(&(words && &1))
+          [] -> {nil, base}
+        end
+      end)
+      |> elem(0)
+      |> Enum.reject(&is_nil/1)
+
+    runs != [] and Enum.all?(runs, fn {base, args} -> tracked?(program(args), base) end)
+  end
+
+  @wrappers ~w(nohup env exec time command)
+
+  defp unwrapped([word | rest]) do
+    cond do
+      String.match?(word, ~r/^\w+=/) or word in @wrappers ->
+        unwrapped(rest)
+
+      word == "timeout" ->
+        rest |> Enum.drop_while(&String.starts_with?(&1, "-")) |> Enum.drop(1) |> unwrapped()
+
+      true ->
+        [word | rest]
     end
+  end
+
+  defp unwrapped([]), do: []
+
+  defp interpreter?(word), do: String.match?(Path.basename(word), ~r/^(python3?(\.\d+)?|perl|ruby|node)$/)
+
+  # the file it runs, or nil for code given inline
+  defp program(args) do
+    case Enum.drop_while(args, &(String.starts_with?(&1, "-") and &1 not in ~w(- -c -e -m))) do
+      [file | _] when file not in ~w(- -c -e -m) -> file
+      _ -> nil
+    end
+  end
+
+  defp tracked?(nil, _base), do: false
+
+  defp tracked?(file, base) do
+    File.regular?(Path.expand(file, base)) and
+      match?(
+        {_, 0},
+        System.cmd("git", ["-C", base, "ls-files", "--error-unmatch", "--", file], stderr_to_stdout: true)
+      )
   end
 
   @doc "What is so in every session, said at its start."
@@ -79,9 +140,33 @@ defmodule Menard.Scripts do
   defp read(command, menard, root) do
     command
     |> outside_heredocs()
-    |> String.split(~r/&&|\|\||[;|\n]/)
+    |> commands()
     |> Enum.find_value(&read_one(String.trim(&1), menard, root))
   end
+
+  # the commands of a command line, split at `&&`, `||`, `;`, `|` and new lines outside quotes: a
+  # path in quotes may hold a `;`
+  defp commands(line), do: commands(line, "", nil, [])
+
+  defp commands("", cur, _quote, acc), do: Enum.reverse([cur | acc])
+
+  defp commands(<<q, rest::binary>>, cur, nil, acc) when q in [?', ?"],
+    do: commands(rest, cur <> <<q>>, q, acc)
+
+  defp commands(<<q, rest::binary>>, cur, q, acc), do: commands(rest, cur <> <<q>>, nil, acc)
+
+  defp commands(<<c::utf8, rest::binary>>, cur, q, acc) when q != nil,
+    do: commands(rest, cur <> <<c::utf8>>, q, acc)
+
+  defp commands(<<op::binary-size(2), rest::binary>>, cur, nil, acc) when op in ["&&", "||"],
+    do: commands(rest, "", nil, [cur | acc])
+
+  defp commands(<<c, rest::binary>>, cur, nil, acc) when c in [?;, ?|, ?\n],
+    do: commands(rest, "", nil, [cur | acc])
+
+  defp commands(<<c::utf8, rest::binary>>, cur, nil, acc), do: commands(rest, cur <> <<c::utf8>>, nil, acc)
+  # a byte that is no UTF-8: kept as it is, not a crash of the hook that reads the command
+  defp commands(<<c, rest::binary>>, cur, q, acc), do: commands(rest, cur <> <<c>>, q, acc)
 
   defp read_one(segment, menard, root) do
     case words(segment) do
