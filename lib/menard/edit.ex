@@ -35,13 +35,19 @@ defmodule Menard.Edit do
     files = edits |> Enum.map(& &1.file) |> Enum.uniq()
     before = Map.new(files, &{&1, File.read(&1)})
 
-    with {:ok, contents, moved} <- replaced(edits, before),
+    with {:ok, contents, notes} <- replaced(edits, before),
          :ok <- parsed(files, contents, before),
          {:ok, changed} <- written(files, contents, before) do
       root = opts[:root] || File.cwd!()
-      moved = for {file, what} <- moved, do: "#{Path.relative_to(file, root)}: #{what}"
-      reply = %{changed: changed, replacements: length(edits)}
-      {:ok, if(moved == [], do: reply, else: Map.put(reply, :moved, moved))}
+
+      # each note under its key: `moved` (a function put after its clauses), `indented` (text found deeper)
+      notes =
+        notes
+        |> Enum.group_by(fn {_file, {key, _}} -> key end, fn {file, {_, what}} ->
+          "#{Path.relative_to(file, root)}: #{what}"
+        end)
+
+      {:ok, Map.merge(%{changed: changed, replacements: length(edits)}, notes)}
     else
       # a file as the caller named it: under `root:`, where there is one
       {:error, {file, why}} ->
@@ -73,7 +79,7 @@ defmodule Menard.Edit do
 
   defp replace({:ok, text}, %{old: old, new: new} = edit) do
     case {:binary.matches(text, old), edit[:all] == true} do
-      {[], _all} -> {:error, "this text is not there:\n#{old}"}
+      {[], _all} -> deeper(text, edit) || {:error, "this text is not there:\n#{old}"}
       {[{at, length}], _all} -> placed(text, edit, at + length)
       {_several, true} -> {:ok, String.replace(text, old, new)}
       {several, false} -> {:error, several(text, old, several)}
@@ -92,7 +98,8 @@ defmodule Menard.Edit do
          {:ok, at, {name, arity}} <- after_run(text, anchor_end, String.ends_with?(old, "\n")),
          moved = binary_part(text, 0, at) <> added <> binary_part(text, at, byte_size(text) - at),
          :ok <- Menard.Write.together(edit.file, text, moved) do
-      {:ok, moved, "#{defined(added)} after the last clause of #{name}/#{arity}, not between its clauses"}
+      {:ok, moved,
+       {:moved, "#{defined(added)} after the last clause of #{name}/#{arity}, not between its clauses"}}
     else
       _ -> {:ok, plain}
     end
@@ -166,6 +173,32 @@ defmodule Menard.Edit do
 
     "this text is there #{length(found)} times (lines #{lines}): give more of what is around it, " <>
       "or `all: true` for every one:\n#{old}"
+  end
+
+  # `old` as clause get and block get give code, at column 0, where the file has it deeper: found once
+  # at one depth, whole lines from a line's start, it is replaced there and `new` written at that depth
+  defp deeper(text, %{old: old, new: new}) do
+    found =
+      for n <- 1..16,
+          at = :binary.matches("\n" <> text, "\n" <> indented(old, n)),
+          at != [],
+          do: {n, length(at)}
+
+    case found do
+      [{n, 1}] ->
+        out = String.replace("\n" <> text, "\n" <> indented(old, n), "\n" <> indented(new, n))
+
+        {:ok, binary_part(out, 1, byte_size(out) - 1),
+         {:indented, "found #{n} spaces deeper than given, and written there"}}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp indented(code, n) do
+    pad = String.duplicate(" ", n)
+    code |> String.split("\n") |> Enum.map_join("\n", &if(&1 == "", do: "", else: pad <> &1))
   end
 
   defp line(text, at), do: text |> binary_part(0, at) |> String.split("\n") |> length() |> to_string()
