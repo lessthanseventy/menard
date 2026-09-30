@@ -207,6 +207,22 @@ defmodule Menard.EditTest do
     assert why =~ "nothing was written"
     assert read(dir, "lib/t.ex") == before
 
+    # a new function added under a clause, the clause left as it was, has one place it can go:
+    # after the function's last clause, and there it is written, the reply saying so
+    assert {:ok, reply} =
+             edit(dir, [
+               %{
+                 file: "lib/t.ex",
+                 old: "  def tool(:a), do: a()\n",
+                 new: "  def tool(:a), do: a()\n\n  defp helped(x), do: x\n"
+               }
+             ])
+
+    assert read(dir, "lib/t.ex") ==
+             "defmodule T do\n  def tool(:a), do: a()\n  def tool(:b), do: :b\n\n  defp helped(x), do: x\n\n  defp a, do: :a\nend\n"
+
+    assert reply.moved == ["lib/t.ex: helped/1 after the last clause of tool/1, not between its clauses"]
+
     # a file that had its clauses apart already is not refused for it: that is not this edit's doing
     apart = "defmodule U do\n  def f(1), do: 1\n  def g, do: 0\n  def f(2), do: 2\nend\n"
     File.write!(Path.join(dir, "lib/u.ex"), apart)
