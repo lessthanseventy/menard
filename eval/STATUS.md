@@ -853,3 +853,27 @@ both rows judged by graders f08bb4fb.
   replayed from its saved diff before it is believed.
 - The sonnet baseline stands for later rounds of this suite (basis agent c17ccd43, Claude Code
   2.1.283): one row. Two more would give it a spread.
+
+### desk5 (2026-09-29 20:31 - 21:36): helpdesk, sonnet, without vs with, 1 run
+
+Menard at d2c1786: no settings (scripts refused, piped runs rewritten, code reads refused with the
+call that reads it), expert warmed in the template, find's indexing note reworded. `with` ran with
+the read refusals as they were before 7fddcf4 (test labels and structure listings not yet refused).
+
+| | without | with |
+|---|---|---|
+| steps passed, clean | 9/9, yes | 9/9, yes |
+| turns | 198 | 172 |
+| agent seconds | 1,638 | 1,951 |
+| new input + output tokens | 448k | 507k |
+| tool errors, red test runs | 0, 5 | 2, 4 |
+
+What it says: little, at one run an arm. desk3's without took 329 turns and 625k tokens on the same
+suite; desk5's took 198 and 448k: the baseline moved more than the arms differ. `with` took fewer
+turns in 7 of 9 steps and more tokens in 4 (03, 06, 08, 09); step 08 (transition/2 renamed) spent a
+subagent and a red run finding the test callers before it reached for `find`. Every red run was a
+real failure the run named (a logic bug, a stream without ids, route order, the callers). No
+refusal fired in `with`: its reads were the Read tool, and one `grep -A` of a test by its label,
+which 7fddcf4 now refuses. Found and fixed from this round: the template's expert log named menard
+(the without arm refused to start); expert's shutdown after each step leaves 3 processes the
+runner kills. To judge an arm this suite needs several runs of each.
