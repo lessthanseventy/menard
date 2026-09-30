@@ -116,4 +116,35 @@ defmodule Menard.ScriptsTest do
       assert Scripts.refused(innocent, @menard, dir) == nil, innocent
     end
   end
+
+  @tag :tmp_dir
+  test "a program the project tracks runs; inline code and a file it does not track are refused", %{
+    tmp_dir: dir
+  } do
+    # eval/run.py, menard's own runner, was refused as a script: a project's committed program is no
+    # script written to get around edit. One the agent writes is untracked until committed, and stays refused.
+    {_, 0} = System.cmd("git", ["init", "-q", dir])
+    File.mkdir_p!(Path.join(dir, "eval"))
+    File.write!(Path.join(dir, "eval/run.py"), "print(1)\n")
+    File.write!(Path.join(dir, "fix.py"), "print(2)\n")
+    {_, 0} = System.cmd("git", ["-C", dir, "add", "eval/run.py"])
+
+    for ok <- [
+          "python3 eval/run.py desk5 --suite eval/helpdesk",
+          # quoted: a tmp_dir holds the test's name, `;` and all
+          "cd '#{dir}' && python3 eval/run.py x > out 2>&1",
+          "FOO=1 nohup python3 eval/run.py &"
+        ] do
+      assert Scripts.refused(ok, @menard, dir) == nil, ok
+    end
+
+    for no <- [
+          "python3 fix.py",
+          "python3 -c 'print(1)'",
+          "python3 - <<'E'\nprint(1)\nE",
+          "python3 eval/missing.py"
+        ] do
+      assert Scripts.refused(no, @menard, dir) =~ "does not run here", no
+    end
+  end
 end
