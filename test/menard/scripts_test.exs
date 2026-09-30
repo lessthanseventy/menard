@@ -215,4 +215,20 @@ defmodule Menard.ScriptsTest do
     assert Scripts.delegated("Find every reference to the word transition in the docs", @menard) == nil
     assert Scripts.delegated("Review Desk.Tickets.transition/2 for bugs", @menard) == nil
   end
+
+  @tag :tmp_dir
+  test "a grep for a function's callers is find calls however it is written: an alternative, a file list, an args pattern",
+       %{tmp_dir: dir} do
+    # desk7 step 08 found the callers of Tickets.transition with three greps the refusal let through
+    for command <- [
+          ~s{grep -rn "Tickets\\.transition\\|def transition\\|transition(" lib test},
+          ~s{grep -rl "Tickets\\.transition(" test},
+          ~s{grep -rhoE "Tickets\\.transition\\([a-zA-Z_0-9]+, :[a-z]+\\)" test}
+        ] do
+      assert Scripts.refused(command, @menard, dir) =~ "#{@menard} find calls Tickets.transition", command
+    end
+
+    # a list of files that hold some text is no callers query, and runs
+    assert Scripts.refused(~s{grep -rl "TODO" lib}, @menard, dir) == nil
+  end
 end
