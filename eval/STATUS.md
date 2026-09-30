@@ -877,3 +877,29 @@ refusal fired in `with`: its reads were the Read tool, and one `grep -A` of a te
 which 7fddcf4 now refuses. Found and fixed from this round: the template's expert log named menard
 (the without arm refused to start); expert's shutdown after each step leaves 3 processes the
 runner kills. To judge an arm this suite needs several runs of each.
+
+### desk7 (2026-09-29 22:10 - 23:34): helpdesk, sonnet and opus, with vs without, 1 run (+1 sonnet baseline)
+
+Menard at 5bf4b43 (the reread answer, subagent find refusal, test/describe/structure reads refused,
+`run` told to test the changed files while working, edit finding dedented text). Sonnet's without
+row from desk5 was lent, and one more was run: two sonnet baselines on this basis.
+
+| | sonnet without (desk5) | sonnet without (desk7) | sonnet with | opus without | opus with |
+|---|---|---|---|---|---|
+| steps passed | 9/9 | 7/9 | 9/9 | 9/9 | 9/9 |
+| turns | 198 | 202 | 211 | 50 | 43 |
+| agent seconds | 1,638 | 1,730 | 1,758 | 636 | 689 |
+| new input + output tokens | 448k | 445k | 455k | 193k | 201k |
+| red test runs | 5 | 0 | 3 | 3 | 3 |
+
+What it says. Sonnet with menard now costs what sonnet without does (455k against 448k and 445k),
+where desk5's with cost 507k: 4 full-file rereads to 11, the whole suite run far less often (targeted
+tests, one check a step), `clause` the reader (41 calls). The second sonnet baseline failed step 06:
+its status filter was not the form the acceptance test drives, a miss of the spec with no tool in it;
+its cost matched the first baseline's. Opus needs a quarter of sonnet's tokens either way, and menard
+changes how it works (menard edit where it wrote python heredocs, one find after a refusal taught it)
+more than what it costs. Found and fixed during the round, after its plugin was pinned: the reread
+answer read as an error and was asked again (018b890); the agent's own edit came back as the change
+since its read (6fd87ed); `clause get FILE app`, no arity, refused (5e38d14); callers greps written as
+an alternative, a file list or an args pattern got through (cce9482); outline lacked a component's
+attr/slot lines (2e44302). One session a cell: a direction, not a measurement.
