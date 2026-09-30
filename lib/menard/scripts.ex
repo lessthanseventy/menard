@@ -170,7 +170,7 @@ defmodule Menard.Scripts do
 
   defp read_one(segment, menard, root) do
     case words(segment) do
-      ["grep" | args] -> grep(args, menard)
+      ["grep" | args] -> grep(args, menard, root)
       ["sed", "-n", script, file] -> sed(script, file, menard, root)
       _ -> nil
     end
@@ -185,30 +185,84 @@ defmodule Menard.Scripts do
   # flags that take the next word as their value
   @valued ~w(-A -B -C -m -e --after-context --before-context --context --max-count)
 
-  defp grep(args, menard) do
+  defp grep(args, menard, root) do
     {flags, [pattern | paths]} = grep_args(args, [], [])
-    listing? = Enum.any?(flags, &String.match?(&1, ~r/^-[a-zA-Z]*[clLq]/))
-    context? = Enum.any?(flags, &String.match?(&1, ~r/^-[A-Za-z]*[ABC]|^--(after-|before-)?context/))
     paths = if paths == [], do: ["."], else: paths
-    {name, call} = {def_name(pattern), call_name(pattern)}
+    has = fn letters -> Enum.any?(flags, &String.match?(&1, ~r/^-[a-zA-Z]*[#{letters}]/)) end
 
+    # a list of files reads no code, nor does a count of text (a count of a file's shape is its
+    # outline's); outside lib/ and test/ is text
     cond do
-      listing? or not code?(paths) ->
-        nil
-
-      context? and name != nil ->
-        def_read(name, paths, menard)
-
-      call != nil ->
-        "`grep` for the callers of #{call}: #{menard} find calls #{call} #{Enum.join(paths, " ")}" <>
-          read_why()
-
-      true ->
-        nil
+      has.("lLq") or not code?(paths) -> nil
+      has.("c") and not structure?(pattern) -> nil
+      true -> grep_read(pattern, paths, Enum.any?(flags, &context?/1), menard, root)
     end
   rescue
     MatchError -> nil
   end
+
+  defp context?(flag), do: String.match?(flag, ~r/^-[A-Za-z]*[ABC]|^--(after-|before-)?context/)
+
+  # what the grep reads, first that holds: a file's structure (outline), with context a function's
+  # body (clause get) or one test (block get), else a remote call's callers (find calls)
+  defp grep_read(pattern, paths, context?, menard, root) do
+    structure_read(pattern, paths, menard) || (context? && context_read(pattern, paths, menard, root)) ||
+      callers(pattern, paths, menard)
+  end
+
+  defp structure_read(pattern, [file], menard) when is_binary(file) do
+    if elixir?(file) and structure?(pattern),
+      do:
+        "a listing of #{file}'s structure by grep: #{menard} outline #{file}, every module, function " <>
+          "and test with its lines" <> read_why()
+  end
+
+  defp structure_read(_pattern, _paths, _menard), do: nil
+
+  # with context: a function's body, or one test's
+  defp context_read(pattern, paths, menard, root) do
+    case def_name(pattern) do
+      nil -> test_read(pattern, paths, menard, root)
+      name -> def_read(name, paths, menard)
+    end
+  end
+
+  defp callers(pattern, paths, menard) do
+    if call = call_name(pattern),
+      do:
+        "`grep` for the callers of #{call}: #{menard} find calls #{call} #{Enum.join(paths, " ")}" <>
+          read_why()
+  end
+
+  # a pattern that is only a keyword of the file's shape: `test "`, `describe "`, `def `, `defmodule`
+  defp structure?(pattern) do
+    pattern
+    |> String.replace("\\", "")
+    |> String.trim()
+    |> String.match?(~r/^\^?\s*(test|describe|setup|defmodule|defp?|defmacrop?)\s*"?$/)
+  end
+
+  # One test of a test file read by (part of) its label: the pattern is in that test's label and no
+  # other's. One over several, `test "` say, is a listing, and runs.
+  defp test_read(pattern, [file], menard, root) when is_binary(root) do
+    with true <- elixir?(file),
+         {:ok, source} <- File.read(Path.expand(file, root)),
+         {:ok, modules} <- Menard.Outline.run(source),
+         literal = String.replace(pattern, "\\", ""),
+         [{what, call, _}] <-
+           for(
+             {what, "" <> call, _} = item <- items(modules, file, menard),
+             String.contains?(call, " block get "),
+             String.contains?(what, literal),
+             do: item
+           ) do
+      "#{what} read by grep: #{call}" <> read_why()
+    else
+      _ -> nil
+    end
+  end
+
+  defp test_read(_pattern, _paths, _menard, _root), do: nil
 
   defp grep_args([], flags, rest), do: {flags, Enum.reverse(rest)}
 
