@@ -53,6 +53,16 @@ defmodule Mix.Tasks.Menard.Outline do
       )
     end
 
+    print_tests(m.tests, indent <> "  ")
     Enum.each(m.modules, &print_module(&1, indent <> "  "))
+  end
+
+  defp print_tests(tests, indent) do
+    for t <- tests do
+      {a, b} = t.lines || {0, 0}
+      label = if t.label, do: " " <> inspect(t.label), else: ""
+      Mix.shell().info("#{indent}#{t.kind}#{label}  L#{a}-#{b}")
+      print_tests(t[:tests] || [], indent <> "  ")
+    end
   end
 end

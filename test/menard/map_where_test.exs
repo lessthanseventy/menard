@@ -60,4 +60,23 @@ defmodule Menard.MapWhereTest do
     assert out =~ "app/lib/app/cart.ex:9  App.Cart.Line.total/1\n"
     assert out =~ "app/lib/app/cart.ex:1  App.Cart\n"
   end
+
+  @tag :tmp_dir
+  test "where names the test a line of a test file sits in, inside its describe", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "t_test.exs"), """
+    defmodule TTest do
+      use ExUnit.Case
+
+      describe "cart" do
+        test "adds" do
+          assert 1
+        end
+      end
+    end
+    """)
+
+    out = ExUnit.CaptureIO.capture_io(fn -> Where.run(["t_test.exs:6", "t_test.exs:2"]) end)
+    assert out =~ ~s(t_test.exs:6  TTest describe "cart" test "adds"\n)
+    assert out =~ "t_test.exs:2  TTest\n"
+  end
 end

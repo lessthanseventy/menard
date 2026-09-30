@@ -316,10 +316,12 @@ defmodule Menard.Block do
     end
   end
 
-  # into a describe, but not into a function: an `if` in a def body is a statement, not a block
+  # into a describe, but not into a function or a test: an `if` in a def body, a `for` in a test,
+  # is a statement, not a block (`block list` named every `for` in a test file's tests)
   defp collect_block(zipper, acc) do
     case Zipper.node(zipper) do
       {kind, _, _} when kind in @def_kinds -> {:skip, zipper, acc}
+      {kind, _, [_ | _]} = node when kind in [:test, :setup, :setup_all] -> {:skip, zipper, [node | acc]}
       # prepended, and reversed once at the end: appending copied the list at every block found
       node -> {:cont, zipper, if(block?(node), do: [node | acc], else: acc)}
     end

@@ -25,6 +25,54 @@ defmodule Menard.OutlineTest do
   end
   """
 
+  @tests ~S'''
+  defmodule DemoTest do
+    use ExUnit.Case
+
+    setup do
+      {:ok, a: 1}
+    end
+
+    test "top" do
+      for x <- [1], do: assert(x)
+    end
+
+    describe "group" do
+      test "inner", %{a: a} do
+        assert a
+      end
+    end
+
+    for n <- [1, 2] do
+      test "gen #{n}" do
+        assert true
+      end
+    end
+
+    defp helper, do: :ok
+  end
+  '''
+
+  test "a test file's tests, describes and setups, with their lines; nothing inside a test is one" do
+    # the tests were missing: outline of a test file listed its helpers alone, and `block list`
+    # also named every `for` inside a test
+    assert {:ok, [m]} = Outline.run(@tests)
+
+    assert m.tests == [
+             %{kind: :setup, label: nil, lines: {4, 6}},
+             %{kind: :test, label: "top", lines: {8, 10}},
+             %{
+               kind: :describe,
+               label: "group",
+               lines: {12, 16},
+               tests: [%{kind: :test, label: "inner", lines: {13, 15}}]
+             },
+             %{kind: :test, label: ~S'"gen #{n}"', lines: {19, 21}}
+           ]
+
+    assert [%{name: :helper}] = m.defs
+  end
+
   test "modules, defs with arity and kind, the doc's first line, line spans" do
     assert {:ok, [a]} = Outline.run(@src)
     assert a.module == "Demo.A"
