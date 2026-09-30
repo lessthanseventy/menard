@@ -12,3 +12,4 @@ commit lands.
   modules made it slower: it is CPU-bound, not serial. The cost to cut is VM starts: tests that
   spawn `bin/menard` (mise exec + a BEAM + mix) or a host formatter per tmp project. Measure per
   module before cutting.
+

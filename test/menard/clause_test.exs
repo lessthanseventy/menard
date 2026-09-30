@@ -935,4 +935,14 @@ defmodule Menard.ClauseTest do
     assert out =~ ~r/def a, do: 1\n\s*end\n$/
     assert {:ok, _} = Code.string_to_quoted(out)
   end
+
+  test "a head with no body, there for its defaults, is no clause to address" do
+    # `clause get lib/menard/edit.ex run/2 "edits, opts"` was refused: two clauses share the head, one of
+    # them `def run(edits, opts \\ [])`, which declares the default and has no body
+    src =
+      "defmodule R do\n  def run(edits, opts \\\\ [])\n  def run([], _opts), do: :none\n\n  def run(edits, opts) do\n    {edits, opts}\n  end\nend\n"
+
+    assert {:ok, clause} = Menard.Clause.find(src, "run/2", "edits, opts")
+    assert clause.range.start[:line] == 5
+  end
 end
