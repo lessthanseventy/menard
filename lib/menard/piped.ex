@@ -1,7 +1,6 @@
 defmodule Menard.Piped do
   @moduledoc """
-  A test run piped through `tail`, `head` or `grep`, run through `menard run` in its place:
-  `MENARD_RUNS=rewrite`, set where the plugin's MCP server gets its environment.
+  A test run piped through `tail`, `head` or `grep`, run through `menard run` in its place.
 
   Across 288 of the operator's sessions, 90% of test and gate runs were piped to cut their output
   down, and 40% were run again with no edit between, to see a different slice of the same failure:
@@ -20,10 +19,6 @@ defmodule Menard.Piped do
            ~S/^\s*(?<cd>cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)\s*&&\s*)?(?:\w+=\S*\s+)*mix\s+(?<task>test|precommit)\b(?<args>[^|;&<>]*?)(?:\s*2>&1)?(?:/ <>
              @pipe <> ~S")+\s*$"
          )
-
-  @doc "Whether this session's piped test runs are rewritten."
-  @spec on?() :: boolean()
-  def on?, do: System.get_env("MENARD_RUNS") == "rewrite"
 
   @doc "The command `menard run` stands in for `command` with, or nil where it stands as written."
   @spec rewritten(String.t(), String.t()) :: String.t() | nil

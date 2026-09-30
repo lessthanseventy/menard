@@ -1,6 +1,6 @@
 defmodule Menard.ScriptsTest do
-  # The two bans on scripts in another language: which commands each refuses, and which it must not.
-  # A guard that refuses an innocent command gets switched off.
+  # What a command may not do where menard is: which commands are refused, and which must not be. A
+  # guard that refuses an innocent command gets switched off.
   use ExUnit.Case, async: true
 
   alias Menard.Scripts
@@ -8,14 +8,9 @@ defmodule Menard.ScriptsTest do
   @menard "/p/bin/menard"
   @edit "python3 - <<'E'\np='lib/shop/cart.ex'\ns=open(p).read()\nopen(p,'w').write(s.replace('a','b'))\nE"
 
-  defp refused?(command, mode), do: Scripts.refused(command, mode, @menard) != nil
+  defp refused?(command), do: Scripts.refused(command, @menard) != nil
 
-  test "off refuses nothing" do
-    refute refused?(@edit, :off)
-    assert Scripts.upfront(:off, @menard) == nil
-  end
-
-  test "full refuses a command that runs an interpreter, wherever in it" do
+  test "a command that runs an interpreter is refused, wherever in it" do
     for command <- [
           @edit,
           "python3 -c 'print(1)'",
@@ -32,11 +27,11 @@ defmodule Menard.ScriptsTest do
           "(node x.js)",
           "if true; then\n  python3 x.py\nfi"
         ] do
-      assert refused?(command, :full), "#{inspect(command)} ran"
+      assert refused?(command), "#{inspect(command)} ran"
     end
   end
 
-  test "full lets a command through that only names one" do
+  test "a command that only names an interpreter runs" do
     for command <- [
           "grep -rn python lib",
           "echo 'run python3 later'",
@@ -49,57 +44,76 @@ defmodule Menard.ScriptsTest do
           "mix run -e 'IO.puts(1)'",
           "elixir -e 'IO.puts(:ruby)'"
         ] do
-      refute refused?(command, :full),
-             "#{inspect(command)} was refused: #{Scripts.refused(command, :full, @menard)}"
-    end
-  end
-
-  test "narrow refuses a script that names an Elixir file, and sed -i on one" do
-    for command <- [
-          @edit,
-          "perl -pi -e 's/transition/change_status/g' lib/desk/tickets.ex test/desk/tickets_test.exs",
-          "sed -i 's/a/b/' lib/a.ex",
-          "cd app && sed -i -e 's/a/b/' lib/a_web/live/show.html.heex",
-          "ruby -e 'File.write(\"config/runtime.exs\", \"x\")'",
-          "for f in lib/*.ex; do python3 fix.py $f; done"
-        ] do
-      assert refused?(command, :narrow), "#{inspect(command)} ran"
-    end
-  end
-
-  test "narrow lets a script through that names none, and what is no script" do
-    for command <- [
-          "python3 -c 'import json; print(json.load(open(\"a.json\")))'",
-          "python3 - <<'E'\nopen('notes.md','w').write('x')\nE",
-          "node assets/build.js",
-          "sed -i 's/a/b/' README.md",
-          "sed -n '1,20p' lib/a.ex",
-          "cat > lib/new.ex <<'EOF'\ndefmodule New do\nend\nEOF",
-          "grep -rn python lib/a.ex",
-          "mix format lib/a.ex",
-          "mix test test/a_test.exs"
-        ] do
-      refute refused?(command, :narrow), "#{inspect(command)} was refused"
+      refute refused?(command), "#{inspect(command)} was refused: #{Scripts.refused(command, @menard)}"
     end
   end
 
   test "a refusal, and what is said up front, name this menard by its path and show an edit" do
-    for text <- [
-          Scripts.refused(@edit, :full, @menard),
-          Scripts.refused(@edit, :narrow, @menard),
-          Scripts.upfront(:full, @menard),
-          Scripts.upfront(:narrow, @menard)
-        ] do
+    for text <- [Scripts.refused(@edit, @menard), Scripts.upfront(@menard)] do
       assert text =~ "/p/bin/menard edit --then test - <<'EOF'"
       assert text =~ "<<<<<<< SEARCH"
     end
 
-    assert Scripts.refused(@edit, :full, @menard) =~ "python3 does not run here"
-    assert Scripts.refused(@edit, :narrow, @menard) =~ "python3 does not edit Elixir here (lib/shop/cart.ex)"
-    assert Scripts.upfront(:full, @menard) =~ "There is no python"
-    assert Scripts.upfront(:full, @menard) =~ "elixir -e"
-    assert Scripts.upfront(:narrow, @menard) =~ "Scripts for anything else run"
+    assert Scripts.refused(@edit, @menard) =~ "python3 does not run here"
+    assert Scripts.upfront(@menard) =~ "There is no python"
+    assert Scripts.upfront(@menard) =~ "elixir -e"
+    # a script is not always an edit: waiting on a process was a python loop, refused as one
+    assert Scripts.refused(@edit, @menard) =~ "until ! pgrep"
+    assert Scripts.refused(@edit, @menard) =~ "jq"
+    assert Scripts.upfront(@menard) =~ "/p/bin/menard clause get FILE NAME"
     # no menard is named but by its path: a bare one is whichever the PATH holds first
-    refute Scripts.upfront(:narrow, @menard) =~ ~r/(?<![\w\/])menard (edit|rename|run)/
+    refute Scripts.upfront(@menard) =~ ~r/(?<![\w\/])menard (edit|rename|run|clause|outline|find)/
+  end
+
+  @tag :tmp_dir
+  test "reading code a menard verb reads exactly is refused with that call; every other grep runs",
+       %{tmp_dir: dir} do
+    # the transcripts: 1,045 `sed -n N,Mp` and 233 `grep -n "def NAME" -A N` on modules since 09-18,
+    # against 9 outlines; a nudge was not enough, a refusal that names the call is what agents learn from
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(
+      Path.join(dir, "lib/cart.ex"),
+      "defmodule Shop.Cart do\n  def total(c) do\n    c\n  end\n\n  def count(c), do: c\nend\n"
+    )
+
+    why = &Scripts.refused(&1, @menard, dir)
+
+    assert why.(~s(grep -n "def total" -A 20 lib/cart.ex)) =~ "#{@menard} clause get lib/cart.ex total"
+    assert why.(~s(sed -n '/def total/,/^  end/p' lib/cart.ex)) =~ "#{@menard} clause get lib/cart.ex total"
+    # a line range inside one function is that function; one over several is a page of the file,
+    # which Read reads as well, and runs
+    assert why.("sed -n '2,4p' lib/cart.ex") =~
+             "lines 2-4 of lib/cart.ex are Shop.Cart.total/1: #{@menard} clause get lib/cart.ex total/1"
+
+    assert why.("sed -n '2,6p' lib/cart.ex") == nil
+    # a test file's are its tests
+    File.mkdir_p!(Path.join(dir, "test"))
+
+    File.write!(
+      Path.join(dir, "test/cart_test.exs"),
+      "defmodule CartTest do\n  use ExUnit.Case\n\n  test \"adds\" do\n    assert 1\n  end\nend\n"
+    )
+
+    assert why.("sed -n '4,6p' test/cart_test.exs") =~
+             ~s(#{@menard} block get test/cart_test.exs test --label "adds")
+
+    assert why.("sed -n '1,7p' test/cart_test.exs") == nil
+    assert why.(~s(grep -rn "Shop.Cart.total" lib test)) =~ "#{@menard} find calls Shop.Cart.total lib test"
+    assert why.(~s(cd lib && grep -rn 'Cart\\.total(' .)) =~ "find calls"
+
+    for innocent <- [
+          ~s(grep -rn "tax_rate" config),
+          ~s(grep -rn "TODO" lib),
+          ~s(grep -c "def " lib/cart.ex),
+          ~s(grep -n "def total" lib/cart.ex),
+          ~s(grep -rn "def total" -A 5 README.md),
+          "sed -n '1,20p' mix.exs",
+          "sed -n '1,20p' notes.txt",
+          ~s(git log --grep "Shop.Cart.total"),
+          "cat > lib/new.ex <<'X'\ngrep -n \"def a\" -A 3 lib/cart.ex\nX"
+        ] do
+      assert Scripts.refused(innocent, @menard, dir) == nil, innocent
+    end
   end
 end

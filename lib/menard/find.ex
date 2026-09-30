@@ -69,7 +69,7 @@ defmodule Menard.Find do
 
   defp call_to({{:., _, [{:__aliases__, _, parts}, name]}, _meta, args} = node, aliases, mod, fun)
        when is_atom(name) and is_list(args) and not is_nil(mod) do
-    if Atom.to_string(name) == fun and expand(parts, aliases) == mod, do: {:call, node}, else: nil
+    if Atom.to_string(name) == fun and named?(expand(parts, aliases), mod), do: {:call, node}, else: nil
   end
 
   defp call_to(_node, _aliases, _mod, _fun), do: nil
@@ -149,7 +149,7 @@ defmodule Menard.Find do
         for {:sigil_H, _meta, _args} = node <- ast |> Macro.prewalker() |> Enum.to_list(),
             {line, column, code} <- Menard.Source.heex_expressions(source, node),
             [{at, _}, {m, ml}] <- Regex.scan(call, code, return: :index),
-            is_nil(mod) or expand(module_parts(binary_part(code, m, ml)), aliases) == mod do
+            is_nil(mod) or named?(expand(module_parts(binary_part(code, m, ml)), aliases), mod) do
           {line, column} = Menard.Source.advance({line, column}, binary_part(code, 0, at))
           rest = binary_part(code, at, byte_size(code) - at)
 
@@ -165,6 +165,9 @@ defmodule Menard.Find do
         []
     end
   end
+
+  # `mod` as a caller wrote it: the full name, or its last segments (`Channels` of Server.Channels)
+  defp named?(full, mod), do: full == mod or String.ends_with?(full, "." <> mod)
 
   defp module_parts(prefix),
     do: prefix |> String.trim_trailing(".") |> String.split(".")

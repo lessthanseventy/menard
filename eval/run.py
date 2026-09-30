@@ -131,11 +131,7 @@ def build_template(suite, force=False):
 # The arms with menard, and what each sets in the plugin's server environment: `with` is the plugin
 # as a user installs it; the others are that plugin with a setting of its own turned on, to see
 # what the setting costs and buys before it is anyone's default.
-VARIANTS = {
-    "with": {},
-    "with-narrow": {"MENARD_SCRIPTS": "narrow", "MENARD_RUNS": "rewrite"},
-    "with-full": {"MENARD_SCRIPTS": "full", "MENARD_RUNS": "rewrite"},
-}
+VARIANTS = {"with": {}}
 ARMS = ("without", *VARIANTS)
 
 

@@ -1001,60 +1001,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag @tag :tmp_dir
-  test "a script that edited a module is told of edit, once a session, and only of what it did edit", %{
-    tmp_dir: dir
-  } do
-    # the eval's traces: a capable model edits Elixir with a Python heredoc, file after file
-    host(dir)
-    file = Path.join(dir, "lib/m.ex")
-    File.write!(file, "defmodule M do\n  def f(x), do: x\nend\n")
-    {_, 0} = System.cmd("git", ["-C", dir, "add", "-A"])
-    session = "t#{System.unique_integer([:positive])}"
-
-    shell = fn cmd, write ->
-      call = %{
-        tool_name: "Bash",
-        session_id: session,
-        tool_use_id: "c#{System.unique_integer([:positive])}",
-        tool_input: %{command: cmd}
-      }
-
-      {_, 0} = report(Map.put(call, :hook_event_name, "PreToolUse"), dir, counting())
-      write.()
-      report(Map.put(call, :hook_event_name, "PostToolUse"), dir, counting())
-    end
-
-    python = "python3 - <<'E'\np='lib/m.ex'\ns=open(p).read()\nopen(p,'w').write(s.replace('f(x)','g(x)'))\nE"
-
-    # a file the script made is no edit of a module
-    {out, 0} = shell.(python, fn -> File.write!(Path.join(dir, "lib/new.ex"), "defmodule New do\nend\n") end)
-    refute out =~ "menard edit"
-
-    # sed is no script
-    {out, 0} =
-      shell.("sed -i s/f/g/ lib/m.ex", fn -> File.write!(file, "defmodule M do\n  def g(x), do: x\nend\n") end)
-
-    refute out =~ "menard edit"
-
-    # a command that only names python, and wrote nothing
-    {out, 0} = shell.("echo python3", fn -> :ok end)
-    assert out == ""
-
-    # a word inside a heredoc is no script: `lines(node)` in menard's own edit read as node
-    edit = "bin/menard edit - <<'E'\nlib/m.ex\n<<<<<<< SEARCH\nf(x)\n=======\nlines(node)\n>>>>>>> REPLACE\nE"
-    {out, 0} = shell.(edit, fn -> File.write!(file, "defmodule M do\n  def f(x), do: node(x)\nend\n") end)
-    refute out =~ "menard edit"
-
-    {out, 0} = shell.(python, fn -> File.write!(file, "defmodule M do\n  def   h(x), do: x\nend\n") end)
-    context = JSON.decode!(out)["hookSpecificOutput"]["additionalContext"]
-    assert context =~ "lib/m.ex was reformatted"
-    assert context =~ "lib/m.ex: edited by a python3 script"
-    assert context =~ "#{@root}/bin/menard edit --then test - <<'EOF'"
-
-    # once: said again at every script, it is noise
-    {out, 0} = shell.(python, fn -> File.write!(file, "defmodule M do\n  def i(x), do: x\nend\n") end)
-    refute out =~ "menard edit"
-  end
 
   @tag @tag :tmp_dir
   test "the third Edit of a run is told of edit, once a session; a command between two Edits ends the run", %{
@@ -1109,7 +1055,9 @@ defmodule Menard.HooksTest do
   end
 
   @tag @tag :tmp_dir
-  test "under a ban the session is told at its start, and a script is refused before it runs", %{tmp_dir: dir} do
+  test "every session is told at its start what is refused, and a script is refused before it runs", %{
+    tmp_dir: dir
+  } do
     host(dir)
     python = "python3 - <<'E'\nopen('lib/m.ex','w').write('x')\nE"
 
@@ -1123,41 +1071,32 @@ defmodule Menard.HooksTest do
       }
     end
 
-    script = fn name, payload, mode ->
+    script = fn name, payload ->
       input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
       File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
 
       System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/#{name}"), input],
-        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}, {"MENARD_SCRIPTS", mode}],
+        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}],
         stderr_to_stdout: true
       )
     end
 
-    # no ban: nothing is said, nothing refused, and no menard is started to say so
-    assert {"", 0} = script.("session-start.sh", call.("SessionStart", nil, nil), "off")
-    allowed = Map.put(call.("PreToolUse", "Bash", python), :tool_use_id, "c0")
-    assert {"", 0} = script.("format-report.sh", allowed, "off")
+    # there is no setting: a ban that was off by default was one no session met
+    {out, 0} = script.("session-start.sh", call.("SessionStart", nil, nil))
+    start = JSON.decode!(out)["hookSpecificOutput"]
+    assert start["hookEventName"] == "SessionStart"
+    assert start["additionalContext"] =~ "There is no python"
+    assert start["additionalContext"] =~ "#{@root}/bin/menard edit --then test"
+    assert start["additionalContext"] =~ "#{@root}/bin/menard clause get FILE NAME"
 
-    for {mode, said} <- [{"narrow", "no script edits an Elixir file"}, {"full", "There is no python"}] do
-      {out, 0} = script.("session-start.sh", call.("SessionStart", nil, nil), mode)
-      start = JSON.decode!(out)["hookSpecificOutput"]
-      assert start["hookEventName"] == "SessionStart"
-      assert start["additionalContext"] =~ said
-      assert start["additionalContext"] =~ "#{@root}/bin/menard edit --then test"
-
-      {out, 0} = script.("format-report.sh", call.("PreToolUse", "Bash", python), mode)
+    for command <- [python, "python3 -c 'print(1)'"] do
+      {out, 0} = script.("format-report.sh", call.("PreToolUse", "Bash", command))
       refusal = JSON.decode!(out)["hookSpecificOutput"]
       assert refusal["permissionDecision"] == "deny"
-      assert refusal["permissionDecisionReason"] =~ "python3 does not"
+      assert refusal["permissionDecisionReason"] =~ "python3 does not run here"
       # a command refused is no command in flight: it left no mark to find files by
       refute File.exists?(Path.join(dir, "menard-format-s1-c1"))
     end
-
-    # a script that names no Elixir file: refused by the full ban alone
-    other = "python3 -c 'print(1)'"
-    assert {"", 0} = script.("format-report.sh", call.("PreToolUse", "Bash", other), "narrow")
-    {out, 0} = script.("format-report.sh", call.("PreToolUse", "Bash", other), "full")
-    assert out =~ "deny"
   end
 
   defp bigread(payload, dir) do

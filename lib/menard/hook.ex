@@ -118,16 +118,11 @@ defmodule Menard.Hook do
   # written, and they went unformatted.
   # what is so in this session, said before its first call (`Menard.Scripts`)
   defp tool(%{event: "SessionStart"}) do
-    runs = if Piped.on?(), do: Piped.upfront(menard())
-
-    case Enum.reject([Scripts.upfront(Scripts.mode(), menard()), runs], &is_nil/1) do
-      [] -> :quiet
-      said -> {:context, Enum.join(said, "\n\n")}
-    end
+    {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
   end
 
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
-    case Scripts.refused(hook.input["command"] || "", Scripts.mode(), menard()) do
+    case Scripts.refused(hook.input["command"] || "", menard(), hook.root) do
       nil -> hook |> marked() |> piped(hook)
       why -> {:deny, why}
     end
@@ -139,7 +134,7 @@ defmodule Menard.Hook do
     if File.exists?(mark) do
       files = newer(hook.root, mark)
       File.rm(mark)
-      files |> not_ignored(hook.root) |> written(hook, &not_held/2) |> scripted(hook)
+      files |> not_ignored(hook.root) |> written(hook, &not_held/2)
     else
       :quiet
     end
@@ -148,18 +143,14 @@ defmodule Menard.Hook do
   defp tool(hook) do
     file = hook.response["filePath"] || hook.input["file_path"]
     answer = written(List.wrap(file), hook, fn files, _dir -> files end)
-    # kept for what is said of a script's edits (`scripted/2`), which an Edit is not
-    File.rm(session_file(hook, "written-#{hook.call}"))
     in_a_run(answer, hook)
   end
 
   # a test run and its pipe, run through `menard run` in their place: the call goes on, as that
   defp piped(:quiet, hook) do
-    with true <- Piped.on?(),
-         command when is_binary(command) <- Piped.rewritten(hook.input["command"] || "", menard()) do
-      {:rewrite, Map.put(hook.input, "command", command)}
-    else
-      _ -> :quiet
+    case Piped.rewritten(hook.input["command"] || "", menard()) do
+      command when is_binary(command) -> {:rewrite, Map.put(hook.input, "command", command)}
+      nil -> :quiet
     end
   end
 
@@ -225,55 +216,6 @@ defmodule Menard.Hook do
     )
   end
 
-  # A script that edited modules: in the eval's traces the way a capable model edits Elixir
-  # (`s = s.replace(old, new)` in a Python heredoc, file after file), and one whose replace says
-  # nothing when it finds nothing. Said once a session, after the fact and of files the command did
-  # write: what a command will do cannot be read off its text, and a guess that refuses one costs
-  # a turn. The interpreter is read as Menard.Scripts reads it: a word in a heredoc runs nothing.
-  defp scripted(answer, hook) do
-    noted = session_file(hook, "scripted")
-
-    with script when is_binary(script) <- Menard.Scripts.interpreter(hook.input["command"] || ""),
-         false <- File.exists?(noted),
-         [_ | _] = edited <- edited(hook) do
-      File.write!(noted, "")
-      note(answer, script_note(script, edited))
-    else
-      _ -> answer
-    end
-  end
-
-  # the modules this call changed that were there before it: the ones git tracks
-  defp edited(hook) do
-    touched = hook |> session_file("written-#{hook.call}") |> File.read() |> lines()
-    File.rm(session_file(hook, "written-#{hook.call}"))
-
-    for line <- touched, [dir, rel] = String.split(line, "|", parts: 2), tracked?(dir, rel), do: rel
-  end
-
-  defp tracked?(dir, rel) do
-    match?(
-      {_, 0},
-      System.cmd("git", ["-C", dir, "ls-files", "--error-unmatch", "--", rel], stderr_to_stdout: true)
-    )
-  end
-
-  defp script_note(script, edited) do
-    """
-    #{Enum.join(edited, ", ")}: edited by a #{script} script. menard's `edit` makes replacements like \
-    these in one call, in as many files: it refuses, and says which, when a text is not there (a \
-    script's replace says nothing), and `--then test` runs the tests after.
-      #{menard()} edit --then test - <<'EOF'
-      lib/a.ex
-      <<<<<<< SEARCH
-      the text to find
-      =======
-      the text to put there
-      >>>>>>> REPLACE
-      EOF\
-    """
-  end
-
   defp menard, do: Menard.bin()
 
   defp note(:quiet, note), do: {:context, note <> "\n"}
@@ -293,13 +235,6 @@ defmodule Menard.Hook do
   defp report(hook, dir, files) do
     # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
     touched(hook, dir)
-    # what this call wrote, for what is said of a script that did (`scripted/2`)
-    for file <- files,
-        do:
-          File.write!(session_file(hook, "written-#{hook.call}"), "#{dir}|#{Path.relative_to(file, dir)}\n", [
-            :append
-          ])
-
     before = Map.new(files, &{&1, File.read!(&1)})
     reply = hook.run.(dir, "format", files)
     failed = Map.new(reply[:failures] || [], &{&1.at, &1.message})

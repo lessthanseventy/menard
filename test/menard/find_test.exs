@@ -23,6 +23,13 @@ defmodule Menard.FindTest do
     assert hd(hits).text =~ "Channels.general(ws.id)"
   end
 
+  test "calls: a module named by the end of its name, as a grep for it is written" do
+    # the read refusal answers `grep "Piped.on?"` with `find calls Piped.on?`, which found nothing:
+    # Piped is Menard.Piped by the end of its name
+    assert Enum.map(Find.calls(@src, "Channels.general"), & &1.line) == [4, 5]
+    assert Find.calls(@src, "Nels.general") == []
+  end
+
   test "calls: through an alias with as:" do
     src = "defmodule D do\n  alias Server.Channels, as: C\n  def go, do: C.general(1)\nend\n"
     assert [%{line: 3}] = Find.calls(src, "Server.Channels.general")

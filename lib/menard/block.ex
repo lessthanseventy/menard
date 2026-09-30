@@ -153,7 +153,7 @@ defmodule Menard.Block do
              {:ok, all} <- blocks(source, opts),
              {:ok, where, anchor} <- placement(all, ast, module, name, opts[:in]) do
           # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
-          tags = opts[:tag] |> List.wrap() |> Enum.map_join(&"@tag #{&1}\n")
+          tags = opts[:tag] |> List.wrap() |> Enum.map_join(&"@tag #{tag(&1)}\n")
           place(source, where, anchor, tags <> render(name, label, body, opts[:args]))
         end
     end
@@ -176,6 +176,11 @@ defmodule Menard.Block do
 
   # `@tag :tmp_dir` above a whole test is how a test is written, and was taken for a body: the block
   # came out wrapped in a bare `test do`. The tags go to `tag:`, which writes them above the block.
+  # `tmp_dir` is the tag `:tmp_dir`; `:tmp_dir` and `timeout: 5_000` are as written
+  defp tag(tag) do
+    if Regex.match?(~r/^[a-z_][a-zA-Z0-9_]*[?!]?$/, tag), do: ":" <> tag, else: tag
+  end
+
   defp tagged(code, opts) do
     case Regex.run(~r/\A((?:\s*@tag\s+[^\n]+\n)+)(.*)\z/s, code || "") do
       [_, lines, rest] ->
