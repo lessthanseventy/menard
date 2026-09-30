@@ -90,6 +90,34 @@ defmodule Menard.LspTest do
            ]
   end
 
+  @tag :tmp_dir
+  test "an answer is taken once the server has settled, not in the gap between two phases of its work", %{
+    tmp_dir: dir
+  } do
+    # expert's engine started at 3.9s and its build began at 4.9s: between them nothing was in flight,
+    # and a reference asked there got the answer of a project half built
+    done = Path.join(dir, "done")
+    File.write!(Path.join(dir, "mix.exs"), "")
+
+    for {k, v} <- [{"MENARD_LSP", Path.join(@root, "test/support/fake_lsp")}, {"FAKE_LSP_DONE", done}],
+        do: System.put_env(k, v)
+
+    on_exit(fn -> for k <- ["MENARD_LSP", "FAKE_LSP_DONE"], do: System.delete_env(k) end)
+    Menard.Lsp.warm(dir)
+
+    first =
+      Enum.find_value(1..150, fn _ ->
+        Process.sleep(100)
+
+        case Menard.Lsp.references(dir, Path.join(dir, "mix.exs"), 1, 1, 1_000) do
+          {:ok, _} -> {:answered, File.exists?(done)}
+          _ -> nil
+        end
+      end)
+
+    assert first == {:answered, true}
+  end
+
   # a server indexing answers a short list, so ready is the answer that stops changing
   defp ready(params, deadline) do
     {:ok, reply} = Menard.Verbs.Find.run(params)

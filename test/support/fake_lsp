@@ -1,0 +1,51 @@
+#!/usr/bin/env elixir
+# A language server for the tests: answers initialize, then reports two phases of work with a gap
+# between them (as expert does: its engine, then its build), and answers references once asked.
+# Times in ms from `initialized`: phase one 0-300, the gap 300-1300, phase two 1300-1600; the end of
+# phase two touches FAKE_LSP_DONE, so a test can tell an answer taken in the gap from one after.
+defmodule FakeLsp do
+  def loop(buffer) do
+    case frame(buffer) do
+      {:ok, msg, rest} -> handle(msg) && loop(rest)
+      # a byte at a time: a message's body ends with no newline, and a read by line waited on the next
+      :more -> loop(buffer <> (IO.binread(:stdio, 1) |> then(&if(&1 == :eof, do: System.halt(0), else: &1))))
+    end
+  end
+
+  defp frame(buffer) do
+    with [head, body] <- :binary.split(buffer, "\r\n\r\n"),
+         [_, n] <- Regex.run(~r/Content-Length: (\d+)/, head),
+         n = String.to_integer(n),
+         <<json::binary-size(^n), rest::binary>> <- body do
+      {:ok, JSON.decode!(json), rest}
+    else
+      _ -> :more
+    end
+  end
+
+  defp handle(%{"method" => "initialize", "id" => id}), do: send_msg(%{id: id, result: %{capabilities: %{}}})
+
+  defp handle(%{"method" => "initialized"}) do
+    spawn(fn ->
+      progress("one", "begin") && Process.sleep(300) && progress("one", "end")
+      Process.sleep(1_000)
+      progress("two", "begin") && Process.sleep(300)
+      File.touch!(System.fetch_env!("FAKE_LSP_DONE"))
+      progress("two", "end")
+    end)
+  end
+
+  defp handle(%{"method" => "textDocument/references", "id" => id, "params" => p}),
+    do: send_msg(%{id: id, result: [%{uri: p["textDocument"]["uri"], range: %{start: %{line: 0, character: 0}}}]})
+
+  defp handle(_msg), do: true
+
+  defp progress(token, kind), do: send_msg(%{method: "$/progress", params: %{token: token, value: %{kind: kind}}})
+
+  defp send_msg(msg) do
+    body = JSON.encode!(Map.put(msg, :jsonrpc, "2.0"))
+    IO.binwrite(:stdio, "Content-Length: #{byte_size(body)}\r\n\r\n" <> body)
+  end
+end
+
+FakeLsp.loop("")
