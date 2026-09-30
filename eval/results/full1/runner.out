@@ -1,0 +1,11 @@
+19:13 full1 basis: agent d53c7e38d5b16964, graders f20673d9b9bf3bc5, 2.1.283 (Claude Code)
+19:13 full1 seed=2333401912 arms=without,with-full
+  2 process(es) left running in the workspace, killed
+19:14 full1 change-signature.with-full.claude-sonnet-5.1: PASS turns=9 cost=0.227 wall=50.6s tool_errors=0 red_runs=0 tools={'Bash': 3, 'Read': 5}
+19:15 full1 change-signature.without.claude-sonnet-5.1: PASS (noisy) turns=9 cost=0.261 wall=37.1s tool_errors=0 red_runs=0 tools={'Bash': 4, 'Read': 1, 'Edit': 3}
+19:15 full1 explore-callers.without.claude-sonnet-5.1: PASS turns=8 cost=0.107 wall=17.4s tool_errors=0 red_runs=0 tools={'Bash': 2, 'Read': 4, 'Write': 1}
+  2 process(es) left running in the workspace, killed
+19:15 full1 explore-callers.with-full.claude-sonnet-5.1: PASS turns=9 cost=0.181 wall=23.5s tool_errors=0 red_runs=0 tools={'ToolSearch': 1, 'menard:find': 2, 'Read': 4, 'Write': 1}
+19:16 full1 move-function.without.claude-sonnet-5.1: PASS (noisy) turns=20 cost=0.175 wall=42.9s tool_errors=0 red_runs=0 tools={'Bash': 5, 'Read': 5, 'Edit': 9}
+  3 process(es) left running in the workspace, killed
+19:17 full1 move-function.with-full.claude-sonnet-5.1: PASS turns=14 cost=0.174 wall=59.8s tool_errors=0 red_runs=0 tools={'Bash': 2, 'Read': 5, 'ToolSearch': 1, 'menard:clause': 1, 'menard:edit': 2, 'Edit': 1, 'menard:run': 1}
