@@ -258,7 +258,10 @@ defmodule Menard.Hook do
 
     cond do
       hunks == [] ->
-        {:deny, "#{rel} is unchanged since you read it: what you read is what it holds."}
+        {:deny,
+         "This is the Read's answer, not an error: #{rel} is unchanged since you read it, so what you " <>
+           "read is what it holds, and a Read again answers the same. One function of it: " <>
+           "#{menard()} clause get #{rel} NAME; every function's lines: #{menard()} outline #{rel}."}
 
       changed * 2 > length(String.split(now, "\n")) ->
         :quiet
@@ -275,9 +278,10 @@ defmodule Menard.Hook do
           end)
 
         {:deny,
-         "#{rel} changed since you read it; these are the lines that did, and the file is now what you " <>
-           "read with them:\n#{lines}\nTo change it, menard's edit: the Edit tool asks for a fresh Read " <>
-           "of a file changed since it was read."}
+         "This is the Read's answer, not an error: #{rel} changed since you read it, and these are " <>
+           "all the lines that did. With them, what you read is what it holds now; a Read again answers " <>
+           "that it is unchanged.\n#{lines}\nTo change it, menard's edit (the Edit tool asks for a fresh " <>
+           "Read of a file changed since it was read); one function of it: #{menard()} clause get #{rel} NAME."}
     end
   end
 

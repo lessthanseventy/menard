@@ -1162,6 +1162,9 @@ defmodule Menard.HooksTest do
     File.write!(file, String.replace(File.read!(file), "def f3, do: 3", "def f3, do: :three"))
     assert {:deny, why} = read.("PreToolUse", %{})
     assert why =~ "lib/a.ex changed since you read it"
+    # desk7: shown as a "hook error", the answer was taken for a failure and the Read asked again
+    assert why =~ "This is the Read's answer, not an error"
+    assert why =~ "a Read again answers"
     assert why =~ "L4"
     assert why =~ "-  def f3, do: 3"
     assert why =~ "+  def f3, do: :three"
