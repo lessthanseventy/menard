@@ -51,6 +51,9 @@ defmodule Mix.Tasks.Menard.Outline do
       Mix.shell().info(
         "#{indent}  #{d.kind} #{d.name}/#{d.arity}#{if d.head != "", do: " (#{d.head})"}  L#{da}-#{db}#{if d.doc, do: "  — " <> d.doc, else: ""}"
       )
+
+      # a component's attrs and slots: what calling it takes
+      for a <- d[:attrs] || [], do: Mix.shell().info("#{indent}    #{a}")
     end
 
     print_tests(m.tests, indent <> "  ")

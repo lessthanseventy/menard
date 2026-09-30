@@ -259,12 +259,19 @@ defmodule Menard.Scripts do
           read_why()
   end
 
-  # a pattern that is only a keyword of the file's shape: `test "`, `describe "`, `def `, `defmodule`
+  # a pattern that is only keywords of the file's shape: `test "`, `describe "`, `def `, `defmodule`,
+  # a component's `attr` and `slot`, one or several (`def \|attr`, `(def|attr|slot)`)
   defp structure?(pattern) do
     pattern
-    |> String.replace("\\", "")
-    |> String.trim()
-    |> String.match?(~r/^\^?\s*(test|describe|setup|defmodule|defp?|defmacrop?)\s*"?$/)
+    |> String.replace(["\\|", "\\(", "\\)"], fn
+      "\\|" -> "|"
+      _ -> ""
+    end)
+    |> String.replace(["\\", "^", "(", ")"], "")
+    |> String.split("|")
+    |> Enum.all?(
+      &String.match?(String.trim(&1), ~r/^(test|describe|setup|defmodule|defp?|defmacrop?|attr|slot)\s*"?$/)
+    )
   end
 
   # One test of a test file read by (part of) its label: the pattern is in that test's label and no

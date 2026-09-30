@@ -74,22 +74,28 @@ defmodule Menard.Outline do
   defp body_forms({:__block__, _, forms}), do: forms
   defp body_forms(form), do: [form]
 
-  # Walk the body keeping the @doc/@spec that precede each def; a def consumes them.
+  # Walk the body keeping the @doc/@spec, and a component's attr/slot lines, that precede each def; a
+  # def consumes them.
   defp defs(forms) do
     forms
-    |> Enum.reduce({[], nil, nil}, fn form, {acc, doc, spec} ->
+    |> Enum.reduce({[], nil, nil, []}, fn form, {acc, doc, spec, attrs} ->
       case form do
         {:@, _, [{:doc, _, [text]}]} ->
-          {acc, string_first_line(text), spec}
+          {acc, string_first_line(text), spec, attrs}
 
         {:@, _, [{:spec, _, [expr]}]} ->
-          {acc, doc, Sourceror.to_string(expr)}
+          {acc, doc, Sourceror.to_string(expr), attrs}
+
+        {kind, _, [_ | _]} when kind in [:attr, :slot] ->
+          # as written: without parens, as Phoenix's formatter plugin keeps them
+          text = Sourceror.to_string(form, locals_without_parens: [attr: :*, slot: :*])
+          {acc, doc, spec, attrs ++ [text |> String.split("\n") |> hd()]}
 
         {kind, _, [head | _]} = node when kind in @kinds ->
-          {[def_entry(kind, head, doc, spec, node) | acc], nil, nil}
+          {[def_entry(kind, head, doc, spec, node) |> Map.put(:attrs, attrs) | acc], nil, nil, []}
 
         _ ->
-          {acc, doc, spec}
+          {acc, doc, spec, attrs}
       end
     end)
     |> elem(0)

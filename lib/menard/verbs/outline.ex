@@ -19,7 +19,8 @@ defmodule Menard.Verbs.Outline do
     %{
       name: "outline",
       doc: """
-      A file as an outline (`file`): modules, defs with arity/kind/head/spec/doc, line spans, and a
+      A file as an outline (`file`): modules, defs with arity/kind/head/spec/doc and a component's
+      attr/slot lines, line spans, and a
       test file's `tests` (setup, test, describe with its tests), each with its label and lines. Read
       before editing: each def's `head` is the address `clause` and `stmt` take. `verb: "map"`: every
       module under a `lib/` of the project, its file and public functions (a dozen each unless `all`),
