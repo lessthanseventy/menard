@@ -104,10 +104,15 @@ defmodule Menard.Hook do
 
     if tool =~ "menard__" and noun not in ~w(outline find run hook) and
          hook.input["verb"] not in ~w(get list refs) do
-      for file <- [hook.input["file"], hook.input["to"] | List.wrap(hook.input["files"])],
+      files = [hook.input["file"], hook.input["to"] | List.wrap(hook.input["files"])]
+      edits = for %{"file" => file} <- List.wrap(hook.input["edits"]), do: file
+
+      for file <- files ++ edits,
           is_binary(file),
           project = project(Path.expand(file, hook.root)),
           do: touched(hook, project)
+
+      known(hook, files ++ edits)
     end
 
     :quiet
@@ -176,6 +181,7 @@ defmodule Menard.Hook do
   defp tool(hook) do
     file = hook.response["filePath"] || hook.input["file_path"]
     answer = written(List.wrap(file), hook, fn files, _dir -> files end)
+    known(hook, List.wrap(file))
     in_a_run(answer, hook)
   end
 
@@ -289,6 +295,15 @@ defmodule Menard.Hook do
   # a Read's file: the hook's own elixir?/1 takes a project's relative path
   defp elixir_file?(file), do: is_binary(file) and Path.extname(file) in [".ex", ".exs", ".heex"]
   defp read_path(hook, file), do: session_file(hook, "read-" <> Base.encode16(:crypto.hash(:md5, file)))
+
+  # What the agent wrote, and what the formatter did after it (the write's report told it), it knows:
+  # a module's read snapshot follows its own writes, and a read again is no news (desk7: its own edit
+  # of router.ex came back as what had changed)
+  defp known(hook, files) do
+    for file <- files, is_binary(file), path = Path.expand(file, hook.root), elixir_file?(path) do
+      with {:ok, text} <- File.read(path), do: File.write!(read_path(hook, path), text)
+    end
+  end
 
   defp note(:quiet, note), do: {:context, note <> "\n"}
   defp note({kind, text}, note), do: {kind, text <> note <> "\n"}

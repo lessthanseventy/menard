@@ -1187,6 +1187,51 @@ defmodule Menard.HooksTest do
     assert read.("PreToolUse", input) == :quiet
   end
 
+  @tag :tmp_dir
+  test "a module the agent wrote since its read is no news to it: a read again answers unchanged", %{
+    tmp_dir: dir
+  } do
+    # desk7: router.ex, read then edited by the agent, was read again and answered with its own edit as
+    # what had changed; what it wrote, and what the formatter did after (reported to it), it knows
+    file = Path.join(dir, "lib/r.ex")
+    File.mkdir_p!(Path.dirname(file))
+    File.write!(file, "defmodule R do\n  def a, do: 1\nend\n")
+
+    hook = fn event, tool, input ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => event,
+          "tool_name" => tool,
+          "session_id" => "k1",
+          "tool_use_id" => "t#{System.unique_integer([:positive])}",
+          "cwd" => dir,
+          "tool_input" => input,
+          "tool_response" => %{}
+        },
+        state_dir: dir,
+        run: fn _dir, _verb, _args -> %{ok: true, failures: [], changed: []} end
+      )
+    end
+
+    hook.("PostToolUse", "Read", %{"file_path" => file})
+
+    # its own Edit
+    File.write!(file, "defmodule R do\n  def a, do: 2\nend\n")
+    hook.("PostToolUse", "Edit", %{"file_path" => file})
+    assert {:deny, why} = hook.("PreToolUse", "Read", %{"file_path" => file})
+    assert why =~ "unchanged since you read it"
+
+    # menard's edit, over MCP
+    File.write!(file, "defmodule R do\n  def a, do: 3\nend\n")
+
+    hook.("PostToolUse", "mcp__plugin_menard_menard__edit", %{
+      "edits" => [%{"file" => "lib/r.ex", "old" => "2", "new" => "3"}]
+    })
+
+    assert {:deny, why} = hook.("PreToolUse", "Read", %{"file_path" => file})
+    assert why =~ "unchanged since you read it"
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))
