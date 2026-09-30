@@ -2,7 +2,9 @@ defmodule Menard.IdentityTest do
   # An edit that writes back what is already there must leave the file as it was. Run over every
   # source file in this repo and test/fixtures/weird.ex, that is the check "only the named bytes
   # move" never had: a verb that drops a `rescue`, eats a line, or reshapes a neighbour fails here,
-  # however well its output parses. One describe per file, so the files run in parallel. The
+  # however well its output parses. One describe per file; they run one after another, as ExUnit
+  # runs a module's tests (split into modules to run in parallel, the gate was slower: it is
+  # CPU-bound, and the split only added contention and three timeouts). The
   # oracle is Menard.Test.Identity, which the hex corpus benchmark runs over real packages too.
   use ExUnit.Case, async: true
 
