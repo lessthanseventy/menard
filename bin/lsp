@@ -7,5 +7,9 @@ set -euo pipefail
 case "${MENARD_LSP:-expert}" in
   expert) exec expert --stdio ;;
   elixir-ls) exec elixir-ls ;;
-  *) echo "MENARD_LSP=$MENARD_LSP: not a server menard knows (expert, elixir-ls)" >&2 && exit 2 ;;
+  *)
+    # a path: any server that speaks LSP on stdio (the tests' own, one that says what it does when)
+    [[ -x "$MENARD_LSP" ]] && exec "$MENARD_LSP"
+    echo "MENARD_LSP=$MENARD_LSP: not a server menard knows (expert, elixir-ls) nor a program" >&2 && exit 2
+    ;;
 esac

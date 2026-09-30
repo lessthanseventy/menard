@@ -58,6 +58,19 @@ defmodule Menard.Lsp do
     :exit, _ -> :off
   end
 
+  @doc "Whether `project`'s server is up and done indexing: what a warm-up waits for."
+  @spec warm?(String.t()) :: boolean()
+  def warm?(project) do
+    with registry when is_pid(registry) <- Process.whereis(Menard.Lsp.Registry),
+         [{pid, _}] <- Registry.lookup(Menard.Lsp.Registry, Path.expand(project)) do
+      GenServer.call(pid, :ready?)
+    else
+      _ -> false
+    end
+  catch
+    :exit, _ -> false
+  end
+
   @doc false
   def start_link(project),
     do: GenServer.start_link(__MODULE__, project, name: {:via, Registry, {Menard.Lsp.Registry, project}})
@@ -83,7 +96,8 @@ defmodule Menard.Lsp do
       next: 1,
       pending: %{},
       progress: MapSet.new(),
-      seen: false
+      seen: false,
+      quiet_since: nil
     }
 
     uri = "file://" <> project
@@ -100,6 +114,8 @@ defmodule Menard.Lsp do
   end
 
   @impl true
+  def handle_call(:ready?, _from, state), do: {:reply, ready?(state), state, @idle}
+
   def handle_call({:references, file, line, column, ms}, from, state) do
     if ready?(state) do
       state =
@@ -136,7 +152,15 @@ defmodule Menard.Lsp do
   @impl true
   def terminate(_reason, state), do: if(Port.info(state.port), do: Port.close(state.port))
 
-  defp ready?(state), do: state.seen and MapSet.size(state.progress) == 0
+  # Settled, not only idle: expert's work is phases one after another (engine, build, index), and
+  # between two (engine started at 3.9s, "Building" begun at 4.9s) none is in flight. A reference
+  # asked there got the answer of a project half built.
+  @settled 3_000
+
+  defp ready?(state) do
+    state.seen and MapSet.size(state.progress) == 0 and state.quiet_since != nil and
+      System.monotonic_time(:millisecond) - state.quiet_since >= @settled
+  end
 
   defp frames(state) do
     with [head, rest] <- :binary.split(state.buffer, "\r\n\r\n"),
@@ -162,8 +186,8 @@ defmodule Menard.Lsp do
 
   defp handle(%{"method" => "$/progress", "params" => %{"token" => token, "value" => value}}, state) do
     case value["kind"] do
-      "begin" -> %{state | seen: true, progress: MapSet.put(state.progress, token)}
-      "end" -> %{state | progress: MapSet.delete(state.progress, token)}
+      "begin" -> %{state | seen: true, progress: MapSet.put(state.progress, token), quiet_since: nil}
+      "end" -> quiet(%{state | progress: MapSet.delete(state.progress, token)})
       _ -> state
     end
   end
@@ -172,6 +196,12 @@ defmodule Menard.Lsp do
   # `null`: an error made expert 0.1.10 stop answering for good (expert #904)
   defp handle(%{"id" => id, "method" => _}, state), do: reply(state, id)
   defp handle(_notification, state), do: state
+
+  defp quiet(%{progress: progress} = state) do
+    if MapSet.size(progress) == 0,
+      do: %{state | quiet_since: System.monotonic_time(:millisecond)},
+      else: state
+  end
 
   # null is the server not ready, not "none"
   defp locations(nil), do: :warming
