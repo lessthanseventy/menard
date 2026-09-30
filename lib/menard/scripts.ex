@@ -215,10 +215,13 @@ defmodule Menard.Scripts do
     paths = if paths == [], do: ["."], else: paths
     has = fn letters -> Enum.any?(flags, &String.match?(&1, ~r/^-[a-zA-Z]*[#{letters}]/)) end
 
-    # a list of files reads no code, nor does a count of text (a count of a file's shape is its
-    # outline's); outside lib/ and test/ is text
+    # who calls a function is find's however the grep lists or counts it; else a list of files reads
+    # no code, nor does a count of text (a count of a file's shape is its outline's); outside lib/ and
+    # test/ is text
     cond do
-      has.("lLq") or not code?(paths) -> nil
+      not code?(paths) -> nil
+      call_name(pattern) != nil -> callers(pattern, paths, menard)
+      has.("lLq") -> nil
       has.("c") and not structure?(pattern) -> nil
       true -> grep_read(pattern, paths, Enum.any?(flags, &context?/1), menard, root)
     end
@@ -401,10 +404,26 @@ defmodule Menard.Scripts do
     end
   end
 
-  # `Shop.Cart.total`, `Cart\.total(`: a remote call, the regex escapes and a paren taken off
+  # a remote call, where an alternative of the pattern starts with one: `Shop.Cart.total`, `Cart\.total(`,
+  # `Tickets\.transition\([a-z_]+, :[a-z]+\)`, `Tickets\.transition\|def transition`
   defp call_name(pattern) do
-    name = pattern |> String.replace("\\.", ".") |> String.replace(~r/\\?\($/, "")
-    if String.match?(name, ~r/^[A-Z]\w*(\.[A-Z]\w*)*\.[a-z_]\w*[?!]?$/), do: name
+    pattern
+    |> String.replace("\\|", "|")
+    |> String.split("|")
+    |> Enum.find_value(fn alternative ->
+      alternative =
+        alternative
+        |> String.replace(["\\.", "\\("], fn
+          "\\." -> "."
+          _ -> "("
+        end)
+        |> String.trim_leading("^")
+
+      case Regex.run(~r/^([A-Z]\w*(?:\.[A-Z]\w*)*\.[a-z_]\w*[?!]?)(?:\(|$)/, alternative) do
+        [_, name] -> name
+        nil -> nil
+      end
+    end)
   end
 
   defp elixir?(path), do: String.match?(path, ~r/\.(ex|exs|heex)$/)
