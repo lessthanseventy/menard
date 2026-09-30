@@ -59,10 +59,13 @@ defmodule Menard.Verbs.Find do
             |> Map.put(:lsp, Menard.Lsp.server())
 
           :warming ->
+            # read as "retry": explore-callers asked the same find twice in a row, and got this twice
             Map.put(
               reply,
               :lsp,
-              "#{Menard.Lsp.server()} is starting or indexing: these hits are the AST's alone"
+              "these are the AST's hits, every direct and aliased call; #{Menard.Lsp.server()} is still " <>
+                "indexing (about a minute from the session's start), so a call through an import, a " <>
+                "defdelegate or an apply is not among them. The same find asked again now answers the same"
             )
 
           :off ->

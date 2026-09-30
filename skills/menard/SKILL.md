@@ -77,7 +77,8 @@ Claude Code also has the Elixir language server (expert, the plugin's `lspServer
 `LSP` tool: definition, hover and references at a position. menard's MCP server keeps its own,
 and `find calls Mod.fun` merges its answer in: a call through an `import`, a `defdelegate`, a `use`
 or an `apply` comes back as `kind: "reference"`, which the AST alone cannot see. The reply's `lsp`
-says what answered; "the AST's alone" means the server was still starting or indexing, or there
+says what answered: the server's name, or which calls the AST's hits leave out while it is still
+indexing or where there
 is none (the CLI keeps none).
 
 - **An empty LSP answer in a server's first half-minute is not "no callers".** Until it has
