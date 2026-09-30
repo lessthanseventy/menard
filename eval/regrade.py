@@ -57,7 +57,7 @@ def regrade(row, case_dir, out_dir):
         "pass": last_ok, "steps_passed": sum(s["pass"] for s in steps), "steps": steps,
         "check": steps[-1]["check"], "formatted": steps[-1]["formatted"],
         "clean": last_ok and not row.get("noise_files") and steps[-1]["formatted"],
-        "basis": run.BASIS, "graded_before": row.get("graded_before") or before,
+        "basis": run.BASES.get(row["case"], run.BASIS), "graded_before": row.get("graded_before") or before,
     })
 
 
@@ -69,7 +69,9 @@ def main():
     suite = Path(a.suite).resolve()
     if not run.TEMPLATE.exists():
         sys.exit(f"no template at {run.TEMPLATE}: the round's MENARD_EVAL_WORK, with its template built")
+    # each row is judged on its own case's basis (run.basis/2); the suite's is the default
     run.BASIS = run.basis(suite)
+    run.BASES = {c.name: run.basis(suite, c.name) for c in (suite / "cases").iterdir() if c.is_dir()}
     out_dir = EVAL / "results" / a.round
     rows_file = out_dir / "runs.jsonl"
     rows = [json.loads(l) for l in rows_file.read_text().splitlines() if l.strip()]
@@ -83,9 +85,9 @@ def main():
         if row.get("kind") != "long" or not case_dir.exists():
             print(f"{row['id']}: left as it was (no long case of this suite)")
             done.append(row)
-        elif met not in (None, run.BASIS["agent"]):
+        elif met not in (None, run.BASES.get(row["case"], run.BASIS)["agent"]):
             print(f"{row['id']}: left as it was: what its session met ({met}) is not what the suite holds now "
-                  f"({run.BASIS['agent']}), and its diffs are over another template")
+                  f"({run.BASES.get(row['case'], run.BASIS)['agent']}), and its diffs are over another template")
             done.append(row)
         else:
             judged = regrade(row, case_dir, out_dir)

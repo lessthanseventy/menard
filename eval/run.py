@@ -38,6 +38,8 @@ SEED = None
 # what a row was measured on (basis/1): the suite's files and the Claude Code that ran it. A
 # `without` row is a baseline for every later round of the same basis, and for no other
 BASIS = None
+# each case's own basis (basis/2), by the case's name
+BASES = {}
 
 
 def sh(cmd, cwd, timeout=600, env=None):
@@ -143,7 +145,7 @@ VARIANTS = {"with": {}}
 ARMS = ("without", *VARIANTS)
 
 
-def basis(suite):
+def basis(suite, case=None):
     """What a round's rows were measured on, in two parts.
 
     `agent` is what a session meets: how the template is built, its prompts, the settings and the
@@ -154,11 +156,19 @@ def basis(suite):
     sees. A grader fixed changes no token and no turn of a run already made, only its verdict, and
     that is made again from the run's saved diffs (eval/regrade.py), not by running it again.
 
-    The reference answers are in neither: no run sees them, and no verdict comes from them."""
+    The reference answers are in neither: no run sees them, and no verdict comes from them.
+
+    A case's basis is its own files and the suite's, not its sibling cases': desk-tdd, added beside
+    desk, made every desk baseline another basis's. With one case in a suite it is what it was."""
     import hashlib
     met, judged = hashlib.sha256(), hashlib.sha256()
+
+    def mine(p):
+        rel = p.relative_to(suite).parts
+        return case is None or rel[0] != "cases" or len(rel) < 2 or rel[1] == case
+
     files = [p for p in sorted(suite.rglob("*")) if p.is_file() and "__pycache__" not in p.parts
-             and "reference" not in p.parts and "results" not in p.parts]
+             and "reference" not in p.parts and "results" not in p.parts and mine(p)]
     for p in files:
         h = met if p.name in AGENT_MEETS else judged
         h.update(str(p.relative_to(suite)).encode() + b"\0" + p.read_bytes() + b"\0")
@@ -959,7 +969,7 @@ def run_one(case_dir, arm, model, n, out_dir):
     cleanup(case_dir, rid, ws, env)
     row = {
         "id": rid, "case": case_dir.name, "kind": (case_dir / "kind").read_text().strip() if (case_dir / "kind").exists() else "",
-        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "basis": BASIS, "menard": pinned(arm), "n": n, "wall_s": wall, "agent_wall_s": wall,
+        "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "basis": BASES.get(case_dir.name, BASIS), "menard": pinned(arm), "n": n, "wall_s": wall, "agent_wall_s": wall,
         "timed_out": timed_out,
         "pass": code == 0, "check": check_out.strip()[-800:],
         "formatted": "NOTE: unformatted" not in check_out,
@@ -1000,7 +1010,7 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env, progress):
     tokens = {k: sum(s["tokens"][k] for s in steps) for k in ("input", "output", "cache_read", "cache_write")}
     last_ok = bool(steps) and steps[-1]["pass"] and len(steps) == len(list((case_dir / "steps").glob("*/prompt.md")))
     row = {
-        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "basis": BASIS, "menard": pinned(arm), "n": n,
+        "id": rid, "case": case_dir.name, "kind": "long", "arm": arm, "model": model, "effort": EFFORT, "seed": SEED, "basis": BASES.get(case_dir.name, BASIS), "menard": pinned(arm), "n": n,
         # the runner's own time on it: no limit's wait, no attempt it cut short, no checkpoint's copy
         "wall_s": round(progress["wall_s"] + time.time() - progress["_mark"] - progress["_paused"], 1),
         "agent_wall_s": round(total("agent_wall_s"), 1),
@@ -1166,7 +1176,9 @@ def main():
 
     global BASIS
     BASIS = basis(suite)
-    log(f"{time.strftime('%H:%M')} {a.round} basis: agent {BASIS['agent']}, graders {BASIS['graders']}, {BASIS['claude']}")
+    for case in cases:
+        BASES[case.name] = b = basis(suite, case.name)
+        log(f"{time.strftime('%H:%M')} {a.round} {case.name} basis: agent {b['agent']}, graders {b['graders']}, {b['claude']}")
 
     # the round's seed: given, kept from its first start (a resumed round keeps its order), or drawn
     global SEED
@@ -1180,7 +1192,7 @@ def main():
     for case in cases:
         for model in a.models.split(","):
             # lent to any round that runs without, named or by default: a variant is judged against it too
-            kept[(case.name, model)] = len(baseline(case.name, model, BASIS)) if "without" in arms else 0
+            kept[(case.name, model)] = len(baseline(case.name, model, BASES[case.name])) if "without" in arms else 0
             if kept[(case.name, model)] >= a.runs:
                 log(f"{time.strftime('%H:%M')} {a.round} {case.name} {model}: without is the baseline, "
                     f"{kept[(case.name, model)]} rows on this basis")
