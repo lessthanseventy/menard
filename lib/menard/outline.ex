@@ -34,8 +34,41 @@ defmodule Menard.Outline do
       doc: attr_first_line(forms, :moduledoc),
       lines: lines(node),
       defs: defs(forms),
+      tests: tests(forms),
       modules: Enum.flat_map(forms, &modules(&1, name))
     }
+  end
+
+  # A test file's content: its setups, tests and describes (each describe's tests under it), with
+  # their lines. A module-level `for` that makes tests is looked through; nothing inside a test is
+  # one: a `for` in a test body is a statement, which `stmt` reaches.
+  @blocks [:setup, :setup_all, :test, :describe]
+
+  defp tests(forms), do: Enum.flat_map(forms, &test_entry/1)
+
+  defp test_entry({:for, _, args}) when is_list(args) do
+    case List.last(args) do
+      [{{:__block__, _, [:do]}, body}] -> tests(body_forms(body))
+      _ -> []
+    end
+  end
+
+  defp test_entry({kind, _, [_ | _] = args} = node) when kind in @blocks do
+    entry = %{kind: kind, label: test_label(kind, args), lines: lines(node)}
+    if kind == :describe, do: [Map.put(entry, :tests, tests(block_body(args)))], else: [entry]
+  end
+
+  defp test_entry(_form), do: []
+
+  defp test_label(kind, _args) when kind in [:setup, :setup_all], do: nil
+  defp test_label(_kind, [{:__block__, _, [label]} | _]) when is_binary(label), do: label
+  defp test_label(_kind, [label | _]), do: Sourceror.to_string(label)
+
+  defp block_body(args) do
+    case List.last(args) do
+      [{{:__block__, _, [:do]}, body} | _] -> body_forms(body)
+      _ -> []
+    end
   end
 
   defp body_forms({:__block__, _, forms}), do: forms

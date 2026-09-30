@@ -19,7 +19,8 @@ defmodule Menard.Verbs.Outline do
     %{
       name: "outline",
       doc: """
-      A file as an outline (`file`): modules, defs with arity/kind/head/spec/doc, line spans. Read
+      A file as an outline (`file`): modules, defs with arity/kind/head/spec/doc, line spans, and a
+      test file's `tests` (setup, test, describe with its tests), each with its label and lines. Read
       before editing: each def's `head` is the address `clause` and `stmt` take. `verb: "map"`: every
       module under a `lib/` of the project, its file and public functions (a dozen each unless `all`),
       the map an agent starts with. `verb: "where"`: for each `FILE:LINE` in `at`, the module and
@@ -151,9 +152,23 @@ defmodule Menard.Verbs.Outline do
   end
 
   defp def_at(m, line) do
-    case Enum.find(m.defs, &(line in elem(&1.lines || {0, 0}, 0)..elem(&1.lines || {0, 0}, 1)//1)) do
-      nil -> m.module
+    case Enum.find(m.defs, &within?(&1, line)) do
+      nil -> test_at(m.module, m.tests, line) || m.module
       d -> "#{m.module}.#{d.name}/#{d.arity}"
     end
   end
+
+  # a line of a test file is in its test, inside its describe: `M describe "a" test "b"`
+  defp test_at(prefix, tests, line) do
+    case Enum.find(tests, &within?(&1, line)) do
+      nil ->
+        nil
+
+      t ->
+        here = "#{prefix} #{t.kind}#{if t.label, do: " " <> inspect(t.label)}"
+        test_at(here, t[:tests] || [], line) || here
+    end
+  end
+
+  defp within?(%{lines: lines}, line), do: line in elem(lines || {0, 0}, 0)..elem(lines || {0, 0}, 1)//1
 end
