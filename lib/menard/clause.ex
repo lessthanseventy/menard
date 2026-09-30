@@ -590,7 +590,7 @@ defmodule Menard.Clause do
     with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
          {:ok, ast} <- parse(source),
          {:ok, scope} <- scope(ast, mod, name, arity) do
-      clauses = clauses(scope, name, arity)
+      clauses = scope |> clauses(name, arity) |> with_bodies()
       want = wanted_head(head, name, arity)
       exact = Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)]))
       # the guard left off still names a clause, when it isn't what tells the clauses apart
@@ -612,6 +612,15 @@ defmodule Menard.Clause do
         [] ->
           by_part(clauses, want) || {:error, no_clause(source, name, arity, head, clauses)}
       end
+    end
+  end
+
+  # A head with no body (`def run(edits, opts \\ [])`, there for its defaults) is no clause to get or
+  # edit, where the function has clauses that have one: it shared their head, and was taken for one.
+  defp with_bodies(clauses) do
+    case Enum.filter(clauses, &match?({_kind, _meta, [_head, _body | _]}, &1.node)) do
+      [] -> clauses
+      bodied -> bodied
     end
   end
 
