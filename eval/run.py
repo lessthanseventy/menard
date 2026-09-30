@@ -128,6 +128,10 @@ def build_template(suite, force=False):
     code, out = sh(["mix", "run", str(EVAL / "warm_expert.exs"), str(TEMPLATE)], REPO, timeout=900)
     if code != 0:
         sys.exit(f"template: warming expert failed:\n{out[-3000:]}")
+    # its logs are no part of the warm state, and name menard (the PATH it was started with): the arm
+    # without must find no word of it (helpdesk/arm_setup.sh)
+    for log in (TEMPLATE / ".expert").glob("*.log"):
+        log.unlink()
     # nothing may write into the copy every run starts from, an agent that wandered here included
     subprocess.run(["chmod", "-R", "a-w", str(TEMPLATE)], check=True)
 
