@@ -14,18 +14,22 @@ defmodule Menard.Piped do
   is left as it was written, as is a run that is not piped at all.
   """
 
-  @pipe ~S"\s*\|\s*(?:tail|head|grep)\b[^|;&]*"
+  # kept around the run: a cd before it (`&&` or `;`), `time`, and `mise exec … --` (the project's
+  # toolchain); a subshell's parens are dropped, and only a pair is taken
+  @pipe ~S"\s*\|\s*(?:tail|head|grep)\b[^|;&()]*"
   @piped Regex.compile!(
-           ~S/^\s*(?<cd>cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)\s*&&\s*)?(?:\w+=\S*\s+)*mix\s+(?<task>test|precommit)\b(?<args>[^|;&<>]*?)(?:\s*2>&1)?(?:/ <>
-             @pipe <> ~S")+\s*$"
+           ~S/^\s*(?<cd>cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)\s*)?(?<time>time\s+)?(?<open>\(\s*)?/ <>
+             ~S/(?:\w+=\S*\s+)*(?<mise>mise\s+(?:exec|x)\s+(?:[^\s;&|()]+\s+)*?--\s+)?(?:\w+=\S*\s+)*/ <>
+             ~S/mix\s+(?<task>test|precommit)\b(?<args>[^|;&<>()]*?)(?:\s*2>&1)?(?:/ <>
+             @pipe <> ~S")+(?(<open>)\s*\))\s*$"
          )
 
   @doc "The command `menard run` stands in for `command` with, or nil where it stands as written."
   @spec rewritten(String.t(), String.t()) :: String.t() | nil
   def rewritten(command, menard) do
     case Regex.named_captures(@piped, command) do
-      %{"cd" => cd, "task" => task, "args" => args} ->
-        cd <> menard <> " run " <> verb(task, String.trim(args))
+      %{"cd" => cd, "time" => time, "mise" => mise, "task" => task, "args" => args} ->
+        cd <> time <> mise <> menard <> " run " <> verb(task, String.trim(args))
 
       nil ->
         nil
