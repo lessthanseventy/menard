@@ -1005,6 +1005,32 @@ defmodule Menard.HooksTest do
     assert File.read!(file) =~ "  def f(x), do: x\n"
   end
 
+  @tag :tmp_dir
+  test "format-report leaves a file the project's formatter inputs do not take as it was written", %{
+    tmp_dir: dir
+  } do
+    # 2026-09-30: another project's tests, written under eval/ as fixtures, came out in menard's style;
+    # the project's own `mix format` never takes them
+    host(dir)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "printf"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir, counting())
+    taken = Path.join(dir, "lib/m.ex")
+    File.write!(taken, "defmodule M do\n  def   f(x), do: x\nend\n")
+    fixture = Path.join(dir, "eval/hidden/test/a_test.exs")
+    File.mkdir_p!(Path.dirname(fixture))
+    File.write!(fixture, "defmodule ATest do\n  def   f(x), do: x\nend\n")
+    {out, 0} = report(Map.put(bash, :hook_event_name, "PostToolUse"), dir, counting())
+    assert out =~ "lib/m.ex was reformatted"
+    refute out =~ "a_test.exs"
+    assert File.read!(fixture) == "defmodule ATest do\n  def   f(x), do: x\nend\n"
+  end
+
   @tag @tag :tmp_dir
 
   @tag @tag :tmp_dir

@@ -417,10 +417,17 @@ defmodule Menard.Run do
 
   # what `mix format` takes: the inputs, and each `subdirectories:` match's own .formatter.exs inputs
   # (Phoenix's priv/*/migrations), relative to it
-  defp formatter_inputs(dir) do
+  @doc false
+  def formatter_inputs(dir) do
     dot = Path.join(dir, ".formatter.exs")
     opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
-    glob = &Path.wildcard(Path.join(dir, &1), match_dot: true)
+    # the glob under dir, not dir joined into it: a dir with glob characters in its name (`p[x]`)
+    # matched nothing
+    glob = fn pattern ->
+      for path <- :filelib.wildcard(to_charlist(pattern), to_charlist(dir)),
+          do: Path.join(dir, to_string(path))
+    end
+
     subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
 
     (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs/1))
