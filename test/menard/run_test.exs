@@ -888,4 +888,45 @@ defmodule Menard.RunTest do
     assert fifth.name == "t5"
     assert lean.log == "/l"
   end
+
+  @tag :tmp_dir
+  test "a test that fails once and passes on its rerun is named a flake, not the change's failure", %{
+    tmp_dir: dir
+  } do
+    # Oban 01, 04, Symphony 01: a failure that was the suite's own flake read as the change's, and the
+    # agent stashed its work to run a baseline. Failed once, it runs again; passed, it is named a flake
+    Host.mix_project(dir, :flakes)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/flaky_test.exs"), """
+    defmodule FlakyTest do
+      use ExUnit.Case
+
+      test "steady", do: :ok
+
+      test "once" do
+        marker = Path.join(__DIR__, "ran")
+        first? = not File.exists?(marker)
+        File.write!(marker, "")
+        refute first?
+      end
+
+      test "broken", do: assert(1 == 2)
+    end
+    """)
+
+    assert %{ok: false, flaky: [%{name: "once", at: "test/flaky_test.exs:6"}], failures: [%{name: "broken"}]} =
+             Run.lean(Run.result(dir, "test", []))
+
+    # every failure passing on its rerun: green, the flakes named
+    File.rm!(Path.join(dir, "test/ran"))
+
+    File.write!(
+      Path.join(dir, "test/flaky_test.exs"),
+      String.replace(File.read!(Path.join(dir, "test/flaky_test.exs")), "assert(1 == 2)", ":ok")
+    )
+
+    assert %{ok: true, flaky: [%{name: "once"}]} = Run.lean(Run.result(dir, "test", []))
+  end
 end

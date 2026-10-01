@@ -489,27 +489,15 @@ defmodule Menard.Run do
     reply
   end
 
+  # Failed, a few test failures run once more (`--failed`): one that passes is the suite's flake,
+  # named, not the change's (Oban 01, 04, Symphony 01: the agent stashed its work for a baseline)
   defp verb(run, "test", args) do
-    # ExUnit's failures as data, from a formatter required into the host's VM beside its CLI one: read
-    # from the prose, a `left:` that did not fit one line came back as its first line. The prose
-    # still says what no formatter sees (a test file that does not compile, mix refusing an option).
-    held = run.log <> ".exunit"
-    formatters = ["--formatter", "Menard.ExUnitFormatter", "--formatter", "ExUnit.CLIFormatter"]
+    first = tested(run, args, run.log <> ".exunit")
 
-    host = [
-      require: Application.app_dir(:menard, "priv/ex_unit_formatter.exs"),
-      env: [{"MENARD_EXUNIT_OUT", held}]
-    ]
-
-    {out, status, fetched} = mix_fetching(run, ["test" | formatters ++ args], host)
-
-    held = read_held(held)
-
-    out
-    |> parse_test(status, held)
-    |> with_sources(run.dir)
-    |> Map.put(:fetched, fetched)
-    |> Map.put(:slowest, slowest(args, held))
+    if rerun?(first, args),
+      do:
+        flakes(first, tested(run, List.delete(args, "--stale") ++ ["--failed"], run.log <> ".rerun.exunit")),
+      else: first
   end
 
   defp verb(%{dir: dir}, "format", files) do
@@ -773,6 +761,54 @@ defmodule Menard.Run do
   # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
   # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
   # and name what came.
+  # ExUnit's failures as data, from a formatter required into the host's VM beside its CLI one: read
+  # from the prose, a `left:` that did not fit one line came back as its first line. The prose
+  # still says what no formatter sees (a test file that does not compile, mix refusing an option).
+  defp tested(run, args, held) do
+    formatters = ["--formatter", "Menard.ExUnitFormatter", "--formatter", "ExUnit.CLIFormatter"]
+
+    host = [
+      require: Application.app_dir(:menard, "priv/ex_unit_formatter.exs"),
+      env: [{"MENARD_EXUNIT_OUT", held}]
+    ]
+
+    {out, status, fetched} = mix_fetching(run, ["test" | formatters ++ args], host)
+
+    held = read_held(held)
+
+    out
+    |> parse_test(status, held)
+    |> with_sources(run.dir)
+    |> Map.put(:fetched, fetched)
+    |> Map.put(:slowest, slowest(args, held))
+  end
+
+  # red with test failures alone, few enough to run again, and not a run that is itself a rerun
+  defp rerun?(%{ok: false, failures: [_ | _] = failures}, args) do
+    length(failures) <= 10 and Enum.all?(failures, &(&1[:kind] == "test" and &1[:at] != nil)) and
+      not Enum.any?(args, &(&1 in ["--failed", "--repeat-until-failure"]))
+  end
+
+  defp rerun?(_first, _args), do: false
+
+  # a failure that passed again is a flake; one that failed again stands. A rerun that ran nothing
+  # (it did not compile, mix refused) says nothing, and the first run is the answer
+  defp flakes(first, %{tests: tests} = again) when is_integer(tests) and tests > 0 do
+    again_at = MapSet.new(again.failures, & &1[:at])
+    {stood, flaked} = Enum.split_with(first.failures, &(&1.at in again_at))
+
+    %{
+      first
+      | ok: stood == [],
+        failed: length(stood),
+        failures: stood,
+        exit: if(stood == [], do: 0, else: first.exit)
+    }
+    |> Map.put(:flaky, if(flaked != [], do: Enum.map(flaked, &Map.take(&1, [:name, :at]))))
+  end
+
+  defp flakes(first, _again), do: first
+
   defp mix_fetching(run, args, host \\ []) do
     {out, status} = mix(run, args, host)
 
