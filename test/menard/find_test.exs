@@ -163,4 +163,27 @@ defmodule Menard.FindTest do
              "test/gone_test.exs: not read (no such file or directory)"
            ]
   end
+
+  @tag :tmp_dir
+  test "nothing found, the reply says where the name is written", %{tmp_dir: dir} do
+    # Oban 01: `find defs insert_trigger` and `find calls` answered `{"hits":[]}`, and the agent fell
+    # back on grep: the name was a config key. Nothing found, the reply says where it is written
+    file = Path.join(dir, "c.ex")
+
+    File.write!(
+      file,
+      "defmodule C do\n  defstruct insert_trigger: true\n\n  def go(c), do: c.insert_trigger\nend\n"
+    )
+
+    assert {:ok, %{hits: [], mentions: mentions}} =
+             Menard.Verbs.Find.run(%{kind: "defs", target: "insert_trigger", files: [file]})
+
+    assert [_, _] = mentions
+    assert hd(mentions) =~ "c.ex:2: defstruct insert_trigger: true"
+
+    # found, nothing more
+    File.write!(file, "defmodule C do\n  def insert_trigger, do: 1\nend\n")
+    assert {:ok, reply} = Menard.Verbs.Find.run(%{kind: "defs", target: "insert_trigger", files: [file]})
+    refute Map.has_key?(reply, :mentions)
+  end
 end
