@@ -62,13 +62,16 @@ defmodule Menard.Edit do
           {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved}}
 
         {:ok, text, what} ->
-          {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved ++ [{edit.file, what}]}}
+          {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved ++ notes(edit.file, what)}}
 
         {:error, why} ->
           {:halt, {:error, refusal(edit.file, why)}}
       end
     end)
   end
+
+  # a replacement's notes, one or several (found deeper, and a function moved there)
+  defp notes(file, what), do: for(note <- List.wrap(what), do: {file, note})
 
   defp replace({:error, :enoent}, %{old: "", new: new}), do: {:ok, new}
   defp replace({:error, :enoent}, _edit), do: {:error, "the file is not there (an empty `old` makes it)"}
@@ -224,7 +227,7 @@ defmodule Menard.Edit do
 
   # `old` as clause get and block get give code, at column 0, where the file has it deeper: found once
   # at one depth, whole lines from a line's start, it is replaced there and `new` written at that depth
-  defp deeper(text, %{old: old, new: new}) do
+  defp deeper(text, %{old: old, new: new} = edit) do
     found =
       for n <- 1..16,
           at = :binary.matches("\n" <> text, "\n" <> indented(old, n)),
@@ -232,11 +235,16 @@ defmodule Menard.Edit do
           do: {n, length(at)}
 
     case found do
+      # the edit at that depth, as if given there: a function added under a clause still goes after
+      # the run (`placed`)
       [{n, 1}] ->
-        out = String.replace("\n" <> text, "\n" <> indented(old, n), "\n" <> indented(new, n))
+        indented = {:indented, "found #{n} spaces deeper than given, and written there"}
 
-        {:ok, binary_part(out, 1, byte_size(out) - 1),
-         {:indented, "found #{n} spaces deeper than given, and written there"}}
+        case replace({:ok, text}, %{edit | old: indented(old, n), new: indented(new, n)}) do
+          {:ok, out} -> {:ok, out, indented}
+          {:ok, out, what} -> {:ok, out, [what, indented]}
+          error -> error
+        end
 
       _ ->
         nil

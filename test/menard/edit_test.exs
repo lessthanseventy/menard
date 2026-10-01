@@ -333,4 +333,35 @@ defmodule Menard.EditTest do
     assert why =~ "      nil ->\n        :none\n\n      _ ->\n        :some"
     refute why =~ "nil -> :none"
   end
+
+  test "an old text at column 0 with a new function under its changed clause is found deeper, and the function goes after the run",
+       %{tmp_dir: dir} do
+    # `old` as clause get gives it, at column 0, and a new function under the changed clause
+    File.write!(Path.join(dir, "lib/t.ex"), """
+    defmodule T do
+      def tool(:a) do
+        a()
+      end
+
+      def tool(:b), do: :b
+
+      defp a, do: :a
+    end
+    """)
+
+    assert {:ok, reply} =
+             edit(dir, [
+               %{
+                 file: "lib/t.ex",
+                 old: "def tool(:a) do\n  a()\nend\n",
+                 new: "def tool(:a) do\n  helped(a())\nend\n\ndefp helped(x), do: x\n"
+               }
+             ])
+
+    assert read(dir, "lib/t.ex") ==
+             "defmodule T do\n  def tool(:a) do\n    helped(a())\n  end\n\n  def tool(:b), do: :b\n\n  defp helped(x), do: x\n\n  defp a, do: :a\nend\n"
+
+    assert reply.moved == ["lib/t.ex: helped/1 after the last clause of tool/1, not between its clauses"]
+    assert reply.indented == ["lib/t.ex: found 2 spaces deeper than given, and written there"]
+  end
 end
