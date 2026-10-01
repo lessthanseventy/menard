@@ -1,0 +1,56 @@
+01:41 up2-symphony trackers basis: agent 8675978efa5c3cae, graders 55c2cc0c895fb885, 2.1.283 (Claude Code)
+01:41 up2-symphony seed=3076340806 arms=with, and without where there is no baseline
+  1 process(es) left running in the workspace, killed
+02:01 up2-symphony trackers.with.claude-sonnet-5.1 step 01: PASS turns=99 tokens=53941 agent_s=1146.6 | NOTE: green only on a rerun of the failed
+  1 process(es) left running in the workspace, killed
+02:13 up2-symphony trackers.with.claude-sonnet-5.1 step 02: PASS turns=53 tokens=42889 agent_s=736.2 | 241 tests, 0 failures, 2 skipped
+  1 process(es) left running in the workspace, killed
+02:59 up2-symphony trackers.with.claude-sonnet-5.1 step 03: PASS turns=144 tokens=167244 agent_s=2731.5 | 244 tests, 0 failures, 2 skipped
+  3 process(es) left running in the workspace, killed
+03:06 up2-symphony trackers.with.claude-sonnet-5.1 step 04: PASS turns=42 tokens=24621 agent_s=419.0 | 291 tests, 0 failures, 6 skipped
+  1 process(es) left running in the workspace, killed
+03:18 up2-symphony trackers.with.claude-sonnet-5.1 step 05: PASS turns=79 tokens=46674 agent_s=711.2 | 293 tests, 0 failures, 6 skipped
+  3 process(es) left running in the workspace, killed
+03:28 up2-symphony trackers.with.claude-sonnet-5.1 step 06: PASS turns=46 tokens=35721 agent_s=549.2 | NOTE: green only on a rerun of the failed
+  1 process(es) left running in the workspace, killed
+03:41 up2-symphony trackers.with.claude-sonnet-5.1 step 07: PASS turns=85 tokens=54859 agent_s=787.5 | 297 tests, 0 failures, 6 skipped
+  1 process(es) left running in the workspace, killed
+03:53 up2-symphony trackers.with.claude-sonnet-5.1 step 08: PASS turns=75 tokens=36569 agent_s=653.5 | 296 tests, 0 failures, 6 skipped
+03:53 up2-symphony trackers.with.claude-sonnet-5.1: PASS turns=623 cost=73.057 wall=7902.4s tool_errors=31 red_runs=19 tools={'Bash': 368, 'Read': 129, 'Edit': 115, 'Write': 1, 'ToolSearch': 1, 'ScheduleWakeup': 1}
+04:03 up2-symphony trackers.without.claude-sonnet-5.1 step 01: PASS turns=65 tokens=39842 agent_s=572.0 | 241 tests, 0 failures, 2 skipped
+04:23 up2-symphony trackers.without.claude-sonnet-5.1 step 02: PASS turns=80 tokens=87390 agent_s=1207.3 | 241 tests, 0 failures, 2 skipped
+05:09 up2-symphony trackers.without.claude-sonnet-5.1 step 03: PASS turns=188 tokens=177741 agent_s=2737.2 | 244 tests, 0 failures, 2 skipped
+05:18 up2-symphony trackers.without.claude-sonnet-5.1 step 04: PASS turns=49 tokens=28975 agent_s=518.7 | 291 tests, 0 failures, 6 skipped
+05:28 up2-symphony 05: usage limit, waiting until 2026-10-01 08:02:00 MDT (9216s, resets 2026-10-01 08:00:00 MDT): You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message · your session limi
+08:02 up2-symphony 05: the probe went through, redoing the step
+08:16 up2-symphony trackers.without.claude-sonnet-5.1 step 05: PASS turns=73 tokens=51108 agent_s=864.8 | 293 tests, 0 failures, 6 skipped
+08:25 up2-symphony trackers.without.claude-sonnet-5.1 step 06: PASS turns=39 tokens=30286 agent_s=485.2 | 292 tests, 0 failures, 6 skipped
+08:38 up2-symphony trackers.without.claude-sonnet-5.1 step 07: PASS turns=95 tokens=55536 agent_s=790.5 | 295 tests, 0 failures, 6 skipped
+08:49 up2-symphony trackers.without.claude-sonnet-5.1 step 08: PASS turns=62 tokens=33623 agent_s=629.8 | 294 tests, 0 failures, 6 skipped
+08:49 up2-symphony trackers.without.claude-sonnet-5.1: PASS turns=651 cost=82.259 wall=7970.1s tool_errors=1 red_runs=28 tools={'Bash': 385, 'Read': 133, 'Edit': 123, 'Write': 1}
+  2 process(es) left running in the workspace, killed
+08:56 up2-symphony trackers.with.claude-opus-5-5.1 step 01: PASS turns=29 tokens=15163 agent_s=362.5 | 254 tests, 0 failures, 2 skipped
+  2 process(es) left running in the workspace, killed
+08:59 up2-symphony trackers.with.claude-opus-5-5.1 step 02: PASS turns=18 tokens=9630 agent_s=161.8 | 244 tests, 0 failures, 2 skipped
+  2 process(es) left running in the workspace, killed
+09:04 up2-symphony trackers.with.claude-opus-5-5.1 step 03: PASS turns=31 tokens=20257 agent_s=328.6 | 248 tests, 0 failures, 2 skipped
+  2 process(es) left running in the workspace, killed
+09:08 up2-symphony trackers.with.claude-opus-5-5.1 step 04: PASS turns=17 tokens=9728 agent_s=200.6 | 291 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+09:11 up2-symphony trackers.with.claude-opus-5-5.1 step 05: PASS turns=16 tokens=12226 agent_s=158.5 | 300 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+09:13 up2-symphony trackers.with.claude-opus-5-5.1 step 06: PASS turns=10 tokens=7058 agent_s=121.1 | 299 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+09:17 up2-symphony trackers.with.claude-opus-5-5.1 step 07: PASS turns=16 tokens=14450 agent_s=191.0 | 300 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+09:20 up2-symphony trackers.with.claude-opus-5-5.1 step 08: PASS turns=19 tokens=12261 agent_s=165.7 | 300 tests, 0 failures, 6 skipped
+09:20 up2-symphony trackers.with.claude-opus-5-5.1: PASS turns=156 cost=8.741 wall=1833.3s tool_errors=8 red_runs=9 tools={'Bash': 116, 'Read': 31, 'Edit': 1}
+09:22 up2-symphony trackers.without.claude-opus-5-5.1 step 01: PASS turns=21 tokens=12612 agent_s=142.9 | 254 tests, 0 failures, 2 skipped
+09:25 up2-symphony trackers.without.claude-opus-5-5.1 step 02: PASS turns=18 tokens=9502 agent_s=143.0 | 245 tests, 0 failures, 2 skipped
+09:34 up2-symphony trackers.without.claude-opus-5-5.1 step 03: PASS turns=27 tokens=19318 agent_s=502.9 | 249 tests, 0 failures, 2 skipped
+09:36 up2-symphony trackers.without.claude-opus-5-5.1 step 04: PASS turns=10 tokens=5790 agent_s=89.7 | 291 tests, 0 failures, 6 skipped
+09:39 up2-symphony trackers.without.claude-opus-5-5.1 step 05: PASS turns=15 tokens=12218 agent_s=168.8 | 300 tests, 0 failures, 6 skipped
+09:41 up2-symphony trackers.without.claude-opus-5-5.1 step 06: PASS turns=9 tokens=6134 agent_s=114.9 | 299 tests, 0 failures, 6 skipped
+09:44 up2-symphony trackers.without.claude-opus-5-5.1 step 07: PASS turns=19 tokens=11833 agent_s=172.0 | 302 tests, 0 failures, 6 skipped
+09:47 up2-symphony trackers.without.claude-opus-5-5.1 step 08: PASS turns=16 tokens=9283 agent_s=155.0 | 303 tests, 0 failures, 6 skipped
+09:47 up2-symphony trackers.without.claude-opus-5-5.1: PASS turns=135 cost=7.623 wall=1628.9s tool_errors=1 red_runs=15 tools={'Bash': 120, 'Write': 7}
