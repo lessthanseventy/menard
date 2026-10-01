@@ -1,10 +1,7 @@
-b95e362 2026-09-03
+89b18fd 2026-09-04
 
-Track notify listeners in isolated registry
+Move listener registry to Notifiers namespace
 
-Listeners were tracked within each notifier process, which was lost if
-the notifier crashed. Registration now lives in a dedicated registry,
-owne by the Oban application, which is immune to process crashes.
-
-Closes #1499
+Rename `Oban.Notifier.Registry` to `Oban.Notifiers.Listeners` so all
+notifier-related modules live in a single place.
 
