@@ -822,4 +822,28 @@ defmodule Menard.RunTest do
              excluded: 1
            }
   end
+
+  test "run test --slowest N answers with the N slowest tests, not only the counts", %{tmp_dir: dir} do
+    Host.mix_project(dir, :slowest)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/slow_test.exs"), """
+    defmodule SlowTest do
+      use ExUnit.Case
+
+      test "quick", do: :ok
+
+      test "sleeps" do
+        Process.sleep(60)
+      end
+    end
+    """)
+
+    assert %{ok: true, slowest: [%{name: "sleeps", at: "test/slow_test.exs:6", ms: ms}]} =
+             Run.lean(Run.result(dir, "test", ["--slowest", "1"]))
+
+    assert ms >= 60
+  end
 end

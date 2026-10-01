@@ -73,10 +73,13 @@ defmodule Menard.Run do
 
     {out, status, fetched} = mix_fetching(run, ["test" | formatters ++ args], host)
 
+    held = read_held(held)
+
     out
-    |> parse_test(status, read_held(held))
+    |> parse_test(status, held)
     |> with_sources(run.dir)
     |> Map.put(:fetched, fetched)
+    |> Map.put(:slowest, slowest(args, held))
   end
 
   defp verb(%{dir: dir}, "format", files) do
@@ -114,6 +117,17 @@ defmodule Menard.Run do
       else: %{ok: true, failures: [], skipped: "no credo in this project"}
   end
 
+  # `--slowest N`: mix prints them, and a reply of the counts alone dropped them
+  defp slowest(args, %{times: times}) do
+    with [_, n | _] <- Enum.drop_while(args, &(&1 != "--slowest")),
+         {n, ""} <- Integer.parse(n) do
+      times |> Enum.sort_by(& &1.ms, :desc) |> Enum.take(n)
+    else
+      _ -> nil
+    end
+  end
+
+  defp slowest(_args, _held), do: nil
   # what the formatter wrote at the suite's end; nil when no suite ran
   defp read_held(path) do
     case File.read(path) do

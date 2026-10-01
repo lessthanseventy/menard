@@ -5,7 +5,7 @@
 # Elixir, whatever version that is: no JSON module, only what ExUnit has had for years.
 #
 # At each suite's end it writes `:erlang.term_to_binary(%{tests, failed, skipped, excluded,
-# excluded_by, failures})` to the path
+# excluded_by, failures, times})` to the path
 # in MENARD_EXUNIT_OUT; each failure is the reply's shape (kind, message, at, name, module, and an
 # assertion's code/left/right). A `--repeat-until-failure` run writes once per suite, so the file
 # holds the last, the run the reply is about.
@@ -21,10 +21,10 @@ defmodule Menard.ExUnitFormatter do
     acc =
       case state do
         nil ->
-          %{acc | tests: acc.tests + 1}
+          %{acc | tests: acc.tests + 1, times: [time(test) | acc.times]}
 
         {:failed, failures} ->
-          failed(acc, [test_failure(test, failures)])
+          failed(%{acc | times: [time(test) | acc.times]}, [test_failure(test, failures)])
 
         {:invalid, _module} ->
           failed(acc, [])
@@ -51,7 +51,17 @@ defmodule Menard.ExUnitFormatter do
   def handle_cast({:suite_finished, _run_us, _load_us}, acc), do: finish(acc)
   def handle_cast(_event, acc), do: {:noreply, acc}
 
-  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, excluded: 0, excluded_by: [], failures: []}
+  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, excluded: 0, excluded_by: [], failures: [], times: []}
+
+  # every test that ran, for `--slowest N`: which N is the reply's to pick
+  defp time(test), do: %{name: name(test), at: at(test), ms: div(test.time, 1000)}
+
+  defp name(test) do
+    type = to_string(test.tags[:test_type] || :test)
+    test.name |> to_string() |> String.replace_prefix(type <> " ", "")
+  end
+
+  defp at(test), do: "#{Path.relative_to_cwd(test.tags.file)}:#{test.tags.line}"
 
   defp filter(reason) do
     case Regex.run(~r/^due to (.+) filter$/, reason) do
@@ -73,13 +83,11 @@ defmodule Menard.ExUnitFormatter do
   end
 
   defp test_failure(test, [{kind, reason, stack} | _]) do
-    type = to_string(test.tags[:test_type] || :test)
-
     compact(%{
       kind: "test",
-      name: test.name |> to_string() |> String.replace_prefix(type <> " ", ""),
+      name: name(test),
       module: inspect(test.module),
-      at: "#{Path.relative_to_cwd(test.tags.file)}:#{test.tags.line}",
+      at: at(test),
       message: message(kind, reason, stack),
       code: code(reason),
       left: side(reason, :left),
