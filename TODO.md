@@ -5,6 +5,12 @@ commit lands.
 
 
 
+- A flake in the gate (2026-10-01, after 590c116): `check answers with its failures in the one
+  shape` (run_test.exs:345) failed once with `mix compile failed: ** (File.Error) could not get
+  current working directory nil` from the host project's mix, and passed alone. Nothing calls
+  File.cd; something removed the directory the host's mix stood in mid-run. Same run printed a
+  `/tmp/menard-toolchain-*/mise.toml are not trusted` error from another test.
+
 - The gate costs ~2,450 CPU-seconds (measured 2026-09-29, /proc/stat across a run, ~200s wall at
   load 14; 5-10 min when other sessions load the box). Splitting HooksTest and IdentityTest into
   modules made it slower: it is CPU-bound, not serial. The cost to cut is VM starts: tests that
