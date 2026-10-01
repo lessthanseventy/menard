@@ -30,6 +30,29 @@ defmodule Menard.PipedTest do
              ~s(cd "/tmp/my app" && /p/bin/menard run test)
   end
 
+  # 2026-09-30: `cd X; time (mise exec -- mix test 2>&1 | tail -15)` went through as written
+  test "a cd with ;, time, a subshell and mise exec are kept around the run, the parens dropped" do
+    for {command, run} <- [
+          {"cd /w; mix test | tail", "cd /w; /p/bin/menard run test"},
+          {"time mix test 2>&1 | tail -15", "time /p/bin/menard run test"},
+          {"(mix test 2>&1 | tail -15)", "/p/bin/menard run test"},
+          {"mise exec -- mix test test/a_test.exs | tail",
+           "mise exec -- /p/bin/menard run test test/a_test.exs"},
+          {"mise x -- mix precommit | tail", "mise x -- /p/bin/menard run check"},
+          {"mise exec elixir@1.19 -- mix test | tail", "mise exec elixir@1.19 -- /p/bin/menard run test"},
+          {"cd /w; time (mise exec -- mix test 2>&1 | tail -15)",
+           "cd /w; time mise exec -- /p/bin/menard run test"}
+        ] do
+      assert Piped.rewritten(command, @menard) == run, command
+    end
+  end
+
+  test "a subshell not closed, or closed and not opened, stands as it was written" do
+    for command <- ["(mix test | tail", "mix test | tail)", "time (mix test | tail) && echo done"] do
+      assert Piped.rewritten(command, @menard) == nil, "#{inspect(command)} was rewritten"
+    end
+  end
+
   test "a run that is not piped, or is not alone, stands as it was written" do
     for command <- [
           "mix test",
