@@ -219,12 +219,13 @@ defmodule Menard.EditTest do
 
     before = read(dir, "lib/t.ex")
 
+    # a clause of tool/1 itself in what would move: moved, it would reorder tool's matches
     assert {:error, why} =
              edit(dir, [
                %{
                  file: "lib/t.ex",
                  old: "  def tool(:a), do: a()\n",
-                 new: "  def tool(:a), do: helped(a())\n\n  defp helped(x), do: x\n\n"
+                 new: "  def tool(:a), do: a()\n  def tool(:c), do: :c\n\n  defp helped(x), do: x\n\n"
                }
              ])
 
@@ -233,6 +234,23 @@ defmodule Menard.EditTest do
     assert why =~ "between the clauses of tool/1"
     assert why =~ "nothing was written"
     assert read(dir, "lib/t.ex") == before
+
+    # the clause changed and a new function under it (Oban 04: refused, and a 5k batch sent again):
+    # the clause stays, the function goes after tool's last clause
+    assert {:ok, reply} =
+             edit(dir, [
+               %{
+                 file: "lib/t.ex",
+                 old: "  def tool(:a), do: a()\n",
+                 new: "  def tool(:a), do: helped(a())\n\n  defp helped(x), do: x\n\n"
+               }
+             ])
+
+    assert read(dir, "lib/t.ex") ==
+             "defmodule T do\n  def tool(:a), do: helped(a())\n  def tool(:b), do: :b\n\n  defp helped(x), do: x\n\n  defp a, do: :a\nend\n"
+
+    assert reply.moved == ["lib/t.ex: helped/1 after the last clause of tool/1, not between its clauses"]
+    File.write!(Path.join(dir, "lib/t.ex"), before)
 
     # a new function added under a clause, the clause left as it was, has one place it can go:
     # after the function's last clause, and there it is written, the reply saying so

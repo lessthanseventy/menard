@@ -86,17 +86,22 @@ defmodule Menard.Edit do
     end
   end
 
-  # New functions written under a clause, the clause left as it was (`new` is `old` and more), where
-  # the function has more clauses below: there they would split it, which parses and does not
-  # build. They have one place to go, after its last clause, and go there; the reply says so. An
-  # edit that changes the text it is anchored on is refused as before: where it meant it is not sure.
+  # New functions written under a clause (whole defs ending `new`), where the function has more
+  # clauses below: there they would split it, which parses and does not build. They have one place
+  # to go, after its last clause, and go there; the rest of `new` stays where `old` was, and the
+  # reply says so. A clause of that function among them is refused as before: moved, it would
+  # reorder the function's matches.
   defp placed(text, %{old: old, new: new} = edit, anchor_end) do
     plain = String.replace(text, old, new)
+    start = anchor_end - byte_size(old)
 
-    with "" <> added when added != "" <- appended(old, new),
+    with {head, added} <- trailing_defs(new),
          {:error, _} <- Menard.Write.together(edit.file, text, plain),
-         {:ok, at, {name, arity}} <- after_run(text, anchor_end, String.ends_with?(old, "\n")),
-         moved = binary_part(text, 0, at) <> added <> binary_part(text, at, byte_size(text) - at),
+         kept =
+           binary_part(text, 0, start) <> head <> binary_part(text, anchor_end, byte_size(text) - anchor_end),
+         {:ok, at, {name, arity}} <- after_run(kept, start + byte_size(head), String.ends_with?(head, "\n")),
+         false <- "#{name}/#{arity}" in String.split(defined(added), ", "),
+         moved = binary_part(kept, 0, at) <> added <> binary_part(kept, at, byte_size(kept) - at),
          :ok <- Menard.Write.together(edit.file, text, moved) do
       {:ok, moved,
        {:moved, "#{defined(added)} after the last clause of #{name}/#{arity}, not between its clauses"}}
@@ -105,9 +110,28 @@ defmodule Menard.Edit do
     end
   end
 
-  defp appended(old, new),
-    do:
-      if(String.starts_with?(new, old), do: binary_part(new, byte_size(old), byte_size(new) - byte_size(old)))
+  # `new` as the text that takes `old`'s place and the whole functions written after it: the longest
+  # tail, from a line's start, that is defs alone, and what is before it (never empty)
+  defp trailing_defs(new) do
+    starts = for {at, 1} <- :binary.matches(new, "\n"), at + 1 < byte_size(new), do: at + 1
+
+    Enum.find_value(starts, fn at ->
+      tail = binary_part(new, at, byte_size(new) - at)
+      if defs?(tail), do: {binary_part(new, 0, at), tail}
+    end)
+  end
+
+  defp defs?(code) do
+    forms =
+      case Menard.Source.parse(code) do
+        {:ok, {:__block__, _, forms}} -> forms
+        {:ok, form} -> [form]
+        _ -> []
+      end
+
+    Enum.any?(forms, &match?({kind, _, _} when kind in @def_kinds, &1)) and
+      Enum.all?(forms, &match?({kind, _, _} when kind in [:@ | @def_kinds], &1))
+  end
 
   # Where the added text goes when the anchor ends inside a function's run of clauses: after the
   # run's last line, at the same line boundary the anchor ended on (the start of the next line when
