@@ -275,7 +275,7 @@ defmodule Menard.MCPTest do
     file = Path.join(root, "lib/t.ex")
     File.write!(file, "defmodule T do\n  def one, do: 1\n\n  defp helper, do: :h\nend\n")
 
-    refute call(Menard.MCP.Clause, %{verb: "insert_at", file: "lib/t.ex", at: "top", code: "defp zero, do: 0"}).isError
+    refute call(Menard.MCP.Clause, %{verb: "insert_at", file: "lib/t.ex", at: "top", code: "def zero, do: 0"}).isError
 
     refute call(Menard.MCP.Clause, %{
              verb: "insert_at",
@@ -284,7 +284,7 @@ defmodule Menard.MCPTest do
              code: "def last, do: 9"
            }).isError
 
-    assert File.read!(file) =~ "defp zero, do: 0\n\n  def one, do: 1"
+    assert File.read!(file) =~ "def zero, do: 0\n\n  def one, do: 1"
     assert File.read!(file) =~ "defp helper, do: :h\n\n  def last, do: 9"
   end
 

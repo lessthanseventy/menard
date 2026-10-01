@@ -122,7 +122,9 @@ is none (the CLI keeps none).
 
 Its stages say what touched your code after you: `formatter` is `mix format`, `plugins` is the
 project's plugins (Styler: sorted aliases, a collapsed pipe). Read them before looking for an edit
-that moved. `unformatted` means written but not formatted, and says why.
+that moved. `unformatted` means written but not formatted, and says why. `moved` is what the
+write laid out for you: a new clause beside its function's others, a new private function at its
+module's end, below the public ones. Write either where it is handy; it lands there.
 
 Pass the reply's `version` back on your next edit to that file. If another session changed it
 since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
