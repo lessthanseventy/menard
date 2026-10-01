@@ -26,7 +26,13 @@ defmodule Menard.BinTest do
 
     for f <- String.split(files, "\n", trim: true) do
       File.mkdir_p!(Path.dirname(Path.join(copy, f)))
-      File.cp!(Path.join(@root, f), Path.join(copy, f))
+      src = Path.join(@root, f)
+
+      # a tracked symlink is a link in the copy too (eval's desk-tdd links desk's dirs: cp! refuses one)
+      case File.read_link(src) do
+        {:ok, target} -> File.ln_s!(target, Path.join(copy, f))
+        {:error, _} -> File.cp!(src, Path.join(copy, f))
+      end
     end
 
     File.cp_r!(Path.join(@root, "deps"), Path.join(copy, "deps"))
