@@ -9,16 +9,18 @@ defmodule Menard.Piped do
   message, so nothing is cut and nothing is run again.
 
   The command is rewritten before it runs, not refused: what was asked for is what is done, the
-  tests run, and no call is lost to a refusal. Only a command that is one test run and its pipe
-  is rewritten; the same run with anything else beside it (an edit before, another command after)
-  is left as it was written, as is a run that is not piped at all.
+  tests run, and no call is lost to a refusal. A command that ends in one test run and its pipe
+  is rewritten, the commands before it kept (`mix compile && mix test … | tail`: the raw output,
+  and the run made again through menard, Symphony 01); one with a command after the run is left
+  as it was written, as is a run that is not piped at all.
   """
 
-  # kept around the run: a cd before it (`&&` or `;`), `time`, and `mise exec … --` (the project's
-  # toolchain); a subshell's parens are dropped, and only a pair is taken
+  # kept around the run: the commands before it (`&&` or `;`, no pipe in them), `time`, and
+  # `mise exec … --` (the project's toolchain); a subshell's parens are dropped, and only a pair
+  # is taken
   @pipe ~S"\s*\|\s*(?:tail|head|grep)\b[^|;&()]*"
   @piped Regex.compile!(
-           ~S/^\s*(?<cd>cd\s+(?:"[^"]+"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)\s*)?(?<time>time\s+)?(?<open>\(\s*)?/ <>
+           ~S/^\s*(?<cd>(?:(?:"[^"]*"|'[^']*'|[^|;&()<>"'\n])+(?:&&|;)\s*)*)(?<time>time\s+)?(?<open>\(\s*)?/ <>
              ~S/(?:\w+=\S*\s+)*(?<mise>mise\s+(?:exec|x)\s+(?:[^\s;&|()]+\s+)*?--\s+)?(?:\w+=\S*\s+)*/ <>
              ~S/mix\s+(?<task>test|precommit)\b(?<args>[^|;&<>()]*?)(?:\s*2>&1)?(?:/ <>
              @pipe <> ~S")+(?(<open>)\s*\))\s*$"
