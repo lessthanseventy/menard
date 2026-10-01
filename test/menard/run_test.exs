@@ -748,4 +748,78 @@ defmodule Menard.RunTest do
     assert {old.tests, old.failed, old.skipped} == {2, 1, 1}
     assert {new.tests, new.failed, new.skipped} == {2, 1, 1}
   end
+
+  test "ExUnit's prose says how many were excluded, and none run is no green" do
+    out =
+      "Running ExUnit with seed: 1, max_cases: 8\n\n\nFinished in 0.1 seconds\n0 tests, 0 failures (150 excluded)\n\nAll tests have been excluded.\n"
+
+    assert %{ok: false, tests: 0, excluded: 150, failures: [%{kind: "excluded"}]} = Run.parse_test(out, 0)
+
+    out =
+      "Running ExUnit with seed: 1, max_cases: 8\n\n.\nFinished in 0.1 seconds\n1 test, 0 failures (3 excluded)\n"
+
+    assert %{ok: true, tests: 1, excluded: 3, failures: []} = Run.parse_test(out, 0)
+  end
+
+  test "a test file's compile errors printed after the seed line are its failures" do
+    # 1.19 on prints the seed first, then loads the test files: their compile errors come after it
+    out = """
+    Running ExUnit with seed: 335079, max_cases: 40
+
+        error: undefined variable "dir"
+        │
+     753 │     Host.mix_project(dir, :excludes)
+        │                      ^^^
+        │
+        └─ test/menard/run_test.exs:753:22: Menard.RunTest."test x"/1
+
+
+    == Compilation error in file test/menard/run_test.exs ==
+    ** (CompileError) test/menard/run_test.exs: cannot compile module Menard.RunTest (errors have been logged)
+    """
+
+    assert [%{kind: "error", at: "test/menard/run_test.exs:753", message: ~s(undefined variable "dir")}] =
+             Run.parse_test(out, 1).failures
+  end
+
+  test "a run that excludes every test it was given is red, and says which tags to include", %{tmp_dir: dir} do
+    Host.mix_project(dir, :excludes)
+
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start(exclude: [:slow])\n")
+
+    File.write!(Path.join(dir, "test/slow_test.exs"), """
+    defmodule SlowTest do
+      use ExUnit.Case
+      @moduletag :slow
+
+      test "one", do: :ok
+      test "two", do: :ok
+    end
+    """)
+
+    File.write!(Path.join(dir, "test/fast_test.exs"), """
+    defmodule FastTest do
+      use ExUnit.Case
+
+      test "runs", do: :ok
+      @tag :slow
+      test "waits", do: :ok
+    end
+    """)
+
+    assert %{ok: false, tests: 0, excluded: 2, failures: [%{kind: "excluded", message: message}]} =
+             Run.lean(Run.result(dir, "test", ["test/slow_test.exs"]))
+
+    assert message =~ "no test ran"
+    assert message =~ "--include slow"
+
+    assert Run.lean(Run.result(dir, "test", ["test/fast_test.exs"])) == %{
+             ok: true,
+             failures: [],
+             tests: 1,
+             failed: 0,
+             excluded: 1
+           }
+  end
 end

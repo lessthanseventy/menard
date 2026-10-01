@@ -468,7 +468,8 @@ defmodule Menard.Run do
   defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
 
   @doc """
-  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, skipped, failures, tail}`.
+  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, skipped, excluded,
+  failures, tail}`. A run that excluded every test it had is not `ok`, whatever mix's exit.
   `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
   run had it; output menard does not run itself (a precommit alias) is read from its prose.
   """
@@ -480,13 +481,19 @@ defmodule Menard.Run do
     last = List.last(runs)
     # the formatter's counts and failures when it wrote them, else what the prose says
     {tests, failed, skipped} = if held, do: {held.tests, held.failed, held[:skipped]}, else: counts(last)
-    # the compile before the first run: its warnings, which a green run went on to hide, or, with no
-    # run at all, a test file's errors
-    compile = diagnostics(hd(runs))
+    {excluded, excluded_by} = if held, do: {held[:excluded], held[:excluded_by]}, else: {excluded(last), nil}
+    # the compile before the first run: its warnings, which a green run went on to hide, or a test
+    # file's errors, which 1.19 on prints after the seed line, in the first run
+    compile = runs |> Enum.take(2) |> Enum.join() |> diagnostics()
     failures = if(held, do: held.failures, else: failures(last)) ++ compile
+    # every test filtered out is no green, whatever mix's exit: `ok, tests: 0` read as "it passes"
+    # (up3-oban 03: a new test under a tag the test_helper excludes, and ~30 calls to find out why)
+    none_ran? = tests == 0 and (excluded || 0) > 0
+    failures = if none_ran? and failures == [], do: [none_ran(excluded, excluded_by)], else: failures
 
     %{
-      ok: status == 0,
+      ok: status == 0 and not none_ran?,
+      excluded: excluded,
       exit: status,
       tests: tests,
       failed: failed,
@@ -531,6 +538,7 @@ defmodule Menard.Run do
       {:fetched, []} -> true
       {:tail, ""} -> true
       {:skipped, 0} -> true
+      {:excluded, 0} -> true
       {:exit, _} -> ok
       {:log, _} -> ok
       {:seed, _} -> ok
@@ -623,6 +631,27 @@ defmodule Menard.Run do
       true ->
         {nil, nil, nil}
     end
+  end
+
+  # `(N excluded)` in a summary line: the tests the project's filters (or the run's --only) left out
+  defp excluded(out) do
+    case Regex.run(~r/^\d+ [a-z]+.*\((\d+) excluded\)/m, out) do
+      [_, n] -> String.to_integer(n)
+      nil -> nil
+    end
+  end
+
+  defp none_ran(n, tags) do
+    include = (tags || []) |> List.delete("test") |> Enum.map_join(" ", &"--include #{&1}")
+
+    how =
+      cond do
+        tags == nil -> "the project's filters (its test_helper's exclude); `--include TAG` runs them"
+        include == "" -> "the run's own filter (--only, a file:line)"
+        true -> "the project's filters; `#{include}` runs them"
+      end
+
+    %{kind: "excluded", message: "no test ran: #{n} excluded by #{how}"}
   end
 
   # `N skipped` in a summary line. An excluded test is the project's own filter and no count, as in
