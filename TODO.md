@@ -20,3 +20,8 @@ commit lands.
   no hook on Read, Agent or Task; the 09-26 wiring's hooks/format-report.sh, today `menard hook`,
   still answered Bash and Write/Edit. format-report.sh could notice it is run as a command hook
   under Claude Code, which hooks.json no longer does, and tell the agent to restart Claude Code.
+
+- Working on menard itself, the session's MCP server keeps the code it started with: a hook fix
+  committed mid-session (d58e6bc, the format hook and formatter inputs) did nothing until the
+  server restarted (`/mcp` reconnect). The server could notice its own build is newer than what
+  it loaded and reload, or say so.
