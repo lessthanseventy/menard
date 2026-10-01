@@ -1,0 +1,67 @@
+diff --git a/lib/oban/application.ex b/lib/oban/application.ex
+index fe41a41..afcd68d 100644
+--- a/lib/oban/application.ex
++++ b/lib/oban/application.ex
+@@ -5,7 +5,7 @@ defmodule Oban.Application do
+ 
+   def start(_type, _args) do
+     Supervisor.start_link(
+-      [Oban.Registry, Oban.Notifier.Registry],
++      [Oban.Registry, Oban.Notifiers.Listeners],
+       strategy: :one_for_one,
+       name: __MODULE__
+     )
+diff --git a/lib/oban/notifier.ex b/lib/oban/notifier.ex
+index d2192c0..73dc477 100644
+--- a/lib/oban/notifier.ex
++++ b/lib/oban/notifier.ex
+@@ -40,14 +40,6 @@ defmodule Oban.Notifier do
+ 
+   * `sonar` — periodic notification checks to monitor pubsub health and determine connectivity
+ 
+-  > #### Durable Listeners {: .info}
+-  >
+-  > Listeners are tracked in a registry that lives outside of the notifier process. Registration
+-  > happens transparently through `listen/2` and `unlisten/2`, and entries are removed
+-  > automatically when the listening process exits. Because registrations survive a notifier
+-  > crash, listening processes are guaranteed to receive notifications after the notifier restarts
+-  > without any monitoring or resubscribing on their part.
+-
+   ## Examples
+ 
+   Broadcasting after a job is completed:
+@@ -86,7 +78,7 @@ defmodule Oban.Notifier do
+   """
+ 
+   alias Oban.{Config, JSON, Registry, Sonar}
+-  alias Oban.Notifier.Registry, as: Listeners
++  alias Oban.Notifiers.Listeners
+ 
+   require Logger
+ 
+diff --git a/lib/oban/notifier/registry.ex b/lib/oban/notifiers/listeners.ex
+similarity index 96%
+rename from lib/oban/notifier/registry.ex
+rename to lib/oban/notifiers/listeners.ex
+index f03ed3e..5c94c1e 100644
+--- a/lib/oban/notifier/registry.ex
++++ b/lib/oban/notifiers/listeners.ex
+@@ -1,4 +1,4 @@
+-defmodule Oban.Notifier.Registry do
++defmodule Oban.Notifiers.Listeners do
+   @moduledoc false
+ 
+   alias Oban.Config
+diff --git a/lib/oban/notifiers/postgres.ex b/lib/oban/notifiers/postgres.ex
+index d5de19c..6e37b71 100644
+--- a/lib/oban/notifiers/postgres.ex
++++ b/lib/oban/notifiers/postgres.ex
+@@ -40,7 +40,7 @@ if Code.ensure_loaded?(Postgrex) do
+     @behaviour Oban.Notifier
+ 
+     alias Oban.{Config, Notifier, Repo}
+-    alias Oban.Notifier.Registry, as: Listeners
++    alias Oban.Notifiers.Listeners
+     alias Postgrex.SimpleConnection, as: Simple
+ 
+     defstruct [:conf, :from, channels: MapSet.new(), connected?: false]

@@ -1,0 +1,29 @@
+3c372fa 2026-07-20
+
+Block generic tool input and document idle timeouts
+
+#### Context
+
+Docs called turn timeout a total cap, while runtime uses silence. Generic tool-input prompts also received fabricated answers, and approval-looking option labels alone are not enough to identify MCP approval prompts.
+
+#### TL;DR
+
+*Document idle timeouts and block generic tool input.*
+
+#### Summary
+
+- Document `turn_timeout_ms` as a reset-on-update silence interval.
+- Add coverage for active stream updates and silent turns.
+- Keep auto-approval only for recognized MCP approval question IDs.
+- Block freeform and generic option-based tool input, including Allow/Deny choices.
+
+#### Alternatives
+
+- A total-runtime deadline was rejected; healthy long turns should stay alive while updates continue.
+- Matching approval-looking labels alone was rejected because generic prompts can use the same words.
+
+#### Test Plan
+
+- [x] `HEX_HOME=/private/tmp/symphony-hex mise exec -- make -C elixir all`
+- [x] `mise exec -- mix test test/symphony_elixir/app_server_test.exs:619 test/symphony_elixir/app_server_test.exs:788`
+- [x] `mise exec -- mix test test/symphony_elixir/app_server_test.exs`

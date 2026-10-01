@@ -1,0 +1,1 @@
+../riverside/arm_setup.sh

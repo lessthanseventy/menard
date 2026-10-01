@@ -180,7 +180,7 @@ def basis(suite, case=None):
 
 
 # the files of a suite a session meets, by name; every other is a grader's
-AGENT_MEETS = {"build.sh", "arm_setup.sh", "agent_env.sh", "cleanup.sh", "settings.json", "prompt.md", "setup.sh", "ci", "kind"}
+AGENT_MEETS = {"build.sh", "arm_setup.sh", "agent_env.sh", "cleanup.sh", "settings.json", "prompt.md", "setup.sh", "ci", "kind", "sync.patch"}
 
 
 def same_start(a, b):
@@ -828,7 +828,7 @@ def agent_turn(cmd, ws, trace, env, snap, label, progress, out_dir):
             break
         progress["waits"] += wait_out(hit, out_dir, label)
         if CURRENT:
-            cleanup(*CURRENT)
+            cleanup(*CURRENT, fresh=True)
         restore(snap, ws, env, [hit["session_id"], progress["sid"]])
         progress["_paused"] += time.time() - started
         save_progress(snap, progress)
@@ -847,6 +847,21 @@ def check(check_dir, ws, run_env=None):
     return code, out
 
 
+def sync_upstream(step, ws):
+    """A replayed history's step (eval/upstream): main moved on. The last step's work goes, as when the
+    team merged its own version; upstream's commits up to this step's parent come in (sync.patch), and
+    eval-base moves there, so the step's diff and checks are against it. After the checkpoint: a redo
+    restores the tree before this and syncs again."""
+    patch = step / "sync.patch"
+    if not patch.exists():
+        return
+    for cmd in ["git reset -q --hard eval-base", "git clean -fdq", f"git apply --index {patch}",
+                "git -c user.name=eval -c user.email=eval@x commit -qm upstream", "git tag -f eval-base"]:
+        code, out = sh(cmd, ws)
+        if code != 0:
+            sys.exit(f"{step}: `{cmd}` failed:\n{out}")
+
+
 def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
     """A long case: steps/NN/prompt.md, each resuming the session the step before left, each with
     its own check.sh, run on a copy of the workspace so its hidden files never reach the agent. Each
@@ -856,6 +871,7 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
     for step in sorted(p for p in (case_dir / "steps").iterdir() if (p / "prompt.md").exists())[len(steps):]:
         trace = out_dir / "traces" / f"{rid}.{step.name}.jsonl"
         before = checkpoint(ws, env, progress, step.name)
+        sync_upstream(step, ws)
         cmd = claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid, persist=True)
         timed_out, t0 = agent_turn(cmd, ws, trace, env, before, step.name, progress, out_dir)
         # the agent's own wall, apart from the grading after it (~200 s a session in focus2)
@@ -950,7 +966,7 @@ def run_one(case_dir, arm, model, n, out_dir):
                                   if "/.claude/plugins/" not in p and Path(p).resolve() != REPO / "bin")
     env["PATH"] = str(EVAL / "stubs") + os.pathsep + env["PATH"]
     # what an earlier run of this rid left (its databases, a BEAM holding them) goes before this one starts
-    cleanup(case_dir, rid, ws, env)
+    cleanup(case_dir, rid, ws, env, fresh=True)
     global CURRENT
     CURRENT = (case_dir, rid, ws, env)
     if long:
@@ -1041,14 +1057,17 @@ def run_long(case_dir, arm, model, n, rid, ws, out_dir, env, progress):
     return row
 
 
-def cleanup(case_dir, rid, ws, env):
+def cleanup(case_dir, rid, ws, env, fresh=False):
     """The suite's cleanup.sh (eval/tlon: the run's throwaway databases and tmux servers), after a
     run and before it (what a crashed run left holds its database: every test run of the rerun
     failed). What it could not clean is said, not hidden."""
     script = case_dir.parent.parent / "cleanup.sh"
     if script.exists():
         kill_stragglers(ws)
-        code, out = sh(["bash", str(script), rid, str(ws)], ws.parent if ws.exists() else WORK, timeout=120, env=env)
+        # fresh: a run starts, or a step is redone, next; a suite whose databases are made, not left to
+        # the agent (eval/oban: one cloned from the template's, migrated), makes them now
+        code, out = sh(["bash", str(script), rid, str(ws), *(["fresh"] if fresh else [])],
+                       ws.parent if ws.exists() else WORK, timeout=120, env=env)
         if code != 0 or out.strip():
             print(f"  cleanup{' FAILED' if code else ''}: {out.strip()}", flush=True)
 

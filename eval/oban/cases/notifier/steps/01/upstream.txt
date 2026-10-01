@@ -1,0 +1,13 @@
+150c66f 2026-08-13
+
+Expose stager as a top-level service option
+
+Previously staging could only be configured through the `stage_interval`
+option, which is inconsistent with other services like cron, pruner, and
+lifeline. The stager now accepts options directly, e.g. `stager:
+[interval: 5000]`, `false` to disable it, or `{module, opts}` tuple for
+alternative implementations.
+
+The `stage_interval` option is soft-deprecated but still accepted, along
+with the legacy `poll_interval` and older plugin style.
+

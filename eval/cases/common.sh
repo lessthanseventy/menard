@@ -27,3 +27,23 @@ formatted_changes() {
   # shellcheck disable=SC2086
   [ -z "$files" ] || mix format --check-formatted $files >/dev/null 2>&1 || echo "NOTE: unformatted"
 }
+
+# A replayed history's step (eval/upstream): what the run changed or added, the commit's own tests
+# copied in from hidden/ left out (upstream's, formatted to its rules, not the agent's)
+upstream_formatted() {
+  hidden=$(cd "$CASE_DIR/hidden" 2>/dev/null && find . -type f | sed 's|^\./||')
+  files=$({ git diff --name-only --relative --diff-filter=AM eval-base -- .; git ls-files -o --exclude-standard; } \
+    | grep -E '\.(ex|exs|heex)$' | grep -vxF -e "${hidden:-/}")
+  # shellcheck disable=SC2086
+  [ -z "$files" ] || mix format --check-formatted $files >/dev/null 2>&1 || echo "NOTE: unformatted"
+}
+
+# The suite, the hidden tests in it. Red, what failed is run once more (`--failed`): green then is a
+# pass, noted, since upstream's own timing tests (assert_receive) go red under a loaded machine
+upstream_tests() {
+  out=$(mix test "$@" 2>&1) && { echo "$out" | tail -1; return 0; }
+  first=$(echo "$out" | tail -30)
+  out=$(mix test --failed "$@" 2>&1) && { echo "$out" | tail -1; echo "NOTE: green only on a rerun of the failed"; return 0; }
+  echo "$first"
+  fail "mix test $*"
+}

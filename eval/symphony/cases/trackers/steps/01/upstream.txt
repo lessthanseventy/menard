@@ -1,0 +1,33 @@
+54b456b 2026-06-04
+
+[linear] Require opt-in labels for dispatch (#88)
+
+#### Context
+
+Projects need an explicit opt-in signal so active issues are not
+dispatched only because they belong to a polled project.
+
+#### TL;DR
+
+*Allow workflows to require Linear labels before an issue is dispatched
+or continued.*
+
+#### Summary
+
+- Add normalized `tracker.required_labels` configuration with all-label
+matching
+- Apply the label gate to dispatch, retries, reconciliation, and
+continuation turns
+- Document the configuration and cover opt-in and label-removal behavior
+
+#### Alternatives
+
+- Prompt-only filtering happens after an issue is claimed and cannot
+stop active work when a label is removed.
+- Linear query filtering would hide removed labels from reconciliation,
+preventing clean agent shutdown.
+
+#### Test Plan
+
+- [x] `make -C elixir all`
+- [x] `mix test test/symphony_elixir/workspace_and_config_test.exs`

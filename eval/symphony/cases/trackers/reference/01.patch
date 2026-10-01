@@ -1,0 +1,197 @@
+diff --git a/README.md b/README.md
+index d99eee3..9ccea64 100644
+--- a/README.md
++++ b/README.md
+@@ -115,6 +115,9 @@ Title: {{ issue.title }} Body: {{ issue.description }}
+ Notes:
+ 
+ - If a value is missing, defaults are used.
++- `tracker.required_labels` is optional. When set, an issue must have every
++  configured label to dispatch or continue running. Label matching ignores
++  case and surrounding whitespace. A blank configured label matches no issue.
+ - Safer Codex defaults are used when policy fields are omitted:
+   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
+   - `codex.thread_sandbox` defaults to `workspace-write`
+diff --git a/WORKFLOW.md b/WORKFLOW.md
+index a458db0..56a2cf8 100644
+--- a/WORKFLOW.md
++++ b/WORKFLOW.md
+@@ -2,6 +2,7 @@
+ tracker:
+   kind: linear
+   project_slug: "symphony-0c79b11b75ea"
++  required_labels: []
+   active_states:
+     - Todo
+     - In Progress
+diff --git a/lib/symphony_elixir/agent_runner.ex b/lib/symphony_elixir/agent_runner.ex
+index 502c8cf..473cff2 100644
+--- a/lib/symphony_elixir/agent_runner.ex
++++ b/lib/symphony_elixir/agent_runner.ex
+@@ -9,6 +9,14 @@ defmodule SymphonyElixir.AgentRunner do
+ 
+   @type worker_host :: String.t() | nil
+ 
++  @doc false
++  @spec continue_with_issue_for_test(Issue.t(), ([String.t()] -> term())) ::
++          {:continue, Issue.t()} | {:done, Issue.t()} | {:error, term()}
++  def continue_with_issue_for_test(%Issue{} = issue, issue_state_fetcher)
++      when is_function(issue_state_fetcher, 1) do
++    continue_with_issue?(issue, issue_state_fetcher)
++  end
++
+   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
+   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+     # The orchestrator owns host retries so one worker lifetime never hops machines.
+@@ -147,7 +155,7 @@ defmodule SymphonyElixir.AgentRunner do
+   defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
+     case issue_state_fetcher.([issue_id]) do
+       {:ok, [%Issue{} = refreshed_issue | _]} ->
+-        if active_issue_state?(refreshed_issue.state) do
++        if active_issue_state?(refreshed_issue.state) and issue_routable?(refreshed_issue) do
+           {:continue, refreshed_issue}
+         else
+           {:done, refreshed_issue}
+@@ -172,6 +180,10 @@ defmodule SymphonyElixir.AgentRunner do
+ 
+   defp active_issue_state?(_state_name), do: false
+ 
++  defp issue_routable?(%Issue{} = issue) do
++    Issue.routable?(issue, Config.settings!().tracker.required_labels)
++  end
++
+   defp selected_worker_host(nil, []), do: nil
+ 
+   defp selected_worker_host(preferred_host, configured_hosts) when is_list(configured_hosts) do
+diff --git a/lib/symphony_elixir/config/schema.ex b/lib/symphony_elixir/config/schema.ex
+index 17ead4a..4ec12b5 100644
+--- a/lib/symphony_elixir/config/schema.ex
++++ b/lib/symphony_elixir/config/schema.ex
+@@ -50,6 +50,7 @@ defmodule SymphonyElixir.Config.Schema do
+       field(:api_key, :string)
+       field(:project_slug, :string)
+       field(:assignee, :string)
++      field(:required_labels, {:array, :string}, default: [])
+       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
+       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+     end
+@@ -59,9 +60,14 @@ defmodule SymphonyElixir.Config.Schema do
+       schema
+       |> cast(
+         attrs,
+-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
++        [:kind, :endpoint, :api_key, :project_slug, :assignee, :required_labels, :active_states, :terminal_states],
+         empty_values: []
+       )
++      |> update_change(:required_labels, fn labels ->
++        labels
++        |> Enum.map(&(String.trim(&1) |> String.downcase()))
++        |> Enum.uniq()
++      end)
+     end
+   end
+ 
+diff --git a/lib/symphony_elixir/linear/client.ex b/lib/symphony_elixir/linear/client.ex
+index 1a19649..a1f0250 100644
+--- a/lib/symphony_elixir/linear/client.ex
++++ b/lib/symphony_elixir/linear/client.ex
+@@ -542,7 +542,7 @@ defmodule SymphonyElixir.Linear.Client do
+     labels
+     |> Enum.map(& &1["name"])
+     |> Enum.reject(&is_nil/1)
+-    |> Enum.map(&String.downcase/1)
++    |> Enum.map(&(String.trim(&1) |> String.downcase()))
+   end
+ 
+   defp extract_labels(_), do: []
+diff --git a/lib/symphony_elixir/linear/issue.ex b/lib/symphony_elixir/linear/issue.ex
+index 7ed9476..10bbf2f 100644
+--- a/lib/symphony_elixir/linear/issue.ex
++++ b/lib/symphony_elixir/linear/issue.ex
+@@ -40,4 +40,19 @@ defmodule SymphonyElixir.Linear.Issue do
+   def label_names(%__MODULE__{labels: labels}) do
+     labels
+   end
++
++  @spec routable?(t(), [String.t()]) :: boolean()
++  def routable?(%__MODULE__{assigned_to_worker: true, labels: labels}, required_labels)
++      when is_list(labels) and is_list(required_labels) do
++    issue_labels = MapSet.new(labels, &normalize_label/1)
++    Enum.all?(required_labels, &MapSet.member?(issue_labels, normalize_label(&1)))
++  end
++
++  def routable?(%__MODULE__{}, _required_labels), do: false
++
++  defp normalize_label(label) when is_binary(label) do
++    label
++    |> String.trim()
++    |> String.downcase()
++  end
+ end
+diff --git a/lib/symphony_elixir/orchestrator.ex b/lib/symphony_elixir/orchestrator.ex
+index 0445776..dfb8035 100644
+--- a/lib/symphony_elixir/orchestrator.ex
++++ b/lib/symphony_elixir/orchestrator.ex
+@@ -356,6 +356,21 @@ defmodule SymphonyElixir.Orchestrator do
+     reconcile_running_issue_states(issues, state, active_state_set(), terminal_state_set())
+   end
+ 
++  @doc false
++  @spec reconcile_blocked_issue_states_for_test([Issue.t()], term()) :: term()
++  def reconcile_blocked_issue_states_for_test(issues, %State{} = state) when is_list(issues) do
++    reconcile_blocked_issue_states(issues, state, active_state_set(), terminal_state_set())
++  end
++
++  @doc false
++  @spec handle_retry_issue_lookup_for_test(Issue.t(), term(), String.t(), non_neg_integer(), map()) ::
++          term()
++  def handle_retry_issue_lookup_for_test(%Issue{} = issue, %State{} = state, issue_id, attempt, metadata)
++      when is_binary(issue_id) and is_integer(attempt) and attempt >= 0 and is_map(metadata) do
++    {:noreply, updated_state} = handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata)
++    updated_state
++  end
++
+   @doc false
+   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
+   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state) do
+@@ -400,7 +415,7 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+         terminate_running_issue(state, issue.id, true)
+ 
+-      !issue_routable_to_worker?(issue) ->
++      !issue_routable?(issue) ->
+         Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
+ 
+         terminate_running_issue(state, issue.id, false)
+@@ -435,7 +450,7 @@ defmodule SymphonyElixir.Orchestrator do
+         cleanup_issue_workspace(issue.identifier, blocked_issue_worker_host(state, issue.id))
+         release_issue_claim(state, issue.id)
+ 
+-      !issue_routable_to_worker?(issue) ->
++      !issue_routable?(issue) ->
+         Logger.info("Blocked issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; releasing block")
+         release_issue_claim(state, issue.id)
+ 
+@@ -832,18 +847,16 @@ defmodule SymphonyElixir.Orchestrator do
+          terminal_states
+        )
+        when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
+-    issue_routable_to_worker?(issue) and
++    issue_routable?(issue) and
+       active_issue_state?(state_name, active_states) and
+       !terminal_issue_state?(state_name, terminal_states)
+   end
+ 
+   defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
+ 
+-  defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
+-       when is_boolean(assigned_to_worker),
+-       do: assigned_to_worker
+-
+-  defp issue_routable_to_worker?(_issue), do: true
++  defp issue_routable?(%Issue{} = issue) do
++    Issue.routable?(issue, Config.settings!().tracker.required_labels)
++  end
+ 
+   defp todo_issue_blocked_by_non_terminal?(
+          %Issue{state: issue_state, blocked_by: blockers},

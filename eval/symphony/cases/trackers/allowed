@@ -1,0 +1,10 @@
+lib/**
+test/**
+config/**
+mix.exs
+mix.lock
+CHANGELOG.md
+README.md
+guides/**
+docs/**
+AGENTS.md

@@ -1,0 +1,10 @@
+b48d519 2026-08-13
+
+Roll back attempt and count snoozes on snooze
+
+Snoozing incremented `max_attempts` inflated retry timing and skewed
+backoff with each snooze. Now snoozing matches Oban Pro and the
+`attempt` is rolled back, so a snooze never consumes an attempt and
+backoff stays accurate. Each snooze also increments a `snoozed` count in
+the job's `meta`.
+

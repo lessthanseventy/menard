@@ -1,0 +1,28 @@
+0517275 2026-07-20
+
+Keep retry dispatch fresh without leaking claims
+
+#### Context
+
+A retry performs a fresh by-id lookup, then dispatch revalidates before starting work. If that second read missed or went stale, the popped retry could stay claimed forever; bypassing it instead could dispatch stale work.
+
+#### TL;DR
+
+*Keep dispatch-time freshness and let retries release or reschedule from its outcome.*
+
+#### Summary
+
+- Preserve dispatch-time issue revalidation for retried work.
+- Release the retry claim when the second refresh is missing or stale.
+- Reschedule rather than drop the claim when dispatch-time refresh errors.
+- Add a regression proving a missing second read cannot dispatch stale work or strand a claim.
+
+#### Alternatives
+
+- Reusing the first retry lookup was smaller but reopened a stale-dispatch window.
+
+#### Test Plan
+
+- [x] `HEX_HOME=/private/tmp/symphony-hex mise exec -- make -C elixir all`
+- [x] `mise exec -- mix test test/symphony_elixir/core_test.exs:875`
+- [x] `mise exec -- mix test test/symphony_elixir/core_test.exs`

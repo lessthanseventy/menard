@@ -1,0 +1,580 @@
+diff --git a/guides/recipes/reliable-scheduling.md b/guides/recipes/reliable-scheduling.md
+index 042c319..736cd41 100644
+--- a/guides/recipes/reliable-scheduling.md
++++ b/guides/recipes/reliable-scheduling.md
+@@ -81,9 +81,9 @@ very_soon = DateTime.utc_now() |> DateTime.add(500, :millisecond)
+ ```
+ 
+ your workers may not be aware of/attempt to perform the job until the next tick as specified by the
+-`:stage_interval` configuration option. By default this is set to `1_000ms`.
++stager's `:interval` option, e.g. `stager: [interval: 1_000]`. By default this is set to `1_000ms`.
+ 
+-**Be aware:** Configuring the `:stage_interval` option below the recommended default
++**Be aware:** Configuring the stager's `:interval` below the recommended default
+ can have a considerable impact on database performance! It is not advised to
+ lower this value and should only be done as a last resort after considering
+ other ways to achieve your desired outcome.
+diff --git a/lib/oban.ex b/lib/oban.ex
+index 11c6057..36f8206 100644
+--- a/lib/oban.ex
++++ b/lib/oban.ex
+@@ -68,7 +68,7 @@ defmodule Oban do
+         }
+ 
+   @typedoc """
+-  The value accepted by a service key (`:cron`, `:pruner`, `:lifeline`, `:reindexer`).
++  The value accepted by a service key (`:cron`, `:pruner`, `:lifeline`, `:reindexer`, `:stager`).
+ 
+   Either `false` to disable, a keyword list of options for the default implementation, a module to
+   use an alternative implementation with default options, or a `{module, options}` tuple to use an
+@@ -100,6 +100,7 @@ defmodule Oban do
+           | {:repo, module() | {module(), Keyword.t()}}
+           | {:shutdown_grace_period, non_neg_integer()}
+           | {:stage_interval, timeout()}
++          | {:stager, service()}
+           | {:testing, :disabled | :inline | :manual}
+ 
+   @typedoc """
+@@ -472,6 +473,8 @@ defmodule Oban do
+   * `:lifeline` — rescue jobs orphaned when a node shuts down, see `Oban.Lifeline`
+   * `:pruner` — delete completed, cancelled, and discarded jobs, see `Oban.Pruner`
+   * `:reindexer` — periodically rebuild indexes to combat bloat, see `Oban.Reindexer`
++  * `:stager` — make scheduled or retryable jobs available and notify queues, see "Staging Jobs"
++    below
+ 
+   For example, to prune jobs after a day and run a nightly worker:
+ 
+@@ -489,6 +492,24 @@ defmodule Oban do
+   need to disable them individually. The `:queues` option accepts the same tuple form, but it isn't
+   a service key and always runs, see "Primary Options" above.
+ 
++  #### Staging Jobs
++
++  The stager periodically makes `scheduled` or `retryable` jobs available to run and notifies
++  relevant queues that they have jobs to run. Because staging is essential for job execution, the
++  stager always runs and isn't disabled by `plugins: false`. It accepts the following options:
++
++  * `:interval` — the number of milliseconds between staging jobs and notifying queues. This is
++    directly tied to the resolution of `scheduled` or `retryable` jobs and how frequently the
++    database is checked for jobs to run. Setting the interval to `:infinity` disables staging
++    entirely. The default is `1_000ms`.
++
++  * `:limit` — the maximum number of jobs staged at each interval, used to minimize database
++    load. The default is `5_000`.
++
++  Only the leader node stages jobs and notifies queues when the `:notifier`'s pubsub
++  notifications are functional. If pubsub messages can't get through then staging switches to a
++  less efficient "local" mode in which all nodes poll for jobs to run.
++
+   ### Twiddly Options
+ 
+   Additional options used to tune system behaviour. These are primarily useful for testing or
+@@ -512,24 +533,16 @@ defmodule Oban do
+     may become a bottleneck.
+ 
+     The trigger mechanism is designed to make jobs execute immediately after insert, rather than
+-    up to `:stage_interval` (1 second) afterwards, and it can safely be disabled to improve insert
+-    throughput.
++    up to the stager's `:interval` (1 second) afterwards, and it can safely be disabled to
++    improve insert throughput.
+ 
+     Defaults to `true`, with triggering enabled.
+ 
+   * `:shutdown_grace_period` — the amount of time a queue will wait for executing jobs to complete
+     before hard shutdown, specified in milliseconds. The default is `15_000`, or 15 seconds.
+ 
+-  * `:stage_interval` — the number of milliseconds between making scheduled jobs available and
+-    notifying relevant queues that jobs are available. This is directly tied to the resolution of
+-    `scheduled` or `retryable` jobs and how frequently the database is checked for jobs to run. To
+-    minimize database load, only `5_000` jobs are staged at each interval.
+-
+-    Only the leader node stages jobs and notifies queues when the `:notifier's` pubsub
+-    notifications are functional. If pubsub messages can't get through then staging switches to a
+-    less efficient "local" mode in which all nodes poll for jobs to run.
+-
+-    Setting the interval to `:infinity` disables staging entirely. The default is `1_000ms`.
++  * `:stage_interval` — a deprecated alias for the stager's `:interval` option. Use
++    `stager: [interval: 1_000]` instead, see "Service Options" above.
+ 
+   ## Example
+ 
+diff --git a/lib/oban/config.ex b/lib/oban/config.ex
+index 4e8f8f4..7104d42 100644
+--- a/lib/oban/config.ex
++++ b/lib/oban/config.ex
+@@ -23,7 +23,7 @@ defmodule Oban.Config do
+           queues: Keyword.t(Keyword.t()),
+           repo: module(),
+           shutdown_grace_period: non_neg_integer(),
+-          stage_interval: timeout(),
++          stager: false | {module(), Keyword.t()},
+           testing: :disabled | :inline | :manual
+         }
+ 
+@@ -41,7 +41,7 @@ defmodule Oban.Config do
+             queues: [],
+             repo: nil,
+             shutdown_grace_period: :timer.seconds(15),
+-            stage_interval: :timer.seconds(1),
++            stager: {Oban.Stager, []},
+             testing: :disabled
+ 
+   @cron_keys ~w(crontab timezone)a
+@@ -110,7 +110,7 @@ defmodule Oban.Config do
+         |> Keyword.put(:peer, {Oban.Peers.Isolated, [leader?: false]})
+         |> Keyword.put(:plugins, [])
+         |> Keyword.put(:queues, [])
+-        |> Keyword.put(:stage_interval, :infinity)
++        |> Keyword.put(:stager, false)
+       else
+         opts
+       end
+@@ -173,7 +173,7 @@ defmodule Oban.Config do
+         queues: {:custom, &validate_queues(opts, &1)},
+         repo: {:module, [config: 0]},
+         shutdown_grace_period: :non_neg_integer,
+-        stage_interval: :timeout,
++        stager: {:custom, &validate_stager/1},
+         testing: {:enum, @testing_modes}
+       )
+     end
+@@ -263,6 +263,30 @@ defmodule Oban.Config do
+     end
+   end
+ 
++  defp validate_stager({module, opts}) when is_atom(module) do
++    name = inspect(module)
++
++    cond do
++      not Code.ensure_loaded?(module) ->
++        {:error, "stager #{name} could not be loaded"}
++
++      not Keyword.keyword?(opts) ->
++        {:error, "expected #{name} options to be a keyword list, got: #{inspect(opts)}"}
++
++      function_exported?(module, :validate, 1) ->
++        module.validate(opts)
++
++      true ->
++        :ok
++    end
++  end
++
++  defp validate_stager(false), do: :ok
++
++  defp validate_stager(stager) do
++    {:error, "expected :stager to be a module or {module, opts} tuple, got: #{inspect(stager)}"}
++  end
++
+   defp validate_queues(opts, queues) do
+     if Keyword.keyword?(queues) do
+       # Queue validation requires an engine and partial configuration. Only the engine matters,
+@@ -401,26 +425,51 @@ defmodule Oban.Config do
+   end
+ 
+   defp normalize_stager(opts) do
+-    cond do
+-      Keyword.has_key?(opts, :poll_interval) ->
+-        opts
+-        |> Keyword.put_new(:stage_interval, opts[:poll_interval])
+-        |> Keyword.delete(:poll_interval)
++    {stag_interval, opts} = Keyword.pop(opts, :stage_interval)
++    {poll_interval, opts} = Keyword.pop(opts, :poll_interval)
++    {plugin_opts, opts} = pop_stager_plugin(opts)
+ 
+-      Keyword.keyword?(opts[:plugins]) ->
+-        {stager_opts, opts} = pop_in(opts, [:plugins, Oban.Stager])
++    legacy_interval = stag_interval || poll_interval || plugin_opts[:interval]
+ 
+-        if is_list(stager_opts) and Keyword.has_key?(stager_opts, :interval) do
+-          Keyword.put_new(opts, :stage_interval, stager_opts[:interval])
+-        else
+-          opts
+-        end
++    stager =
++      case Keyword.get(opts, :stager, []) do
++        stager when stager in [false, nil] ->
++          stager
+ 
+-      true ->
+-        opts
++        stager ->
++          {module, stager_opts} = normalize_service(stager, Oban.Stager)
++
++          {module, put_legacy_interval(stager_opts, legacy_interval)}
++      end
++
++    Keyword.put(opts, :stager, stager)
++  end
++
++  defp pop_stager_plugin(opts) do
++    case Keyword.get(opts, :plugins) do
++      plugins when is_list(plugins) ->
++        {stagers, plugins} = Enum.split_with(plugins, &stager_plugin?/1)
++
++        {stager_plugin_opts(stagers), Keyword.put(opts, :plugins, plugins)}
++
++      _plugins ->
++        {[], opts}
+     end
+   end
+ 
++  defp stager_plugin?({Oban.Stager, _opts}), do: true
++  defp stager_plugin?(plugin), do: plugin == Oban.Stager
++
++  defp stager_plugin_opts([{_module, opts} | _rest]) when is_list(opts), do: opts
++  defp stager_plugin_opts(_stagers), do: []
++
++  defp put_legacy_interval(stager_opts, interval)
++       when is_list(stager_opts) and not is_nil(interval) do
++    Keyword.put_new(stager_opts, :interval, interval)
++  end
++
++  defp put_legacy_interval(stager_opts, _interval), do: stager_opts
++
+   defp normalize_queues(opts) do
+     case Keyword.get(opts, :queues) do
+       {module, queue_opts} when is_atom(module) and is_list(queue_opts) ->
+diff --git a/lib/oban/harbor.ex b/lib/oban/harbor.ex
+index 7da9e38..2c855da 100644
+--- a/lib/oban/harbor.ex
++++ b/lib/oban/harbor.ex
+@@ -3,7 +3,7 @@ defmodule Oban.Harbor do
+ 
+   use Supervisor
+ 
+-  alias Oban.{Config, Registry, Stager}
++  alias Oban.{Config, Registry}
+ 
+   @type opts :: [conf: Config.t(), name: GenServer.name()]
+ 
+@@ -23,14 +23,19 @@ defmodule Oban.Harbor do
+   def init(opts) do
+     conf = Keyword.fetch!(opts, :conf)
+ 
+-    children = [
+-      {Stager, conf: conf, name: Registry.via(conf.name, Stager)}
+-      | Enum.map(conf.plugins, &plugin_child_spec(&1, conf))
+-    ]
++    children = stager_child_spec(conf) ++ Enum.map(conf.plugins, &plugin_child_spec(&1, conf))
+ 
+     Supervisor.init(children, max_restarts: 5, max_seconds: 60, strategy: :one_for_one)
+   end
+ 
++  defp stager_child_spec(%Config{stager: {module, opts}} = conf) do
++    opts = Keyword.merge(opts, conf: conf, name: Registry.via(conf.name, module))
++
++    [{module, opts}]
++  end
++
++  defp stager_child_spec(_conf), do: []
++
+   defp plugin_child_spec({module, opts}, conf) do
+     name = Registry.via(conf.name, {:plugin, module})
+     opts = Keyword.merge(opts, conf: conf, name: name)
+diff --git a/lib/oban/stager.ex b/lib/oban/stager.ex
+index 52db439..2464510 100644
+--- a/lib/oban/stager.ex
++++ b/lib/oban/stager.ex
+@@ -3,12 +3,12 @@ defmodule Oban.Stager do
+ 
+   use GenServer
+ 
+-  alias Oban.{Engine, Job, Notifier, Peer, Plugin, Registry, Repo}
++  alias Oban.{Engine, Job, Notifier, Peer, Plugin, Registry, Repo, Validation}
+   alias __MODULE__, as: State
+ 
+   require Logger
+ 
+-  @type option :: Plugin.option() | {:interval, pos_integer()}
++  @type option :: Plugin.option() | {:interval, timeout()} | {:limit, pos_integer()}
+ 
+   defstruct [
+     :conf,
+@@ -22,17 +22,25 @@ defmodule Oban.Stager do
+   def start_link(opts) do
+     {name, opts} = Keyword.pop(opts, :name)
+ 
+-    conf = Keyword.fetch!(opts, :conf)
++    state = struct!(State, opts)
+ 
+-    if conf.stage_interval == :infinity do
++    if state.interval == :infinity do
+       :ignore
+     else
+-      state = %State{conf: conf, interval: conf.stage_interval}
+-
+       GenServer.start_link(__MODULE__, state, name: name)
+     end
+   end
+ 
++  @spec validate([option()]) :: :ok | {:error, String.t()}
++  def validate(opts) do
++    Validation.validate_schema(opts,
++      conf: :any,
++      name: :any,
++      interval: :timeout,
++      limit: :pos_integer
++    )
++  end
++
+   @impl GenServer
+   def init(state) do
+     Process.flag(:trap_exit, true)
+diff --git a/test/oban/config_test.exs b/test/oban/config_test.exs
+index 51fff6f..6174c2f 100644
+--- a/test/oban/config_test.exs
++++ b/test/oban/config_test.exs
+@@ -150,6 +150,22 @@ defmodule Oban.ConfigTest do
+       assert_valid(shutdown_grace_period: 10)
+     end
+ 
++    test ":stager is validated as false or a module with options" do
++      refute_valid(stager: nil)
++      refute_valid(stager: NotReal)
++      refute_valid(stager: [interval: :none])
++      refute_valid(stager: [limit: 0])
++      refute_valid(stager: [unknown: true])
++      refute_valid(stage_interval: :none)
++
++      assert_valid(stager: false)
++      assert_valid(stager: [interval: 500])
++      assert_valid(stager: [interval: :infinity])
++      assert_valid(stager: [interval: 500, limit: 1_000])
++      assert_valid(stager: {FakePlugin, interval: 500})
++      assert_valid(stage_interval: 500)
++    end
++
+     test ":testing is validated as a boolean" do
+       refute_valid(testing: :ok)
+       refute_valid(testing: true)
+@@ -227,7 +243,7 @@ defmodule Oban.ConfigTest do
+       assert conf = conf(queues: [alpha: 1], plugins: [Pruner], testing: :manual)
+ 
+       assert %{queues: [], plugins: []} = conf
+-      assert %{peer: {Oban.Peers.Isolated, [leader?: false]}, stage_interval: :infinity} = conf
++      assert %{peer: {Oban.Peers.Isolated, [leader?: false]}, stager: false} = conf
+     end
+ 
+     test "normalizing plugins as a module options tuple" do
+@@ -249,12 +265,28 @@ defmodule Oban.ConfigTest do
+       refute has_plugin?(Cron, plugins: false, crontab: [{"* * * * *", Worker}])
+     end
+ 
+-    test "translating poll_interval config into plugin usage" do
+-      assert %{stage_interval: 1_000} = conf([])
+-      assert %{stage_interval: 2_000} = conf(poll_interval: 2_000)
+-      assert %{stage_interval: 1_000} = conf(poll_interval: :infinity, stage_interval: 1_000)
+-      assert %{stage_interval: 1_000} = conf(plugins: [Oban.Stager])
+-      assert %{stage_interval: 2_000} = conf(plugins: [{Oban.Stager, interval: 2_000}])
++    test "translating legacy interval config into stager options" do
++      assert %{stager: {Oban.Stager, []}} = conf([])
++      assert %{stager: {Oban.Stager, [interval: 2_000]}} = conf(poll_interval: 2_000)
++      assert %{stager: {Oban.Stager, [interval: 2_000]}} = conf(stage_interval: 2_000)
++      assert %{stager: {Oban.Stager, []}} = conf(plugins: [Oban.Stager])
++
++      assert %{stager: {Oban.Stager, [interval: 1_000]}} =
++               conf(poll_interval: :infinity, stage_interval: 1_000)
++
++      assert %{stager: {Oban.Stager, [interval: 2_000]}, plugins: []} =
++               conf(plugins: [{Oban.Stager, interval: 2_000}])
++
++      assert %{stager: {Oban.Stager, [interval: 500]}} =
++               conf(stage_interval: 2_000, stager: [interval: 500])
++    end
++
++    test "normalizing stager values into module and option tuples" do
++      assert %{stager: {Oban.Stager, [interval: 500]}} = conf(stager: [interval: 500])
++      assert %{stager: {Oban.Stager, [limit: 1_000]}} = conf(stager: [limit: 1_000])
++      assert %{stager: {FakePlugin, []}} = conf(stager: FakePlugin)
++      assert %{stager: {FakePlugin, [interval: 500]}} = conf(stager: {FakePlugin, interval: 500})
++      assert %{stager: false} = conf(stager: false)
+     end
+ 
+     test "translating top-level service keys into plugin usage" do
+@@ -312,7 +344,7 @@ defmodule Oban.ConfigTest do
+ 
+     test ":testing in :manual mode suppresses top-level services" do
+       conf = conf(pruner: [max_age: 60], cron: [crontab: []], testing: :manual)
+-      assert %{plugins: [], stage_interval: :infinity} = conf
++      assert %{plugins: [], stager: false} = conf
+ 
+       conf = conf(queues: [default: 1], testing: :manual)
+       assert %{plugins: [], queues: []} = conf
+diff --git a/test/oban/engine_test.exs b/test/oban/engine_test.exs
+index 1139894..dc2738c 100644
+--- a/test/oban/engine_test.exs
++++ b/test/oban/engine_test.exs
+@@ -490,7 +490,7 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+     describe "cancel_job/2" do
+       setup :start_supervised_oban
+ 
+-      @describetag oban_opts: [queues: [alpha: 5], stage_interval: 5, testing: :disabled]
++      @describetag oban_opts: [queues: [alpha: 5], stager: [interval: 5], testing: :disabled]
+ 
+       test "cancelling an executing job", %{name: name} do
+         TelemetryHandler.attach_events(span_type: [:job, [:engine, :cancel_job]], oban_name: name)
+@@ -569,7 +569,7 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+     describe "cancel_all_jobs/2" do
+       setup :start_supervised_oban
+ 
+-      @describetag oban_opts: [queues: [alpha: 5], stage_interval: 5, testing: :disabled]
++      @describetag oban_opts: [queues: [alpha: 5], stager: [interval: 5], testing: :disabled]
+ 
+       test "cancelling all jobs that may or may not be executing", %{name: name} do
+         TelemetryHandler.attach_events(
+@@ -725,7 +725,7 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+     describe "integration" do
+       setup :start_supervised_oban
+ 
+-      @describetag oban_opts: [queues: [alpha: 3], stage_interval: 5, testing: :disabled]
++      @describetag oban_opts: [queues: [alpha: 3], stager: [interval: 5], testing: :disabled]
+ 
+       test "inserting and executing jobs", %{name: name} do
+         TelemetryHandler.attach_events(oban_name: name)
+diff --git a/test/oban/stager_test.exs b/test/oban/stager_test.exs
+index cb8d2a0..36d9212 100644
+--- a/test/oban/stager_test.exs
++++ b/test/oban/stager_test.exs
+@@ -9,7 +9,7 @@ defmodule Oban.StagerTest do
+     job_2 = insert!(%{}, state: "scheduled", scheduled_at: seconds_from_now(10))
+     job_3 = insert!(%{}, state: "retryable")
+ 
+-    start_supervised_oban!(stage_interval: 5, testing: :disabled)
++    start_supervised_oban!(stager: [interval: 5], testing: :disabled)
+ 
+     with_backoff(fn ->
+       assert %{state: "available"} = Repo.reload(job_1)
+@@ -19,7 +19,7 @@ defmodule Oban.StagerTest do
+   end
+ 
+   test "emitting telemetry data for staged jobs" do
+-    name = start_supervised_oban!(stage_interval: 5, testing: :disabled)
++    name = start_supervised_oban!(stager: [interval: 5], testing: :disabled)
+ 
+     TelemetryHandler.attach_events(oban_name: name)
+ 
+@@ -31,7 +31,7 @@ defmodule Oban.StagerTest do
+   test "switching to local mode without functional pubsub" do
+     :telemetry_test.attach_event_handlers(self(), [[:oban, :stager, :switch]])
+ 
+-    [stage_interval: 5, notifier: {Oban.Notifiers.Isolated, connected: false}]
++    [stager: [interval: 5], notifier: {Oban.Notifiers.Isolated, connected: false}]
+     |> start_supervised_oban!()
+     |> ping_sonar()
+ 
+@@ -42,7 +42,7 @@ defmodule Oban.StagerTest do
+     :telemetry_test.attach_event_handlers(self(), [[:oban, :stager, :switch]])
+ 
+     opts = [
+-      stage_interval: 5,
++      stager: [interval: 5],
+       notifier: Oban.Notifiers.Isolated,
+       peer: {Oban.Peers.Isolated, leader?: false}
+     ]
+@@ -57,7 +57,7 @@ defmodule Oban.StagerTest do
+   test "dispatching directly to registered producers in local mode" do
+     name =
+       start_supervised_oban!(
+-        stage_interval: 5,
++        stager: [interval: 5],
+         notifier: Oban.Notifiers.Isolated,
+         peer: {Oban.Peers.Isolated, leader?: false}
+       )
+diff --git a/test/oban/telemetry_test.exs b/test/oban/telemetry_test.exs
+index 53721d4..198501f 100644
+--- a/test/oban/telemetry_test.exs
++++ b/test/oban/telemetry_test.exs
+@@ -41,7 +41,7 @@ defmodule Oban.TelemetryTest do
+   test "telemetry events are emitted for executed jobs" do
+     TelemetryHandler.attach_events(span_type: [:job])
+ 
+-    name = start_supervised_oban!(stage_interval: 10, queues: [alpha: 2])
++    name = start_supervised_oban!(stager: [interval: 5], queues: [alpha: 2])
+ 
+     %Job{id: ok_id} = insert!([ref: 1, action: "OK"], tags: ["baz"])
+     %Job{id: error_id} = insert!([ref: 2, action: "ERROR"], tags: ["foo"])
+@@ -325,7 +325,7 @@ defmodule Oban.TelemetryTest do
+     test "disabling encoding on the default logger", %{name: name} do
+       logged =
+         capture_log(fn ->
+-          start_supervised_oban!(name: name, stage_interval: 10, queues: [alpha: 3])
++          start_supervised_oban!(name: name, stager: [interval: 5], queues: [alpha: 3])
+ 
+           insert!(name, [ref: 1, action: "OK"], queue: :alpha)
+ 
+diff --git a/test/oban_test.exs b/test/oban_test.exs
+index 088eed3..820879d 100644
+--- a/test/oban_test.exs
++++ b/test/oban_test.exs
+@@ -37,7 +37,7 @@ defmodule ObanTest do
+         start_supervised_oban!(
+           queues: [alpha: 1],
+           shutdown_grace_period: 10,
+-          stage_interval: 10
++          stager: [interval: 5]
+         )
+ 
+       assert_receive {:started, 1}
+@@ -59,7 +59,7 @@ defmodule ObanTest do
+         start_supervised_oban!(
+           queues: [alpha: 1],
+           shutdown_grace_period: 10,
+-          stage_interval: 10
++          stager: [interval: 5]
+         )
+ 
+       assert_receive {:started, 1}
+@@ -80,7 +80,7 @@ defmodule ObanTest do
+         start_supervised_oban!(
+           queues: [alpha: 1, omega: 1],
+           shutdown_grace_period: 10,
+-          stage_interval: 10
++          stager: [interval: 5]
+         )
+ 
+       assert_receive {:started, 1}
+@@ -99,7 +99,7 @@ defmodule ObanTest do
+       name =
+         start_supervised_oban!(
+           queues: [alpha: 1, gamma: 2, delta: [limit: 2, paused: true]],
+-          stage_interval: 5
++          stager: [interval: 5]
+         )
+ 
+       insert!([ref: 1, sleep: 500], queue: :alpha)
+@@ -263,8 +263,8 @@ defmodule ObanTest do
+     end
+ 
+     test "pausing queues only on the local node" do
+-      name_1 = start_supervised_oban!(stage_interval: 10, queues: [alpha: 1])
+-      name_2 = start_supervised_oban!(stage_interval: 10, queues: [alpha: 1])
++      name_1 = start_supervised_oban!(stager: [interval: 5], queues: [alpha: 1])
++      name_2 = start_supervised_oban!(stager: [interval: 5], queues: [alpha: 1])
+ 
+       assert :ok = Oban.pause_queue(name_2, queue: :alpha, local_only: true)
+ 
+@@ -291,7 +291,7 @@ defmodule ObanTest do
+     end
+ 
+     test "resuming queues only on the local node" do
+-      opts = [notifier: Oban.Notifiers.PG, stage_interval: 10, queues: [alpha: 1]]
++      opts = [notifier: Oban.Notifiers.PG, stager: [interval: 5], queues: [alpha: 1]]
+ 
+       name_1 = start_supervised_oban!(opts)
+       name_2 = start_supervised_oban!(opts)
+diff --git a/test/support/case.ex b/test/support/case.ex
+index eaa1a09..6c7a613 100644
+--- a/test/support/case.ex
++++ b/test/support/case.ex
+@@ -49,9 +49,9 @@ defmodule Oban.Case do
+       |> Keyword.put_new(:name, make_ref())
+       |> Keyword.put_new(:notifier, Oban.Notifiers.Isolated)
+       |> Keyword.put_new(:peer, Oban.Peers.Isolated)
+-      |> Keyword.put_new(:stage_interval, :infinity)
+       |> Keyword.put_new(:repo, Repo)
+       |> Keyword.put_new(:shutdown_grace_period, 250)
++      |> Keyword.put_new(:stager, false)
+ 
+     name = Keyword.fetch!(opts, :name)
+     repo = Keyword.fetch!(opts, :repo)

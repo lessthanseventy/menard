@@ -1,0 +1,17 @@
+82362be 2026-08-17
+
+Normalize plugin telemetry metadata errors
+
+Plugin runs that fail, e.g. because the database is unavailable, emit a
+`[:oban, :plugin, :stop]` event with the plugin's usual metadata keys
+zeroed out and the underlying error added as :error. Previously the keys
+were omitted entirely, which crashed handlers that matched on them. That
+cincluded the default logger, which telemetry then detached, silencing
+all Oban logging on the node until restart.
+
+The default logger now reports `:error` on `plugin:stop` events, and the
+`:error` value is the error itself rather than an `{:error, reason}`
+tuple.
+
+Closes #1494
+

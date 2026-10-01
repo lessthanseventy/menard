@@ -1,0 +1,160 @@
+diff --git a/lib/oban/engine.ex b/lib/oban/engine.ex
+index b37cad2..571f2a4 100644
+--- a/lib/oban/engine.ex
++++ b/lib/oban/engine.ex
+@@ -426,9 +426,6 @@ defmodule Oban.Engine do
+     payload = for job <- jobs, job.state == "available", uniq: true, do: %{queue: job.queue}
+ 
+     if payload != [], do: Notifier.notify(conf, :insert, payload)
+-  catch
+-    # Insert notification timeouts aren't worth failing inserts over.
+-    :exit, {:timeout, _} -> :ok
+   end
+ 
+   defp notify_trigger(_conf, _queue), do: :skip
+diff --git a/lib/oban/notifier.ex b/lib/oban/notifier.ex
+index bf95c87..d2192c0 100644
+--- a/lib/oban/notifier.ex
++++ b/lib/oban/notifier.ex
+@@ -165,10 +165,6 @@ defmodule Oban.Notifier do
+     apply_callback(conf, :listen, [channels])
+ 
+     :ok
+-  catch
+-    # The registry is the source of truth. A notifier that's missing or crashing mid-call will
+-    # pick registrations up when it restarts, so there's nothing for the caller to handle.
+-    :exit, _reason -> :ok
+   end
+ 
+   @doc """
+@@ -198,8 +194,6 @@ defmodule Oban.Notifier do
+     apply_callback(conf, :unlisten, [channels])
+ 
+     :ok
+-  catch
+-    :exit, _reason -> :ok
+   end
+ 
+   @doc """
+@@ -323,6 +317,8 @@ defmodule Oban.Notifier do
+   defp to_conf(%Config{} = conf), do: conf
+   defp to_conf(name), do: Oban.config(name)
+ 
++  # Callbacks that reach the notifier process may exit if it crashes mid-call or times out.
++  # Callers can't do anything useful with an exit, so it's normalized into an error tuple here.
+   defp apply_callback(conf, callback, args) do
+     %{name: name, notifier: {notifier, _}} = conf
+ 
+@@ -333,6 +329,9 @@ defmodule Oban.Notifier do
+       _ ->
+         {:error, RuntimeError.exception("no notifier running for instance #{inspect(name)}")}
+     end
++  catch
++    :exit, reason ->
++      {:error, RuntimeError.exception("notifier exited with #{inspect(reason)}")}
+   end
+ 
+   defp normalize_channels(channels) do
+diff --git a/lib/oban/notifiers/pg.ex b/lib/oban/notifiers/pg.ex
+index 7ecc341..c360cae 100644
+--- a/lib/oban/notifiers/pg.ex
++++ b/lib/oban/notifiers/pg.ex
+@@ -88,11 +88,11 @@ defmodule Oban.Notifiers.PG do
+   end
+ 
+   defp get_state(server) do
+-    [name] = Registry.keys(Oban.Registry, server)
+-
+-    case Oban.Registry.lookup(name) do
+-      {_pid, state} -> state
+-      nil -> {:error, RuntimeError.exception("no notifier running as #{inspect(name)}")}
++    with [name] <- Registry.keys(Oban.Registry, server),
++         {_pid, state} <- Oban.Registry.lookup(name) do
++      state
++    else
++      _ -> {:error, RuntimeError.exception("no notifier running as #{inspect(server)}")}
+     end
+   end
+ 
+diff --git a/lib/oban/notifiers/postgres.ex b/lib/oban/notifiers/postgres.ex
+index c99fbba..d5de19c 100644
+--- a/lib/oban/notifiers/postgres.ex
++++ b/lib/oban/notifiers/postgres.ex
+@@ -181,11 +181,11 @@ if Code.ensure_loaded?(Postgrex) do
+     end
+ 
+     defp get_state(server) do
+-      [name] = Registry.keys(Oban.Registry, server)
+-
+-      case Oban.Registry.lookup(name) do
+-        {_pid, state} -> state
+-        nil -> {:error, RuntimeError.exception("no notifier running as #{inspect(name)}")}
++      with [name] <- Registry.keys(Oban.Registry, server),
++           {_pid, state} <- Oban.Registry.lookup(name) do
++        state
++      else
++        _ -> {:error, RuntimeError.exception("no notifier running as #{inspect(server)}")}
+       end
+     end
+ 
+diff --git a/lib/oban/sonar.ex b/lib/oban/sonar.ex
+index d807793..07b541d 100644
+--- a/lib/oban/sonar.ex
++++ b/lib/oban/sonar.ex
+@@ -50,7 +50,7 @@ defmodule Oban.Sonar do
+   def handle_continue(:start, state) do
+     Notifier.listen(state.conf, :sonar)
+ 
+-    notify(state.conf)
++    Notifier.notify(state.conf, :sonar, %{node: state.conf.node, ping: true})
+ 
+     {:noreply, schedule_ping(state)}
+   end
+@@ -81,7 +81,7 @@ defmodule Oban.Sonar do
+     prev_status = state.status
+     prev_nodes = Map.keys(state.nodes)
+ 
+-    notify(state.conf)
++    Notifier.notify(state.conf, :sonar, %{node: state.conf.node, ping: true})
+ 
+     state =
+       state
+@@ -124,12 +124,6 @@ defmodule Oban.Sonar do
+ 
+   # Helpers
+ 
+-  defp notify(conf) do
+-    Notifier.notify(conf, :sonar, %{node: conf.node, ping: true})
+-  catch
+-    :exit, _ -> :ok
+-  end
+-
+   defp schedule_ping(state) do
+     timer = Process.send_after(self(), :ping, Backoff.jitter(state.interval))
+ 
+diff --git a/lib/oban/stager.ex b/lib/oban/stager.ex
+index 8d9322a..b955541 100644
+--- a/lib/oban/stager.ex
++++ b/lib/oban/stager.ex
+@@ -121,16 +121,17 @@ defmodule Oban.Stager do
+     notify_queues(state)
+   rescue
+     _ -> notify_queues(%{state | mode: :local})
+-  catch
+-    :exit, _ -> notify_queues(%{state | mode: :local})
+   end
+ 
+-  defp notify_queues(%{conf: conf, mode: :global}) do
++  defp notify_queues(%{conf: conf, mode: :global} = state) do
+     {:ok, queues} = Engine.check_available(conf)
+ 
+     payload = Enum.map(queues, &%{queue: &1})
+ 
+-    Notifier.notify(conf, :insert, payload)
++    case Notifier.notify(conf, :insert, payload) do
++      :ok -> :ok
++      {:error, _reason} -> notify_queues(%{state | mode: :local})
++    end
+   end
+ 
+   defp notify_queues(%{conf: conf, mode: :local}) do
