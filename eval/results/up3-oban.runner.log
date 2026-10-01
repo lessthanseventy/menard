@@ -1,0 +1,45 @@
+03:54 up3-oban notifier basis: agent 31cd9d6b82b740b6, graders 16655a86c4062312, 2.1.283 (Claude Code)
+03:54 up3-oban seed=161851189 arms=with, and without where there is no baseline
+04:03 up3-oban notifier.without.claude-sonnet-5.1 step 01: PASS turns=82 tokens=47101 agent_s=525.9 | NOTE: green only on a rerun of the failed
+04:07 up3-oban notifier.without.claude-sonnet-5.1 step 02: PASS turns=27 tokens=19493 agent_s=198.6 | 32 doctests, 9 properties, 337 tests, 0 failures (149 excluded)
+04:14 up3-oban notifier.without.claude-sonnet-5.1 step 03: PASS turns=59 tokens=24116 agent_s=417.6 | NOTE: green only on a rerun of the failed
+04:22 up3-oban notifier.without.claude-sonnet-5.1 step 04: PASS turns=93 tokens=40756 agent_s=469.7 | NOTE: green only on a rerun of the failed
+04:32 up3-oban notifier.without.claude-sonnet-5.1 step 05: PASS turns=76 tokens=50763 agent_s=586.9 | NOTE: green only on a rerun of the failed
+04:33 up3-oban notifier.without.claude-sonnet-5.1 step 06: PASS turns=27 tokens=7332 agent_s=100.3 | NOTE: green only on a rerun of the failed
+04:33 up3-oban notifier.without.claude-sonnet-5.1: PASS turns=364 cost=21.868 wall=2357.2s tool_errors=2 red_runs=14 tools={'Bash': 216, 'Read': 42, 'Edit': 94, 'ToolSearch': 1, 'TaskStop': 1, 'Write': 4}
+  1 process(es) left running in the workspace, killed
+04:46 up3-oban notifier.with.claude-sonnet-5.1 step 01: PASS turns=82 tokens=64610 agent_s=736.5 | NOTE: green only on a rerun of the failed
+  3 process(es) left running in the workspace, killed
+04:50 up3-oban notifier.with.claude-sonnet-5.1 step 02: PASS turns=24 tokens=23075 agent_s=236.3 | NOTE: green only on a rerun of the failed
+  1 process(es) left running in the workspace, killed
+05:07 up3-oban notifier.with.claude-sonnet-5.1 step 03: PASS turns=97 tokens=62988 agent_s=1010.1 | NOTE: green only on a rerun of the failed
+  3 process(es) left running in the workspace, killed
+05:15 up3-oban notifier.with.claude-sonnet-5.1 step 04: PASS turns=70 tokens=39398 agent_s=478.0 | NOTE: green only on a rerun of the failed
+  1 process(es) left running in the workspace, killed
+05:28 up3-oban notifier.with.claude-sonnet-5.1 step 05: PASS turns=85 tokens=51954 agent_s=721.8 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+05:28 up3-oban 06: usage limit, waiting until 2026-10-01 08:02:00 MDT (9222s, resets 2026-10-01 08:00:00 MDT): You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message · your session limi
+08:02 up3-oban 06: the probe went through, redoing the step
+  3 process(es) left running in the workspace, killed
+08:05 up3-oban notifier.with.claude-sonnet-5.1 step 06: PASS turns=38 tokens=13651 agent_s=220.0 | NOTE: green only on a rerun of the failed
+08:06 up3-oban notifier.with.claude-sonnet-5.1: PASS turns=396 cost=33.136 wall=3491.4s tool_errors=16 red_runs=33 tools={'Bash': 265, 'ToolSearch': 2, 'menard:find': 9, 'Edit': 41, 'Read': 64, 'menard:outline': 3, 'Write': 5, 'menard:clause': 1}
+08:10 up3-oban notifier.without.claude-opus-5-5.1 step 01: PASS turns=24 tokens=17572 agent_s=263.6 | NOTE: green only on a rerun of the failed
+08:13 up3-oban notifier.without.claude-opus-5-5.1 step 02: PASS turns=12 tokens=8632 agent_s=137.1 | NOTE: green only on a rerun of the failed
+08:16 up3-oban notifier.without.claude-opus-5-5.1 step 03: PASS turns=13 tokens=7834 agent_s=137.3 | NOTE: green only on a rerun of the failed
+08:19 up3-oban notifier.without.claude-opus-5-5.1 step 04: PASS turns=27 tokens=15144 agent_s=193.4 | NOTE: green only on a rerun of the failed
+08:23 up3-oban notifier.without.claude-opus-5-5.1 step 05: PASS turns=21 tokens=16434 agent_s=199.1 | NOTE: green only on a rerun of the failed
+08:24 up3-oban notifier.without.claude-opus-5-5.1 step 06: PASS turns=7 tokens=2193 agent_s=55.0 | 08:24:17.223 [error] MyXQL.Connection (#PID<0.319.0> ("db_conn_34")) failed to connect: ** (DBConnection.ConnectionError) (localhost:3306) connection refused - :econnrefused
+08:24 up3-oban notifier.without.claude-opus-5-5.1: PASS turns=104 cost=5.089 wall=1096.2s tool_errors=2 red_runs=13 tools={'Bash': 96, 'Write': 2}
+  2 process(es) left running in the workspace, killed
+08:27 up3-oban notifier.with.claude-opus-5-5.1 step 01: PASS turns=18 tokens=17942 agent_s=196.2 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+08:31 up3-oban notifier.with.claude-opus-5-5.1 step 02: PASS turns=14 tokens=10723 agent_s=218.2 | 32 doctests, 9 properties, 337 tests, 0 failures (149 excluded)
+  2 process(es) left running in the workspace, killed
+08:34 up3-oban notifier.with.claude-opus-5-5.1 step 03: PASS turns=19 tokens=9289 agent_s=141.0 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+08:38 up3-oban notifier.with.claude-opus-5-5.1 step 04: PASS turns=30 tokens=19129 agent_s=274.4 | 32 doctests, 9 properties, 344 tests, 0 failures (152 excluded)
+  3 process(es) left running in the workspace, killed
+08:43 up3-oban notifier.with.claude-opus-5-5.1 step 05: PASS turns=21 tokens=21268 agent_s=259.7 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+08:44 up3-oban notifier.with.claude-opus-5-5.1 step 06: PASS turns=5 tokens=2684 agent_s=71.4 | 32 doctests, 9 properties, 345 tests, 0 failures (158 excluded)
+08:44 up3-oban notifier.with.claude-opus-5-5.1: PASS turns=107 cost=5.760 wall=1221.5s tool_errors=5 red_runs=11 tools={'Bash': 89, 'Read': 11, 'Write': 1}

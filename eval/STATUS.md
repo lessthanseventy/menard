@@ -903,3 +903,46 @@ answer read as an error and was asked again (018b890); the agent's own edit came
 since its read (6fd87ed); `clause get FILE app`, no arity, refused (5e38d14); callers greps written as
 an alternative, a file list or an args pattern got through (cce9482); outline lacked a component's
 attr/slot lines (2e44302). One session a cell: a direction, not a measurement.
+
+### up2-symphony and up3-oban (2026-10-01 01:41 - 09:47): replayed upstream history, sonnet and opus, with vs without, 1 run
+
+New suites (eval/upstream): a session replays real commits, Symphony 8 (Jun-Jul 2026), Oban 6
+(Aug-Sep 2026); before each step the tree moves to upstream at the commit's parent, and the step is
+graded on the commit's own tests (validate.py: 28 of 28 fail before, pass on upstream's change).
+Menard at 5fe241f/e29e584. up1 discarded (no settings.json: 900 s a step cut three sessions);
+up2's Oban rows discarded (MySQL's tests hung menard's `run` to its 620 s cap in the arm with only;
+now excluded in the project).
+
+Every step of every session passed (56 of 56). New input + output tokens per step:
+
+| Symphony | sonnet without | sonnet with | opus without | opus with |
+|---|---|---|---|---|
+| 01 labels | 39k | 53k | 12k | 15k |
+| 02 last good config | 87k | 42k | 9k | 9k |
+| 03 startup validation | 177k | 167k | 19k | 20k |
+| 04 Jira blockers | 28k | 24k | 5k | 9k |
+| 05 safe cleanup | 51k | 46k | 12k | 12k |
+| 06 retry claim | 30k | 35k | 6k | 7k |
+| 07 setup retry | 55k | 54k | 11k | 14k |
+| 08 tool input | 33k | 36k | 9k | 12k |
+| total | 504k | 462k | 86k | 100k |
+
+| Oban | sonnet without | sonnet with | opus without | opus with |
+|---|---|---|---|---|
+| 01 stager option | 47k | 64k | 17k | 17k |
+| 02 cron timezone | 19k | 23k | 8k | 10k |
+| 03 snooze attempt | 24k | 62k | 7k | 9k |
+| 04 stop metadata | 40k | 39k | 15k | 19k |
+| 05 listener registry | 50k | 51k | 16k | 21k |
+| 06 rename | 7k | 13k | 2k | 2k |
+| total | 189k | 255k | 67k | 81k |
+
+What it says, at one run a cell: menard cost more in three of the four pairs (opus +16% and +21%,
+sonnet on Oban +35%) and less in one (sonnet on Symphony, -8%, nearly all step 02); single steps
+swing 2x either way with no tool in it (Symphony 02, Oban 03). Menard was used throughout, mostly
+through the shell (`bin/menard run`, `clause get`, `edit`: 81-106 calls a session), which the
+runner's counts missed until aef4635. The rename (Oban 06) is small for every arm: no cross-file
+work a rename verb would save. Not yet read: what the arm with did on the steps it lost (Oban 01,
+03). Found along the way and fixed: piped runs behind `time`/`mise exec`/`cd X;` (9229aff); `edit
+--then test` ran the whole suite (04201ab); the format hook formatted files outside a project's
+formatter inputs (d58e6bc). Open in TODO: a run past the MCP cap answers nothing.
