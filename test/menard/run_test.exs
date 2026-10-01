@@ -865,4 +865,27 @@ defmodule Menard.RunTest do
              failed: 0
            }
   end
+
+  test "past the first few failures, each is where and what: the log has the rest" do
+    # Oban 01: 12 failures, each its test's source and an inspected %Oban.Config{}, came back as 13.9k
+    # characters. The first few whole; past them, where and what, its message's first line: the rest is
+    # the log's
+    failure = fn n ->
+      %{
+        kind: "test",
+        name: "t#{n}",
+        at: "test/a_test.exs:#{n}",
+        message: "boom #{n}\nmore",
+        source: "test",
+        right: "%{}"
+      }
+    end
+
+    lean = Run.lean(%{ok: false, exit: 2, tests: 5, failed: 5, failures: Enum.map(1..5, failure), log: "/l"})
+
+    assert [%{source: "test"}, %{source: "test"}, %{source: "test"}, fourth, fifth] = lean.failures
+    assert fourth == %{kind: "test", name: "t4", at: "test/a_test.exs:4", message: "boom 4"}
+    assert fifth.name == "t5"
+    assert lean.log == "/l"
+  end
 end

@@ -191,7 +191,11 @@ defmodule Menard.Run do
       _ -> false
     end)
     |> Map.new()
+    |> Map.update(:failures, [], &brief/1)
   end
+
+  # The first few failures whole; past them, where and what, the message's first line: 12 with
+  # their sources and an inspected struct each were 13.9k characters (Oban 01), and the log has all
 
   @doc """
   Attach each failure's `source`: the test's body as written, from `at`'s file (under `root`)
@@ -838,5 +842,17 @@ defmodule Menard.Run do
       {seed, _rest} -> seed
       :error -> nil
     end
+  end
+
+  defp brief(failures) do
+    {whole, rest} = Enum.split(failures, 3)
+
+    whole ++
+      Enum.map(rest, fn f ->
+        f
+        |> Map.take([:kind, :name, :at, :message])
+        |> Map.update(:message, nil, &(&1 |> String.split("\n", parts: 2) |> hd()))
+        |> Map.reject(fn {_k, v} -> v == nil end)
+      end)
   end
 end

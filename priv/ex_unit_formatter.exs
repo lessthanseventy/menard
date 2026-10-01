@@ -135,7 +135,8 @@ defmodule Menard.ExUnitFormatter do
       # a match's left is its pattern, quoted (`{:match, pins}`, not an atom); written back as code,
       # the way the CLI formatter shows it
       key == :left and not is_atom(error.context) -> value |> Macro.prewalk(&original/1) |> Macro.to_string()
-      true -> inspect(value, pretty: true, width: 80)
+      # a struct of thirty fields was a page of every reply it failed in: its first ones, then `...`
+      true -> inspect(value, pretty: true, width: 80, limit: 25, printable_limit: 500)
     end
   end
 
