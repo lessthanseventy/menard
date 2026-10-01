@@ -119,4 +119,19 @@ defmodule Menard.LayoutTest do
     assert {code, ["c/1: the new clause beside its others"]} = Layout.private_last(was, now)
     assert code =~ "  defp c(_), do: 0\n\n  defp c(:z), do: 3\n\n  def d, do: 4\n"
   end
+
+  test "a new module attribute under a function goes to the module's top, unless it is set more than once" do
+    was = "defmodule T do\n  alias Foo.Bar\n\n  @top 1\n\n  def a, do: @top\n\n  defp b, do: 2\nend\n"
+
+    # a new constant under a function goes up with the others, its comment with it
+    now = String.replace(was, "  defp b, do: 2\n", "  # how many\n  @whole 3\n  defp b, do: @whole\n")
+    assert {code, ["@whole to the module's top, above its functions"]} = Layout.private_last(was, now)
+
+    assert code ==
+             "defmodule T do\n  alias Foo.Bar\n\n  @top 1\n\n  # how many\n  @whole 3\n\n  def a, do: @top\n\n  defp b, do: @whole\nend\n"
+
+    # set twice, its place is its meaning; and one that reads an attribute set below the first function
+    twice = String.replace(was, "  defp b, do: 2\n", "  @n 1\n  def c, do: @n\n  @n 2\n  defp b, do: @n\n")
+    assert {^twice, []} = Layout.private_last(was, twice)
+  end
 end

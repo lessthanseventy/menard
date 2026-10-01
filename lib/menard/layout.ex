@@ -10,6 +10,12 @@ defmodule Menard.Layout do
 
   @private [:defp, :defmacrop]
 
+  # attributes a function or the module's head owns, or whose place is their meaning: credo's own
+  # list (StrictModuleLayout), and a test's tags
+  @bound ~w(moduledoc shortdoc behaviour type typep opaque callback macrocallback optional_callbacks
+            after_compile before_compile compile impl deprecated doc typedoc dialyzer external_resource
+            file on_definition on_load vsn spec enforce_keys tag moduletag describetag)a
+
   @doc """
   `content` laid out against `original`, and a note for each thing moved:
 
@@ -18,15 +24,80 @@ defmodule Menard.Layout do
       after them. Public or private, split clauses do not build with warnings as errors.
     * a module with more private functions than it had: each new one with a public definition
       below it goes to the module's end. A rename, or an arity changed, adds none and moves none.
+    * a module attribute it did not have, set once, below the first function: up above it, with
+      its comment. Set twice, its place is its meaning; reading one set below the first
+      function, it cannot go above it.
 
   Code that does not parse comes back as it is, for the parse check to refuse.
   """
   @spec private_last(String.t(), String.t()) :: {String.t(), [String.t()]}
   def private_last(original, content) do
     was = shape(original)
+    attrs = attributes(original)
     {content, joined} = loop(content, &next_join(&1, was), [])
     {content, moved} = loop(content, &next_private(&1, was), [])
-    {content, joined ++ moved}
+    {content, lifted} = loop(content, &next_attribute(&1, attrs), [])
+    {content, joined ++ moved ++ lifted}
+  end
+
+  # each module's attribute names, as `shape/1` its definitions
+  defp attributes(original) do
+    case Menard.Source.parse(original) do
+      {:ok, ast} -> Map.new(Tree.modules(ast), fn {mod, node} -> {mod, set(Tree.module_body(node))} end)
+      _ -> %{}
+    end
+  end
+
+  defp set(forms), do: for({:@, _, [{name, _, _}]} <- forms, do: name)
+
+  # a new attribute, set once, below the module's first function: above it
+  defp next_attribute({{mod, node}, content}, attrs) do
+    forms = Tree.module_body(node)
+    was = Map.get(attrs, mod, [])
+
+    with first when is_integer(first) <- Enum.find_index(forms, &definition?/1),
+         below = set(Enum.drop(forms, first)),
+         attribute when attribute != nil <-
+           forms |> Enum.drop(first) |> Enum.find(&movable?(&1, set(forms), below, was)),
+         {:ok, spans} <- Menard.Clause.spans(content, "#{mod}.#{na(head(Enum.at(forms, first)))}") do
+      {a, b} = Tree.line_span(attribute)
+      lines = List.to_tuple(String.split(content, "\n"))
+      span = {a - 1 - comments_above(lines, a - 2), b - 1}
+      to = spans |> Enum.map(&elem(&1, 0)) |> Enum.min()
+      {:@, _, [{name, _, _}]} = attribute
+      {"@#{name} to the module's top, above its functions", place(content, [span], {:before, to})}
+    else
+      _ -> nil
+    end
+  end
+
+  defp definition?({kind, _, [_ | _]}), do: kind in Tree.def_kinds()
+  defp definition?(_form), do: false
+
+  defp head({_kind, _, [head | _]}), do: head
+
+  defp movable?({:@, _, [{name, _, value}]}, names, below, was) do
+    name not in @bound and name not in was and Enum.count(names, &(&1 == name)) == 1 and
+      not Enum.any?(reads(value), &(&1 in below))
+  end
+
+  defp movable?(_form, _names, _below, _was), do: false
+
+  # the attributes a value reads (`@b @a + 1`)
+  defp reads(value) do
+    {_, names} =
+      Macro.prewalk(value, [], fn
+        {:@, _, [{name, _, _}]} = node, acc -> {node, [name | acc]}
+        node, acc -> {node, acc}
+      end)
+
+    names
+  end
+
+  defp comments_above(lines, i) do
+    if i >= 0 and String.starts_with?(String.trim(elem(lines, i)), "#"),
+      do: 1 + comments_above(lines, i - 1),
+      else: 0
   end
 
   # one move at a time, the file parsed again after each, until there is none to make
