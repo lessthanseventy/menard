@@ -231,4 +231,27 @@ defmodule Menard.ScriptsTest do
     # a list of files that hold some text is no callers query, and runs
     assert Scripts.refused(~s{grep -rl "TODO" lib}, @menard, dir) == nil
   end
+
+  test "menard's reply piped through a filter is refused: it is read whole" do
+    # a filter over the reply drops what the caller did not think to ask for (the formatter's changes
+    # in an edit's `stages`, a failure past the first): what it holds is the answer, whole
+    for command <- [
+          "/p/bin/menard edit - <<'EOF' | jq -c .did\nlib/a.ex\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\nEOF",
+          "/p/bin/menard run test test/a_test.exs | jq -c '.failures[]'",
+          "cd /x && bin/menard --frozen clause get lib/a.ex go/1 | jq -r .code",
+          "/p/bin/menard outline lib/a.ex 2>&1 | head -40",
+          "menard find calls A.go lib | grep b.ex"
+        ] do
+      assert Scripts.refused(command, @menard) =~ "whole", command
+    end
+
+    for command <- [
+          "/p/bin/menard outline lib/a.ex",
+          "/p/bin/menard run test && git diff | head",
+          "git log | head -5; /p/bin/menard outline lib/a.ex",
+          "echo menard | grep m"
+        ] do
+      refute refused?(command), command
+    end
+  end
 end

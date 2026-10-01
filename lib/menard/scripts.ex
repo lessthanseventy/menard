@@ -26,10 +26,34 @@ defmodule Menard.Scripts do
   def refused(command, menard, root \\ nil) do
     script = interpreter(command)
 
-    if script && not programs?(command, root),
-      do: "#{script} does not run here. " <> instead(menard),
-      else: read(command, menard, root)
+    cond do
+      filtered?(command) -> filtered_why()
+      script && not programs?(command, root) -> "#{script} does not run here. " <> instead(menard)
+      true -> read(command, menard, root)
+    end
   end
+
+  # menard's reply through a filter. The reply is the answer, whole; a filter drops what its writer
+  # did not think to ask for (an edit's `stages`, the formatter's changes to it), and a rule that
+  # said "read it whole" was broken by the agent that wrote it, ten times in a session.
+  defp filtered?(command) do
+    # a heredoc's body goes, the rest of its opening line stays: `menard edit - <<'EOF' | jq`
+    line =
+      ~r/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)/s
+      |> Regex.replace(command, "\\3")
+      |> String.replace("2>&1", "")
+
+    Regex.match?(
+      ~r/(?:^|[;&|(]\s*)(?:\S*\/)?menard\s[^|;&\n]*\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b/m,
+      line
+    )
+  end
+
+  defp filtered_why,
+    do:
+      "menard's reply is read whole, not through a filter: what a filter drops is what you did not " <>
+        "think to ask for (an edit's `stages`, a failure past the first). Run it bare. A reply too " <>
+        "big or too noisy to read whole is menard's to fix, not to cut."
 
   # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
   # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file

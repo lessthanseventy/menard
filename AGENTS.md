@@ -13,8 +13,8 @@ with the plugin as a skill, and it is the one copy of that reference.
   identity corpus (`test/menard/identity_test.exs` over this repo and `test/fixtures/weird.ex`).
 - A verb's stdout is its answer (for `run`, one JSON line: `ok` and the counts when green, the
   `failures` when red) and stderr is only a refusal or a real error; menard building itself is
-  silent unless the build fails. Read the reply as it comes: if you find yourself filtering it,
-  the reply is wrong, so fix menard.
+  silent unless the build fails. A reply piped through `jq`/`head`/`grep` is refused by the hook:
+  it is read whole, and one too big or too noisy to read whole is a menard bug to fix.
 - Found a bug and can't fix it now? It goes in `TODO.md`, not a chat message.
 
 **This repo is where menard is dogfooded.** You work under the same hooks every user does: no
