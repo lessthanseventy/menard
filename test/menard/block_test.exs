@@ -343,7 +343,7 @@ defmodule Menard.BlockTest do
     src =
       "defmodule ATest do\n  use ExUnit.Case\n\n  test \"a\" do\n    assert 1\n  end\n\n  test \"b\" do\n    assert 2\n  end\nend\n"
 
-    assert [%{label: "a", line: 4, body: "assert 1"}, %{label: "b", line: 8, body: "assert 2"}] =
+    assert [%{label: "a", line: 4, code: "assert 1"}, %{label: "b", line: 8, code: "assert 2"}] =
              Block.get_all(src, "test")
   end
 
