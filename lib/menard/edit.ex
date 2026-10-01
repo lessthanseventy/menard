@@ -79,7 +79,7 @@ defmodule Menard.Edit do
 
   defp replace({:ok, text}, %{old: old, new: new} = edit) do
     case {:binary.matches(text, old), edit[:all] == true} do
-      {[], _all} -> deeper(text, edit) || {:error, "this text is not there:\n#{old}"}
+      {[], _all} -> deeper(text, edit) || {:error, missed(text, old)}
       {[{at, length}], _all} -> placed(text, edit, at + length)
       {_several, true} -> {:ok, String.replace(text, old, new)}
       {several, false} -> {:error, several(text, old, several)}
@@ -166,6 +166,29 @@ defmodule Menard.Edit do
       |> Enum.uniq()
 
     if names == [], do: "the added text", else: Enum.join(names, ", ")
+  end
+
+  # A miss answers with what IS there, so the next try needs no read: how many of `old`'s lines the
+  # file has as written, and its own lines from where they part (most often the formatter wrapped
+  # what the agent last wrote). Echoing `old` whole told the agent only its own text.
+  defp missed(text, old) do
+    olds = String.split(old, "\n")
+
+    found =
+      Enum.find(
+        (length(olds) - 1)..1//-1,
+        &(:binary.match(text, Enum.join(Enum.take(olds, &1), "\n")) != :nomatch)
+      )
+
+    if found do
+      {at, _} = :binary.match(text, Enum.join(Enum.take(olds, found), "\n"))
+      from = String.to_integer(line(text, at)) + found
+      there = text |> String.split("\n") |> Enum.slice(from - 1, length(olds) - found + 3) |> Enum.join("\n")
+
+      "this text is not there: the first #{found} lines are there, at line #{line(text, at)}; from line #{from} the file reads:\n#{there}"
+    else
+      "this text is not there, not even its first line: #{hd(olds)}"
+    end
   end
 
   defp several(text, old, found) do

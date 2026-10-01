@@ -290,4 +290,29 @@ defmodule Menard.EditTest do
     File.write!(Path.join(dir, "lib/e.ex"), "defmodule E do\n  x = 1\n    x = 1\nend\n")
     assert {:error, _} = edit(dir, [%{file: "lib/e.ex", old: "x = 1\n", new: "x = 2\n"}])
   end
+
+  test "a miss answers with the file's own lines from where the text parts from them", %{tmp_dir: dir} do
+    # the formatter wrapped what the agent last wrote: the miss shows the lines as they are now, so the
+    # next try needs no read
+    File.write!(Path.join(dir, "lib/c.ex"), """
+    defmodule C do
+      def go(x) do
+        case x do
+          nil ->
+            :none
+
+          _ ->
+            :some
+        end
+      end
+    end
+    """)
+
+    old = "  def go(x) do\n    case x do\n      nil -> :none\n      _ -> :some\n    end"
+    assert {:error, why} = edit(dir, [%{file: "lib/c.ex", old: old, new: "  def go(x) do\n    x"}])
+
+    assert why =~ "the first 2 lines are there, at line 2"
+    assert why =~ "      nil ->\n        :none\n\n      _ ->\n        :some"
+    refute why =~ "nil -> :none"
+  end
 end
