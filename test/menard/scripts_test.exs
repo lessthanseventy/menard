@@ -263,4 +263,34 @@ defmodule Menard.ScriptsTest do
       refute refused?(command), command
     end
   end
+
+  @tag :tmp_dir
+  test "a code read is refused only toward a call that gives what was read", %{tmp_dir: dir} do
+    # a refusal that points at a call that answers nothing, or answers less than was asked, is wrong
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(
+      Path.join(dir, "lib/app.ex"),
+      "defmodule App do\n  defstruct auto_approve_requests: false\n\n  def go(s), do: s.auto_approve_requests\nend\n"
+    )
+
+    why = &Scripts.refused(&1, @menard, dir)
+
+    # Symphony 08: no function of that name, only a field: the grep runs
+    assert why.(~s(grep -n "defp auto_approve" -A4 lib/app.ex)) == nil
+    assert why.(~s(grep -n "def go" -A4 lib/app.ex)) =~ "clause get lib/app.ex go"
+
+    # Oban 03: lines 1-20 of a test file take in its module head, which block get does not give
+    File.mkdir_p!(Path.join(dir, "test"))
+    body = Enum.map_join(1..14, "", &"    x#{&1} = #{&1}\n")
+
+    File.write!(
+      Path.join(dir, "test/app_test.exs"),
+      "defmodule AppTest do\n  use ExUnit.Case, async: true\n\n  alias App\n\n  test \"runs\" do\n" <>
+        body <> "  end\nend\n"
+    )
+
+    assert why.("sed -n '1,20p' test/app_test.exs") == nil
+    assert why.("sed -n '6,20p' test/app_test.exs") =~ ~s(block get test/app_test.exs test --label "runs")
+  end
 end
