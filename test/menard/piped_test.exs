@@ -59,9 +59,7 @@ defmodule Menard.PipedTest do
           "mix test test/a_test.exs --trace",
           "mix test > out.log 2>&1",
           "mix test | tee out.log",
-          "mix format && mix test | tail -5",
           "mix test | tail -5; git status",
-          "sed -i s/a/b/ lib/a.ex && mix test 2>&1 | tail",
           "mix compile 2>&1 | tail -5",
           "mix testing | tail",
           "echo 'mix test | tail'",
@@ -70,5 +68,17 @@ defmodule Menard.PipedTest do
         ] do
       assert Piped.rewritten(command, @menard) == nil, "#{inspect(command)} was rewritten"
     end
+  end
+
+  test "the commands before a piped run are kept, the run is menard's" do
+    # Symphony 01: `mix compile && mix test FILE | tail` stood as written, its raw output read, and the
+    # run made again through menard
+    assert Piped.rewritten("mix compile && mix test test/a_test.exs | tail -20", @menard) ==
+             "mix compile && #{@menard} run test test/a_test.exs"
+
+    assert Piped.rewritten("mix format && mix test | tail -5", @menard) == "mix format && #{@menard} run test"
+
+    assert Piped.rewritten("sed -i 's/a;b/c/' lib/a.ex && mix test 2>&1 | tail", @menard) ==
+             "sed -i 's/a;b/c/' lib/a.ex && #{@menard} run test"
   end
 end
