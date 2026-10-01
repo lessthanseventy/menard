@@ -244,7 +244,7 @@ defmodule Menard.Hook do
   defp written(files, hook, keep) do
     reports =
       for {dir, files} <- by_project(files),
-          files = keep.(files, dir),
+          files = files |> keep.(dir) |> in_inputs(dir),
           files != [],
           do: report(hook, dir, files)
 
@@ -424,6 +424,18 @@ defmodule Menard.Hook do
 
     case System.cmd("find", args, stderr_to_stdout: false) do
       {out, _status} -> String.split(out, <<0>>, trim: true)
+    end
+  end
+
+  # what the project's own `mix format` takes: a file its .formatter.exs inputs leave out (another
+  # project's code kept as a fixture, under eval/) is not the project's to format. No .formatter.exs
+  # to go by: all of them
+  defp in_inputs(files, dir) do
+    if File.regular?(Path.join(dir, ".formatter.exs")) do
+      inputs = MapSet.new(Menard.Run.formatter_inputs(dir), &Path.expand/1)
+      Enum.filter(files, &MapSet.member?(inputs, Path.expand(&1)))
+    else
+      files
     end
   end
 
