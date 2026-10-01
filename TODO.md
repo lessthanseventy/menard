@@ -21,6 +21,11 @@ commit lands.
   still answered Bash and Write/Edit. format-report.sh could notice it is run as a command hook
   under Claude Code, which hooks.json no longer does, and tell the agent to restart Claude Code.
 
+- An MCP `edit` of three small writes (eval/run.py, two new settings.json; no `then`) hung past
+  120 s and wrote nothing, 2026-10-01 00:50, right after two eval runners were killed (pkill) and
+  while the server ran pre-d58e6bc code. Cause unknown: whether the server was busy (a hook call
+  queued behind something) or the edit itself stuck.
+
 - Working on menard itself, the session's MCP server keeps the code it started with: a hook fix
   committed mid-session (d58e6bc, the format hook and formatter inputs) did nothing until the
   server restarted (`/mcp` reconnect). The server could notice its own build is newer than what
