@@ -33,87 +33,7 @@ defmodule Menard.Scripts do
     end
   end
 
-  # menard's reply through a filter. The reply is the answer, whole; a filter drops what its writer
-  # did not think to ask for (an edit's `stages`, the formatter's changes to it), and a rule that
-  # said "read it whole" was broken by the agent that wrote it, ten times in a session.
-  defp filtered?(command) do
-    # a heredoc's body goes, the rest of its opening line stays: `menard edit - <<'EOF' | jq`
-    line =
-      ~r/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)/s
-      |> Regex.replace(command, "\\3")
-      |> String.replace("2>&1", "")
-
-    Regex.match?(
-      ~r/(?:^|[;&|(]\s*)(?:\S*\/)?menard\s[^|;&\n]*\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b/m,
-      line
-    )
-  end
-
-  defp filtered_why,
-    do:
-      "menard's reply is read whole, not through a filter: what a filter drops is what you did not " <>
-        "think to ask for (an edit's `stages`, a failure past the first). Run it bare. A reply too " <>
-        "big or too noisy to read whole is menard's to fix, not to cut."
-
-  # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
-  # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file
-  # git does not track (one the agent just wrote) are scripts. `cd DIR &&` before one is followed.
-  defp programs?(_command, nil), do: false
-
-  defp programs?(command, root) do
-    runs =
-      command
-      |> outside_heredocs()
-      |> commands()
-      |> Enum.map_reduce(root, fn segment, base ->
-        case unwrapped(words(segment)) do
-          ["cd", dir | _] -> {nil, Path.expand(dir, base)}
-          [first | args] = words -> {if(interpreter?(first), do: {base, args}), base} |> then(&(words && &1))
-          [] -> {nil, base}
-        end
-      end)
-      |> elem(0)
-      |> Enum.reject(&is_nil/1)
-
-    runs != [] and Enum.all?(runs, fn {base, args} -> tracked?(program(args), base) end)
-  end
-
   @wrappers ~w(nohup env exec time command)
-
-  defp unwrapped([word | rest]) do
-    cond do
-      String.match?(word, ~r/^\w+=/) or word in @wrappers ->
-        unwrapped(rest)
-
-      word == "timeout" ->
-        rest |> Enum.drop_while(&String.starts_with?(&1, "-")) |> Enum.drop(1) |> unwrapped()
-
-      true ->
-        [word | rest]
-    end
-  end
-
-  defp unwrapped([]), do: []
-
-  defp interpreter?(word), do: String.match?(Path.basename(word), ~r/^(python3?(\.\d+)?|perl|ruby|node)$/)
-
-  # the file it runs, or nil for code given inline
-  defp program(args) do
-    case Enum.drop_while(args, &(String.starts_with?(&1, "-") and &1 not in ~w(- -c -e -m))) do
-      [file | _] when file not in ~w(- -c -e -m) -> file
-      _ -> nil
-    end
-  end
-
-  defp tracked?(nil, _base), do: false
-
-  defp tracked?(file, base) do
-    File.regular?(Path.expand(file, base)) and
-      match?(
-        {_, 0},
-        System.cmd("git", ["-C", base, "ls-files", "--error-unmatch", "--", file], stderr_to_stdout: true)
-      )
-  end
 
   @doc "What is so in every session, said at its start."
   @spec upfront(String.t()) :: String.t()
@@ -149,28 +69,6 @@ defmodule Menard.Scripts do
   end
 
   def delegated(_prompt, _menard), do: nil
-
-  defp instead(menard) do
-    """
-    Text is replaced, in one file or many, in one call, with menard's edit: every text found exactly \
-    once or nothing written, and `--then test` runs the tests of what it changed after.
-      #{menard} edit --then test - <<'EOF'
-      lib/a.ex
-      <<<<<<< SEARCH
-      the text to find
-      =======
-      the text to put there
-      >>>>>>> REPLACE
-      lib/b.ex
-      <<<<<<< SEARCH
-      …
-      EOF
-    A new file is a block with nothing to find, or a heredoc (`cat > lib/new.ex <<'EOF'`). \
-    What is no edit is the shell's: a wait or a loop in the shell itself \
-    (`until ! pgrep -f X >/dev/null; do sleep 2; done`), JSON with `jq`; past that, Elixir: \
-    `elixir -e '…'`, or `mix run -e '…'` for the project's own code.\
-    """
-  end
 
   # the interpreter a command runs, by a word where a command starts: `grep python notes.md` runs none
   @doc "The interpreter `command` runs (python, perl, ruby, node) where a command starts, never in a heredoc, or nil."
@@ -463,4 +361,106 @@ defmodule Menard.Scripts do
 
   # a heredoc's body is what a command reads, not a command: `cat > notes.md <<EOF … python … EOF`
   defp outside_heredocs(command), do: Regex.replace(@heredoc, command, "")
+
+  # menard's reply through a filter. The reply is the answer, whole; a filter drops what its writer
+  # did not think to ask for (an edit's `stages`, the formatter's changes to it), and a rule that
+  # said "read it whole" was broken by the agent that wrote it, ten times in a session.
+  defp filtered?(command) do
+    # a heredoc's body goes, the rest of its opening line stays: `menard edit - <<'EOF' | jq`
+    line =
+      ~r/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)/s
+      |> Regex.replace(command, "\\3")
+      |> String.replace("2>&1", "")
+
+    Regex.match?(
+      ~r/(?:^|[;&|(]\s*)(?:\S*\/)?menard\s[^|;&\n]*\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b/m,
+      line
+    )
+  end
+
+  defp filtered_why,
+    do:
+      "menard's reply is read whole, not through a filter: what a filter drops is what you did not " <>
+        "think to ask for (an edit's `stages`, a failure past the first). Run it bare. A reply too " <>
+        "big or too noisy to read whole is menard's to fix, not to cut."
+
+  # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
+  # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file
+  # git does not track (one the agent just wrote) are scripts. `cd DIR &&` before one is followed.
+  defp programs?(_command, nil), do: false
+
+  defp programs?(command, root) do
+    runs =
+      command
+      |> outside_heredocs()
+      |> commands()
+      |> Enum.map_reduce(root, fn segment, base ->
+        case unwrapped(words(segment)) do
+          ["cd", dir | _] -> {nil, Path.expand(dir, base)}
+          [first | args] = words -> {if(interpreter?(first), do: {base, args}), base} |> then(&(words && &1))
+          [] -> {nil, base}
+        end
+      end)
+      |> elem(0)
+      |> Enum.reject(&is_nil/1)
+
+    runs != [] and Enum.all?(runs, fn {base, args} -> tracked?(program(args), base) end)
+  end
+
+  defp unwrapped([word | rest]) do
+    cond do
+      String.match?(word, ~r/^\w+=/) or word in @wrappers ->
+        unwrapped(rest)
+
+      word == "timeout" ->
+        rest |> Enum.drop_while(&String.starts_with?(&1, "-")) |> Enum.drop(1) |> unwrapped()
+
+      true ->
+        [word | rest]
+    end
+  end
+
+  defp unwrapped([]), do: []
+
+  defp interpreter?(word), do: String.match?(Path.basename(word), ~r/^(python3?(\.\d+)?|perl|ruby|node)$/)
+
+  # the file it runs, or nil for code given inline
+  defp program(args) do
+    case Enum.drop_while(args, &(String.starts_with?(&1, "-") and &1 not in ~w(- -c -e -m))) do
+      [file | _] when file not in ~w(- -c -e -m) -> file
+      _ -> nil
+    end
+  end
+
+  defp tracked?(nil, _base), do: false
+
+  defp tracked?(file, base) do
+    File.regular?(Path.expand(file, base)) and
+      match?(
+        {_, 0},
+        System.cmd("git", ["-C", base, "ls-files", "--error-unmatch", "--", file], stderr_to_stdout: true)
+      )
+  end
+
+  defp instead(menard) do
+    """
+    Text is replaced, in one file or many, in one call, with menard's edit: every text found exactly \
+    once or nothing written, and `--then test` runs the tests of what it changed after.
+      #{menard} edit --then test - <<'EOF'
+      lib/a.ex
+      <<<<<<< SEARCH
+      the text to find
+      =======
+      the text to put there
+      >>>>>>> REPLACE
+      lib/b.ex
+      <<<<<<< SEARCH
+      …
+      EOF
+    A new file is a block with nothing to find, or a heredoc (`cat > lib/new.ex <<'EOF'`). \
+    What is no edit is the shell's: a wait or a loop in the shell itself \
+    (`until ! pgrep -f X >/dev/null; do sleep 2; done`), JSON with `jq`; past that, Elixir: \
+    `elixir -e '…'`, or `mix run -e '…'` for the project's own code.\
+    """
+  end
 end

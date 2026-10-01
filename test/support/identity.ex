@@ -31,59 +31,6 @@ defmodule Menard.Test.Identity do
     for {label, hunks} <- edits(source, check, seen), hunks, do: {label, hunks}
   end
 
-  # Each edit's output is judged (`seen`) as it is made, and only the verdict kept: 635 copies of
-  # clause.ex held to the end made every GC sweep the parse cache's AST again, twice the time.
-  defp edits(source, :clause, seen) do
-    for {mod, node} <- modules(source),
-        {kind, meta, [head, [{_do, body} | _]]} <- Tree.module_body(node),
-        kind in @kinds and meta[:do] != nil,
-        text = slice(source, body),
-        is_binary(text) do
-      {name, arity, args} = head_of(head)
-      out = Clause.replace_body(source, "#{mod}.#{name}/#{arity}", args, text)
-      {"#{mod}.#{name}/#{arity} `#{args}`", seen.(out)}
-    end
-  end
-
-  defp edits(source, :attr, seen) do
-    for {mod, node} <- modules(source),
-        # a module the verbs refuse (defined twice) has nothing to list
-        listed = Attr.list(source, module: mod),
-        is_list(listed),
-        # a name set more than once is refused by `set` — the clause verbs own those
-        {name, 1} <- Enum.frequencies_by(listed, &elem(&1, 0)),
-        {:@, _, [{^name, _, [value]}]} <- Tree.module_body(node),
-        text = slice(source, value),
-        is_binary(text) do
-      {"#{mod} @#{name}", seen.(Attr.set(source, name, text, module: mod))}
-    end
-  end
-
-  defp edits(source, :block, seen) do
-    for {mod, _node} <- modules(source),
-        listed = Block.list(source, module: mod),
-        is_list(listed),
-        {name, label, _line} <- listed,
-        body = Block.get(source, name, module: mod, label: label),
-        is_binary(body) do
-      out = Block.replace(source, name, body, module: mod, label: label)
-      {"#{mod} #{name} #{inspect(label)}", seen.(out)}
-    end
-  end
-
-  defp edits(source, :stmt, seen) do
-    for {mod, node} <- modules(source),
-        {kind, _meta, [head | _]} <- Tree.module_body(node),
-        kind in @kinds,
-        {name, arity, args} = head_of(head),
-        na = "#{mod}.#{name}/#{arity}",
-        statements = Stmt.list(source, na, args),
-        is_list(statements),
-        text <- Enum.uniq(statements) do
-      {"#{na} `#{String.slice(text, 0, 50)}`", seen.(Stmt.replace(source, na, args, text, text))}
-    end
-  end
-
   @doc "The edits of `check` that changed the file."
   def misses(source, check), do: for({label, :changed} <- run(source, check), do: label)
 
@@ -176,4 +123,57 @@ defmodule Menard.Test.Identity do
     do: {name, length(args), Enum.map_join(args, ", ", &Sourceror.to_string/1)}
 
   defp head_of({name, _, _}), do: {name, 0, ""}
+
+  # Each edit's output is judged (`seen`) as it is made, and only the verdict kept: 635 copies of
+  # clause.ex held to the end made every GC sweep the parse cache's AST again, twice the time.
+  defp edits(source, :clause, seen) do
+    for {mod, node} <- modules(source),
+        {kind, meta, [head, [{_do, body} | _]]} <- Tree.module_body(node),
+        kind in @kinds and meta[:do] != nil,
+        text = slice(source, body),
+        is_binary(text) do
+      {name, arity, args} = head_of(head)
+      out = Clause.replace_body(source, "#{mod}.#{name}/#{arity}", args, text)
+      {"#{mod}.#{name}/#{arity} `#{args}`", seen.(out)}
+    end
+  end
+
+  defp edits(source, :attr, seen) do
+    for {mod, node} <- modules(source),
+        # a module the verbs refuse (defined twice) has nothing to list
+        listed = Attr.list(source, module: mod),
+        is_list(listed),
+        # a name set more than once is refused by `set` — the clause verbs own those
+        {name, 1} <- Enum.frequencies_by(listed, &elem(&1, 0)),
+        {:@, _, [{^name, _, [value]}]} <- Tree.module_body(node),
+        text = slice(source, value),
+        is_binary(text) do
+      {"#{mod} @#{name}", seen.(Attr.set(source, name, text, module: mod))}
+    end
+  end
+
+  defp edits(source, :block, seen) do
+    for {mod, _node} <- modules(source),
+        listed = Block.list(source, module: mod),
+        is_list(listed),
+        {name, label, _line} <- listed,
+        body = Block.get(source, name, module: mod, label: label),
+        is_binary(body) do
+      out = Block.replace(source, name, body, module: mod, label: label)
+      {"#{mod} #{name} #{inspect(label)}", seen.(out)}
+    end
+  end
+
+  defp edits(source, :stmt, seen) do
+    for {mod, node} <- modules(source),
+        {kind, _meta, [head | _]} <- Tree.module_body(node),
+        kind in @kinds,
+        {name, arity, args} = head_of(head),
+        na = "#{mod}.#{name}/#{arity}",
+        statements = Stmt.list(source, na, args),
+        is_list(statements),
+        text <- Enum.uniq(statements) do
+      {"#{na} `#{String.slice(text, 0, 50)}`", seen.(Stmt.replace(source, na, args, text, text))}
+    end
+  end
 end

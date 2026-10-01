@@ -69,44 +69,6 @@ defmodule Menard.Directive do
     end
   end
 
-  # A directive alone in its block, a blank line below it and above it a blank or the module's `do`:
-  # 1, so the blank below goes too and the block leaves no double gap behind.
-  defp alone(source, a, b) do
-    lines = String.split(source, "\n")
-    above = String.trim(Enum.at(lines, a - 2, "x"))
-    below = String.trim(Enum.at(lines, b, "x"))
-    if a > 1 and below == "" and (above == "" or String.ends_with?(above, " do")), do: 1, else: 0
-  end
-
-  # `alias A.{B, C}` without one of its members: its line rewritten with the others, a plain `alias
-  # A.C` when one is left, and gone when none is.
-  defp without(
-         source,
-         {kind, _, [{{:., _, [{:__aliases__, _, parts} = base, :{}]}, _, subs}]} = multi,
-         target
-       ) do
-    text = &Menard.Source.slice(source, Sourceror.get_range(&1))
-
-    others =
-      for {:__aliases__, _, p} = sub <- subs, Menard.Source.alias_name(parts ++ p) != target, do: text.(sub)
-
-    case others do
-      [] ->
-        {a, b} = Menard.Tree.line_span(multi)
-        Menard.Source.delete_lines(source, a, b + alone(source, a, b))
-
-      [one] ->
-        patch(source, Sourceror.get_range(multi), "#{kind} #{text.(base)}.#{one}")
-
-      _ ->
-        patch(source, Sourceror.get_range(multi), "#{kind} #{text.(base)}.{#{Enum.join(others, ", ")}}")
-    end
-  end
-
-  # with options after it, which say something of every member: the caller's to split
-  defp without(_source, {kind, _, _} = multi, target),
-    do: {:error, "#{kind} #{target} is part of `#{Sourceror.to_string(multi)}` — rewrite that line"}
-
   @doc "Every directive in the module, as `{kind, \"Mod.Name\"}` in source order — the read half."
   @spec list(String.t(), keyword()) :: [{atom(), String.t()}] | {:error, String.t()}
   def list(source, opts \\ []) do
@@ -257,4 +219,42 @@ defmodule Menard.Directive do
   defp directive_line(kind, target, nil), do: "#{kind} #{target}"
   defp directive_line(kind, target, ""), do: "#{kind} #{target}"
   defp directive_line(kind, target, args), do: "#{kind} #{target}, #{args}"
+
+  # A directive alone in its block, a blank line below it and above it a blank or the module's `do`:
+  # 1, so the blank below goes too and the block leaves no double gap behind.
+  defp alone(source, a, b) do
+    lines = String.split(source, "\n")
+    above = String.trim(Enum.at(lines, a - 2, "x"))
+    below = String.trim(Enum.at(lines, b, "x"))
+    if a > 1 and below == "" and (above == "" or String.ends_with?(above, " do")), do: 1, else: 0
+  end
+
+  # `alias A.{B, C}` without one of its members: its line rewritten with the others, a plain `alias
+  # A.C` when one is left, and gone when none is.
+  defp without(
+         source,
+         {kind, _, [{{:., _, [{:__aliases__, _, parts} = base, :{}]}, _, subs}]} = multi,
+         target
+       ) do
+    text = &Menard.Source.slice(source, Sourceror.get_range(&1))
+
+    others =
+      for {:__aliases__, _, p} = sub <- subs, Menard.Source.alias_name(parts ++ p) != target, do: text.(sub)
+
+    case others do
+      [] ->
+        {a, b} = Menard.Tree.line_span(multi)
+        Menard.Source.delete_lines(source, a, b + alone(source, a, b))
+
+      [one] ->
+        patch(source, Sourceror.get_range(multi), "#{kind} #{text.(base)}.#{one}")
+
+      _ ->
+        patch(source, Sourceror.get_range(multi), "#{kind} #{text.(base)}.{#{Enum.join(others, ", ")}}")
+    end
+  end
+
+  # with options after it, which say something of every member: the caller's to split
+  defp without(_source, {kind, _, _} = multi, target),
+    do: {:error, "#{kind} #{target} is part of `#{Sourceror.to_string(multi)}` — rewrite that line"}
 end

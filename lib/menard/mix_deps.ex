@@ -74,122 +74,9 @@ defmodule Menard.MixDeps do
 
   # -- finding the list -----------------------------------------------------
 
-  defp deps_list(source) do
-    with {:ok, _ast} <- parse(source),
-         {:ok, project} <- Clause.find(source, "project/0", "", []) do
-      case keyword_value(body(project.node), :deps) do
-        {:__block__, _, [list]} = node when is_list(list) ->
-          {:ok, node}
-
-        {name, _, args} when is_atom(name) and args in [[], nil] ->
-          returned_list(source, name)
-
-        _ ->
-          {:error, "no `deps:` list in project/0"}
-      end
-    end
-  end
-
-  # `deps: deps()`: the list the function returns
-  defp returned_list(source, name) do
-    with {:ok, fun} <- Clause.find(source, "#{name}/0", "", []) do
-      case body(fun.node) do
-        {:__block__, _, [list]} = node when is_list(list) -> {:ok, node}
-        _ -> {:error, "#{name}/0 does not return a literal list"}
-      end
-    end
-  end
-
-  defp body({_kind, _meta, [_head, [{_do, body}]]}), do: body
-  defp body(_node), do: nil
-
-  defp keyword_value({:__block__, _, [pairs]}, key) when is_list(pairs) do
-    Enum.find_value(pairs, fn
-      {{:__block__, _, [^key]}, value} -> value
-      _ -> nil
-    end)
-  end
-
-  defp keyword_value(_node, _key), do: nil
-
-  defp elements({:__block__, _, [list]}), do: list
-
-  defp dep_app({:__block__, _, [{app, _}]}), do: unwrap(app)
-  defp dep_app({:{}, _, [app | _]}), do: unwrap(app)
-  defp dep_app(_node), do: nil
-
-  defp requirement_node({:__block__, _, [{_app, req}]}), do: req
-  defp requirement_node({:{}, _, [_app, req | _]}), do: req
-
-  defp unwrap({:__block__, _, [atom]}) when is_atom(atom), do: atom
-  defp unwrap(_node), do: nil
-
-  defp spec_app(spec) do
-    with {:ok, node} <- parse(spec),
-         app when is_atom(app) and not is_nil(app) <- dep_app(node) do
-      {:ok, app}
-    else
-      _ -> {:error, "a dependency is written as a tuple, `{:app, \"~> 1.0\"}`, got: #{String.trim(spec)}"}
-    end
-  end
-
   # -- writing ---------------------------------------------------------------
 
-  defp append(source, list, spec) do
-    case elements(list) do
-      [] ->
-        range = Menard.Source.range(list, source)
-        patch(source, [%{range: range, change: "[" <> spec <> "]"}])
-
-      elems ->
-        append_after(source, elems, spec)
-    end
-  end
-
-  defp append_after(source, [first | _] = elems, spec) do
-    %{start: [line: _, column: col]} = Sourceror.get_range(first)
-
-    %{end: [line: b, column: c]} =
-      elems |> List.last() |> Menard.Source.range(source)
-
-    line = source |> String.split("\n") |> Enum.at(b - 1)
-    rest = line |> String.slice((c - 1)..-1//1) |> String.trim_leading()
-    comma = if String.starts_with?(rest, ","), do: [], else: [insert(b, c, ",")]
-
-    # the list closes on this line (`…}]`): the new entry goes straight after the last one;
-    # otherwise at the end of its line, so a trailing `# why` stays with the entry it explains
-    if String.contains?(rest |> String.split("#") |> hd(), "]") do
-      patch(source, [insert(b, c, ", " <> spec)])
-    else
-      indent = String.duplicate(" ", col - 1)
-      eol = String.length(line) + 1
-
-      # at one position two insertions have no order: a comma owed at the line end is written first
-      case comma do
-        [_] when c == eol -> patch(source, [insert(b, eol, ",\n" <> indent <> spec)])
-        _ -> patch(source, comma ++ [insert(b, eol, "\n" <> indent <> spec)])
-      end
-    end
-  end
-
-  defp insert(line, column, text),
-    do: %{range: %{start: [line: line, column: column], end: [line: line, column: column]}, change: text}
-
   # -- mix.lock ---------------------------------------------------------------
-
-  defp lock_versions(text) when text in [nil, ""], do: %{}
-
-  defp lock_versions(text) do
-    # mix.lock quotes every key, and the parser warns about each one that did not need it
-    case Code.string_to_quoted(text, emit_warnings: false) do
-      {:ok, {:%{}, _, pairs}} -> Map.new(pairs, fn {app, entry} -> {to_string(app), lock_version(entry)} end)
-      _ -> %{}
-    end
-  end
-
-  defp lock_version({:{}, _, [:hex, _name, version | _]}), do: version
-  defp lock_version({:{}, _, [:git, _url, ref | _]}) when is_binary(ref), do: String.slice(ref, 0, 7)
-  defp lock_version(_entry), do: "?"
 
   @doc """
   `add/2` in the project at `dir`: write mix.exs, `mix deps.get`, and answer
@@ -303,4 +190,117 @@ defmodule Menard.MixDeps do
       _ -> nil
     end
   end
+
+  defp deps_list(source) do
+    with {:ok, _ast} <- parse(source),
+         {:ok, project} <- Clause.find(source, "project/0", "", []) do
+      case keyword_value(body(project.node), :deps) do
+        {:__block__, _, [list]} = node when is_list(list) ->
+          {:ok, node}
+
+        {name, _, args} when is_atom(name) and args in [[], nil] ->
+          returned_list(source, name)
+
+        _ ->
+          {:error, "no `deps:` list in project/0"}
+      end
+    end
+  end
+
+  # `deps: deps()`: the list the function returns
+  defp returned_list(source, name) do
+    with {:ok, fun} <- Clause.find(source, "#{name}/0", "", []) do
+      case body(fun.node) do
+        {:__block__, _, [list]} = node when is_list(list) -> {:ok, node}
+        _ -> {:error, "#{name}/0 does not return a literal list"}
+      end
+    end
+  end
+
+  defp body({_kind, _meta, [_head, [{_do, body}]]}), do: body
+  defp body(_node), do: nil
+
+  defp keyword_value({:__block__, _, [pairs]}, key) when is_list(pairs) do
+    Enum.find_value(pairs, fn
+      {{:__block__, _, [^key]}, value} -> value
+      _ -> nil
+    end)
+  end
+
+  defp keyword_value(_node, _key), do: nil
+
+  defp elements({:__block__, _, [list]}), do: list
+
+  defp dep_app({:__block__, _, [{app, _}]}), do: unwrap(app)
+  defp dep_app({:{}, _, [app | _]}), do: unwrap(app)
+  defp dep_app(_node), do: nil
+
+  defp requirement_node({:__block__, _, [{_app, req}]}), do: req
+  defp requirement_node({:{}, _, [_app, req | _]}), do: req
+
+  defp unwrap({:__block__, _, [atom]}) when is_atom(atom), do: atom
+  defp unwrap(_node), do: nil
+
+  defp spec_app(spec) do
+    with {:ok, node} <- parse(spec),
+         app when is_atom(app) and not is_nil(app) <- dep_app(node) do
+      {:ok, app}
+    else
+      _ -> {:error, "a dependency is written as a tuple, `{:app, \"~> 1.0\"}`, got: #{String.trim(spec)}"}
+    end
+  end
+
+  defp append(source, list, spec) do
+    case elements(list) do
+      [] ->
+        range = Menard.Source.range(list, source)
+        patch(source, [%{range: range, change: "[" <> spec <> "]"}])
+
+      elems ->
+        append_after(source, elems, spec)
+    end
+  end
+
+  defp append_after(source, [first | _] = elems, spec) do
+    %{start: [line: _, column: col]} = Sourceror.get_range(first)
+
+    %{end: [line: b, column: c]} =
+      elems |> List.last() |> Menard.Source.range(source)
+
+    line = source |> String.split("\n") |> Enum.at(b - 1)
+    rest = line |> String.slice((c - 1)..-1//1) |> String.trim_leading()
+    comma = if String.starts_with?(rest, ","), do: [], else: [insert(b, c, ",")]
+
+    # the list closes on this line (`…}]`): the new entry goes straight after the last one;
+    # otherwise at the end of its line, so a trailing `# why` stays with the entry it explains
+    if String.contains?(rest |> String.split("#") |> hd(), "]") do
+      patch(source, [insert(b, c, ", " <> spec)])
+    else
+      indent = String.duplicate(" ", col - 1)
+      eol = String.length(line) + 1
+
+      # at one position two insertions have no order: a comma owed at the line end is written first
+      case comma do
+        [_] when c == eol -> patch(source, [insert(b, eol, ",\n" <> indent <> spec)])
+        _ -> patch(source, comma ++ [insert(b, eol, "\n" <> indent <> spec)])
+      end
+    end
+  end
+
+  defp insert(line, column, text),
+    do: %{range: %{start: [line: line, column: column], end: [line: line, column: column]}, change: text}
+
+  defp lock_versions(text) when text in [nil, ""], do: %{}
+
+  defp lock_versions(text) do
+    # mix.lock quotes every key, and the parser warns about each one that did not need it
+    case Code.string_to_quoted(text, emit_warnings: false) do
+      {:ok, {:%{}, _, pairs}} -> Map.new(pairs, fn {app, entry} -> {to_string(app), lock_version(entry)} end)
+      _ -> %{}
+    end
+  end
+
+  defp lock_version({:{}, _, [:hex, _name, version | _]}), do: version
+  defp lock_version({:{}, _, [:git, _url, ref | _]}) when is_binary(ref), do: String.slice(ref, 0, 7)
+  defp lock_version(_entry), do: "?"
 end

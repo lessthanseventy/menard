@@ -45,39 +45,6 @@ defmodule Menard.CLI do
     end
   end
 
-  # a flag fills its field; one that repeats (`--tag a --tag b`) fills it with every value, none with []
-  defp flagged(given, flags) do
-    Map.new(flags, fn
-      {flag, {:keep, field}} -> {field, Keyword.get_values(given, flag)}
-      {flag, {_type, field}} -> {field, given[flag]}
-    end)
-    |> Map.reject(fn {_field, value} -> is_nil(value) end)
-  end
-
-  # the first shape of the verb that takes the arguments, as the params they fill
-  defp shaped(shapes, args) do
-    Enum.find_value(shapes, fn
-      {nil, fields} -> fill(fields, args, %{})
-      {verb, fields} -> if verb == verb(List.first(args) || ""), do: fill(fields, tl(args), %{verb: verb})
-    end)
-  end
-
-  defp fill([], [], params), do: params
-  defp fill([{:optional, _field}], [], params), do: params
-  defp fill([{:optional, field}], [arg], params), do: Map.put(params, field, arg)
-  defp fill([{:rest, field}], [_ | _] = args, params), do: Map.put(params, field, args)
-
-  defp fill([field | fields], [arg | args], params) when is_atom(field),
-    do: fill(fields, args, Map.put(params, field, arg))
-
-  defp fill(_fields, _args, _params), do: nil
-
-  defp from_stdin(params, noun) do
-    for field <- get_in(noun, [:cli, :stdin]) || [], is_map_key(params, field), reduce: params do
-      params -> Map.update!(params, field, &stdin(&1, "menard.#{noun.name}"))
-    end
-  end
-
   @doc "The usage line, raised: a call the verbs do not take."
   @spec usage(String.t()) :: no_return()
   def usage(text), do: Mix.raise("usage: " <> as_run(text))
@@ -125,4 +92,37 @@ defmodule Menard.CLI do
   end
 
   def stdin(code, _what), do: code
+
+  # a flag fills its field; one that repeats (`--tag a --tag b`) fills it with every value, none with []
+  defp flagged(given, flags) do
+    Map.new(flags, fn
+      {flag, {:keep, field}} -> {field, Keyword.get_values(given, flag)}
+      {flag, {_type, field}} -> {field, given[flag]}
+    end)
+    |> Map.reject(fn {_field, value} -> is_nil(value) end)
+  end
+
+  # the first shape of the verb that takes the arguments, as the params they fill
+  defp shaped(shapes, args) do
+    Enum.find_value(shapes, fn
+      {nil, fields} -> fill(fields, args, %{})
+      {verb, fields} -> if verb == verb(List.first(args) || ""), do: fill(fields, tl(args), %{verb: verb})
+    end)
+  end
+
+  defp fill([], [], params), do: params
+  defp fill([{:optional, _field}], [], params), do: params
+  defp fill([{:optional, field}], [arg], params), do: Map.put(params, field, arg)
+  defp fill([{:rest, field}], [_ | _] = args, params), do: Map.put(params, field, args)
+
+  defp fill([field | fields], [arg | args], params) when is_atom(field),
+    do: fill(fields, args, Map.put(params, field, arg))
+
+  defp fill(_fields, _args, _params), do: nil
+
+  defp from_stdin(params, noun) do
+    for field <- get_in(noun, [:cli, :stdin]) || [], is_map_key(params, field), reduce: params do
+      params -> Map.update!(params, field, &stdin(&1, "menard.#{noun.name}"))
+    end
+  end
 end

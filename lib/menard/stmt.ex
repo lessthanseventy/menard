@@ -31,29 +31,6 @@ defmodule Menard.Stmt do
          do: insert(source, stmt, match, code, :before)
   end
 
-  # At the statement's own column, joined as its neighbours are: a with's steps by a comma, anything
-  # else by a newline. Written from column 1 it went above the `with`, or above the def of a `do:` body.
-  defp insert(source, stmt, match, code, side) do
-    code = reindent(code, stmt.indent)
-
-    case {role(source, stmt.range), side} do
-      {:keyword_body, _} ->
-        {:error,
-         "`#{match}` is a do: body, which holds one expression: rewrite the clause with a do … end body"}
-
-      {role, :after} ->
-        at = stmt.range.end
-        patch(source, %{start: at, end: at}, joint(role) <> stmt.indent <> code)
-
-      {role, :before} ->
-        at = stmt.range.start
-        patch(source, %{start: at, end: at}, code <> joint(role) <> stmt.indent)
-    end
-  end
-
-  defp joint({:step, _steps}), do: ",\n"
-  defp joint(_role), do: "\n"
-
   @doc "Replace the matched statement with `code`."
   @spec replace(String.t(), String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
@@ -70,73 +47,6 @@ defmodule Menard.Stmt do
           {:error, _} = refused -> refused
           :none -> miss
         end
-    end
-  end
-
-  # `case x do` matches the whole case by its start, and code for that one line leaves one that does
-  # not parse: say what was matched, where the write would only have said "missing terminator"
-  defp whole_by_start?(stmt, match, out),
-    do: key(stmt.text) != key(match) and match?({:error, _}, Code.string_to_quoted(out, emit_warnings: false))
-
-  defp by_start(%{range: %{start: [line: a, column: _], end: [line: b, column: _]}}, match),
-    do:
-      "`#{match}` matched, by its start, the whole statement on lines #{a}-#{b}, and `code` replaces all of " <>
-        "it: what is left does not parse. Give `code` for the whole statement, or add a line with insert_before/insert_after"
-
-  # The `{…}` and `<%= … %>` expressions of the ~H templates in the clause, matched as a statement
-  # is: whitespace-insensitive, the whole expression or its start
-  defp in_template(source, name_arity, head, match, opts) do
-    with {:ok, clause} <- scope(source, name_arity, head, opts) do
-      all =
-        for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
-            {line, column, code} <- Menard.Source.heex_expressions(source, node),
-            text = String.trim(code),
-            text != "" do
-          [lead | _] = String.split(code, text, parts: 2)
-          {sl, sc} = Menard.Source.advance({line, column}, lead)
-          {el, ec} = Menard.Source.advance({sl, sc}, text)
-
-          %{
-            range: %{start: [line: sl, column: sc], end: [line: el, column: ec]},
-            text: text,
-            indent: String.duplicate(" ", sc - 1),
-            span: el - sl
-          }
-        end
-
-      case matching(all, key(match)) do
-        [] -> template_text(source, clause, match)
-        [one] -> {:ok, one}
-        many -> nth(many, match, opts[:nth])
-      end
-    end
-  end
-
-  # Not one expression: any text of a template, a whole line of markup and all, found once as written
-  defp template_text(source, clause, match) do
-    want = String.trim(match)
-
-    found =
-      for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
-          %{start: [line: a, column: ca]} = range = Sourceror.get_range(node),
-          text = Menard.Source.slice(source, range),
-          want != "",
-          {at, _len} <- :binary.matches(text, want) do
-        {sl, sc} = Menard.Source.advance({a, ca}, binary_part(text, 0, at))
-        {el, ec} = Menard.Source.advance({sl, sc}, want)
-
-        %{
-          range: %{start: [line: sl, column: sc], end: [line: el, column: ec]},
-          text: want,
-          indent: String.duplicate(" ", sc - 1),
-          span: el - sl
-        }
-      end
-
-    case found do
-      [] -> :none
-      [one] -> {:ok, one}
-      many -> nth(many, match, nil)
     end
   end
 
@@ -163,57 +73,6 @@ defmodule Menard.Stmt do
           delete_lines(source, stmt.range)
       end
     end
-  end
-
-  defp delete_lines(source, %{start: [line: a, column: _], end: [line: b, column: _]}) do
-    lines = String.split(source, "\n")
-    first = a - comment_lines_above(lines, a - 1)
-    last = if Enum.at(lines, b) == "", do: b + 1, else: b
-    Menard.Source.delete_lines(source, first, last)
-  end
-
-  # A with's step goes with the comma that joins it to its neighbour: the first up to the next
-  # step's start, any other from the end of the one before it
-  defp step_cut([first, next | _], first), do: %{start: first.start, end: next.start}
-
-  defp step_cut(steps, range) do
-    before = steps |> Enum.take_while(&(&1 != range)) |> List.last()
-    %{start: before.end, end: range.end}
-  end
-
-  # Where a statement sits decides what deleting it, or inserting beside it, means: a with's steps
-  # are joined by commas, a `do:` body shares its clause's line, and cutting whole lines under either
-  # took the `with`, the ` do` or the whole `def` with it
-  defp role(source, range) do
-    {:ok, ast} = Menard.Source.parse(source)
-    nodes = ast |> Macro.prewalker() |> Enum.to_list()
-
-    cond do
-      steps = Enum.find_value(nodes, &with_steps(&1, source, range)) -> {:step, steps}
-      Enum.any?(nodes, &keyword_body?(&1, source, range)) -> :keyword_body
-      own_lines?(source, range) -> :lines
-      true -> :inline
-    end
-  end
-
-  defp with_steps({:with, _meta, [_ | _] = args}, source, range) do
-    steps = args |> Enum.drop(-1) |> Enum.map(&Menard.Source.range(&1, source))
-    if range in steps, do: steps
-  end
-
-  defp with_steps(_node, _source, _range), do: nil
-
-  defp keyword_body?({{:__block__, meta, [key]}, body}, source, range) when key in [:do, :else],
-    do: meta[:format] == :keyword and Menard.Source.range(body, source) == range
-
-  defp keyword_body?(_node, _source, _range), do: false
-
-  # nothing but indent before it on its first line, nothing but a comment after it on its last
-  defp own_lines?(source, %{start: [line: a, column: ca], end: [line: b, column: cb]}) do
-    lines = String.split(source, "\n")
-    before = lines |> Enum.at(a - 1) |> String.slice(0, ca - 1)
-    rest = lines |> Enum.at(b - 1) |> String.slice((cb - 1)..-1//1) |> String.trim()
-    String.trim(before) == "" and (rest == "" or String.starts_with?(rest, "#"))
   end
 
   @doc """
@@ -450,4 +309,145 @@ defmodule Menard.Stmt do
   defp body_statements({:__block__, _meta, [_one]} = literal), do: [literal]
   defp body_statements({:__block__, _meta, _children}), do: []
   defp body_statements(one), do: [one]
+
+  # At the statement's own column, joined as its neighbours are: a with's steps by a comma, anything
+  # else by a newline. Written from column 1 it went above the `with`, or above the def of a `do:` body.
+  defp insert(source, stmt, match, code, side) do
+    code = reindent(code, stmt.indent)
+
+    case {role(source, stmt.range), side} do
+      {:keyword_body, _} ->
+        {:error,
+         "`#{match}` is a do: body, which holds one expression: rewrite the clause with a do … end body"}
+
+      {role, :after} ->
+        at = stmt.range.end
+        patch(source, %{start: at, end: at}, joint(role) <> stmt.indent <> code)
+
+      {role, :before} ->
+        at = stmt.range.start
+        patch(source, %{start: at, end: at}, code <> joint(role) <> stmt.indent)
+    end
+  end
+
+  defp joint({:step, _steps}), do: ",\n"
+  defp joint(_role), do: "\n"
+
+  # `case x do` matches the whole case by its start, and code for that one line leaves one that does
+  # not parse: say what was matched, where the write would only have said "missing terminator"
+  defp whole_by_start?(stmt, match, out),
+    do: key(stmt.text) != key(match) and match?({:error, _}, Code.string_to_quoted(out, emit_warnings: false))
+
+  defp by_start(%{range: %{start: [line: a, column: _], end: [line: b, column: _]}}, match),
+    do:
+      "`#{match}` matched, by its start, the whole statement on lines #{a}-#{b}, and `code` replaces all of " <>
+        "it: what is left does not parse. Give `code` for the whole statement, or add a line with insert_before/insert_after"
+
+  # The `{…}` and `<%= … %>` expressions of the ~H templates in the clause, matched as a statement
+  # is: whitespace-insensitive, the whole expression or its start
+  defp in_template(source, name_arity, head, match, opts) do
+    with {:ok, clause} <- scope(source, name_arity, head, opts) do
+      all =
+        for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
+            {line, column, code} <- Menard.Source.heex_expressions(source, node),
+            text = String.trim(code),
+            text != "" do
+          [lead | _] = String.split(code, text, parts: 2)
+          {sl, sc} = Menard.Source.advance({line, column}, lead)
+          {el, ec} = Menard.Source.advance({sl, sc}, text)
+
+          %{
+            range: %{start: [line: sl, column: sc], end: [line: el, column: ec]},
+            text: text,
+            indent: String.duplicate(" ", sc - 1),
+            span: el - sl
+          }
+        end
+
+      case matching(all, key(match)) do
+        [] -> template_text(source, clause, match)
+        [one] -> {:ok, one}
+        many -> nth(many, match, opts[:nth])
+      end
+    end
+  end
+
+  # Not one expression: any text of a template, a whole line of markup and all, found once as written
+  defp template_text(source, clause, match) do
+    want = String.trim(match)
+
+    found =
+      for {:sigil_H, _meta, _args} = node <- clause.node |> Macro.prewalker() |> Enum.to_list(),
+          %{start: [line: a, column: ca]} = range = Sourceror.get_range(node),
+          text = Menard.Source.slice(source, range),
+          want != "",
+          {at, _len} <- :binary.matches(text, want) do
+        {sl, sc} = Menard.Source.advance({a, ca}, binary_part(text, 0, at))
+        {el, ec} = Menard.Source.advance({sl, sc}, want)
+
+        %{
+          range: %{start: [line: sl, column: sc], end: [line: el, column: ec]},
+          text: want,
+          indent: String.duplicate(" ", sc - 1),
+          span: el - sl
+        }
+      end
+
+    case found do
+      [] -> :none
+      [one] -> {:ok, one}
+      many -> nth(many, match, nil)
+    end
+  end
+
+  defp delete_lines(source, %{start: [line: a, column: _], end: [line: b, column: _]}) do
+    lines = String.split(source, "\n")
+    first = a - comment_lines_above(lines, a - 1)
+    last = if Enum.at(lines, b) == "", do: b + 1, else: b
+    Menard.Source.delete_lines(source, first, last)
+  end
+
+  # A with's step goes with the comma that joins it to its neighbour: the first up to the next
+  # step's start, any other from the end of the one before it
+  defp step_cut([first, next | _], first), do: %{start: first.start, end: next.start}
+
+  defp step_cut(steps, range) do
+    before = steps |> Enum.take_while(&(&1 != range)) |> List.last()
+    %{start: before.end, end: range.end}
+  end
+
+  # Where a statement sits decides what deleting it, or inserting beside it, means: a with's steps
+  # are joined by commas, a `do:` body shares its clause's line, and cutting whole lines under either
+  # took the `with`, the ` do` or the whole `def` with it
+  defp role(source, range) do
+    {:ok, ast} = Menard.Source.parse(source)
+    nodes = ast |> Macro.prewalker() |> Enum.to_list()
+
+    cond do
+      steps = Enum.find_value(nodes, &with_steps(&1, source, range)) -> {:step, steps}
+      Enum.any?(nodes, &keyword_body?(&1, source, range)) -> :keyword_body
+      own_lines?(source, range) -> :lines
+      true -> :inline
+    end
+  end
+
+  defp with_steps({:with, _meta, [_ | _] = args}, source, range) do
+    steps = args |> Enum.drop(-1) |> Enum.map(&Menard.Source.range(&1, source))
+    if range in steps, do: steps
+  end
+
+  defp with_steps(_node, _source, _range), do: nil
+
+  defp keyword_body?({{:__block__, meta, [key]}, body}, source, range) when key in [:do, :else],
+    do: meta[:format] == :keyword and Menard.Source.range(body, source) == range
+
+  defp keyword_body?(_node, _source, _range), do: false
+
+  # nothing but indent before it on its first line, nothing but a comment after it on its last
+  defp own_lines?(source, %{start: [line: a, column: ca], end: [line: b, column: cb]}) do
+    lines = String.split(source, "\n")
+    before = lines |> Enum.at(a - 1) |> String.slice(0, ca - 1)
+    rest = lines |> Enum.at(b - 1) |> String.slice((cb - 1)..-1//1) |> String.trim()
+    String.trim(before) == "" and (rest == "" or String.starts_with?(rest, "#"))
+  end
 end

@@ -53,71 +53,6 @@ defmodule Menard.Block do
     end
   end
 
-  # `@tag` lines above a whole block are that block's own (found 2026-09-26: taken for a body, the
-  # tagged test came out nested in the old one). nil when there are none.
-  defp own_tags(code) do
-    {rest, opts} = tagged(code, [])
-    {rest, opts[:tag]}
-  end
-
-  defp tags_over_whole(_name, _code, nil), do: :ok
-
-  defp tags_over_whole(name, code, _tags) do
-    if match?({:whole, _, _, _}, unwrap(name, code)),
-      do: :ok,
-      else: {:error, "an @tag goes above a whole `#{name}` block: give the whole block after it, not a body"}
-  end
-
-  # the block's `@tag` lines, right above its first line, become `tags`
-  defp retag(out, _line, _col, nil), do: out
-
-  defp retag(out, line, col, tags) do
-    {above, rest} = out |> String.split("\n") |> Enum.split(line - 1)
-    kept = above |> Enum.reverse() |> Enum.drop_while(&(&1 =~ ~r/^\s*@tag\b/)) |> Enum.reverse()
-    indent = String.duplicate(" ", col - 1)
-    Enum.join(kept ++ Enum.map(tags, &(indent <> "@tag " <> &1)) ++ rest, "\n")
-  end
-
-  defp patch_body(source, range, code, meta, args, col) do
-    cond do
-      meta[:do] -> patch(source, range, reindent(code, String.duplicate(" ", col + 1)))
-      not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
-      true -> to_do_block(source, args, range, code, col)
-    end
-  end
-
-  # A whole `test "x", %{tmp_dir: dir} do … end` given for a test written with other args, or none,
-  # carries its args too: only the body taken, `dir` was an undefined variable in it
-  defp with_args(out, _args, nil), do: out
-
-  defp with_args(out, [label | rest], ctx) do
-    %{end: from} = Sourceror.get_range(label)
-
-    to =
-      case rest do
-        [current, _do] -> Sourceror.get_range(current).end
-        _no_args -> from
-      end
-
-    at = %{start: from, end: to}
-    if Menard.Source.slice(out, at) == ", " <> ctx, do: out, else: patch(out, at, ", " <> ctx)
-  end
-
-  # Several lines cannot sit in a `do:` keyword, so the block becomes `do … end`: from the end of
-  # the argument before `, do:` to the end of the body.
-  defp to_do_block(source, args, range, code, col) do
-    case Enum.drop(args, -1) do
-      [] ->
-        {:error, "this block is written `do:` with no argument before it — give one expression"}
-
-      before ->
-        %{end: from} = Sourceror.get_range(List.last(before))
-        indent = String.duplicate(" ", col + 1)
-        text = " do\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1) <> "end"
-        patch(source, %{start: from, end: range.end}, text)
-    end
-  end
-
   @doc """
   Add a new `name "label" do … end` block. Placement, in order: at the END of the block named by
   `in:` (a `describe`, matched by its label) — which is where a new test goes; else after the last
@@ -157,70 +92,6 @@ defmodule Menard.Block do
           place(source, where, anchor, tags <> render(name, label, body, opts[:args]))
         end
     end
-  end
-
-  defp add_each(source, name, wholes, opts) do
-    Enum.reduce_while(wholes, source, fn whole, source ->
-      case add(source, name, nil, whole, opts) do
-        {:error, _} = error -> {:halt, error}
-        out -> {:cont, out}
-      end
-    end)
-  end
-
-  # A whole block being added is named by its own label: there is nothing to tell it apart from, and
-  # long1 cart-refactor.B.sonnet was refused over "…no placeholders" against "…leaves no placeholders"
-  defp add_label(name, label, body) do
-    if match?({:whole, _, _, _}, unwrap(name, body)), do: nil, else: label
-  end
-
-  # `@tag :tmp_dir` above a whole test is how a test is written, and was taken for a body: the block
-  # came out wrapped in a bare `test do`. The tags go to `tag:`, which writes them above the block.
-  # `tmp_dir` is the tag `:tmp_dir`; `:tmp_dir` and `timeout: 5_000` are as written
-  defp tag(tag) do
-    if Regex.match?(~r/^[a-z_][a-zA-Z0-9_]*[?!]?$/, tag), do: ":" <> tag, else: tag
-  end
-
-  defp tagged(code, opts) do
-    case Regex.run(~r/\A((?:\s*@tag\s+[^\n]+\n)+)(.*)\z/s, code || "") do
-      [_, lines, rest] ->
-        tags =
-          for [tag] <- Regex.scan(~r/@tag\s+([^\n]+)/, lines, capture: :all_but_first), do: String.trim(tag)
-
-        {rest, Keyword.update(opts, :tag, tags, &(List.wrap(&1) ++ tags))}
-
-      nil ->
-        {code, opts}
-    end
-  end
-
-  # No name given and a whole block as the code: the block says which macro (long2
-  # cart-refactor.B.haiku was refused as "a whole `` block")
-  defp named(name, code) when name in [nil, ""] do
-    case Sourceror.parse_string(code || "") do
-      # a do-block is the last argument, a keyword list: anything else is a body, not a whole block
-      {:ok, {call, _, [_ | _] = args} = node} when is_atom(call) and call != :__block__ ->
-        if is_list(List.last(args)) and body_range(node), do: to_string(call), else: name
-
-      _ ->
-        name
-    end
-  end
-
-  defp named(name, _code), do: name
-
-  # Inside: on the line before the block's own `end`, one level in. After: below the anchor, at the
-  # anchor's own column. Both leave a blank line, the way blocks are separated everywhere else.
-  defp place(source, :inside, node, text) do
-    %{start: [line: _, column: col], end: [line: last, column: _]} = Sourceror.get_range(node)
-    at = %{start: [line: last, column: 1], end: [line: last, column: 1]}
-    patch(source, at, "\n" <> indented(text, col + 2) <> "\n")
-  end
-
-  defp place(source, :after, node, text) do
-    %{start: [line: _, column: col], end: [line: last, column: last_col]} = Sourceror.get_range(node)
-    at = %{start: [line: last, column: last_col], end: [line: last, column: last_col]}
-    patch(source, at, "\n\n" <> indented(text, col))
   end
 
   @doc "The block's body exactly as written."
@@ -279,125 +150,7 @@ defmodule Menard.Block do
 
   # -- locating ------------------------------------------------------------
 
-  defp one(source, name, opts) do
-    wanted_label = opts[:label]
-
-    with {:ok, blocks} <- blocks(source, opts) do
-      blocks
-      # no name, a label: the label alone says which (bench3 new-component.B.sonnet)
-      |> Enum.filter(fn node ->
-        (name in [nil, ""] or same?(call_name(node), name)) and
-          (is_nil(wanted_label) or label(node) == wanted_label)
-      end)
-      |> pick(name, wanted_label)
-    end
-  end
-
-  defp pick([node], _want, _label), do: {:ok, node}
-
-  # a test's label where the macro's name goes
-  defp pick([], want, nil) do
-    if to_string(want) =~ ~r/^[a-z_]\w*[?!]?$/,
-      do: {:error, "no `#{want} do` block here"},
-      else:
-        {:error,
-         "no `#{want} do` block here: a test is `test --label #{inspect(to_string(want))}` (a describe, `describe --label`)"}
-  end
-
-  defp pick([], want, label), do: {:error, "no `#{want} #{inspect(label)} do` block here"}
-
-  defp pick(many, want, _label) do
-    labels =
-      Enum.map_join(many, " · ", fn node -> inspect(label(node)) <> " (line #{Tree.start_line(node)})" end)
-
-    {:error, "#{length(many)} `#{want}` blocks here — name one with a label: #{labels}"}
-  end
-
-  # Every macro call in the module that carries a `do` block, at any depth: a `test` lives inside a
-  # `describe`, so a top-level-only walk would miss most of them.
-  defp blocks(source, opts) do
-    with {:ok, ast} <- parse(source),
-         {:ok, scopes} <- scopes(ast, opts) do
-      found =
-        scopes
-        |> Enum.flat_map(fn module ->
-          module |> Zipper.zip() |> Zipper.traverse_while([], &collect_block/2) |> elem(1) |> Enum.reverse()
-        end)
-        # a nested module is walked in its parent's walk as well
-        |> Enum.uniq_by(&Tree.start_line/1)
-
-      {:ok, found}
-    end
-  end
-
-  # a label says which block wherever it is: with one and no module named, every module is looked in
-  defp scopes(ast, opts) do
-    label = opts[:label]
-
-    case Tree.module_scope(ast, opts[:module]) do
-      {:ok, module} ->
-        {:ok, [module]}
-
-      {:error, "several modules" <> _} when is_binary(label) ->
-        {:ok, Enum.map(Tree.modules(ast), &elem(&1, 1))}
-
-      error ->
-        error
-    end
-  end
-
-  # into a describe, but not into a function or a test: an `if` in a def body, a `for` in a test,
-  # is a statement, not a block (`block list` named every `for` in a test file's tests)
-  defp collect_block(zipper, acc) do
-    case Zipper.node(zipper) do
-      {kind, _, _} when kind in @def_kinds -> {:skip, zipper, acc}
-      {kind, _, [_ | _]} = node when kind in [:test, :setup, :setup_all] -> {:skip, zipper, [node | acc]}
-      # prepended, and reversed once at the end: appending copied the list at every block found
-      node -> {:cont, zipper, if(block?(node), do: [node | acc], else: acc)}
-    end
-  end
-
   # -- shapes --------------------------------------------------------------
-
-  # A macro call whose last argument is a `do` keyword list. `defmodule` and the def kinds are
-  # excluded: those have their own verbs, and a module is not a block you replace the body of.
-  defp block?({name, _meta, args}) when is_atom(name) and is_list(args) and args != [] do
-    name not in [:defmodule | @def_kinds] and has_do?(List.last(args))
-  end
-
-  defp block?(_node), do: false
-
-  defp has_do?(args) when is_list(args), do: Enum.any?(args, &do_key?/1)
-  defp has_do?(_args), do: false
-
-  defp do_key?({{:__block__, _meta, [:do]}, _body}), do: true
-  defp do_key?({:do, _body}), do: true
-  defp do_key?(_pair), do: false
-
-  defp call_name({name, _meta, _args}), do: name
-
-  # The first string argument, which is how `describe "…"` and `test "…"` are told apart.
-  defp label({_name, _meta, args}) do
-    Enum.find_value(args, fn
-      {:__block__, _meta, [text]} when is_binary(text) -> text
-      text when is_binary(text) -> text
-      _other -> nil
-    end)
-  end
-
-  defp body_range({_name, _meta, args}) do
-    args
-    |> List.last()
-    |> Enum.find_value(fn
-      {{:__block__, _meta, [:do]}, body} -> Sourceror.get_range(body)
-      {:do, body} -> Sourceror.get_range(body)
-      _pair -> nil
-    end)
-  end
-
-  # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the
-  # VM never collects one
-  defp same?(call, name), do: is_atom(call) and Atom.to_string(call) == to_string(name)
 
   @doc """
   Rename a block's label — `test "old"` to `test "new"`, or a `describe`. The label is a string
@@ -558,4 +311,251 @@ defmodule Menard.Block do
       _ -> nil
     end
   end
+
+  # `@tag` lines above a whole block are that block's own (found 2026-09-26: taken for a body, the
+  # tagged test came out nested in the old one). nil when there are none.
+  defp own_tags(code) do
+    {rest, opts} = tagged(code, [])
+    {rest, opts[:tag]}
+  end
+
+  defp tags_over_whole(_name, _code, nil), do: :ok
+
+  defp tags_over_whole(name, code, _tags) do
+    if match?({:whole, _, _, _}, unwrap(name, code)),
+      do: :ok,
+      else: {:error, "an @tag goes above a whole `#{name}` block: give the whole block after it, not a body"}
+  end
+
+  # the block's `@tag` lines, right above its first line, become `tags`
+  defp retag(out, _line, _col, nil), do: out
+
+  defp retag(out, line, col, tags) do
+    {above, rest} = out |> String.split("\n") |> Enum.split(line - 1)
+    kept = above |> Enum.reverse() |> Enum.drop_while(&(&1 =~ ~r/^\s*@tag\b/)) |> Enum.reverse()
+    indent = String.duplicate(" ", col - 1)
+    Enum.join(kept ++ Enum.map(tags, &(indent <> "@tag " <> &1)) ++ rest, "\n")
+  end
+
+  defp patch_body(source, range, code, meta, args, col) do
+    cond do
+      meta[:do] -> patch(source, range, reindent(code, String.duplicate(" ", col + 1)))
+      not String.contains?(String.trim(code), "\n") -> patch(source, range, String.trim(code))
+      true -> to_do_block(source, args, range, code, col)
+    end
+  end
+
+  # A whole `test "x", %{tmp_dir: dir} do … end` given for a test written with other args, or none,
+  # carries its args too: only the body taken, `dir` was an undefined variable in it
+  defp with_args(out, _args, nil), do: out
+
+  defp with_args(out, [label | rest], ctx) do
+    %{end: from} = Sourceror.get_range(label)
+
+    to =
+      case rest do
+        [current, _do] -> Sourceror.get_range(current).end
+        _no_args -> from
+      end
+
+    at = %{start: from, end: to}
+    if Menard.Source.slice(out, at) == ", " <> ctx, do: out, else: patch(out, at, ", " <> ctx)
+  end
+
+  # Several lines cannot sit in a `do:` keyword, so the block becomes `do … end`: from the end of
+  # the argument before `, do:` to the end of the body.
+  defp to_do_block(source, args, range, code, col) do
+    case Enum.drop(args, -1) do
+      [] ->
+        {:error, "this block is written `do:` with no argument before it — give one expression"}
+
+      before ->
+        %{end: from} = Sourceror.get_range(List.last(before))
+        indent = String.duplicate(" ", col + 1)
+        text = " do\n" <> indent <> reindent(code, indent) <> "\n" <> String.duplicate(" ", col - 1) <> "end"
+        patch(source, %{start: from, end: range.end}, text)
+    end
+  end
+
+  defp add_each(source, name, wholes, opts) do
+    Enum.reduce_while(wholes, source, fn whole, source ->
+      case add(source, name, nil, whole, opts) do
+        {:error, _} = error -> {:halt, error}
+        out -> {:cont, out}
+      end
+    end)
+  end
+
+  # A whole block being added is named by its own label: there is nothing to tell it apart from, and
+  # long1 cart-refactor.B.sonnet was refused over "…no placeholders" against "…leaves no placeholders"
+  defp add_label(name, label, body) do
+    if match?({:whole, _, _, _}, unwrap(name, body)), do: nil, else: label
+  end
+
+  # `@tag :tmp_dir` above a whole test is how a test is written, and was taken for a body: the block
+  # came out wrapped in a bare `test do`. The tags go to `tag:`, which writes them above the block.
+  # `tmp_dir` is the tag `:tmp_dir`; `:tmp_dir` and `timeout: 5_000` are as written
+  defp tag(tag) do
+    if Regex.match?(~r/^[a-z_][a-zA-Z0-9_]*[?!]?$/, tag), do: ":" <> tag, else: tag
+  end
+
+  defp tagged(code, opts) do
+    case Regex.run(~r/\A((?:\s*@tag\s+[^\n]+\n)+)(.*)\z/s, code || "") do
+      [_, lines, rest] ->
+        tags =
+          for [tag] <- Regex.scan(~r/@tag\s+([^\n]+)/, lines, capture: :all_but_first), do: String.trim(tag)
+
+        {rest, Keyword.update(opts, :tag, tags, &(List.wrap(&1) ++ tags))}
+
+      nil ->
+        {code, opts}
+    end
+  end
+
+  # No name given and a whole block as the code: the block says which macro (long2
+  # cart-refactor.B.haiku was refused as "a whole `` block")
+  defp named(name, code) when name in [nil, ""] do
+    case Sourceror.parse_string(code || "") do
+      # a do-block is the last argument, a keyword list: anything else is a body, not a whole block
+      {:ok, {call, _, [_ | _] = args} = node} when is_atom(call) and call != :__block__ ->
+        if is_list(List.last(args)) and body_range(node), do: to_string(call), else: name
+
+      _ ->
+        name
+    end
+  end
+
+  defp named(name, _code), do: name
+
+  # Inside: on the line before the block's own `end`, one level in. After: below the anchor, at the
+  # anchor's own column. Both leave a blank line, the way blocks are separated everywhere else.
+  defp place(source, :inside, node, text) do
+    %{start: [line: _, column: col], end: [line: last, column: _]} = Sourceror.get_range(node)
+    at = %{start: [line: last, column: 1], end: [line: last, column: 1]}
+    patch(source, at, "\n" <> indented(text, col + 2) <> "\n")
+  end
+
+  defp place(source, :after, node, text) do
+    %{start: [line: _, column: col], end: [line: last, column: last_col]} = Sourceror.get_range(node)
+    at = %{start: [line: last, column: last_col], end: [line: last, column: last_col]}
+    patch(source, at, "\n\n" <> indented(text, col))
+  end
+
+  defp one(source, name, opts) do
+    wanted_label = opts[:label]
+
+    with {:ok, blocks} <- blocks(source, opts) do
+      blocks
+      # no name, a label: the label alone says which (bench3 new-component.B.sonnet)
+      |> Enum.filter(fn node ->
+        (name in [nil, ""] or same?(call_name(node), name)) and
+          (is_nil(wanted_label) or label(node) == wanted_label)
+      end)
+      |> pick(name, wanted_label)
+    end
+  end
+
+  defp pick([node], _want, _label), do: {:ok, node}
+
+  # a test's label where the macro's name goes
+  defp pick([], want, nil) do
+    if to_string(want) =~ ~r/^[a-z_]\w*[?!]?$/,
+      do: {:error, "no `#{want} do` block here"},
+      else:
+        {:error,
+         "no `#{want} do` block here: a test is `test --label #{inspect(to_string(want))}` (a describe, `describe --label`)"}
+  end
+
+  defp pick([], want, label), do: {:error, "no `#{want} #{inspect(label)} do` block here"}
+
+  defp pick(many, want, _label) do
+    labels =
+      Enum.map_join(many, " · ", fn node -> inspect(label(node)) <> " (line #{Tree.start_line(node)})" end)
+
+    {:error, "#{length(many)} `#{want}` blocks here — name one with a label: #{labels}"}
+  end
+
+  # Every macro call in the module that carries a `do` block, at any depth: a `test` lives inside a
+  # `describe`, so a top-level-only walk would miss most of them.
+  defp blocks(source, opts) do
+    with {:ok, ast} <- parse(source),
+         {:ok, scopes} <- scopes(ast, opts) do
+      found =
+        scopes
+        |> Enum.flat_map(fn module ->
+          module |> Zipper.zip() |> Zipper.traverse_while([], &collect_block/2) |> elem(1) |> Enum.reverse()
+        end)
+        # a nested module is walked in its parent's walk as well
+        |> Enum.uniq_by(&Tree.start_line/1)
+
+      {:ok, found}
+    end
+  end
+
+  # a label says which block wherever it is: with one and no module named, every module is looked in
+  defp scopes(ast, opts) do
+    label = opts[:label]
+
+    case Tree.module_scope(ast, opts[:module]) do
+      {:ok, module} ->
+        {:ok, [module]}
+
+      {:error, "several modules" <> _} when is_binary(label) ->
+        {:ok, Enum.map(Tree.modules(ast), &elem(&1, 1))}
+
+      error ->
+        error
+    end
+  end
+
+  # into a describe, but not into a function or a test: an `if` in a def body, a `for` in a test,
+  # is a statement, not a block (`block list` named every `for` in a test file's tests)
+  defp collect_block(zipper, acc) do
+    case Zipper.node(zipper) do
+      {kind, _, _} when kind in @def_kinds -> {:skip, zipper, acc}
+      {kind, _, [_ | _]} = node when kind in [:test, :setup, :setup_all] -> {:skip, zipper, [node | acc]}
+      # prepended, and reversed once at the end: appending copied the list at every block found
+      node -> {:cont, zipper, if(block?(node), do: [node | acc], else: acc)}
+    end
+  end
+
+  # A macro call whose last argument is a `do` keyword list. `defmodule` and the def kinds are
+  # excluded: those have their own verbs, and a module is not a block you replace the body of.
+  defp block?({name, _meta, args}) when is_atom(name) and is_list(args) and args != [] do
+    name not in [:defmodule | @def_kinds] and has_do?(List.last(args))
+  end
+
+  defp block?(_node), do: false
+
+  defp has_do?(args) when is_list(args), do: Enum.any?(args, &do_key?/1)
+  defp has_do?(_args), do: false
+
+  defp do_key?({{:__block__, _meta, [:do]}, _body}), do: true
+  defp do_key?({:do, _body}), do: true
+  defp do_key?(_pair), do: false
+
+  defp call_name({name, _meta, _args}), do: name
+
+  # The first string argument, which is how `describe "…"` and `test "…"` are told apart.
+  defp label({_name, _meta, args}) do
+    Enum.find_value(args, fn
+      {:__block__, _meta, [text]} when is_binary(text) -> text
+      text when is_binary(text) -> text
+      _other -> nil
+    end)
+  end
+
+  defp body_range({_name, _meta, args}) do
+    args
+    |> List.last()
+    |> Enum.find_value(fn
+      {{:__block__, _meta, [:do]}, body} -> Sourceror.get_range(body)
+      {:do, body} -> Sourceror.get_range(body)
+      _pair -> nil
+    end)
+  end
+
+  # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the
+  # VM never collects one
+  defp same?(call, name), do: is_atom(call) and Atom.to_string(call) == to_string(name)
 end

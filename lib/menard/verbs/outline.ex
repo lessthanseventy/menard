@@ -87,10 +87,6 @@ defmodule Menard.Verbs.Outline do
 
   def run(p), do: run(Map.put(p, :verb, "file"))
 
-  defp outline(name, source) do
-    with {:error, reason} <- Outline.run(source), do: {:error, "#{name}: #{reason}"}
-  end
-
   @doc "A module of the map as its line: `Shop.Cart  lib/shop/cart.ex  new/0 add/3 (+3 more)`."
   @spec line(map()) :: String.t()
   def line(%{module: module, file: file, functions: functions, more: more}) do
@@ -172,4 +168,8 @@ defmodule Menard.Verbs.Outline do
   end
 
   defp within?(%{lines: lines}, line), do: line in elem(lines || {0, 0}, 0)..elem(lines || {0, 0}, 1)//1
+
+  defp outline(name, source) do
+    with {:error, reason} <- Outline.run(source), do: {:error, "#{name}: #{reason}"}
+  end
 end

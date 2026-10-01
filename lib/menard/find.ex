@@ -28,52 +28,6 @@ defmodule Menard.Find do
     |> Enum.sort_by(&{&1.line, &1.column})
   end
 
-  # `__MODULE__.fun()` names the module it is written in, which the file-wide alias map cannot say:
-  # each module's own calls, a nested module's left to it
-  defp self_calls(_source, nil, _fun), do: []
-
-  defp self_calls(source, mod, fun) do
-    case Menard.Source.parse(source) do
-      {:ok, ast} ->
-        for {name, module} <- Menard.Tree.modules(ast),
-            {{:., _, [receiver, called]}, _, args} = node <- own_nodes(module),
-            is_atom(called) and is_list(args) and Atom.to_string(called) == fun,
-            self_ref(receiver, name) == mod do
-          %{start: [line: l, column: c]} = Menard.Source.range(node, source)
-          %{line: l, column: c, kind: :call, text: one_line(node)}
-        end
-
-      {:error, _} ->
-        []
-    end
-  end
-
-  defp own_nodes({:defmodule, _meta, [_name | body]}) do
-    body
-    |> Macro.prewalk([], fn
-      {:defmodule, _, _}, acc -> {nil, acc}
-      node, acc -> {node, [node | acc]}
-    end)
-    |> elem(1)
-  end
-
-  defp self_ref({:__MODULE__, _, _}, name), do: name
-
-  defp self_ref({:__aliases__, _, [{:__MODULE__, _, _} | _] = parts}, name),
-    do: Menard.Source.alias_name(parts, name)
-
-  defp self_ref(_receiver, _name), do: nil
-
-  defp call_to({name, _meta, args} = node, _aliases, nil, fun) when is_atom(name) and is_list(args),
-    do: if(Atom.to_string(name) == fun, do: {:call, node})
-
-  defp call_to({{:., _, [{:__aliases__, _, parts}, name]}, _meta, args} = node, aliases, mod, fun)
-       when is_atom(name) and is_list(args) and not is_nil(mod) do
-    if Atom.to_string(name) == fun and named?(expand(parts, aliases), mod), do: {:call, node}, else: nil
-  end
-
-  defp call_to(_node, _aliases, _mod, _fun), do: nil
-
   @doc """
   The calls to `name_arity` left in `root`'s lib/ and test/ once it is deleted from `file` (whose
   source before the delete is `source`), as `file:line: call`, one inside a test with its label: the
@@ -96,106 +50,12 @@ defmodule Menard.Find do
     for f <- Enum.uniq([file | files]), line <- left_in(f, root, f == file, mod, fun), do: line
   end
 
-  defp left_in(f, root, own?, mod, fun) do
-    case File.read(f) do
-      {:ok, text} ->
-        text |> left_hits(own?, mod, fun) |> Enum.map(&left_line(f, root, text, &1))
-
-      {:error, reason} ->
-        ["#{Path.relative_to(f, root)}: not read (#{:file.format_error(reason)})"]
-    end
-  end
-
-  # every file's remote calls by the module's full name, and the file's own local ones
-  defp left_hits(text, own?, mod, fun) do
-    remote = if mod, do: calls(text, "#{mod}.#{fun}"), else: []
-    local = if own?, do: calls(text, fun), else: []
-    remote ++ local
-  end
-
-  defp left_line(f, root, text, hit) do
-    test =
-      text
-      |> Menard.Block.list()
-      |> List.wrap()
-      |> Enum.filter(&match?({:test, _label, line} when line <= hit.line, &1))
-      |> List.last()
-
-    where = Path.relative_to(f, root) <> ":#{hit.line}"
-    if test, do: ~s(#{where}, in test "#{elem(test, 1)}": #{hit.text}), else: "#{where}: #{hit.text}"
-  end
-
-  defp own_module(source) do
-    with {:ok, ast} <- Menard.Source.parse(source),
-         [{name, _node} | _] <- Menard.Tree.modules(ast),
-         do: name,
-         else: (_ -> nil)
-  end
-
-  # ~H is a string to the AST, so a call in its `{…}` or `<%= … %>` was never found: explore-callers
-  # answered two callers of four. Those are Elixir, matched as written (`Alias.fun(` or `fun(`);
-  # the markup around them is not.
-  defp heex_calls(source, mod, fun) do
-    case Menard.Source.parse(source) do
-      {:ok, ast} ->
-        aliases = collect_aliases(ast)
-        name = Regex.escape(to_string(fun))
-
-        call =
-          if mod,
-            do: ~r/(?<![\w.@:])((?:[A-Z]\w*\.)+)#{name}\(/,
-            else: ~r/(?<![\w.@:?!])()#{name}\(/
-
-        for {:sigil_H, _meta, _args} = node <- ast |> Macro.prewalker() |> Enum.to_list(),
-            {line, column, code} <- Menard.Source.heex_expressions(source, node),
-            [{at, _}, {m, ml}] <- Regex.scan(call, code, return: :index),
-            is_nil(mod) or named?(expand(module_parts(binary_part(code, m, ml)), aliases), mod) do
-          {line, column} = Menard.Source.advance({line, column}, binary_part(code, 0, at))
-          rest = binary_part(code, at, byte_size(code) - at)
-
-          %{
-            line: line,
-            column: column,
-            kind: :call,
-            text: rest |> String.split("\n") |> hd() |> String.trim()
-          }
-        end
-
-      _ ->
-        []
-    end
-  end
-
-  # `mod` as a caller wrote it: the full name, or its last segments (`Channels` of Server.Channels)
-  defp named?(full, mod), do: full == mod or String.ends_with?(full, "." <> mod)
-
-  defp module_parts(prefix),
-    do: prefix |> String.trim_trailing(".") |> String.split(".")
-
-  defp def_head({kind, _meta, [head | _]}, _aliases) when kind in @def_kinds, do: {:head, strip_guard(head)}
-  defp def_head(_node, _aliases), do: nil
-
-  defp strip_guard({:when, _, [call | _]}), do: call
-  defp strip_guard(call), do: call
-
   @doc "Definitions of `name` or `name/arity`, any def kind."
   @spec defs(String.t(), String.t()) :: [hit()]
   def defs(source, name_arity) do
     {name, arity} = split_name_arity(name_arity)
     walk(source, &def_of(&1, &2, name, arity))
   end
-
-  defp def_of({kind, _meta, [head | _]} = node, _aliases, name, arity) when kind in @def_kinds do
-    case Menard.Tree.name_arity(head) do
-      {n, a} when is_atom(n) and (is_nil(arity) or a == arity) ->
-        if Atom.to_string(n) == name, do: {kind, node, head_only(kind, head)}
-
-      _ ->
-        nil
-    end
-  end
-
-  defp def_of(_node, _aliases, _name, _arity), do: nil
 
   @doc """
   Where each clause of `mod`'s `fun` names it in its head, as `{line, column}`: the position a
@@ -217,28 +77,11 @@ defmodule Menard.Find do
     end
   end
 
-  defp lines(node) do
-    %{start: [line: first, column: _], end: [line: last, column: _]} = Sourceror.get_range(node)
-    first..last
-  end
-
   @doc "Where module `mod` is aliased (`alias A.B` or `alias A.{B, C}`)."
   @spec aliases(String.t(), String.t()) :: [hit()]
   def aliases(source, mod) do
     walk(source, &alias_of(&1, &2, mod))
   end
-
-  defp alias_of({:alias, _meta, [{:__aliases__, _, parts} | _as]} = node, _aliases, mod) do
-    if Menard.Source.alias_name(parts) == mod, do: {:alias, node}, else: nil
-  end
-
-  defp alias_of({:alias, _meta, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} = node, _aliases, mod) do
-    if Enum.any?(subs, fn {:__aliases__, _, p} -> Menard.Source.alias_name(base ++ p) == mod end),
-      do: {:alias, node},
-      else: nil
-  end
-
-  defp alias_of(_node, _aliases, _mod), do: nil
 
   @doc """
   The files `paths` name, for either door: a directory is its Elixir files, a glob its matches. A
@@ -347,4 +190,161 @@ defmodule Menard.Find do
       [name] -> {name, nil}
     end
   end
+
+  # `__MODULE__.fun()` names the module it is written in, which the file-wide alias map cannot say:
+  # each module's own calls, a nested module's left to it
+  defp self_calls(_source, nil, _fun), do: []
+
+  defp self_calls(source, mod, fun) do
+    case Menard.Source.parse(source) do
+      {:ok, ast} ->
+        for {name, module} <- Menard.Tree.modules(ast),
+            {{:., _, [receiver, called]}, _, args} = node <- own_nodes(module),
+            is_atom(called) and is_list(args) and Atom.to_string(called) == fun,
+            self_ref(receiver, name) == mod do
+          %{start: [line: l, column: c]} = Menard.Source.range(node, source)
+          %{line: l, column: c, kind: :call, text: one_line(node)}
+        end
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp own_nodes({:defmodule, _meta, [_name | body]}) do
+    body
+    |> Macro.prewalk([], fn
+      {:defmodule, _, _}, acc -> {nil, acc}
+      node, acc -> {node, [node | acc]}
+    end)
+    |> elem(1)
+  end
+
+  defp self_ref({:__MODULE__, _, _}, name), do: name
+
+  defp self_ref({:__aliases__, _, [{:__MODULE__, _, _} | _] = parts}, name),
+    do: Menard.Source.alias_name(parts, name)
+
+  defp self_ref(_receiver, _name), do: nil
+
+  defp call_to({name, _meta, args} = node, _aliases, nil, fun) when is_atom(name) and is_list(args),
+    do: if(Atom.to_string(name) == fun, do: {:call, node})
+
+  defp call_to({{:., _, [{:__aliases__, _, parts}, name]}, _meta, args} = node, aliases, mod, fun)
+       when is_atom(name) and is_list(args) and not is_nil(mod) do
+    if Atom.to_string(name) == fun and named?(expand(parts, aliases), mod), do: {:call, node}, else: nil
+  end
+
+  defp call_to(_node, _aliases, _mod, _fun), do: nil
+
+  defp left_in(f, root, own?, mod, fun) do
+    case File.read(f) do
+      {:ok, text} ->
+        text |> left_hits(own?, mod, fun) |> Enum.map(&left_line(f, root, text, &1))
+
+      {:error, reason} ->
+        ["#{Path.relative_to(f, root)}: not read (#{:file.format_error(reason)})"]
+    end
+  end
+
+  # every file's remote calls by the module's full name, and the file's own local ones
+  defp left_hits(text, own?, mod, fun) do
+    remote = if mod, do: calls(text, "#{mod}.#{fun}"), else: []
+    local = if own?, do: calls(text, fun), else: []
+    remote ++ local
+  end
+
+  defp left_line(f, root, text, hit) do
+    test =
+      text
+      |> Menard.Block.list()
+      |> List.wrap()
+      |> Enum.filter(&match?({:test, _label, line} when line <= hit.line, &1))
+      |> List.last()
+
+    where = Path.relative_to(f, root) <> ":#{hit.line}"
+    if test, do: ~s(#{where}, in test "#{elem(test, 1)}": #{hit.text}), else: "#{where}: #{hit.text}"
+  end
+
+  defp own_module(source) do
+    with {:ok, ast} <- Menard.Source.parse(source),
+         [{name, _node} | _] <- Menard.Tree.modules(ast),
+         do: name,
+         else: (_ -> nil)
+  end
+
+  # ~H is a string to the AST, so a call in its `{…}` or `<%= … %>` was never found: explore-callers
+  # answered two callers of four. Those are Elixir, matched as written (`Alias.fun(` or `fun(`);
+  # the markup around them is not.
+  defp heex_calls(source, mod, fun) do
+    case Menard.Source.parse(source) do
+      {:ok, ast} ->
+        aliases = collect_aliases(ast)
+        name = Regex.escape(to_string(fun))
+
+        call =
+          if mod,
+            do: ~r/(?<![\w.@:])((?:[A-Z]\w*\.)+)#{name}\(/,
+            else: ~r/(?<![\w.@:?!])()#{name}\(/
+
+        for {:sigil_H, _meta, _args} = node <- ast |> Macro.prewalker() |> Enum.to_list(),
+            {line, column, code} <- Menard.Source.heex_expressions(source, node),
+            [{at, _}, {m, ml}] <- Regex.scan(call, code, return: :index),
+            is_nil(mod) or named?(expand(module_parts(binary_part(code, m, ml)), aliases), mod) do
+          {line, column} = Menard.Source.advance({line, column}, binary_part(code, 0, at))
+          rest = binary_part(code, at, byte_size(code) - at)
+
+          %{
+            line: line,
+            column: column,
+            kind: :call,
+            text: rest |> String.split("\n") |> hd() |> String.trim()
+          }
+        end
+
+      _ ->
+        []
+    end
+  end
+
+  # `mod` as a caller wrote it: the full name, or its last segments (`Channels` of Server.Channels)
+  defp named?(full, mod), do: full == mod or String.ends_with?(full, "." <> mod)
+
+  defp module_parts(prefix),
+    do: prefix |> String.trim_trailing(".") |> String.split(".")
+
+  defp def_head({kind, _meta, [head | _]}, _aliases) when kind in @def_kinds, do: {:head, strip_guard(head)}
+  defp def_head(_node, _aliases), do: nil
+
+  defp strip_guard({:when, _, [call | _]}), do: call
+  defp strip_guard(call), do: call
+
+  defp def_of({kind, _meta, [head | _]} = node, _aliases, name, arity) when kind in @def_kinds do
+    case Menard.Tree.name_arity(head) do
+      {n, a} when is_atom(n) and (is_nil(arity) or a == arity) ->
+        if Atom.to_string(n) == name, do: {kind, node, head_only(kind, head)}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp def_of(_node, _aliases, _name, _arity), do: nil
+
+  defp lines(node) do
+    %{start: [line: first, column: _], end: [line: last, column: _]} = Sourceror.get_range(node)
+    first..last
+  end
+
+  defp alias_of({:alias, _meta, [{:__aliases__, _, parts} | _as]} = node, _aliases, mod) do
+    if Menard.Source.alias_name(parts) == mod, do: {:alias, node}, else: nil
+  end
+
+  defp alias_of({:alias, _meta, [{{:., _, [{:__aliases__, _, base}, :{}]}, _, subs}]} = node, _aliases, mod) do
+    if Enum.any?(subs, fn {:__aliases__, _, p} -> Menard.Source.alias_name(base ++ p) == mod end),
+      do: {:alias, node},
+      else: nil
+  end
+
+  defp alias_of(_node, _aliases, _mod), do: nil
 end

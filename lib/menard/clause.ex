@@ -68,94 +68,6 @@ defmodule Menard.Clause do
     end
   end
 
-  defp has_body(%{kind: kind, name: name}) when kind in @bodiless,
-    do: {:error, "`#{kind} #{name}` has no body to replace — `rewrite` replaces the whole #{kind}"}
-
-  defp has_body(_clause), do: :ok
-
-  # Only the body's bytes move, so a clause keeps its form. `do … end` holds anything. `, do:` holds
-  # the new body only if it reads back as itself there — `do: if a, do: b, else: c` hands `else:` to
-  # the def — so that is checked, and a body that does not fit turns the clause into `do … end`.
-  # `rescue`/`after`/… beside a `do:` would need the same care, and is refused toward `rewrite`.
-  defp body_edit(
-         source,
-         %{node: {_kind, meta, [_head, [{_do, body} | rest]]}} = clause,
-         code,
-         name_arity,
-         opts
-       ) do
-    range =
-      body
-      |> Menard.Source.range(source)
-      |> Menard.Source.with_leading_comments(source, code)
-
-    cond do
-      meta[:do] ->
-        source |> patch(range, reindent(code, clause.indent <> "  ")) |> blocks_once(name_arity, clause, opts)
-
-      rest != [] ->
-        {:error, "this clause has rescue/catch/after/else in keyword form — use `rewrite`"}
-
-      true ->
-        inline = patch(source, range, String.trim(code))
-
-        if reads_back?(inline, source, clause, code),
-          do: inline,
-          else: patch(source, clause.range, clause_text(clause, code))
-    end
-  end
-
-  defp body_edit(source, clause, code, _name_arity, _opts),
-    do: patch(source, clause.range, clause_text(clause, code))
-
-  # A `rescue`/`after`/… in CODE joins the clause's own; given twice, it parses and does not compile.
-  defp blocks_once(out, name_arity, clause, opts) do
-    with {:ok, %{node: {_kind, _meta, [_head, blocks]}}} when is_list(blocks) <-
-           find(out, name_arity, clause.head_text, opts),
-         keys = Enum.map(blocks, fn {{:__block__, _, [key]}, _} -> key end),
-         [_ | _] = twice <- Enum.uniq(keys -- Enum.uniq(keys)) do
-      {:error,
-       "CODE carries its own #{Enum.join(twice, ", ")}, and the clause already has one — use `rewrite`"}
-    else
-      _ -> out
-    end
-  end
-
-  # One parse of OUT answers both questions: does the clause's body read back as CODE, and does it
-  # take a warning to — an unparenthesised call in a keyword is ambiguous to Elixir, which picks a
-  # reading and says so. The source is parsed for its own warnings only when OUT has some.
-  defp reads_back?(out, source, clause, code) do
-    %{start: [line: line, column: column]} = clause.range
-
-    with false <- String.contains?(String.trim(code), "\n"),
-         {{:ok, ast}, warnings} <- Code.with_diagnostics(fn -> Code.string_to_quoted(out, columns: true) end),
-         {{:ok, want}, _} <- Code.with_diagnostics(fn -> Code.string_to_quoted(code) end),
-         {_kind, _meta, [_head, [do: body]]} <- def_at(ast, line, column) do
-      no_meta(body) == no_meta(want) and (warnings == [] or length(warnings) <= parse_warnings(source))
-    else
-      _ -> false
-    end
-  end
-
-  defp def_at(ast, line, column) do
-    ast
-    |> Macro.prewalk(nil, fn
-      {kind, meta, _args} = node, nil when kind in @kinds ->
-        {node, if(meta[:line] == line and meta[:column] == column, do: node)}
-
-      node, found ->
-        {node, found}
-    end)
-    |> elem(1)
-  end
-
-  defp no_meta(ast), do: Macro.prewalk(ast, &Macro.update_meta(&1, fn _meta -> [] end))
-
-  defp parse_warnings(source) do
-    {_result, diagnostics} = Code.with_diagnostics(fn -> Code.string_to_quoted(source) end)
-    length(diagnostics)
-  end
-
   @doc """
   Replace the WHOLE clause — head included — with `code`, a complete `def …`. The verb for the
   edits `replace_body/4` structurally cannot make: changing the args, adding a guard,
@@ -193,75 +105,6 @@ defmodule Menard.Clause do
     end
   end
 
-  # One clause of several stays a clause of THAT function: a defp among defs does not compile, and a
-  # clause of another name/arity between them splits the function. The only clause IS the function,
-  # free to change.
-  defp keeps_function(ast, name_arity, clause, {kind, _meta, [head | _]}) do
-    {:ok, {mod, name, arity}} = parse_name_arity(name_arity)
-    {:ok, scope} = scope(ast, mod, name, arity)
-    {new_name, new_arity} = name_arity(head)
-
-    if match?([_], clauses(scope, name, arity)) or {kind, new_name, new_arity} == {clause.kind, name, arity} do
-      :ok
-    else
-      {:error,
-       "#{name}/#{arity} has other clauses, so this one stays `#{clause.kind} #{name}/#{arity}`, and CODE is " <>
-         "`#{kind} #{new_name}/#{new_arity}` — `visibility` flips every clause; a new function goes in with `insert_at`"}
-    end
-  end
-
-  defp patch_with_comments(source, clause, code) do
-    range = with_comments_above(source, clause.range, code)
-    # a range widened to the comments above starts at column 1, so the text brings its own indent
-    indent = if range.start[:column] == 1, do: clause.indent, else: ""
-    patch(source, range, indent <> reindent(code, clause.indent))
-  end
-
-  # The lines a clause OWNS: its `def`, the @doc/@spec/@impl written above it, and the comment above
-  # those. Zero-based and inclusive. Shared by `delete/4` and `spans/2` (a move), which must agree exactly —
-  # a doc left behind by one re-attaches to whatever definition follows it.
-  defp attached_span(ast, lines, %{range: %{end: [line: b, column: _]}} = clause) do
-    a = attrs_start(ast, clause.range)
-    {a - 1 - comment_lines_above(lines, a - 1), b - 1}
-  end
-
-  # spans are zero-based, as `attached_span/3` counts them
-  defp drop_spans(source, spans),
-    do: Menard.Source.delete_lines(source, for({a, b} <- spans, do: {a + 1, b + 1}))
-
-  # Take the blank line after the span too, but only when the span was blank-separated above as
-  # well — otherwise removing the last clause of a run closes a gap that was never there.
-  defp with_trailing_blank(lines, {first, last}) do
-    # a blank left against the block's own `… do` or `end` is a gap the format stage then closes:
-    # the one under the span goes when a blank, the file's start or the `do` is above it, and the
-    # one over it when the `end` is below
-    above = trimmed_at(lines, first - 1)
-    below = trimmed_at(lines, last + 1)
-
-    cond do
-      below == "" and (above == "" or String.ends_with?(above, " do")) -> {first, last + 1}
-      first > 0 and above == "" and below == "end" -> {first - 1, last}
-      true -> {first, last}
-    end
-  end
-
-  # before the file's first line there is nothing, not its last (Enum.at counts back from the end)
-  defp trimmed_at(_lines, i) when i < 0, do: ""
-  defp trimmed_at(lines, i), do: lines |> Enum.at(i, "") |> String.trim()
-
-  # A function's clauses sit together, so their spans are one block to a reader and to the
-  # blank-line rule — applied per clause it never fires, and the gap the function left stays open.
-  # Non-adjacent spans stay separate: merging them would take whatever sits between.
-  defp merge_spans(spans) do
-    spans
-    |> Enum.sort()
-    |> Enum.reduce([], fn
-      {a, b}, [{pa, pb} | rest] when a <= pb + 1 -> [{pa, max(pb, b)} | rest]
-      span, acc -> [span | acc]
-    end)
-    |> Enum.reverse()
-  end
-
   @doc """
   Delete the clause, the comment lines glued above it, and one blank line left behind. The function's
   last clause takes its @doc/@spec too; one clause of several leaves them for the clauses left.
@@ -282,18 +125,6 @@ defmodule Menard.Clause do
 
       drop_spans(source, [span])
     end
-  end
-
-  # What ONE clause of several owns: its @impl and the comment above it. @doc, @spec and a
-  # component's attr/slot describe the function, so they stay — and when they stay above, the blank
-  # line after goes, or they sit apart from the clause they now attach to.
-  defp own_span(ast, lines, %{range: %{end: [line: b, column: _]}} = clause) do
-    a = attrs_start(ast, clause.range, &match?({:@, _, [{:impl, _, _}]}, &1))
-    first = a - 1 - comment_lines_above(lines, a - 1)
-
-    if attrs_start(ast, clause.range) < a and Enum.at(lines, b) == "",
-      do: {first, b},
-      else: with_trailing_blank(lines, {first, b - 1})
   end
 
   @doc """
@@ -341,17 +172,6 @@ defmodule Menard.Clause do
     end
   end
 
-  defp got(_source, scope, _name_arity, name, arity, nil, _opts) do
-    case clauses(scope, name, arity) do
-      [] -> {:error, "no function #{name}/#{arity} here"}
-      all -> {:ok, all}
-    end
-  end
-
-  defp got(source, _scope, name_arity, _name, _arity, head, opts) do
-    with {:ok, clause} <- find(source, name_arity, head, opts), do: {:ok, [clause]}
-  end
-
   @doc "Insert `code` as a new clause on the line after the addressed one, at its indent."
   @spec insert_after(String.t(), String.t(), String.t(), String.t(), keyword()) ::
           String.t() | {:error, String.t()}
@@ -383,32 +203,6 @@ defmodule Menard.Clause do
     end
   end
 
-  # A new clause of the SAME function goes beside the one named. A DIFFERENT function goes around
-  # the whole of this one — after its last clause, before its first — and a blank line apart: landing
-  # between two clauses splits the function, and a split function fails --warnings-as-errors.
-  defp edge(source, name_arity, clause, code, pick) do
-    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
-         defined when defined not in [nil, {name, arity}] <- defines(code),
-         {:ok, ast} <- parse(source),
-         {:ok, scope} <- scope(ast, mod, name, arity),
-         [_ | _] = all <- clauses(scope, name, arity) do
-      {pick.(all), "\n\n"}
-    else
-      _ -> {clause, "\n"}
-    end
-  end
-
-  defp defines(code) do
-    case Sourceror.parse_string(code) do
-      {:ok, {:__block__, _, [_ | _] = nodes}} -> nodes |> List.last() |> defined()
-      {:ok, node} -> defined(node)
-      _ -> nil
-    end
-  end
-
-  defp defined({kind, _meta, [head | _]}) when kind in @kinds, do: name_arity(head)
-  defp defined(_node), do: nil
-
   @doc """
   Insert `code` where there is NO sibling clause to anchor to — a whole new function, which
   `insert_after/4` cannot address because it takes an existing head. (A new *clause* of a function
@@ -425,13 +219,6 @@ defmodule Menard.Clause do
     with {:ok, ast} <- parse(source),
          {:ok, node} <- module_scope(ast, module) do
       insert_into(source, ast, node, where, code)
-    end
-  end
-
-  defp insert_into(source, ast, module_node, where, code) do
-    case anchor(definitions(module_node), normalize_where(where), code) do
-      nil -> insert_inside_empty(source, module_node, code)
-      {sibling, side} -> anchor_insert(source, ast, sibling, side, code)
     end
   end
 
@@ -521,6 +308,385 @@ defmodule Menard.Clause do
     end
   end
 
+  # -- locating a clause ----------------------------------------------------
+
+  @doc """
+  Locate one clause (`t:clause/0`), or an error naming the heads that exist. `opts[:nth]` picks one
+  of several clauses that share the head. Public so `Menard.Stmt` addresses a statement the same way
+  — inside the clause you named, by what is written.
+  """
+  @spec find(String.t(), String.t(), String.t(), keyword()) :: {:ok, clause()} | {:error, String.t()}
+  def find(source, name_arity, head, opts \\ []) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity) do
+      clauses = scope |> clauses(name, arity) |> with_bodies()
+      want = wanted_head(head, name, arity)
+      exact = Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)]))
+      # the guard left off still names a clause, when it isn't what tells the clauses apart
+      unguarded = Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.bare_args)]))
+
+      candidates = if exact != [], do: exact, else: unguarded
+
+      case candidates do
+        [one] ->
+          {:ok, one}
+
+        [_ | _] = many ->
+          pick_nth(many, name, arity, head, opts[:nth])
+
+        # one clause has nothing to tell apart: any head, even the one it is about to get, means it
+        [] when length(clauses) == 1 ->
+          {:ok, hd(clauses)}
+
+        [] ->
+          by_part(clauses, want) || {:error, no_clause(source, name, arity, head, clauses)}
+      end
+    end
+  end
+
+  @doc """
+  A head as the clause verbs address it: the arguments without their `\\\\ default`s, the guard kept.
+  What a caller passes as HEAD, and what `outline` prints for each def.
+  """
+  def bare_head(head) do
+    case split_head(head) do
+      {_args, nil} -> bare_args(head)
+      {_args, guard} -> bare_args(head) <> " when " <> guard
+    end
+  end
+
+  @doc """
+  A head reduced to what tells heads apart: trimmed, one pair of parens wrapping it dropped, and no
+  whitespace. Both sides of a head match go through it; `Menard.Stmt` keys statements with it too.
+  """
+  @spec squash(String.t()) :: String.t()
+  def squash(text), do: text |> String.trim() |> unwrap_parens() |> String.replace(~r/\s+/, "")
+
+  # -- text -----------------------------------------------------------------
+
+  @doc """
+  Set, replace, or with `spec` nil remove the `@spec` of `name_arity`. A spec belongs to the
+  function, not to one clause, so there is no HEAD: it sits above the first clause, below its
+  `@doc`. `spec` is the signature (`go(integer()) :: atom()`); a leading `@spec ` is dropped.
+  """
+  @spec spec(String.t(), String.t(), String.t() | nil) :: String.t() | {:error, String.t()}
+  def spec(source, name_arity, spec) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity) do
+      case clauses(scope, name, arity) do
+        [] -> {:error, "no #{name}/#{arity} in this file"}
+        [first | _] -> set_spec(source, ast, first, spec)
+      end
+    end
+  end
+
+  defp set_spec(source, ast, first, spec) do
+    rendered =
+      spec && first.indent <> "@spec " <> (spec |> String.trim() |> String.replace_prefix("@spec ", ""))
+
+    %{start: [line: line, column: _]} = first.range
+
+    case {attached_lines(ast, first.range, :spec), rendered} do
+      {nil, nil} -> source
+      {nil, _} -> insert_at_line(source, line, rendered)
+      {{a, b}, nil} -> delete_lines(source, a, b)
+      {{a, b}, _} -> replace_line_range(source, a, b, rendered)
+    end
+  end
+
+  defp insert_at_line(source, line, text) do
+    lines = String.split(source, "\n")
+    {before, rest} = Enum.split(lines, line - 1)
+
+    Enum.join(before ++ [text] ++ rest, "\n")
+  end
+
+  # When the replacement carries its own leading comment, the range grows upward to swallow the
+  # comment already glued above the clause — otherwise the old why and the new one both survive.
+  defp with_comments_above(source, range, code) do
+    case split_leading_comments(code) do
+      {"", _body} ->
+        range
+
+      {_lead, _body} ->
+        %{start: [line: line, column: _]} = range
+        lines = String.split(source, "\n")
+        above = comment_lines_above(lines, line - 1)
+
+        put_in(range.start, line: line - above, column: 1)
+    end
+  end
+
+  defp replace_line_range(source, a, b, text) do
+    lines = String.split(source, "\n")
+
+    (Enum.take(lines, a - 1) ++ [text] ++ Enum.drop(lines, b))
+    |> Enum.join("\n")
+  end
+
+  # The `#` comment block immediately above line `anchor`: written, replaced, or — with `text` nil —
+  # removed. Where `rewrite` puts the comment the new clause came with.
+  defp comment_at(source, anchor, indent, text) do
+    above = source |> String.split("\n") |> comment_lines_above(anchor - 1)
+
+    case {above, text} do
+      {0, nil} -> source
+      {0, _} -> insert_at_line(source, anchor, comment_text(text, indent))
+      {n, nil} -> delete_lines(source, anchor - n, anchor - 1)
+      {n, _} -> replace_line_range(source, anchor - n, anchor - 1, comment_text(text, indent))
+    end
+  end
+
+  defp comment_text(text, indent) do
+    pad = if is_integer(indent), do: String.duplicate(" ", indent), else: indent
+
+    text
+    |> String.trim_trailing()
+    |> String.split("\n")
+    |> Enum.map_join("\n", fn line ->
+      case line |> String.trim() |> String.replace_prefix("#", "") |> String.trim_leading() do
+        "" -> pad <> "#"
+        body -> pad <> "# " <> body
+      end
+    end)
+  end
+
+  # The lines of the `@name` attached above the clause at `range`, or nil.
+  defp attached_lines(ast, %{start: [line: line, column: _]}, name) do
+    Enum.reduce(module_bodies(ast), nil, fn statements, acc ->
+      case statements |> attached_above(line) |> Enum.find(&match?({:@, _, [{^name, _, _}]}, &1)) do
+        nil -> acc
+        node -> line_span(node)
+      end
+    end)
+  end
+
+  # LINE numbers, not the node range: a heredoc `@doc` ends at a column Sourceror places past the
+  # closing quotes, and patching that range swallowed the newline after it (`"""  @spec`). An
+  # attribute owns whole lines, so whole lines are what gets replaced.
+  defp line_span(node) do
+    %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
+    {a, b}
+  end
+
+  defp doc_attr?({:@, _meta, [{:doc, _inner, _args}]}), do: true
+  defp doc_attr?(_node), do: false
+
+  defp has_body(%{kind: kind, name: name}) when kind in @bodiless,
+    do: {:error, "`#{kind} #{name}` has no body to replace — `rewrite` replaces the whole #{kind}"}
+
+  defp has_body(_clause), do: :ok
+
+  # Only the body's bytes move, so a clause keeps its form. `do … end` holds anything. `, do:` holds
+  # the new body only if it reads back as itself there — `do: if a, do: b, else: c` hands `else:` to
+  # the def — so that is checked, and a body that does not fit turns the clause into `do … end`.
+  # `rescue`/`after`/… beside a `do:` would need the same care, and is refused toward `rewrite`.
+  defp body_edit(
+         source,
+         %{node: {_kind, meta, [_head, [{_do, body} | rest]]}} = clause,
+         code,
+         name_arity,
+         opts
+       ) do
+    range =
+      body
+      |> Menard.Source.range(source)
+      |> Menard.Source.with_leading_comments(source, code)
+
+    cond do
+      meta[:do] ->
+        source |> patch(range, reindent(code, clause.indent <> "  ")) |> blocks_once(name_arity, clause, opts)
+
+      rest != [] ->
+        {:error, "this clause has rescue/catch/after/else in keyword form — use `rewrite`"}
+
+      true ->
+        inline = patch(source, range, String.trim(code))
+
+        if reads_back?(inline, source, clause, code),
+          do: inline,
+          else: patch(source, clause.range, clause_text(clause, code))
+    end
+  end
+
+  defp body_edit(source, clause, code, _name_arity, _opts),
+    do: patch(source, clause.range, clause_text(clause, code))
+
+  # A `rescue`/`after`/… in CODE joins the clause's own; given twice, it parses and does not compile.
+  defp blocks_once(out, name_arity, clause, opts) do
+    with {:ok, %{node: {_kind, _meta, [_head, blocks]}}} when is_list(blocks) <-
+           find(out, name_arity, clause.head_text, opts),
+         keys = Enum.map(blocks, fn {{:__block__, _, [key]}, _} -> key end),
+         [_ | _] = twice <- Enum.uniq(keys -- Enum.uniq(keys)) do
+      {:error,
+       "CODE carries its own #{Enum.join(twice, ", ")}, and the clause already has one — use `rewrite`"}
+    else
+      _ -> out
+    end
+  end
+
+  # One parse of OUT answers both questions: does the clause's body read back as CODE, and does it
+  # take a warning to — an unparenthesised call in a keyword is ambiguous to Elixir, which picks a
+  # reading and says so. The source is parsed for its own warnings only when OUT has some.
+  defp reads_back?(out, source, clause, code) do
+    %{start: [line: line, column: column]} = clause.range
+
+    with false <- String.contains?(String.trim(code), "\n"),
+         {{:ok, ast}, warnings} <- Code.with_diagnostics(fn -> Code.string_to_quoted(out, columns: true) end),
+         {{:ok, want}, _} <- Code.with_diagnostics(fn -> Code.string_to_quoted(code) end),
+         {_kind, _meta, [_head, [do: body]]} <- def_at(ast, line, column) do
+      no_meta(body) == no_meta(want) and (warnings == [] or length(warnings) <= parse_warnings(source))
+    else
+      _ -> false
+    end
+  end
+
+  defp def_at(ast, line, column) do
+    ast
+    |> Macro.prewalk(nil, fn
+      {kind, meta, _args} = node, nil when kind in @kinds ->
+        {node, if(meta[:line] == line and meta[:column] == column, do: node)}
+
+      node, found ->
+        {node, found}
+    end)
+    |> elem(1)
+  end
+
+  defp no_meta(ast), do: Macro.prewalk(ast, &Macro.update_meta(&1, fn _meta -> [] end))
+
+  defp parse_warnings(source) do
+    {_result, diagnostics} = Code.with_diagnostics(fn -> Code.string_to_quoted(source) end)
+    length(diagnostics)
+  end
+
+  # One clause of several stays a clause of THAT function: a defp among defs does not compile, and a
+  # clause of another name/arity between them splits the function. The only clause IS the function,
+  # free to change.
+  defp keeps_function(ast, name_arity, clause, {kind, _meta, [head | _]}) do
+    {:ok, {mod, name, arity}} = parse_name_arity(name_arity)
+    {:ok, scope} = scope(ast, mod, name, arity)
+    {new_name, new_arity} = name_arity(head)
+
+    if match?([_], clauses(scope, name, arity)) or {kind, new_name, new_arity} == {clause.kind, name, arity} do
+      :ok
+    else
+      {:error,
+       "#{name}/#{arity} has other clauses, so this one stays `#{clause.kind} #{name}/#{arity}`, and CODE is " <>
+         "`#{kind} #{new_name}/#{new_arity}` — `visibility` flips every clause; a new function goes in with `insert_at`"}
+    end
+  end
+
+  defp patch_with_comments(source, clause, code) do
+    range = with_comments_above(source, clause.range, code)
+    # a range widened to the comments above starts at column 1, so the text brings its own indent
+    indent = if range.start[:column] == 1, do: clause.indent, else: ""
+    patch(source, range, indent <> reindent(code, clause.indent))
+  end
+
+  # The lines a clause OWNS: its `def`, the @doc/@spec/@impl written above it, and the comment above
+  # those. Zero-based and inclusive. Shared by `delete/4` and `spans/2` (a move), which must agree exactly —
+  # a doc left behind by one re-attaches to whatever definition follows it.
+  defp attached_span(ast, lines, %{range: %{end: [line: b, column: _]}} = clause) do
+    a = attrs_start(ast, clause.range)
+    {a - 1 - comment_lines_above(lines, a - 1), b - 1}
+  end
+
+  # spans are zero-based, as `attached_span/3` counts them
+  defp drop_spans(source, spans),
+    do: Menard.Source.delete_lines(source, for({a, b} <- spans, do: {a + 1, b + 1}))
+
+  # Take the blank line after the span too, but only when the span was blank-separated above as
+  # well — otherwise removing the last clause of a run closes a gap that was never there.
+  defp with_trailing_blank(lines, {first, last}) do
+    # a blank left against the block's own `… do` or `end` is a gap the format stage then closes:
+    # the one under the span goes when a blank, the file's start or the `do` is above it, and the
+    # one over it when the `end` is below
+    above = trimmed_at(lines, first - 1)
+    below = trimmed_at(lines, last + 1)
+
+    cond do
+      below == "" and (above == "" or String.ends_with?(above, " do")) -> {first, last + 1}
+      first > 0 and above == "" and below == "end" -> {first - 1, last}
+      true -> {first, last}
+    end
+  end
+
+  # before the file's first line there is nothing, not its last (Enum.at counts back from the end)
+  defp trimmed_at(_lines, i) when i < 0, do: ""
+  defp trimmed_at(lines, i), do: lines |> Enum.at(i, "") |> String.trim()
+
+  # A function's clauses sit together, so their spans are one block to a reader and to the
+  # blank-line rule — applied per clause it never fires, and the gap the function left stays open.
+  # Non-adjacent spans stay separate: merging them would take whatever sits between.
+  defp merge_spans(spans) do
+    spans
+    |> Enum.sort()
+    |> Enum.reduce([], fn
+      {a, b}, [{pa, pb} | rest] when a <= pb + 1 -> [{pa, max(pb, b)} | rest]
+      span, acc -> [span | acc]
+    end)
+    |> Enum.reverse()
+  end
+
+  # What ONE clause of several owns: its @impl and the comment above it. @doc, @spec and a
+  # component's attr/slot describe the function, so they stay — and when they stay above, the blank
+  # line after goes, or they sit apart from the clause they now attach to.
+  defp own_span(ast, lines, %{range: %{end: [line: b, column: _]}} = clause) do
+    a = attrs_start(ast, clause.range, &match?({:@, _, [{:impl, _, _}]}, &1))
+    first = a - 1 - comment_lines_above(lines, a - 1)
+
+    if attrs_start(ast, clause.range) < a and Enum.at(lines, b) == "",
+      do: {first, b},
+      else: with_trailing_blank(lines, {first, b - 1})
+  end
+
+  defp got(_source, scope, _name_arity, name, arity, nil, _opts) do
+    case clauses(scope, name, arity) do
+      [] -> {:error, "no function #{name}/#{arity} here"}
+      all -> {:ok, all}
+    end
+  end
+
+  defp got(source, _scope, name_arity, _name, _arity, head, opts) do
+    with {:ok, clause} <- find(source, name_arity, head, opts), do: {:ok, [clause]}
+  end
+
+  # A new clause of the SAME function goes beside the one named. A DIFFERENT function goes around
+  # the whole of this one — after its last clause, before its first — and a blank line apart: landing
+  # between two clauses splits the function, and a split function fails --warnings-as-errors.
+  defp edge(source, name_arity, clause, code, pick) do
+    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
+         defined when defined not in [nil, {name, arity}] <- defines(code),
+         {:ok, ast} <- parse(source),
+         {:ok, scope} <- scope(ast, mod, name, arity),
+         [_ | _] = all <- clauses(scope, name, arity) do
+      {pick.(all), "\n\n"}
+    else
+      _ -> {clause, "\n"}
+    end
+  end
+
+  defp defines(code) do
+    case Sourceror.parse_string(code) do
+      {:ok, {:__block__, _, [_ | _] = nodes}} -> nodes |> List.last() |> defined()
+      {:ok, node} -> defined(node)
+      _ -> nil
+    end
+  end
+
+  defp defined({kind, _meta, [head | _]}) when kind in @kinds, do: name_arity(head)
+  defp defined(_node), do: nil
+
+  defp insert_into(source, ast, module_node, where, code) do
+    case anchor(definitions(module_node), normalize_where(where), code) do
+      nil -> insert_inside_empty(source, module_node, code)
+      {sibling, side} -> anchor_insert(source, ast, sibling, side, code)
+    end
+  end
+
   # Where a new function goes. `:top`/`:bottom` are the module first/last definition, asked for
   # explicitly; with neither, the CODE says — a `defp` belongs after the last private function, a
   # `def` after the last public one, which is where a reader goes looking for it. Nothing to anchor
@@ -576,43 +742,6 @@ defmodule Menard.Clause do
     %{start: [line: _, column: col], end: [line: line, column: _]} = Sourceror.get_range(node)
     at = %{start: [line: line, column: 1], end: [line: line, column: 1]}
     patch(source, at, indented(code, col + 2) <> "\n")
-  end
-
-  # -- locating a clause ----------------------------------------------------
-
-  @doc """
-  Locate one clause (`t:clause/0`), or an error naming the heads that exist. `opts[:nth]` picks one
-  of several clauses that share the head. Public so `Menard.Stmt` addresses a statement the same way
-  — inside the clause you named, by what is written.
-  """
-  @spec find(String.t(), String.t(), String.t(), keyword()) :: {:ok, clause()} | {:error, String.t()}
-  def find(source, name_arity, head, opts \\ []) do
-    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
-         {:ok, ast} <- parse(source),
-         {:ok, scope} <- scope(ast, mod, name, arity) do
-      clauses = scope |> clauses(name, arity) |> with_bodies()
-      want = wanted_head(head, name, arity)
-      exact = Enum.filter(clauses, &(want in [squash(&1.head_text), squash(&1.bare_head)]))
-      # the guard left off still names a clause, when it isn't what tells the clauses apart
-      unguarded = Enum.filter(clauses, &(want in [squash(&1.args), squash(&1.bare_args)]))
-
-      candidates = if exact != [], do: exact, else: unguarded
-
-      case candidates do
-        [one] ->
-          {:ok, one}
-
-        [_ | _] = many ->
-          pick_nth(many, name, arity, head, opts[:nth])
-
-        # one clause has nothing to tell apart: any head, even the one it is about to get, means it
-        [] when length(clauses) == 1 ->
-          {:ok, hd(clauses)}
-
-        [] ->
-          by_part(clauses, want) || {:error, no_clause(source, name, arity, head, clauses)}
-      end
-    end
   end
 
   # A head with no body (`def run(edits, opts \\ [])`, there for its defaults) is no clause to get or
@@ -879,17 +1008,6 @@ defmodule Menard.Clause do
 
   defp split_head(_head), do: {"", nil}
 
-  @doc """
-  A head as the clause verbs address it: the arguments without their `\\\\ default`s, the guard kept.
-  What a caller passes as HEAD, and what `outline` prints for each def.
-  """
-  def bare_head(head) do
-    case split_head(head) do
-      {_args, nil} -> bare_args(head)
-      {_args, guard} -> bare_args(head) <> " when " <> guard
-    end
-  end
-
   defp bare_args({:when, _, [call | _]}), do: bare_args(call)
 
   defp bare_args({_name, _, args}) when is_list(args) do
@@ -901,12 +1019,6 @@ defmodule Menard.Clause do
 
   defp bare_args(_head), do: ""
 
-  @doc """
-  A head reduced to what tells heads apart: trimmed, one pair of parens wrapping it dropped, and no
-  whitespace. Both sides of a head match go through it; `Menard.Stmt` keys statements with it too.
-  """
-  @spec squash(String.t()) :: String.t()
-  def squash(text), do: text |> String.trim() |> unwrap_parens() |> String.replace(~r/\s+/, "")
   # `(dir, args)` IS how a head is written, so accept the parens people copy off the def line —
   # strip one pair when it actually wraps the whole head (`(a), (b)` is two args, not a wrapper,
   # and stays as it is).
@@ -969,8 +1081,6 @@ defmodule Menard.Clause do
       :ok
     end
   end
-
-  # -- text -----------------------------------------------------------------
 
   defp clause_text(%{kind: kind, name: name, args: args, guard: guard, indent: indent}, code) do
     # zero arity is written WITHOUT parens in Elixir, and rewriting `def bg` as `def bg()` is a
@@ -1087,113 +1197,4 @@ defmodule Menard.Clause do
       end)
     end)
   end
-
-  @doc """
-  Set, replace, or with `spec` nil remove the `@spec` of `name_arity`. A spec belongs to the
-  function, not to one clause, so there is no HEAD: it sits above the first clause, below its
-  `@doc`. `spec` is the signature (`go(integer()) :: atom()`); a leading `@spec ` is dropped.
-  """
-  @spec spec(String.t(), String.t(), String.t() | nil) :: String.t() | {:error, String.t()}
-  def spec(source, name_arity, spec) do
-    with {:ok, {mod, name, arity}} <- parse_name_arity(name_arity),
-         {:ok, ast} <- parse(source),
-         {:ok, scope} <- scope(ast, mod, name, arity) do
-      case clauses(scope, name, arity) do
-        [] -> {:error, "no #{name}/#{arity} in this file"}
-        [first | _] -> set_spec(source, ast, first, spec)
-      end
-    end
-  end
-
-  defp set_spec(source, ast, first, spec) do
-    rendered =
-      spec && first.indent <> "@spec " <> (spec |> String.trim() |> String.replace_prefix("@spec ", ""))
-
-    %{start: [line: line, column: _]} = first.range
-
-    case {attached_lines(ast, first.range, :spec), rendered} do
-      {nil, nil} -> source
-      {nil, _} -> insert_at_line(source, line, rendered)
-      {{a, b}, nil} -> delete_lines(source, a, b)
-      {{a, b}, _} -> replace_line_range(source, a, b, rendered)
-    end
-  end
-
-  defp insert_at_line(source, line, text) do
-    lines = String.split(source, "\n")
-    {before, rest} = Enum.split(lines, line - 1)
-
-    Enum.join(before ++ [text] ++ rest, "\n")
-  end
-
-  # When the replacement carries its own leading comment, the range grows upward to swallow the
-  # comment already glued above the clause — otherwise the old why and the new one both survive.
-  defp with_comments_above(source, range, code) do
-    case split_leading_comments(code) do
-      {"", _body} ->
-        range
-
-      {_lead, _body} ->
-        %{start: [line: line, column: _]} = range
-        lines = String.split(source, "\n")
-        above = comment_lines_above(lines, line - 1)
-
-        put_in(range.start, line: line - above, column: 1)
-    end
-  end
-
-  defp replace_line_range(source, a, b, text) do
-    lines = String.split(source, "\n")
-
-    (Enum.take(lines, a - 1) ++ [text] ++ Enum.drop(lines, b))
-    |> Enum.join("\n")
-  end
-
-  # The `#` comment block immediately above line `anchor`: written, replaced, or — with `text` nil —
-  # removed. Where `rewrite` puts the comment the new clause came with.
-  defp comment_at(source, anchor, indent, text) do
-    above = source |> String.split("\n") |> comment_lines_above(anchor - 1)
-
-    case {above, text} do
-      {0, nil} -> source
-      {0, _} -> insert_at_line(source, anchor, comment_text(text, indent))
-      {n, nil} -> delete_lines(source, anchor - n, anchor - 1)
-      {n, _} -> replace_line_range(source, anchor - n, anchor - 1, comment_text(text, indent))
-    end
-  end
-
-  defp comment_text(text, indent) do
-    pad = if is_integer(indent), do: String.duplicate(" ", indent), else: indent
-
-    text
-    |> String.trim_trailing()
-    |> String.split("\n")
-    |> Enum.map_join("\n", fn line ->
-      case line |> String.trim() |> String.replace_prefix("#", "") |> String.trim_leading() do
-        "" -> pad <> "#"
-        body -> pad <> "# " <> body
-      end
-    end)
-  end
-
-  # The lines of the `@name` attached above the clause at `range`, or nil.
-  defp attached_lines(ast, %{start: [line: line, column: _]}, name) do
-    Enum.reduce(module_bodies(ast), nil, fn statements, acc ->
-      case statements |> attached_above(line) |> Enum.find(&match?({:@, _, [{^name, _, _}]}, &1)) do
-        nil -> acc
-        node -> line_span(node)
-      end
-    end)
-  end
-
-  # LINE numbers, not the node range: a heredoc `@doc` ends at a column Sourceror places past the
-  # closing quotes, and patching that range swallowed the newline after it (`"""  @spec`). An
-  # attribute owns whole lines, so whole lines are what gets replaced.
-  defp line_span(node) do
-    %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
-    {a, b}
-  end
-
-  defp doc_attr?({:@, _meta, [{:doc, _inner, _args}]}), do: true
-  defp doc_attr?(_node), do: false
 end

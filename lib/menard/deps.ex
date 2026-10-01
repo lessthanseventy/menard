@@ -86,78 +86,7 @@ defmodule Menard.Deps do
   def reached(graph, call),
     do: resolve(call, defined(for {key, %{nodes: nodes}} <- graph, n <- nodes, do: {key, n}))
 
-  # every function defined, with how few arguments a call to it may give
-  defp defined(defs) do
-    defs
-    |> Enum.group_by(&key/1, fn {_key, {_kind, _meta, [head | _]}} -> defaults(head) end)
-    |> Map.new(fn {{_name, arity} = key, defaults} -> {key, arity - Enum.max(defaults)} end)
-  end
-
-  defp defaults({:when, _meta, [call | _guard]}), do: defaults(call)
-  defp defaults({_name, _meta, args}) when is_list(args), do: Enum.count(args, &match?({:\\, _, [_, _]}, &1))
-  defp defaults(_head), do: 0
-
-  defp resolve({name, arity} = call, defined) do
-    if is_map_key(defined, call) do
-      call
-    else
-      Enum.find(Map.keys(defined), fn {n, a} = key -> n == name and a > arity and defined[key] <= arity end)
-    end
-  end
-
-  # the calls that are to this module's own functions, each as the function it reaches
-  defp own(calls, defined) do
-    for call <- calls, key = resolve(call, defined), into: MapSet.new(), do: key
-  end
-
-  defp report(mine, defs, want) do
-    refs = Enum.reduce(mine, empty(), fn {_key, node}, acc -> collect(node, acc) end)
-
-    locals =
-      refs.calls
-      |> own(defined(defs))
-      |> Enum.reject(&(&1 == want))
-      |> Enum.sort()
-      |> Enum.map(fn call -> %{call: name(call), shared_with: shared_with(defs, call, want)} end)
-
-    %{
-      locals: locals,
-      remotes: refs.remotes |> Enum.uniq() |> Enum.sort(),
-      modules: refs.modules |> Enum.uniq() |> Enum.sort(),
-      attributes: refs.attributes |> Enum.uniq() |> Enum.sort()
-    }
-  end
-
-  # Which OTHER functions of this module call `target` — the reason a helper cannot simply travel
-  # with the function being moved.
-  defp shared_with(defs, target, want) do
-    defs
-    |> Enum.reject(&(key(&1) == want))
-    |> Enum.filter(fn {_key, node} -> target in own(collect(node, empty()).calls, defined(defs)) end)
-    |> Enum.map(&name(key(&1)))
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
   # -- walking a body -------------------------------------------------------
-
-  # The body, and the head's arguments and guard, but not the head's own name: walking the whole def
-  # node counted its head as a call, so every function came back "shared with" itself and nothing
-  # ever looked free to move. A default (`at \\ now()`) and a guard (`when k in @kinds`) are calls
-  # and reads as much as the body's, and they travel with the function.
-  defp collect({_kind, _meta, [head | rest]}, acc) do
-    [head_parts(head) | rest]
-    |> Macro.prewalk(&as_call/1)
-    |> Zipper.zip()
-    |> Zipper.traverse(acc, fn zipper, found -> {zipper, absorb(Zipper.node(zipper), found)} end)
-    |> elem(1)
-  end
-
-  defp collect(_node, acc), do: acc
-
-  defp head_parts({:when, _meta, [call, guard]}), do: [head_parts(call), guard]
-  defp head_parts({_name, _meta, args}) when is_list(args), do: args
-  defp head_parts(_head), do: []
 
   # A pipeline step and a capture, written as the call they make: `x |> step()` is step/1, not
   # step/0, and `&step/1` calls step/1. Read as written, a helper two functions share looked free
@@ -218,4 +147,75 @@ defmodule Menard.Deps do
       _ -> {:error, "expected name/arity, got #{inspect(name_arity)}"}
     end
   end
+
+  # every function defined, with how few arguments a call to it may give
+  defp defined(defs) do
+    defs
+    |> Enum.group_by(&key/1, fn {_key, {_kind, _meta, [head | _]}} -> defaults(head) end)
+    |> Map.new(fn {{_name, arity} = key, defaults} -> {key, arity - Enum.max(defaults)} end)
+  end
+
+  defp defaults({:when, _meta, [call | _guard]}), do: defaults(call)
+  defp defaults({_name, _meta, args}) when is_list(args), do: Enum.count(args, &match?({:\\, _, [_, _]}, &1))
+  defp defaults(_head), do: 0
+
+  defp resolve({name, arity} = call, defined) do
+    if is_map_key(defined, call) do
+      call
+    else
+      Enum.find(Map.keys(defined), fn {n, a} = key -> n == name and a > arity and defined[key] <= arity end)
+    end
+  end
+
+  # the calls that are to this module's own functions, each as the function it reaches
+  defp own(calls, defined) do
+    for call <- calls, key = resolve(call, defined), into: MapSet.new(), do: key
+  end
+
+  defp report(mine, defs, want) do
+    refs = Enum.reduce(mine, empty(), fn {_key, node}, acc -> collect(node, acc) end)
+
+    locals =
+      refs.calls
+      |> own(defined(defs))
+      |> Enum.reject(&(&1 == want))
+      |> Enum.sort()
+      |> Enum.map(fn call -> %{call: name(call), shared_with: shared_with(defs, call, want)} end)
+
+    %{
+      locals: locals,
+      remotes: refs.remotes |> Enum.uniq() |> Enum.sort(),
+      modules: refs.modules |> Enum.uniq() |> Enum.sort(),
+      attributes: refs.attributes |> Enum.uniq() |> Enum.sort()
+    }
+  end
+
+  # Which OTHER functions of this module call `target` — the reason a helper cannot simply travel
+  # with the function being moved.
+  defp shared_with(defs, target, want) do
+    defs
+    |> Enum.reject(&(key(&1) == want))
+    |> Enum.filter(fn {_key, node} -> target in own(collect(node, empty()).calls, defined(defs)) end)
+    |> Enum.map(&name(key(&1)))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  # The body, and the head's arguments and guard, but not the head's own name: walking the whole def
+  # node counted its head as a call, so every function came back "shared with" itself and nothing
+  # ever looked free to move. A default (`at \\ now()`) and a guard (`when k in @kinds`) are calls
+  # and reads as much as the body's, and they travel with the function.
+  defp collect({_kind, _meta, [head | rest]}, acc) do
+    [head_parts(head) | rest]
+    |> Macro.prewalk(&as_call/1)
+    |> Zipper.zip()
+    |> Zipper.traverse(acc, fn zipper, found -> {zipper, absorb(Zipper.node(zipper), found)} end)
+    |> elem(1)
+  end
+
+  defp collect(_node, acc), do: acc
+
+  defp head_parts({:when, _meta, [call, guard]}), do: [head_parts(call), guard]
+  defp head_parts({_name, _meta, args}) when is_list(args), do: args
+  defp head_parts(_head), do: []
 end
