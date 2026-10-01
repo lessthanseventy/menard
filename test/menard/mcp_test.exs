@@ -648,7 +648,7 @@ defmodule Menard.MCPTest do
     assert Enum.map(blocks, & &1["label"]) == ["a", "b"]
     response = call(Menard.MCP.Block, %{verb: "get", file: "lib/a_test.exs", name: "test", label: "b"})
 
-    assert response.content |> hd() |> Map.fetch!("text") |> JSON.decode!() |> Map.fetch!("body") ==
+    assert response.content |> hd() |> Map.fetch!("text") |> JSON.decode!() |> Map.fetch!("code") ==
              "assert 2"
   end
 

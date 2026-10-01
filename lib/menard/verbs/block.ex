@@ -13,7 +13,7 @@ defmodule Menard.Verbs.Block do
       name: "block",
       doc: """
       The body of a macro's `do` block — `schema do`, `describe "…" do`, `test "…" do`. Not a clause,
-      so no clause verb reaches one. `verb` is `get`, `replace` (body := `code`), `list`, or `relabel`
+      so no clause verb reaches one. `verb` is `get`, `replace` (body := `code`, as `get` answers it), `list`, or `relabel`
       (`label` becomes `new_label`). `label` is the macro's first string argument, which is what makes
       `describe`/`test` addressable; several blocks of one name with no label is refused, listing them.
       `add` writes a NEW block — at the end of the block named by `in` (a describe, by its label), else
@@ -128,7 +128,7 @@ defmodule Menard.Verbs.Block do
 
     case all do
       [_, _ | _] -> {:ok, %{blocks: all}}
-      _ -> with text when is_binary(text) <- Block.get(source, p.name, where(p)), do: {:ok, %{body: text}}
+      _ -> with text when is_binary(text) <- Block.get(source, p.name, where(p)), do: {:ok, %{code: text}}
     end
   end
 
