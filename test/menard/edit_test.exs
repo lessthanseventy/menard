@@ -364,4 +364,23 @@ defmodule Menard.EditTest do
     assert reply.moved == ["lib/t.ex: helped/1 after the last clause of tool/1, not between its clauses"]
     assert reply.indented == ["lib/t.ex: found 2 spaces deeper than given, and written there"]
   end
+
+  @tag :tmp_dir
+  test "a miss on its first line shows the line that starts most like it", %{tmp_dir: dir} do
+    # the first line itself was wrapped by the formatter: the line that starts most like it, and on
+    File.write!(Path.join(dir, "lib/n.ex"), """
+    defmodule N do
+      def go(
+            first_long_argument_name,
+            second_long_argument_name
+          ) do
+        first_long_argument_name
+      end
+    end
+    """)
+
+    old = "  def go(first_long_argument_name, second_long_argument_name) do\n    first_long_argument_name"
+    assert {:error, why} = edit(dir, [%{file: "lib/n.ex", old: old, new: "  def go(a, b) do\n    a"}])
+    assert why =~ "nearest, at line 2:\n  def go(\n        first_long_argument_name,"
+  end
 end

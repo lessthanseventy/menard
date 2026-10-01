@@ -264,8 +264,21 @@ defmodule Menard.Edit do
 
       "this text is not there: the first #{found} lines are there, at line #{line(text, at)}; from line #{from} the file reads:\n#{there}"
     else
-      "this text is not there, not even its first line: #{hd(olds)}"
+      "this text is not there, not even its first line: #{hd(olds)}" <> nearest(text, hd(olds), length(olds))
     end
+  end
+
+  # the line that starts most like `first` (trimmed; 6 characters in common at least), and the lines
+  # after it: the formatter wrapped a head, and the next try needs no read
+  defp nearest(text, first, n) do
+    want = String.trim(first)
+    lines = String.split(text, "\n")
+    common = &:binary.longest_common_prefix([String.trim(&1), want])
+    {line, at} = lines |> Enum.with_index(1) |> Enum.max_by(fn {line, _} -> common.(line) end)
+
+    if common.(line) >= 6,
+      do: "\nnearest, at line #{at}:\n" <> Enum.join(Enum.slice(lines, at - 1, n + 3), "\n"),
+      else: ""
   end
 
   defp several(text, old, found) do
