@@ -30,10 +30,6 @@ commit lands.
   while the server ran pre-d58e6bc code. Cause unknown: whether the server was busy (a hook call
   queued behind something) or the edit itself stuck.
 
-- Working on menard itself, the session's MCP server keeps the code it started with: a hook fix
-  committed mid-session (d58e6bc, the format hook and formatter inputs) did nothing until the
-  server restarted (`/mcp` reconnect). The server could notice its own build is newer than what
-  it loaded and reload, or say so.
 
 - A `run` past the MCP tool's cap (620 s) answers nothing: the agent waits ten minutes and learns
   only "timed out" (up2, Oban: tests hanging on a MySQL that was not there, twice in one step). The
