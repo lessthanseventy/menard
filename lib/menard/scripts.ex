@@ -375,7 +375,7 @@ defmodule Menard.Scripts do
     # menard where a command starts (after a separator, or a loop's `do`, `then`, `xargs`), its
     # reply piped into a filter or thrown away
     Regex.match?(
-      ~r/(?:^|[;&|(]\s*|\b(?:do|then|else|xargs)\s+)(?:\S*\/)?menard\s[^|;&\n>]*(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b|>\s*\/dev\/null)/m,
+      ~r/(?:^|[;&|(]\s*|\b(?:do|then|else)\s+|\bxargs(?:\s+-\S+)*\s+)(?:\S*\/)?menard\s[^|;&\n>]*(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b|>\s*\/dev\/null)/m,
       line
     )
   end
