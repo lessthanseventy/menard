@@ -38,6 +38,16 @@ if Code.ensure_loaded?(Anubis.Server) do
     def call(verbs, params, frame, _ms), do: answer(frame, verbs.run(params(params)))
 
     @doc """
+    A call's bound: the tool's own, but an `edit` with no `then` is seconds of work, bounded as
+    any verb. Its 600s are for the tests a `then` runs, and one of three small writes went silent
+    past the client's 120s (2026-10-01).
+    """
+    def deadline(ms, Verbs.Edit, params) when not is_map_key(params, :then) or params.then in [nil, ""],
+      do: min(ms, Verbs.Noun.deadline(%{}))
+
+    def deadline(ms, _verbs, _params), do: ms
+
+    @doc """
     Working on menard itself, its source changes under the server, and a server that kept the code
     it started with ran none of the fixes made since (hooks included: they are calls to it). So a
     call first builds menard as it is now (bin/menard, as any verb is built, the last good build kept
@@ -162,7 +172,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
 
       @impl true
-      def execute(params, frame), do: Reply.bounded(__MODULE__, params, frame, @deadline)
+      def execute(params, frame),
+        do: Reply.bounded(__MODULE__, params, frame, Reply.deadline(@deadline, @verbs, params))
 
       def call(params, frame), do: Reply.call(@verbs, params, frame, @deadline)
     end
