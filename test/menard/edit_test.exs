@@ -134,6 +134,33 @@ defmodule Menard.EditTest do
     assert read(dir, "lib/b.ex") =~ "A.nope()"
   end
 
+  test "then: test runs the tests of what the edit changed, not the whole suite", %{tmp_dir: dir} do
+    # 2026-09-30: a one-line edit's `then: test` ran menard's 1,034 tests, and timed out at 620 s
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n  test \"two\", do: assert(A.two() == 22)\nend\n"
+    )
+
+    File.write!(
+      Path.join(dir, "test/b_test.exs"),
+      "defmodule BTest do\n  use ExUnit.Case\n  test \"elsewhere\", do: assert(false)\nend\n"
+    )
+
+    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+             edit(dir, [%{file: "lib/a.ex", old: "def two, do: 2", new: "def two, do: 22"}], %{
+               then: "test"
+             })
+
+    # an edited test file is its own test
+    assert {:ok, %{run: %{ok: false, tests: 1}}} =
+             edit(dir, [%{file: "test/b_test.exs", old: "elsewhere", new: "still elsewhere"}], %{
+               then: "test"
+             })
+  end
+
   test "the CLI's edits are search/replace blocks", %{tmp_dir: dir} do
     blocks = """
     lib/a.ex

@@ -129,7 +129,7 @@ defmodule Menard.Scripts do
   defp instead(menard) do
     """
     Text is replaced, in one file or many, in one call, with menard's edit: every text found exactly \
-    once or nothing written, and `--then test` runs the tests after.
+    once or nothing written, and `--then test` runs the tests of what it changed after.
       #{menard} edit --then test - <<'EOF'
       lib/a.ex
       <<<<<<< SEARCH

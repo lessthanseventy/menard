@@ -20,8 +20,3 @@ commit lands.
   no hook on Read, Agent or Task; the 09-26 wiring's hooks/format-report.sh, today `menard hook`,
   still answered Bash and Write/Edit. format-report.sh could notice it is run as a command hook
   under Claude Code, which hooks.json no longer does, and tell the agent to restart Claude Code.
-
-- `edit --then test` runs the whole suite (then_run/2 passes no args: 1,034 tests for a one-line
-  edit of lib/menard/piped.ex, 2026-09-30), where the skill says to test the changed files while
-  working. It should run the tests of what it changed: an edited test file, and the test file
-  that mirrors an edited lib file (or `--stale`).

@@ -20,7 +20,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       instructions: """
       Several replacements of text, in one file or many, are ONE call to edit, where you would
       write a script (python, sed): each text is found exactly once or the call is refused and
-      says which, nothing is written unless all of it is, and `then: "test"` runs the tests after.
+      says which, nothing is written unless all of it is, and `then: "test"` runs the tests of what it changed after.
       The other tools are for where grep, sed and Edit guess: a rename across files (rename), who
       calls a function (find), a function moved with its docs (clause move), a module split into
       several in one call (clause split), one function out of a file too big to read (outline,
