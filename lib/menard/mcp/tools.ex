@@ -40,9 +40,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     @doc """
     Working on menard itself, its source changes under the server, and a server that kept the code
     it started with ran none of the fixes made since (hooks included: they are calls to it). So a
-    call first compiles menard as it is now, in place; one that does not compile (an edit half
-    applied) leaves the code it had. An installed menard's source does not change: this is a stat
-    of each file. No mix project (`--frozen`): nothing to compile.
+    call first builds menard as it is now (bin/menard, as any verb is built, the last good build kept
+    where an edit half applied does not compile) and loads the modules that changed. An installed
+    menard's source does not change: this is a stat of each file.
     """
     def fresh do
       stamp = newest_source()
@@ -104,39 +104,37 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     defp loaded, do: :persistent_term.get({__MODULE__, :loaded}, 0)
 
-    # stdout is the protocol: mix's shell says nothing; a warning or an error goes to stderr. Again
-    # under the lock: a call that waited on another's compile has nothing left to do.
+    # Again under the lock: a call that waited on another's build has nothing left to do.
     defp compile(stamp) do
       if stamp > loaded(), do: compiled(stamp)
     end
 
+    # The server is a bare `elixir -pa …/ebin` (bin/menard), no mix in it: bin/menard builds, as it
+    # does before any verb, and the beams it wrote are loaded over the ones running. A module new
+    # since loads from the path when first called.
     defp compiled(stamp) do
-      shell = Mix.shell()
-      Mix.shell(Mix.Shell.Quiet)
+      System.cmd(Path.join(root(), "bin/menard"), ["version"], stderr_to_stdout: true)
 
-      # every task as never run: `rerun("compile")` re-ran compile alone, and its compile.all and
-      # compile.elixir, run at the server's start, answered :noop
-      try do
-        Mix.Task.clear()
-        Mix.Task.run("compile")
-      after
-        Mix.shell(shell)
+      for module <- :code.modified_modules() do
+        :code.purge(module)
+        :code.load_file(module)
       end
 
       :persistent_term.put({__MODULE__, :loaded}, stamp)
     end
 
+    # menard's checkout: its build is ROOT/_build/ENV/lib/menard
+    defp root, do: Path.expand("../../../..", Application.app_dir(:menard))
+
     defp newest_source do
-      case Mix.Project.get() && Mix.Project.project_file() do
-        nil ->
-          0
+      mix = Path.join(root(), "mix.exs")
 
-        file ->
-          dir = Path.dirname(file)
-
-          [file | Path.wildcard(Path.join(dir, "lib/**/*.ex"))]
-          |> Enum.map(&File.stat!(&1, time: :posix).mtime)
-          |> Enum.max()
+      if File.regular?(mix) and File.regular?(Path.join(root(), "bin/menard")) do
+        [mix | Path.wildcard(Path.join(root(), "lib/**/*.ex"))]
+        |> Enum.map(&File.stat!(&1, time: :posix).mtime)
+        |> Enum.max()
+      else
+        0
       end
     end
   end
