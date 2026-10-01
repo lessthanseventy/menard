@@ -31,10 +31,7 @@ commit lands.
   queued behind something) or the edit itself stuck.
 
 
-- A `run` past the MCP tool's cap (620 s) answers nothing: the agent waits ten minutes and learns
-  only "timed out" (up2, Oban: tests hanging on a MySQL that was not there, twice in one step). The
-  run should stop itself short of the cap and answer what it has: the tests still running, the
-  ones that finished, and the failures so far.
+
 
 - The commit gate refused with a red gate and no failures in it ("the project's gate (what CI
   runs) is red: DIR:\n\nFix these"), hooks_test.exs:566, in a full gate at load 22-30

@@ -286,7 +286,7 @@ defmodule Menard.Run do
     by = held[:excluded_by] || %{}
     project = by |> Map.delete("test") |> Map.values() |> Enum.sum()
     excluded = if held.tests == 0, do: held[:excluded], else: project
-    {held.tests, held.failed, held[:skipped], excluded, Map.keys(by), held.failures}
+    {held.tests, held.failed, held[:skipped], excluded, Map.keys(by), held.failures ++ running(held)}
   end
 
   # `(N excluded)` in a summary line: the tests the project's filters (or the run's --only) left out
@@ -812,6 +812,16 @@ defmodule Menard.Run do
   end
 
   defp flakes(first, _again), do: first
+
+  # a run stopped at its deadline: the tests it was still running are failures too, by name
+  defp running(held) do
+    for test <- held[:running] || [],
+        do:
+          Map.merge(test, %{
+            kind: "timeout",
+            message: "still running when the run was stopped at its deadline"
+          })
+  end
 
   defp mix_fetching(run, args, host \\ []) do
     {out, status} = mix(run, args, host)

@@ -14,10 +14,30 @@ defmodule Menard.ExUnitFormatter do
   use GenServer
 
   @impl true
-  def init(_opts), do: {:ok, fresh()}
+  def init(_opts) do
+    snapshot_later()
+    {:ok, fresh()}
+  end
+
+  # A run stopped at its deadline is killed with this VM, before its suite ends: what it had so far
+  # is written every second, the tests still running with it (up2 Oban: a run that hung on MySQL
+  # answered nothing of what it had)
+  @impl true
+  def handle_info(:snapshot, acc) do
+    write(acc)
+    snapshot_later()
+    {:noreply, acc}
+  end
+
+  def handle_cast({:test_started, %ExUnit.Test{} = test}, acc),
+    do:
+      {:noreply,
+       %{acc | running: Map.put(acc.running, {test.module, test.name}, %{name: name(test), at: at(test)})}}
 
   @impl true
   def handle_cast({:test_finished, %ExUnit.Test{state: state} = test}, acc) do
+    acc = %{acc | running: Map.delete(acc.running, {test.module, test.name})}
+
     acc =
       case state do
         nil ->
@@ -55,7 +75,26 @@ defmodule Menard.ExUnitFormatter do
   def handle_cast({:suite_finished, _run_us, _load_us}, acc), do: finish(acc)
   def handle_cast(_event, acc), do: {:noreply, acc}
 
-  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, excluded: 0, excluded_by: %{}, failures: [], times: []}
+  defp fresh,
+    do: %{
+      tests: 0,
+      failed: 0,
+      skipped: 0,
+      excluded: 0,
+      excluded_by: %{},
+      failures: [],
+      times: [],
+      running: %{}
+    }
+
+  defp snapshot_later, do: Process.send_after(self(), :snapshot, 1_000)
+
+  defp write(acc) do
+    if path = System.get_env("MENARD_EXUNIT_OUT") do
+      acc = %{acc | failures: Enum.reverse(acc.failures), running: Map.values(acc.running)}
+      File.write!(path, :erlang.term_to_binary(acc))
+    end
+  end
 
   # every test that ran, for `--slowest N`: which N is the reply's to pick
   defp time(test), do: %{name: name(test), at: at(test), ms: div(test.time, 1000)}
@@ -78,10 +117,7 @@ defmodule Menard.ExUnitFormatter do
     do: %{acc | tests: acc.tests + 1, failed: acc.failed + 1, failures: failures ++ acc.failures}
 
   defp finish(acc) do
-    if path = System.get_env("MENARD_EXUNIT_OUT") do
-      File.write!(path, :erlang.term_to_binary(%{acc | failures: Enum.reverse(acc.failures)}))
-    end
-
+    write(acc)
     {:noreply, fresh()}
   end
 
