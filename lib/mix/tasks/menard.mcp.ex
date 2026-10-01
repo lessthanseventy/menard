@@ -8,6 +8,8 @@ defmodule Mix.Tasks.Menard.Mcp do
   """
   use Mix.Task
 
+  alias Menard.MCP.Reply
+
   # anubis_mcp is optional: a library host has no Registry, and never reaches the call
   @compile {:no_warn_undefined, Anubis.Server.Registry}
 
@@ -26,6 +28,8 @@ defmodule Mix.Tasks.Menard.Mcp do
 
     logs_to_stderr()
     {:ok, _} = Supervisor.start_child(Menard.Supervisor, {Menard.MCP, transport: :stdio})
+    # what it runs is current now: a call compiles first only once menard's source is newer
+    Reply.loaded!()
     # started now, so its index is built by the first `find` that asks it
     Menard.Lsp.warm(Menard.MCP.root())
 

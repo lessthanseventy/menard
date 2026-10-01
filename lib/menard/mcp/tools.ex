@@ -37,9 +37,27 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def call(verbs, params, frame, _ms), do: answer(frame, verbs.run(params(params)))
 
+    @doc """
+    Working on menard itself, its source changes under the server, and a server that kept the code
+    it started with ran none of the fixes made since (hooks included: they are calls to it). So a
+    call first compiles menard as it is now, in place; one that does not compile (an edit half
+    applied) leaves the code it had. An installed menard's source does not change: this is a stat
+    of each file. No mix project (`--frozen`): nothing to compile.
+    """
+    def fresh do
+      stamp = newest_source()
+
+      if stamp > loaded(), do: :global.trans({__MODULE__, :fresh}, fn -> compile(stamp) end)
+      :ok
+    end
+
+    @doc "What the server runs, stamped as current: called once it has started."
+    def loaded!, do: :persistent_term.put({__MODULE__, :loaded}, newest_source())
+
     # Every tool runs under a deadline: over stdio a call that never returns is a server gone
     # silent, and one went past Claude Code's 120s.
     def bounded(tool, params, frame, ms) do
+      fresh()
       caller = self()
       tag = make_ref()
 
@@ -81,6 +99,41 @@ if Code.ensure_loaded?(Anubis.Server) do
             frame,
             "#{inspect(tool)} did not finish in #{ms / 1000}s. It may have written its file: read it before retrying"
           )
+      end
+    end
+
+    defp loaded, do: :persistent_term.get({__MODULE__, :loaded}, 0)
+
+    # stdout is the protocol: mix's shell says nothing; a warning or an error goes to stderr. Again
+    # under the lock: a call that waited on another's compile has nothing left to do.
+    defp compile(stamp) do
+      if stamp > loaded(), do: compiled(stamp)
+    end
+
+    defp compiled(stamp) do
+      shell = Mix.shell()
+      Mix.shell(Mix.Shell.Quiet)
+
+      try do
+        Mix.Task.rerun("compile")
+      after
+        Mix.shell(shell)
+      end
+
+      :persistent_term.put({__MODULE__, :loaded}, stamp)
+    end
+
+    defp newest_source do
+      case Mix.Project.get() && Mix.Project.project_file() do
+        nil ->
+          0
+
+        file ->
+          dir = Path.dirname(file)
+
+          [file | Path.wildcard(Path.join(dir, "lib/**/*.ex"))]
+          |> Enum.map(&File.stat!(&1, time: :posix).mtime)
+          |> Enum.max()
       end
     end
   end
