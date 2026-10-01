@@ -504,4 +504,11 @@ defmodule Menard.BlockTest do
     assert {:error, why} = Block.get(src, "test", [])
     assert why =~ "several modules"
   end
+
+  test "a test's label given as the block's name is refused with the call that reaches it" do
+    src = "defmodule MTest do\n  use ExUnit.Case\n\n  test \"totals with tax\" do\n    assert 1\n  end\nend\n"
+
+    assert {:error, why} = Block.get(src, "totals with tax")
+    assert why =~ ~s(test --label "totals with tax")
+  end
 end

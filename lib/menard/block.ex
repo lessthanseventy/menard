@@ -295,7 +295,15 @@ defmodule Menard.Block do
 
   defp pick([node], _want, _label), do: {:ok, node}
 
-  defp pick([], want, nil), do: {:error, "no `#{want} do` block here"}
+  # a test's label where the macro's name goes
+  defp pick([], want, nil) do
+    if to_string(want) =~ ~r/^[a-z_]\w*[?!]?$/,
+      do: {:error, "no `#{want} do` block here"},
+      else:
+        {:error,
+         "no `#{want} do` block here: a test is `test --label #{inspect(to_string(want))}` (a describe, `describe --label`)"}
+  end
+
   defp pick([], want, label), do: {:error, "no `#{want} #{inspect(label)} do` block here"}
 
   defp pick(many, want, _label) do

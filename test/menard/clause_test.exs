@@ -965,4 +965,11 @@ defmodule Menard.ClauseTest do
     assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "two"})
     assert why =~ "two/1, two/2"
   end
+
+  test "a function named by its call, not name/arity, is refused with the address that works" do
+    src = "defmodule M do\n  def verb(run, \"test\", args), do: {run, args}\nend\n"
+
+    assert {:error, why} = Clause.get(src, ~s[verb(run, "test", args)], nil)
+    assert why =~ ~s[verb/3 'run, "test", args']
+  end
 end
