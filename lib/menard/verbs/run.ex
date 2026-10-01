@@ -17,7 +17,8 @@ defmodule Menard.Verbs.Run do
       name: "run",
       doc: """
       Run a verb in a mix project under the root and get ONE structured answer: `check` (the
-      project's `mix precommit`: format, warnings-as-errors, tests), `test` (args: files, file:line,
+      project formatted first, `formatted` naming what changed, then its `mix precommit`: format,
+      warnings-as-errors, tests), `test` (args: files, file:line,
       and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,
       `--changed` for the lines changed since the last commit). `dir` defaults to the root.
 
@@ -27,7 +28,10 @@ defmodule Menard.Verbs.Run do
 
       Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
       `warning`, `format` or `credo`, `message` says why, `at` is `file:line`. A test failure adds `name`,
-      `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`.
+      `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`; past
+      the third, a failure is `{kind, name, at, message}` and the `log` has the rest. A failed test
+      runs once more: one that passes is in `flaky`, not `failures`. A run whose tests were all
+      excluded by the project's tags is not ok, and says which to `--include`.
       """,
       deadline: 600_000,
       fields: [

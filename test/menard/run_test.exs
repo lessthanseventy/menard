@@ -358,12 +358,9 @@ defmodule Menard.RunTest do
       "defmodule PlainTest do\n  use ExUnit.Case\n\n  test \"go\" do\n    assert Plain.go() == 2\n  end\nend\n"
     )
 
+    # the file a formatter fixes is formatted first, and named; the failing test is the answer
     result = Menard.Run.result(dir, "check", [])
-    refute result.ok
-    assert [%{kind: "format", at: "lib/plain.ex", message: "not formatted"}] = result.failures
-
-    File.write!(Path.join(dir, "lib/plain.ex"), "defmodule Plain do\n  def go, do: 1\nend\n")
-    result = Menard.Run.result(dir, "check", [])
+    assert result.formatted == ["lib/plain.ex"]
     refute result.ok
 
     assert [%{kind: "test", at: "test/plain_test.exs:4", message: "Assertion with == failed", source: source}] =
@@ -929,4 +926,25 @@ defmodule Menard.RunTest do
 
     assert %{ok: true, flaky: [%{name: "once"}]} = Run.lean(Run.result(dir, "test", []))
   end
+
+  @tag :tmp_dir
+  test "check formats the project first, and names what it formatted", %{tmp_dir: dir} do
+    # Oban 01: check failed on test/test_helper.exs, unformatted upstream, and the agent spent three
+    # calls on it. Formatting is mechanical: check formats the project first, and names what it did
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Before.MixProject do
+      use Mix.Project
+      def project, do: [app: :before, version: "0.1.0", aliases: [precommit: ["format --check-formatted"]]]
+    end
+    """)
+
+    File.write!(Path.join(dir, ".formatter.exs"), ~s([inputs: ["lib/**/*.ex"]]\n))
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/old.ex"), "defmodule Old do\n  def a,   do: 1\nend\n")
+
+    assert %{ok: true, formatted: ["lib/old.ex"]} = Run.lean(Run.result(dir, "check", []))
+    assert File.read!(Path.join(dir, "lib/old.ex")) == "defmodule Old do\n  def a, do: 1\nend\n"
+  end
+
+  @tag :tmp_dir
 end

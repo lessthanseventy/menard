@@ -467,6 +467,10 @@ defmodule Menard.Run do
   end
 
   defp verb(%{dir: dir} = run, "check", args) do
+    # Formatting is mechanical, as an editor does it on save: the project formatted first, so the gate
+    # fails on nothing a formatter fixes (Oban 01: a file unformatted upstream, three calls to find it
+    # was not the change's), and the reply names what it formatted
+    formatted = for file <- verb(run, "format", []).changed, do: Path.relative_to(file, Path.expand(dir))
     # the files as checked, taken before the gate runs: one written meanwhile is not what went green
     tree = tree(dir)
     # mix's task trace on (priv/mix_debug.exs): it names each task it runs and each it finished, so
@@ -486,7 +490,7 @@ defmodule Menard.Run do
           |> step_named(failed_step)
 
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
-    reply
+    if formatted == [], do: reply, else: Map.put(reply, :formatted, formatted)
   end
 
   # Failed, a few test failures run once more (`--failed`): one that passes is the suite's flake,
