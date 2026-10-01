@@ -226,7 +226,7 @@ defmodule Menard.Hook do
   defp run_note do
     """
     That is #{@run} Edits in a row, a call each. menard's `edit` makes several replacements in one \\
-    call, in one file or many, all written or none, and `--then test` runs the tests after:
+    call, in one file or many, all written or none, and `--then test` runs the tests of what it changed after:
       #{menard()} edit --then test - <<'EOF'
       lib/a.ex
       <<<<<<< SEARCH
