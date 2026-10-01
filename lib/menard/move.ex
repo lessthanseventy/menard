@@ -37,6 +37,18 @@ defmodule Menard.Move do
                into: MapSet.new([:when]),
                do: name
 
+  @tests [:test, :describe]
+
+  @setups [:setup, :setup_all]
+
+  # what moved by its label, the helpers that came along; no delegate stands in for a test
+  @exunit for m <- [ExUnit.Assertions, ExUnit.Callbacks, ExUnit.Case],
+              Code.ensure_loaded?(m),
+              kind <- [:functions, :macros],
+              {name, _} <- m.__info__(kind),
+              into: MapSet.new(),
+              do: Atom.to_string(name)
+
   @doc """
   Move `names` (`"name/arity"`: a list, or comma-separated) from `file` to `dest`, absolute paths.
   `module:` picks the destination module in a file with several, `as:` names a created one and
@@ -98,17 +110,6 @@ defmodule Menard.Move do
       {:ok, Map.merge(plan.report, %{created: created, to: to, from: from})}
     end
   end
-
-  @tests [:test, :describe]
-  @setups [:setup, :setup_all]
-
-  # what moved by its label, the helpers that came along; no delegate stands in for a test
-  @exunit for m <- [ExUnit.Assertions, ExUnit.Callbacks, ExUnit.Case],
-              Code.ensure_loaded?(m),
-              kind <- [:functions, :macros],
-              {name, _} <- m.__info__(kind),
-              into: MapSet.new(),
-              do: Atom.to_string(name)
 
   @doc "`\"a/1,b/2\"` or a list of those: the names a move takes, trimmed, each once."
   @spec names(String.t() | [String.t()]) :: [String.t()]

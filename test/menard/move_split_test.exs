@@ -31,11 +31,6 @@ defmodule Menard.MoveSplitTest do
     :ok
   end
 
-  # compiled as one file, as the two call each other, with every warning the compiler gave
-  defp compile(sources) do
-    Code.with_diagnostics(fn -> Code.compile_string(Enum.join(sources, "\n")) end) |> elem(1)
-  end
-
   @shop """
   defmodule Split1.Shop do
     @moduledoc "A shop."
@@ -66,6 +61,11 @@ defmodule Menard.MoveSplitTest do
     defp price(%{price: p}, _rate), do: p
   end
   """
+
+  # compiled as one file, as the two call each other, with every warning the compiler gave
+  defp compile(sources) do
+    Code.with_diagnostics(fn -> Code.compile_string(Enum.join(sources, "\n")) end) |> elem(1)
+  end
 
   test "a split in one call: two functions out, delegates left, what they need carried", %{tmp_dir: dir} do
     file = Path.join(dir, "shop.ex")

@@ -10,6 +10,10 @@ defmodule Menard do
   `--in DIR` (default: the caller's directory).
   """
 
+  @first ~w(ok did tests failed)
+
+  @last ~w(file version log)
+
   @doc "The directory the caller stood in."
   def caller_dir, do: System.get_env("MENARD_CWD") || File.cwd!()
 
@@ -197,9 +201,6 @@ defmodule Menard do
   """
   @spec encode(term()) :: String.t()
   def encode(reply), do: reply |> jsonable() |> ordered() |> IO.iodata_to_binary()
-
-  @first ~w(ok did tests failed)
-  @last ~w(file version log)
 
   @doc """
   Every `{file, version}` still current, or the stale refusal for the first that is not: for the

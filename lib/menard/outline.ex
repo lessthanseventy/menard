@@ -8,6 +8,11 @@ defmodule Menard.Outline do
 
   @kinds Menard.Tree.def_kinds()
 
+  # A test file's content: its setups, tests and describes (each describe's tests under it), with
+  # their lines. A module-level `for` that makes tests is looked through; nothing inside a test is
+  # one: a `for` in a test body is a statement, which `stmt` reaches.
+  @blocks [:setup, :setup_all, :test, :describe]
+
   @spec run(String.t()) :: {:ok, [map()]} | {:error, String.t()}
   def run(source) when is_binary(source) do
     with {:ok, ast} <- Menard.Source.parse(source), do: {:ok, modules(ast)}
@@ -38,11 +43,6 @@ defmodule Menard.Outline do
       modules: Enum.flat_map(forms, &modules(&1, name))
     }
   end
-
-  # A test file's content: its setups, tests and describes (each describe's tests under it), with
-  # their lines. A module-level `for` that makes tests is looked through; nothing inside a test is
-  # one: a `for` in a test body is a statement, which `stmt` reaches.
-  @blocks [:setup, :setup_all, :test, :describe]
 
   defp tests(forms), do: Enum.flat_map(forms, &test_entry/1)
 

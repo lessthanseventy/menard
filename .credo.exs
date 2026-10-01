@@ -9,14 +9,18 @@
         included: ["lib/", "priv/", "test/", "config/"],
         excluded: [~r"/_build/", ~r"/deps/", "test/fixtures/"]
       },
-      # a module's public functions, then its private ones: the layout menard's writes keep
-      # (Menard.Layout), so a function's place is never a choice to make
+      # a module's attributes, then its public functions, then its private ones: the layout
+      # menard's writes keep (Menard.Layout), so a place is never a choice to make
       checks: %{
         extra: [
-          {Credo.Check.Readability.StrictModuleLayout,
-           order: ~w/shortdoc moduledoc behaviour public_fun private_fun/a,
-           ignore:
-             ~w/use import alias require module_attribute type typep opaque callback macrocallback optional_callbacks defstruct public_macro private_macro public_guard private_guard callback_impl module/a}
+          {
+            Credo.Check.Readability.StrictModuleLayout,
+            # a test's tags go above the test they tag
+            order: ~w/shortdoc moduledoc behaviour module_attribute public_fun private_fun/a,
+            ignore_module_attributes: ~w/tag describetag moduletag/a,
+            ignore:
+              ~w/use import alias require type typep opaque callback macrocallback optional_callbacks defstruct public_macro private_macro public_guard private_guard callback_impl module/a
+          }
         ]
       }
     }

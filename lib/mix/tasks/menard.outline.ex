@@ -45,19 +45,19 @@ defmodule Mix.Tasks.Menard.Outline do
     {a, b} = m.lines || {0, 0}
     Mix.shell().info("#{indent}#{m.module}  L#{a}-#{b}#{if m[:doc], do: "  — " <> m.doc, else: ""}")
 
-    for d <- m[:defs] || [] do
-      {da, db} = d.lines || {0, 0}
-
-      Mix.shell().info(
-        "#{indent}  #{d.kind} #{d.name}/#{d.arity}#{if d.head != "", do: " (#{d.head})"}  L#{da}-#{db}#{if d[:doc], do: "  — " <> d.doc, else: ""}"
-      )
-
-      # a component's attrs and slots: what calling it takes
-      for a <- d[:attrs] || [], do: Mix.shell().info("#{indent}    #{a}")
-    end
+    for d <- m[:defs] || [], do: print_def(d, indent)
 
     print_tests(m[:tests] || [], indent <> "  ")
     Enum.each(m[:modules] || [], &print_module(&1, indent <> "  "))
+  end
+
+  defp print_def(d, indent) do
+    {da, db} = d.lines || {0, 0}
+    head = if d.head != "", do: " (#{d.head})"
+    doc = if d[:doc], do: "  — " <> d.doc
+    Mix.shell().info("#{indent}  #{d.kind} #{d.name}/#{d.arity}#{head}  L#{da}-#{db}#{doc}")
+    # a component's attrs and slots: what calling it takes
+    for a <- d[:attrs] || [], do: Mix.shell().info("#{indent}    #{a}")
   end
 
   defp print_tests(tests, indent) do

@@ -34,6 +34,12 @@ defmodule Menard.Hook do
           | {:deny, String.t()}
           | {:rewrite, map()}
 
+  # Edits one after another, a model call each: desk3's sonnet made 83 of them in a session and
+  # called `edit` in none, its description loaded or not. Said at the third of a run, when it is
+  # what the agent is doing, and once a session: a note at the start of a session, on what it
+  # might do, cost its tokens in every round that tried one and changed nothing.
+  @run 3
+
   @doc """
   The hook for `payload`. `run:` is the run verb it formats and lints with (`Menard.Run.result/3`),
   `compile:` adds the compiler's warnings on the files written (else `MENARD_HOOK_COMPILE`).
@@ -210,12 +216,6 @@ defmodule Menard.Hook do
     File.rm(session_file(hook, "edits"))
     :quiet
   end
-
-  # Edits one after another, a model call each: desk3's sonnet made 83 of them in a session and
-  # called `edit` in none, its description loaded or not. Said at the third of a run, when it is
-  # what the agent is doing, and once a session: a note at the start of a session, on what it
-  # might do, cost its tokens in every round that tried one and changed nothing.
-  @run 3
 
   defp in_a_run(answer, %{tool: tool} = hook) when tool in ["Edit", "MultiEdit"] do
     count = session_file(hook, "edits")
