@@ -47,9 +47,8 @@ defmodule Menard.WriteReplyTest do
       assert reply.did == "replace go/1 `:a` in a.ex"
       assert reply.file == file
       assert String.starts_with?(reply.version, "sha256:")
-      # a third, :plugins, when the file's formatter has plugins, as menard's own does
-      assert [:patch, :formatter | _] = Enum.map(reply.stages, & &1.stage)
-      assert hd(reply.stages).stage == :patch
+      # :formatter and :plugins follow only where they changed something
+      assert [:patch] = Enum.map(reply.stages, & &1.stage)
 
       assert hd(reply.stages).hunks == [
                %{start: 2, removed: ["  def go, do: :a"], added: ["  def go, do: :b"]}
@@ -74,13 +73,12 @@ defmodule Menard.WriteReplyTest do
       assert File.read!(file) == patched
     end
 
-    test "the formatter stage is empty when nothing is reformatted", %{tmp_dir: dir} do
+    test "the formatter stage is left out when nothing is reformatted", %{tmp_dir: dir} do
       file = write_file(dir, "d.ex", "defmodule D do\n  def go, do: :a\nend\n")
       patched = String.replace(File.read!(file), ":a", ":b")
 
       assert {:ok, reply} = Menard.write(file, patched)
-      formatter_stage = Enum.find(reply.stages, &(&1.stage == :formatter))
-      assert formatter_stage.hunks == []
+      refute Enum.find(reply.stages, &(&1.stage == :formatter))
     end
 
     test "a parse error is refused and the file is untouched", %{tmp_dir: dir} do
@@ -271,6 +269,20 @@ defmodule Menard.WriteReplyTest do
       a = write_file(dir, "mc.ex", "defmodule MC do\n  def go, do: 1\nend\n")
 
       assert_raise Mix.Error, ~r/clause move needs to/, fn -> Clause.run(["move", a, "go/0"]) end
+    end
+
+    @tag :tmp_dir
+    test "a long patch is where it went, not the caller's code again", %{tmp_dir: dir} do
+      # the caller's own code is not news: a long patch says where it went, not what it was; a
+      # formatter that only re-indented says so in a count (a block add of a test came back as 3 KB)
+      file = write_file(dir, "w.ex", "defmodule W do\n  def go, do: :a\nend\n")
+      body = Enum.map_join(1..8, "", &"    x#{&1} = #{&1}\n")
+
+      patched =
+        String.replace(File.read!(file), "  def go, do: :a\n", "  def go do\n" <> body <> "    :a\n  end\n")
+
+      assert {:ok, reply} = Menard.write(file, patched)
+      assert [%{start: 2, removed: 1, added: 11}] = hd(reply.stages).hunks
     end
   end
 end

@@ -346,7 +346,8 @@ defmodule Menard.MoveSplitTest do
            end
            """
 
-    assert [%{stage: :formatter, hunks: []} | _] = Enum.drop(reply.to.stages, 1)
+    # nothing for the formatter to change: no formatter stage
+    refute Enum.any?(reply.to.stages, &(&1.stage == :formatter))
   end
 
   test "a function that is not there is refused, naming it and what is there", %{tmp_dir: dir} do

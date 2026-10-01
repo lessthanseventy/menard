@@ -221,17 +221,37 @@ defmodule Menard do
   # :formatter is what `mix format` alone changed; :plugins, when the host has any, what they
   # (Styler) rewrote after it — so an agent can tell a rewrite it did not ask for from its own edit
   defp stages(original, patched, formatted, nil),
-    do: [
-      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
-      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, formatted)}
-    ]
+    do:
+      told([
+        %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
+        %{stage: :formatter, hunks: Menard.Diff.hunks(patched, formatted)}
+      ])
 
   defp stages(original, patched, formatted, {plain, plugins}) do
-    [
+    told([
       %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
       %{stage: :formatter, hunks: Menard.Diff.hunks(patched, plain)},
       %{stage: :plugins, plugins: plugins, hunks: Menard.Diff.hunks(plain, formatted)}
-    ]
+    ])
+  end
+
+  # The stages as news. The caller's own code is not: a patch hunk past a few lines is where it
+  # went, `added`/`removed` as counts (a block add of a test came back as 3 KB, its code twice). A
+  # hunk that only re-indented is `reindented: n`. A stage after the patch that changed nothing is
+  # left out.
+  defp told(stages) do
+    for %{stage: stage, hunks: hunks} = s <- stages, stage == :patch or hunks != [] do
+      %{s | hunks: Enum.map(hunks, &told(stage, &1))}
+    end
+  end
+
+  defp told(:patch, %{removed: removed, added: added} = h) when length(removed) + length(added) > 6,
+    do: %{h | removed: length(removed), added: length(added)}
+
+  defp told(_stage, %{start: start, removed: removed, added: added} = h) do
+    if removed != [] and Enum.map(removed, &String.trim/1) == Enum.map(added, &String.trim/1),
+      do: %{start: start, reindented: length(added)},
+      else: h
   end
 
   defp checked(file, content, original) do
@@ -277,7 +297,12 @@ defmodule Menard do
   defp unformatted(reply, nil), do: reply
 
   defp unformatted(reply, reason) do
-    stages = Enum.map(reply.stages, &if(&1.stage == :formatter, do: Map.put(&1, :error, reason), else: &1))
+    # the formatter's stage carries why, there or not (a stage that changed nothing is left out)
+    stages =
+      if Enum.any?(reply.stages, &(&1.stage == :formatter)),
+        do: Enum.map(reply.stages, &if(&1.stage == :formatter, do: Map.put(&1, :error, reason), else: &1)),
+        else: reply.stages ++ [%{stage: :formatter, hunks: [], error: reason}]
+
     Map.merge(reply, %{unformatted: reason, stages: stages})
   end
 
