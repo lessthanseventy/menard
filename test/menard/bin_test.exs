@@ -17,6 +17,11 @@ defmodule Menard.BinTest do
   # into the gate's reply and "The task menard.run could not be found" (reproduced: a gate while the
   # dev build was deleted and rebuilt beside it)
   @fresh [{"MIX_ENV", "bintest"}]
+  @caller [
+    Path.expand("~/.local/share/mise/installs/elixir/1.20.4-otp-29/bin"),
+    Path.expand("~/.local/share/mise/installs/erlang/29.0.6/bin")
+  ]
+
   defp fresh_build!, do: File.rm_rf!(Path.join(@root, "_build/bintest/lib/menard"))
 
   # this checkout's tracked files, its deps and its dev build, at DIR/menard
@@ -187,10 +192,6 @@ defmodule Menard.BinTest do
     assert newer == []
   end
 
-  @caller [
-    Path.expand("~/.local/share/mise/installs/elixir/1.20.4-otp-29/bin"),
-    Path.expand("~/.local/share/mise/installs/erlang/29.0.6/bin")
-  ]
   @tag skip:
          !(System.find_executable("mise") && Enum.all?(@caller, &File.dir?/1)) &&
            "needs mise with elixir 1.20.4-otp-29 and erlang 29.0.6 installed"

@@ -14,8 +14,9 @@ defmodule Menard.Verbs.Module do
       Whole modules inside a file. `verb` is `add` (a complete `defmodule` appended after the last
       one; a name the file already defines is refused), `replace` (the module named `module` swapped
       for `code`, a complete `defmodule` of that name; its neighbours untouched), `list`, or
-      `layout` (every private function above a public one moved below them, as a write places a new
-      one: what a project that takes up that layout runs once per file). `clause insert_at` puts a
+      `layout` (every private function above a public one moved below them, and every attribute set
+      once below a function moved above them, as a write places a new one: what a project that
+      takes up that layout runs once per file). `clause insert_at` puts a
       function INTO a module, and `write` replaces the whole file.
       """,
       fields: [
@@ -65,7 +66,7 @@ defmodule Menard.Verbs.Module do
     with :ok <- need(p, [:file], "module layout") do
       edit(
         p,
-        &"lay out #{&1}: private functions below the public ones",
+        &"lay out #{&1}: attributes at the top, private functions below the public ones",
         &elem(Menard.Layout.private_last("", &1), 0)
       )
     end

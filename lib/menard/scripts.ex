@@ -18,6 +18,11 @@ defmodule Menard.Scripts do
   @runs Regex.compile!(@starts <> @wrapped <> ~S"(?:\S*/)?(python3?(?:\.\d+)?|perl|ruby|node)(?=\s|$)")
   @heredoc ~r/<<-?\s*(['"]?)(\w+)\1[^\n]*\n.*?\n\s*\2(?=\n|$)/s
 
+  @wrappers ~w(nohup env exec time command)
+
+  # flags that take the next word as their value
+  @valued ~w(-A -B -C -m -e --after-context --before-context --context --max-count)
+
   @doc """
   Why `command` is refused, or nil when it runs. `menard` is this menard's path; `root` is the
   directory the command runs in, where a line range read of a module is looked up.
@@ -32,8 +37,6 @@ defmodule Menard.Scripts do
       true -> read(command, menard, root)
     end
   end
-
-  @wrappers ~w(nohup env exec time command)
 
   @doc """
   `command` with each read a verb reads exactly swapped for that verb's call, to run in its place:
@@ -153,9 +156,6 @@ defmodule Menard.Scripts do
   rescue
     _ -> []
   end
-
-  # flags that take the next word as their value
-  @valued ~w(-A -B -C -m -e --after-context --before-context --context --max-count)
 
   defp grep(args, menard, root) do
     {flags, [pattern | paths]} = grep_args(args, [], [])

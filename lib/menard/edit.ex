@@ -20,6 +20,10 @@ defmodule Menard.Edit do
           optional(:all) => boolean()
         }
 
+  # A marker inside a block's text is a block written wrong far more often than it is the text: a
+  # second `=======` was taken for a line of the replacement, and written into the file.
+  @marks ["<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE"]
+
   @doc """
   Make `edits` (absolute paths), in order. `{:ok, reply}`: `changed`, each file's path and version,
   and the stages after the patch that changed anything (the formatter's, the plugins'), in the
@@ -88,10 +92,6 @@ defmodule Menard.Edit do
       {text, [^mark | rest]} -> unmarked(text, rest, file)
     end
   end
-
-  # A marker inside a block's text is a block written wrong far more often than it is the text: a
-  # second `=======` was taken for a line of the replacement, and written into the file.
-  @marks ["<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE"]
 
   defp unmarked(text, rest, file) do
     case Enum.find(text, &(&1 in @marks)) do

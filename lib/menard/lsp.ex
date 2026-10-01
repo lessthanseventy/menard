@@ -19,6 +19,11 @@ defmodule Menard.Lsp do
 
   @type location :: %{file: String.t(), line: pos_integer(), column: pos_integer()}
 
+  # Settled, not only idle: expert's work is phases one after another (engine, build, index), and
+  # between two (engine started at 3.9s, "Building" begun at 4.9s) none is in flight. A reference
+  # asked there got the answer of a project half built.
+  @settled 3_000
+
   @doc "The server `bin/lsp` runs: `MENARD_LSP`, else expert."
   @spec server() :: String.t()
   def server, do: System.get_env("MENARD_LSP") || "expert"
@@ -151,11 +156,6 @@ defmodule Menard.Lsp do
   # stdin closed is the server's cue to stop, and its engine with it
   @impl true
   def terminate(_reason, state), do: if(Port.info(state.port), do: Port.close(state.port))
-
-  # Settled, not only idle: expert's work is phases one after another (engine, build, index), and
-  # between two (engine started at 3.9s, "Building" begun at 4.9s) none is in flight. A reference
-  # asked there got the answer of a project half built.
-  @settled 3_000
 
   defp ready?(state) do
     state.seen and MapSet.size(state.progress) == 0 and state.quiet_since != nil and
