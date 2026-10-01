@@ -24,7 +24,9 @@ defmodule Menard.Run do
       deadline: if(ms = opts[:timeout], do: System.monotonic_time(:millisecond) + ms)
     }
 
-    reply = verb(run, verb, args)
+    reply =
+      if verb == "check", do: one_at_a_time(run, fn -> verb(run, verb, args) end), else: verb(run, verb, args)
+
     if File.exists?(run.log), do: Map.put(reply, :log, run.log), else: reply
   end
 
@@ -821,6 +823,55 @@ defmodule Menard.Run do
             kind: "timeout",
             message: "still running when the run was stopped at its deadline"
           })
+  end
+
+  # One check at a time in a project: two sessions' gates in one checkout raced in its _build and its
+  # tmp/ (2026-10-01, a test's build deleted under the other's). The next waits for the one running,
+  # up to its own deadline, and says how long; a lock whose holder is dead is no wait.
+  defp one_at_a_time(%{dir: dir} = run, check) do
+    lock = Path.join(dir, "_build/.menard-check.lock")
+    File.mkdir_p!(Path.dirname(lock))
+    waited = take(lock, run.deadline, 0)
+    # the holder in this VM, by name: a check the MCP server killed at its deadline never ran its
+    # `after`, and its lock, the server's own (live) OS pid, would have stood for good
+    :global.register_name({__MODULE__, :check, lock}, self())
+
+    try do
+      reply = check.()
+      if waited > 0, do: Map.put(reply, :waited, waited), else: reply
+    after
+      :global.unregister_name({__MODULE__, :check, lock})
+      File.rm(lock)
+    end
+  end
+
+  defp take(lock, deadline, waited) do
+    case File.open(lock, [:write, :exclusive]) do
+      {:ok, io} ->
+        IO.write(io, System.pid())
+        File.close(io)
+        waited
+
+      {:error, :eexist} ->
+        cond do
+          not held?(lock) -> File.rm(lock) && take(lock, deadline, waited)
+          deadline && System.monotonic_time(:millisecond) > deadline -> waited
+          true -> Process.sleep(1_000) && take(lock, deadline, waited + 1)
+        end
+    end
+  end
+
+  # by another VM that is alive, or by a check of this one that still runs
+  defp held?(lock) do
+    case File.read(lock) do
+      {:ok, pid} ->
+        if String.trim(pid) == System.pid(),
+          do: :global.whereis_name({__MODULE__, :check, lock}) != :undefined,
+          else: match?({_, 0}, System.cmd("kill", ["-0", String.trim(pid)], stderr_to_stdout: true))
+
+      _ ->
+        false
+    end
   end
 
   defp mix_fetching(run, args, host \\ []) do

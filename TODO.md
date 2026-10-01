@@ -34,6 +34,8 @@ commit lands.
 
 
 
-- bin_test's build tests (bin_test.exs:73, :229) failed in a full gate while the agent ran an
-  unfrozen `bin/menard` beside it (2026-10-01); green alone. They change the `_build` every other
-  `bin/menard` call runs from: they should work on a copy of it.
+- bin_test.exs's `--frozen still runs the last good build` failed once in a full gate with its
+  checkout copy's bin/menard missing (`:enoent` at System.cmd), 2026-10-01, while a second session
+  edited and gated the same checkout; green alone. Its sibling's failure that run (a deleted
+  _build/bintest dep) was the two gates racing, which one check at a time per project now stops.
+  Whether a file can go missing from `git ls-files` to the copy without a second session: unknown.

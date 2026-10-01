@@ -952,4 +952,27 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  test "one check at a time in a project: the next waits, and says how long", %{tmp_dir: dir} do
+    # two sessions' gates in one checkout raced in its _build and tmp/ (2026-10-01): a check waits for
+    # the one already running, and says so; a lock its holder left behind dead is no wait
+    Host.mix_project(dir, :locked)
+    lock = Path.join(dir, "_build/.menard-check.lock")
+    File.mkdir_p!(Path.dirname(lock))
+
+    holder = Port.open({:spawn, "sleep 3"}, [])
+    {:os_pid, pid} = Port.info(holder, :os_pid)
+    File.write!(lock, to_string(pid))
+    assert %{waited: waited} = Run.result(dir, "check", [])
+    assert waited >= 2
+    refute File.exists?(lock)
+
+    File.write!(lock, "999999999")
+    refute Map.has_key?(Run.result(dir, "check", []), :waited)
+
+    # this VM's own, its check gone (killed at a deadline, its `after` never run): no wait
+    File.write!(lock, System.pid())
+    refute Map.has_key?(Run.result(dir, "check", []), :waited)
+  end
+
+  @tag :tmp_dir
 end
