@@ -4,6 +4,7 @@ defmodule Menard.MCPTest do
 
   alias Anubis.Server.Frame
   alias Menard.MCP.Reply
+  alias Menard.Verbs
 
   setup do
     root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.pid()}-#{System.unique_integer([:positive])}")
@@ -669,5 +670,13 @@ defmodule Menard.MCPTest do
     assert reply["did"] =~ "delete one/0, two/0, three/0"
     # what is still called: one/0, by keep; two/0's caller went with it
     assert reply["left"] == ["lib/b.ex:2: one()"]
+  end
+
+  test "an edit with no then is bounded as any verb, not by the tests a then would run" do
+    # 2026-10-01 00:50: an edit of three small writes, no `then`, went silent past the client's 120s.
+    # Its 600s are for the tests a `then` runs; without one it is bounded as any verb
+    assert Reply.deadline(600_000, Verbs.Edit, %{edits: []}) == 90_000
+    assert Reply.deadline(600_000, Verbs.Edit, %{edits: [], then: "test"}) == 600_000
+    assert Reply.deadline(600_000, Verbs.Run, %{verb: "check"}) == 600_000
   end
 end

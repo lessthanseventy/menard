@@ -5,11 +5,6 @@ commit lands.
 
 
 
-- A flake in the gate (2026-10-01, after 590c116): `check answers with its failures in the one
-  shape` (run_test.exs:345) failed once with `mix compile failed: ** (File.Error) could not get
-  current working directory nil` from the host project's mix, and passed alone. Nothing calls
-  File.cd; something removed the directory the host's mix stood in mid-run. Same run printed a
-  `/tmp/menard-toolchain-*/mise.toml are not trusted` error from another test.
 
 - The gate costs ~2,450 CPU-seconds (measured 2026-09-29, /proc/stat across a run, ~200s wall at
   load 14; 5-10 min when other sessions load the box). Splitting HooksTest and IdentityTest into
@@ -25,10 +20,6 @@ commit lands.
   still answered Bash and Write/Edit. format-report.sh could notice it is run as a command hook
   under Claude Code, which hooks.json no longer does, and tell the agent to restart Claude Code.
 
-- An MCP `edit` of three small writes (eval/run.py, two new settings.json; no `then`) hung past
-  120 s and wrote nothing, 2026-10-01 00:50, right after two eval runners were killed (pkill) and
-  while the server ran pre-d58e6bc code. Cause unknown: whether the server was busy (a hook call
-  queued behind something) or the edit itself stuck.
 
 
 
