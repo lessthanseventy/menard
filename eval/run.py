@@ -894,6 +894,10 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
         steps.append({"step": step.name, "pass": code == 0, "check": out.strip()[-400:],
                       "formatted": "NOTE: unformatted" not in out, "wall_s": round(time.time() - t0, 1),
                       "agent_wall_s": agent_wall, "timed_out": timed_out, **m})
+        s = steps[-1]
+        log(f"{time.strftime('%H:%M')} {out_dir.name} {rid} step {step.name}: {'PASS' if s['pass'] else 'FAIL'}"
+            f" turns={s['turns']} tokens={s['tokens']['input'] + s['tokens']['output']} agent_s={agent_wall}"
+            f"{' TIMED OUT' if timed_out else ''} | {s['check'].splitlines()[-1] if s['check'] else ''}")
         if timed_out or not sid:
             break
     return steps, sid
