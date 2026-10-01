@@ -446,6 +446,8 @@ defmodule Menard.RunTest do
     File.write!(Path.join(dir, "test/slow_test.exs"), """
     defmodule SlowTest do
       use ExUnit.Case
+      test "fails first", do: assert(1 == 2)
+
       test "slow" do
         File.write!(#{inspect(pidfile)}, System.pid())
         IO.puts("halfway there")
@@ -457,12 +459,15 @@ defmodule Menard.RunTest do
     # the bound is loose on purpose: the test itself never ends, so any answer is the kill, and the
     # room past 10s is a loaded host's teardown, not slack in the deadline
     started = System.monotonic_time(:millisecond)
-    result = Menard.Run.result(dir, "test", [], timeout: 10_000)
+    result = Menard.Run.result(dir, "test", ["--seed", "0"], timeout: 10_000)
     assert System.monotonic_time(:millisecond) - started < 40_000
 
     refute result.ok
     assert result.tail =~ "did not finish in 10s"
-    assert result.tail =~ "halfway there"
+    # up2 Oban: a run stopped at its deadline answered nothing of what it had. The failures so far,
+    # and the test that was still running
+    assert %{name: "fails first"} = Enum.find(result.failures, &(&1.kind == "test"))
+    assert %{name: "slow", at: "test/slow_test.exs:5"} = Enum.find(result.failures, &(&1.kind == "timeout"))
 
     # `timeout` returns once its child is gone, so the VM is dead by now, not dying
     assert {_, status} = System.cmd("kill", ["-0", File.read!(pidfile)], stderr_to_stdout: true)
