@@ -14,6 +14,11 @@ git -C "$TEMPLATE" checkout -q "$base"
 rm -rf "$TEMPLATE/.git"
 cd "$TEMPLATE"
 printf '[tools]\nerlang = "28"\nelixir = "1.19.5-otp-28"\n' > mise.toml
+# no MySQL here: its tests (`dolphin`) are excluded in the project itself, so `mix test`, a wrapper's
+# run or a gate need no flag (up2: the prompt's `--exclude dolphin` did not reach menard's run, and
+# every run of it hung on MySQL to the tool's cap). No step touches test_helper.exs.
+sed -i 's/exclude: \[:skip\])$/exclude: [:skip, :dolphin])/' test/test_helper.exs
+grep -q 'exclude: \[:skip, :dolphin\])' test/test_helper.exs || { echo "build: test_helper.exs no longer holds the exclude line" >&2; exit 1; }
 
 # the eval's wall, the same in every arm (eval/riverside): no network but the package hosts, writes
 # in the workspace and the toolchain's caches, Postgres through its unix socket
@@ -51,7 +56,7 @@ done
 # on a clone of it, as a run's tests are; a timing test red under load gets one rerun, as the check
 createdb -h /run/postgresql -T oban_eval_template oban_eval_build
 export POSTGRES_URL="postgres://localhost/oban_eval_build?socket_dir=/run/postgresql"
-out=$(mise exec -- mix test --exclude dolphin 2>&1) || out=$(mise exec -- mix test --failed --exclude dolphin 2>&1) \
+out=$(mise exec -- mix test 2>&1) || out=$(mise exec -- mix test --failed 2>&1) \
   || { echo "$out" | tail -30; dropdb -h /run/postgresql --force oban_eval_build; echo "build: the template's own tests are red" >&2; exit 1; }
 echo "$out" | tail -1
 dropdb -h /run/postgresql --force oban_eval_build

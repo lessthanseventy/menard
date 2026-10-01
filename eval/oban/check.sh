@@ -7,4 +7,4 @@ source "$EVAL_COMMON"
 [ -f "$CASE_DIR/deleted" ] && xargs -r rm -f < "$CASE_DIR/deleted"
 compiles
 upstream_formatted
-upstream_tests --exclude dolphin
+upstream_tests
