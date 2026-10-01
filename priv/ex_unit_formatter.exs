@@ -34,7 +34,11 @@ defmodule Menard.ExUnitFormatter do
 
         # "due to slow filter": the tag a reply can say to --include
         {:excluded, reason} ->
-          %{acc | excluded: acc.excluded + 1, excluded_by: [filter(reason) | acc.excluded_by]}
+          %{
+            acc
+            | excluded: acc.excluded + 1,
+              excluded_by: Map.update(acc.excluded_by, filter(reason), 1, &(&1 + 1))
+          }
 
         _ ->
           acc
@@ -51,7 +55,7 @@ defmodule Menard.ExUnitFormatter do
   def handle_cast({:suite_finished, _run_us, _load_us}, acc), do: finish(acc)
   def handle_cast(_event, acc), do: {:noreply, acc}
 
-  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, excluded: 0, excluded_by: [], failures: [], times: []}
+  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, excluded: 0, excluded_by: %{}, failures: [], times: []}
 
   # every test that ran, for `--slowest N`: which N is the reply's to pick
   defp time(test), do: %{name: name(test), at: at(test), ms: div(test.time, 1000)}
@@ -75,8 +79,7 @@ defmodule Menard.ExUnitFormatter do
 
   defp finish(acc) do
     if path = System.get_env("MENARD_EXUNIT_OUT") do
-      acc = %{acc | failures: Enum.reverse(acc.failures), excluded_by: Enum.uniq(acc.excluded_by)}
-      File.write!(path, :erlang.term_to_binary(acc))
+      File.write!(path, :erlang.term_to_binary(%{acc | failures: Enum.reverse(acc.failures)}))
     end
 
     {:noreply, fresh()}

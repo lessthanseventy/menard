@@ -846,4 +846,23 @@ defmodule Menard.RunTest do
 
     assert ms >= 60
   end
+
+  @tag :tmp_dir
+  test "a file:line run does not count the tests its own line left out as excluded", %{tmp_dir: dir} do
+    Host.mix_project(dir, :lines)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/two_test.exs"),
+      "defmodule TwoTest do\n  use ExUnit.Case\n\n  test \"one\", do: :ok\n\n  test \"two\", do: :ok\nend\n"
+    )
+
+    assert Run.lean(Run.result(dir, "test", ["test/two_test.exs:4"])) == %{
+             ok: true,
+             failures: [],
+             tests: 1,
+             failed: 0
+           }
+  end
 end
