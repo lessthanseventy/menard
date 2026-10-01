@@ -425,6 +425,10 @@ def trace_metrics(trace_path, ws):
         k = classify(name, inp)
         short = k["short"]
         by_name[short] = by_name.get(short, 0) + 1
+        # menard through the shell, as its session note and refusals name it: up2's arm with called it
+        # 106 times so, and its counts said no menard at all
+        for verb in re.findall(r"\bbin/menard(?:\s+--frozen)?\s+(\w+)", sans_heredocs(k["cmd"])):
+            by_name[f"menard-cli:{verb}"] = by_name.get(f"menard-cli:{verb}", 0) + 1
         res = results.get(c["id"], {})
         # the files a shell edit names count as edited; a Read, or a cat/sed -n through the shell, of
         # one edited before is a reread (arm A edits and reads through the shell)
