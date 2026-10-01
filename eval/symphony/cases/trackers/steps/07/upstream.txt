@@ -1,0 +1,28 @@
+cbd2158 2026-07-20
+
+Retry failed workspace setup and anchor local roots
+
+#### Context
+
+Failed new-workspace bootstrap was skipped on retry, and relative local roots followed launcher cwd instead of the selected workflow file.
+
+#### TL;DR
+
+*Retry failed bootstrap cleanly and anchor local roots to WORKFLOW.md.*
+
+#### Summary
+
+- Remove newly created partial workspaces when `after_create` fails.
+- Resolve local relative roots from the selected workflow directory.
+- Keep remote roots raw and use the local root in app-server validation.
+- Add regressions for bootstrap retry and explicit workflow paths.
+
+#### Alternatives
+
+- Marker files and global cwd changes were unnecessary; one local root helper keeps the fix small.
+
+#### Test Plan
+
+- [x] `make -C elixir all`
+- [x] `mise exec -- mix test test/symphony_elixir/workspace_and_config_test.exs:60`
+- [x] `mise exec -- mix test test/symphony_elixir/workspace_and_config_test.exs:244`

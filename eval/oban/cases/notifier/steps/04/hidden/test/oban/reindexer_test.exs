@@ -1,0 +1,124 @@
+defmodule Oban.ReindexerTest do
+  use Oban.Case, async: true
+
+  alias Oban.Reindexer
+  alias Oban.{Registry, TelemetryHandler}
+
+  describe "validate/1" do
+    test "validating that schedule is a valid cron expression" do
+      assert {:error, _} = Reindexer.validate(schedule: "-1 * * * *")
+
+      assert :ok = Reindexer.validate(schedule: "0 0 * * *")
+    end
+
+    test "validating that :indexes are a list of index strings" do
+      assert {:error, _} = Reindexer.validate(indexes: "")
+      assert {:error, _} = Reindexer.validate(indexes: [:index])
+      assert {:error, _} = Reindexer.validate(indexes: ["index", :index])
+
+      assert :ok = Reindexer.validate(indexes: ["oban_jobs_some_index"])
+    end
+
+    test "validating that :timezone is a known timezone" do
+      assert {:error, _} = Reindexer.validate(timezone: "")
+      assert {:error, _} = Reindexer.validate(timezone: nil)
+      assert {:error, _} = Reindexer.validate(timezone: "america")
+      assert {:error, _} = Reindexer.validate(timezone: "america/chicago")
+
+      assert :ok = Reindexer.validate(timezone: "Etc/UTC")
+      assert :ok = Reindexer.validate(timezone: "Europe/Copenhagen")
+      assert :ok = Reindexer.validate(timezone: "America/Chicago")
+    end
+
+    test "validating that :timeout is a non negative integer, :infinity, or a period tuple" do
+      assert {:error, _} = Reindexer.validate(timeout: "")
+      assert {:error, _} = Reindexer.validate(timeout: -1)
+      assert {:error, _} = Reindexer.validate(timeout: {0, :seconds})
+      assert {:error, _} = Reindexer.validate(timeout: {1, :eon})
+
+      assert :ok = Reindexer.validate(timeout: :timer.minutes(1))
+      assert :ok = Reindexer.validate(timeout: :infinity)
+      assert :ok = Reindexer.validate(timeout: {15, :seconds})
+    end
+
+    test "providing suggestions for unknown options" do
+      assert {:error, "unknown option :timeo, did you mean :timeout?"} =
+               Reindexer.validate(timeo: 1)
+    end
+  end
+
+  describe "integration" do
+    setup do
+      TelemetryHandler.attach_events()
+    end
+
+    test "reindexing with an unknown column causes an exception" do
+      name = start_supervised_oban!(plugins: [{Reindexer, indexes: ["a"], schedule: "* * * * *"}])
+
+      name
+      |> Registry.whereis({:plugin, Reindexer})
+      |> send(:reindex)
+
+      assert_receive {:event, :stop, _, %{error: _, plugin: Reindexer}}, 500
+
+      stop_supervised(name)
+    end
+
+    test "reindexing according to the provided schedule" do
+      name = start_supervised_oban!(plugins: [Reindexer])
+
+      name
+      |> Registry.whereis({:plugin, Reindexer})
+      |> send(:reindex)
+
+      assert_receive {:event, :start, _, %{plugin: Reindexer}}, 500
+      assert_receive {:event, :stop, _, %{plugin: Reindexer}}, 500
+
+      stop_supervised(name)
+    end
+
+    @tag :unboxed
+    test "dropping all invalid indexes" do
+      index_name = "oban_jobs_test_invalid_idx"
+
+      on_exit(fn ->
+        UnboxedRepo.query("DROP INDEX IF EXISTS #{index_name}")
+      end)
+
+      UnboxedRepo.query!("CREATE INDEX CONCURRENTLY #{index_name} ON oban_jobs(id)")
+
+      UnboxedRepo.query!(
+        "UPDATE pg_index SET indisvalid = false WHERE indexrelid = 'public.#{index_name}'::regclass"
+      )
+
+      name = start_supervised_oban!(repo: UnboxedRepo, plugins: [Reindexer])
+
+      name
+      |> Registry.whereis({:plugin, Reindexer})
+      |> send(:reindex)
+
+      assert_receive {:event, :stop, _, %{plugin: Reindexer}}, 2_000
+
+      result = UnboxedRepo.query!("SELECT 1 FROM pg_class WHERE relname = '#{index_name}'")
+      assert result.rows == []
+
+      stop_supervised(name)
+    end
+
+    test "reindexing every index despite individual failures" do
+      indexes = ~w(oban_jobs_missing_index_a oban_jobs_missing_index_b)
+
+      name = start_supervised_oban!(plugins: [{Reindexer, indexes: indexes}])
+
+      name
+      |> Registry.whereis({:plugin, Reindexer})
+      |> send(:reindex)
+
+      assert_receive {:event, :stop, _, %{plugin: Reindexer, error: error}}, 2_000
+
+      assert [_, _] = error
+
+      stop_supervised(name)
+    end
+  end
+end

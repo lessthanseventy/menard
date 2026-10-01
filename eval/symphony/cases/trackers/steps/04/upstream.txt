@@ -1,0 +1,47 @@
+633eae7 2026-07-20
+
+feat(jira): honor blocking issue links (#108)
+
+#### Context
+
+Jira inward Blocks links were normalized as dispatchable, so Symphony
+could
+start Todo work before its blocker reached a terminal state.
+
+#### TL;DR
+
+*Jira Todo issues now wait for inward Blocks dependencies.*
+
+#### Summary
+
+- Request issuelinks in Jira candidate polling and ID refresh reads.
+- Normalize inward Blocks links into blocked_by.
+- Ignore outward Blocks links and unrelated Jira link types.
+- Gate only Todo/To Do work until blockers reach configured terminal
+states.
+- Test direction, custom terminals, partial payloads, and ID refresh
+gating.
+
+#### Alternatives
+
+- Generic scheduler blocking logic: rejected because blocker semantics
+remain
+  provider-specific and dispatchable already owns eligibility.
+- Metadata-only links: rejected because they would preserve blockers
+without
+  preventing premature dispatch.
+
+#### Test Plan
+
+- [x] HEX_HOME=/private/tmp/symphony-hex-jira-blockers make -C elixir
+all
+- [x] HEX_HOME=/private/tmp/symphony-hex-jira-blockers mix test
+test/symphony_elixir/jira_adapter_test.exs
+- [x] Live Jira Orchestrator probe created linked issues, proved no
+workspace
+while blocked, transitioned the blocker, proved workspace creation, and
+  deleted the disposable issues.
+- [x] SYMPHONY_RUN_JIRA_LIVE_E2E=1 mix test
+test/symphony_elixir/jira_live_e2e_test.exs
+
+Co-authored-by: Codex <codex@openai.com>

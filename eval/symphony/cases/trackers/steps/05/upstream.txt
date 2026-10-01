@@ -1,0 +1,29 @@
+7cf29df 2026-07-20
+
+Make terminal workspace cleanup safe
+
+#### Context
+
+Terminal reconciliation could race a live worker and could recompute cleanup from reloaded config, deleting the wrong workspace. Recorded-path cleanup also still needs the local symlink-escape guard before hooks run.
+
+#### TL;DR
+
+*Stop workers first and clean the validated workspace recorded for that run.*
+
+#### Summary
+
+- Stop terminal workers before invoking cleanup hooks or removal.
+- Prefer the recorded workspace path for running, retrying, and blocked issues.
+- Validate recorded local paths against their recorded parent before hooks or removal.
+- Add deterministic regressions for cleanup order, config-reload target selection, and recorded symlink escapes.
+
+#### Alternatives
+
+- A new cleanup coordinator was unnecessary; existing metadata and operations are enough.
+
+#### Test Plan
+
+- [x] `HEX_HOME=/private/tmp/symphony-hex mise exec -- make -C elixir all`
+- [x] `mise exec -- mix test test/symphony_elixir/core_test.exs:541`
+- [x] `mise exec -- mix test test/symphony_elixir/core_test.exs:618`
+- [x] `mise exec -- mix test test/symphony_elixir/workspace_and_config_test.exs:176`

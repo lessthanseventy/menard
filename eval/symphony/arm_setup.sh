@@ -1,0 +1,1 @@
+../phoenix-app/arm_setup.sh

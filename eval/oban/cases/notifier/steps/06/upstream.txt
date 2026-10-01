@@ -1,0 +1,10 @@
+b95e362 2026-09-03
+
+Track notify listeners in isolated registry
+
+Listeners were tracked within each notifier process, which was lost if
+the notifier crashed. Registration now lives in a dedicated registry,
+owne by the Oban application, which is immune to process crashes.
+
+Closes #1499
+

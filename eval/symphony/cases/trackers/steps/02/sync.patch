@@ -1,0 +1,1520 @@
+diff --git a/README.md b/README.md
+index d99eee3..e31925b 100644
+--- a/README.md
++++ b/README.md
+@@ -115,6 +115,9 @@ Title: {{ issue.title }} Body: {{ issue.description }}
+ Notes:
+ 
+ - If a value is missing, defaults are used.
++- `tracker.required_labels` is optional. When set, an issue must have every
++  configured label to dispatch or continue running. Label matching ignores
++  case and surrounding whitespace. A blank configured label matches no issue.
+ - Safer Codex defaults are used when policy fields are omitted:
+   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
+   - `codex.thread_sandbox` defaults to `workspace-write`
+@@ -167,6 +170,7 @@ The observability UI now runs on a minimal Phoenix stack:
+ - JSON API for operational debugging under `/api/v1/*`
+ - Bandit as the HTTP server
+ - Phoenix dependency static assets for the LiveView client bootstrap
++- Tracker issue identifiers link to the tracker-provided URL when it uses `http` or `https`
+ 
+ ## Project Layout
+ 
+diff --git a/WORKFLOW.md b/WORKFLOW.md
+index a458db0..56a2cf8 100644
+--- a/WORKFLOW.md
++++ b/WORKFLOW.md
+@@ -2,6 +2,7 @@
+ tracker:
+   kind: linear
+   project_slug: "symphony-0c79b11b75ea"
++  required_labels: []
+   active_states:
+     - Todo
+     - In Progress
+diff --git a/lib/symphony_elixir/agent_runner.ex b/lib/symphony_elixir/agent_runner.ex
+index 502c8cf..473cff2 100644
+--- a/lib/symphony_elixir/agent_runner.ex
++++ b/lib/symphony_elixir/agent_runner.ex
+@@ -9,6 +9,14 @@ defmodule SymphonyElixir.AgentRunner do
+ 
+   @type worker_host :: String.t() | nil
+ 
++  @doc false
++  @spec continue_with_issue_for_test(Issue.t(), ([String.t()] -> term())) ::
++          {:continue, Issue.t()} | {:done, Issue.t()} | {:error, term()}
++  def continue_with_issue_for_test(%Issue{} = issue, issue_state_fetcher)
++      when is_function(issue_state_fetcher, 1) do
++    continue_with_issue?(issue, issue_state_fetcher)
++  end
++
+   @spec run(map(), pid() | nil, keyword()) :: :ok | no_return()
+   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+     # The orchestrator owns host retries so one worker lifetime never hops machines.
+@@ -147,7 +155,7 @@ defmodule SymphonyElixir.AgentRunner do
+   defp continue_with_issue?(%Issue{id: issue_id} = issue, issue_state_fetcher) when is_binary(issue_id) do
+     case issue_state_fetcher.([issue_id]) do
+       {:ok, [%Issue{} = refreshed_issue | _]} ->
+-        if active_issue_state?(refreshed_issue.state) do
++        if active_issue_state?(refreshed_issue.state) and issue_routable?(refreshed_issue) do
+           {:continue, refreshed_issue}
+         else
+           {:done, refreshed_issue}
+@@ -172,6 +180,10 @@ defmodule SymphonyElixir.AgentRunner do
+ 
+   defp active_issue_state?(_state_name), do: false
+ 
++  defp issue_routable?(%Issue{} = issue) do
++    Issue.routable?(issue, Config.settings!().tracker.required_labels)
++  end
++
+   defp selected_worker_host(nil, []), do: nil
+ 
+   defp selected_worker_host(preferred_host, configured_hosts) when is_list(configured_hosts) do
+diff --git a/lib/symphony_elixir/config/schema.ex b/lib/symphony_elixir/config/schema.ex
+index 17ead4a..4ec12b5 100644
+--- a/lib/symphony_elixir/config/schema.ex
++++ b/lib/symphony_elixir/config/schema.ex
+@@ -50,6 +50,7 @@ defmodule SymphonyElixir.Config.Schema do
+       field(:api_key, :string)
+       field(:project_slug, :string)
+       field(:assignee, :string)
++      field(:required_labels, {:array, :string}, default: [])
+       field(:active_states, {:array, :string}, default: ["Todo", "In Progress"])
+       field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
+     end
+@@ -59,9 +60,14 @@ defmodule SymphonyElixir.Config.Schema do
+       schema
+       |> cast(
+         attrs,
+-        [:kind, :endpoint, :api_key, :project_slug, :assignee, :active_states, :terminal_states],
++        [:kind, :endpoint, :api_key, :project_slug, :assignee, :required_labels, :active_states, :terminal_states],
+         empty_values: []
+       )
++      |> update_change(:required_labels, fn labels ->
++        labels
++        |> Enum.map(&(String.trim(&1) |> String.downcase()))
++        |> Enum.uniq()
++      end)
+     end
+   end
+ 
+diff --git a/lib/symphony_elixir/linear/client.ex b/lib/symphony_elixir/linear/client.ex
+index 1a19649..a1f0250 100644
+--- a/lib/symphony_elixir/linear/client.ex
++++ b/lib/symphony_elixir/linear/client.ex
+@@ -542,7 +542,7 @@ defmodule SymphonyElixir.Linear.Client do
+     labels
+     |> Enum.map(& &1["name"])
+     |> Enum.reject(&is_nil/1)
+-    |> Enum.map(&String.downcase/1)
++    |> Enum.map(&(String.trim(&1) |> String.downcase()))
+   end
+ 
+   defp extract_labels(_), do: []
+diff --git a/lib/symphony_elixir/linear/issue.ex b/lib/symphony_elixir/linear/issue.ex
+index 7ed9476..10bbf2f 100644
+--- a/lib/symphony_elixir/linear/issue.ex
++++ b/lib/symphony_elixir/linear/issue.ex
+@@ -40,4 +40,19 @@ defmodule SymphonyElixir.Linear.Issue do
+   def label_names(%__MODULE__{labels: labels}) do
+     labels
+   end
++
++  @spec routable?(t(), [String.t()]) :: boolean()
++  def routable?(%__MODULE__{assigned_to_worker: true, labels: labels}, required_labels)
++      when is_list(labels) and is_list(required_labels) do
++    issue_labels = MapSet.new(labels, &normalize_label/1)
++    Enum.all?(required_labels, &MapSet.member?(issue_labels, normalize_label(&1)))
++  end
++
++  def routable?(%__MODULE__{}, _required_labels), do: false
++
++  defp normalize_label(label) when is_binary(label) do
++    label
++    |> String.trim()
++    |> String.downcase()
++  end
+ end
+diff --git a/lib/symphony_elixir/orchestrator.ex b/lib/symphony_elixir/orchestrator.ex
+index 0445776..f43f41b 100644
+--- a/lib/symphony_elixir/orchestrator.ex
++++ b/lib/symphony_elixir/orchestrator.ex
+@@ -207,6 +207,7 @@ defmodule SymphonyElixir.Orchestrator do
+       |> complete_issue(issue_id)
+       |> schedule_issue_retry(issue_id, 1, %{
+         identifier: running_entry.identifier,
++        issue_url: running_entry.issue.url,
+         delay_type: :continuation,
+         worker_host: Map.get(running_entry, :worker_host),
+         workspace_path: Map.get(running_entry, :workspace_path)
+@@ -237,6 +238,7 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+     schedule_issue_retry(state, issue_id, next_attempt, %{
+       identifier: running_entry.identifier,
++      issue_url: running_entry.issue.url,
+       error: "agent exited: #{inspect(reason)}",
+       worker_host: Map.get(running_entry, :worker_host),
+       workspace_path: Map.get(running_entry, :workspace_path)
+@@ -356,6 +358,21 @@ defmodule SymphonyElixir.Orchestrator do
+     reconcile_running_issue_states(issues, state, active_state_set(), terminal_state_set())
+   end
+ 
++  @doc false
++  @spec reconcile_blocked_issue_states_for_test([Issue.t()], term()) :: term()
++  def reconcile_blocked_issue_states_for_test(issues, %State{} = state) when is_list(issues) do
++    reconcile_blocked_issue_states(issues, state, active_state_set(), terminal_state_set())
++  end
++
++  @doc false
++  @spec handle_retry_issue_lookup_for_test(Issue.t(), term(), String.t(), non_neg_integer(), map()) ::
++          term()
++  def handle_retry_issue_lookup_for_test(%Issue{} = issue, %State{} = state, issue_id, attempt, metadata)
++      when is_binary(issue_id) and is_integer(attempt) and attempt >= 0 and is_map(metadata) do
++    {:noreply, updated_state} = handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata)
++    updated_state
++  end
++
+   @doc false
+   @spec should_dispatch_issue_for_test(Issue.t(), term()) :: boolean()
+   def should_dispatch_issue_for_test(%Issue{} = issue, %State{} = state) do
+@@ -400,7 +417,7 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+         terminate_running_issue(state, issue.id, true)
+ 
+-      !issue_routable_to_worker?(issue) ->
++      !issue_routable?(issue) ->
+         Logger.info("Issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; stopping active agent")
+ 
+         terminate_running_issue(state, issue.id, false)
+@@ -435,7 +452,7 @@ defmodule SymphonyElixir.Orchestrator do
+         cleanup_issue_workspace(issue.identifier, blocked_issue_worker_host(state, issue.id))
+         release_issue_claim(state, issue.id)
+ 
+-      !issue_routable_to_worker?(issue) ->
++      !issue_routable?(issue) ->
+         Logger.info("Blocked issue no longer routed to this worker: #{issue_context(issue)} assignee=#{inspect(issue.assignee_id)}; releasing block")
+         release_issue_claim(state, issue.id)
+ 
+@@ -605,6 +622,7 @@ defmodule SymphonyElixir.Orchestrator do
+         |> terminate_running_issue(issue_id, false)
+         |> schedule_issue_retry(issue_id, next_attempt, %{
+           identifier: identifier,
++          issue_url: running_entry.issue.url,
+           error: "stalled for #{elapsed_ms}ms without codex activity"
+         })
+       end
+@@ -832,18 +850,16 @@ defmodule SymphonyElixir.Orchestrator do
+          terminal_states
+        )
+        when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
+-    issue_routable_to_worker?(issue) and
++    issue_routable?(issue) and
+       active_issue_state?(state_name, active_states) and
+       !terminal_issue_state?(state_name, terminal_states)
+   end
+ 
+   defp candidate_issue?(_issue, _active_states, _terminal_states), do: false
+ 
+-  defp issue_routable_to_worker?(%Issue{assigned_to_worker: assigned_to_worker})
+-       when is_boolean(assigned_to_worker),
+-       do: assigned_to_worker
+-
+-  defp issue_routable_to_worker?(_issue), do: true
++  defp issue_routable?(%Issue{} = issue) do
++    Issue.routable?(issue, Config.settings!().tracker.required_labels)
++  end
+ 
+   defp todo_issue_blocked_by_non_terminal?(
+          %Issue{state: issue_state, blocked_by: blockers},
+@@ -969,6 +985,7 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+         schedule_issue_retry(state, issue.id, next_attempt, %{
+           identifier: issue.identifier,
++          issue_url: issue.url,
+           error: "failed to spawn agent: #{inspect(reason)}",
+           worker_host: worker_host
+         })
+@@ -1012,6 +1029,7 @@ defmodule SymphonyElixir.Orchestrator do
+     retry_token = make_ref()
+     due_at_ms = System.monotonic_time(:millisecond) + delay_ms
+     identifier = pick_retry_identifier(issue_id, previous_retry, metadata)
++    issue_url = pick_retry_issue_url(previous_retry, metadata)
+     error = pick_retry_error(previous_retry, metadata)
+     worker_host = pick_retry_worker_host(previous_retry, metadata)
+     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+@@ -1035,6 +1053,7 @@ defmodule SymphonyElixir.Orchestrator do
+             retry_token: retry_token,
+             due_at_ms: due_at_ms,
+             identifier: identifier,
++            issue_url: issue_url,
+             error: error,
+             worker_host: worker_host,
+             workspace_path: workspace_path
+@@ -1047,6 +1066,7 @@ defmodule SymphonyElixir.Orchestrator do
+       %{attempt: attempt, retry_token: ^retry_token} = retry_entry ->
+         metadata = %{
+           identifier: Map.get(retry_entry, :identifier),
++          issue_url: Map.get(retry_entry, :issue_url),
+           error: Map.get(retry_entry, :error),
+           worker_host: Map.get(retry_entry, :worker_host),
+           workspace_path: Map.get(retry_entry, :workspace_path)
+@@ -1196,6 +1216,10 @@ defmodule SymphonyElixir.Orchestrator do
+     metadata[:identifier] || Map.get(previous_retry, :identifier) || issue_id
+   end
+ 
++  defp pick_retry_issue_url(previous_retry, metadata) do
++    metadata[:issue_url] || Map.get(previous_retry, :issue_url)
++  end
++
+   defp pick_retry_error(previous_retry, metadata) do
+     metadata[:error] || Map.get(previous_retry, :error)
+   end
+@@ -1353,6 +1377,7 @@ defmodule SymphonyElixir.Orchestrator do
+         %{
+           issue_id: issue_id,
+           identifier: metadata.identifier,
++          issue_url: metadata.issue.url,
+           state: metadata.issue.state,
+           worker_host: Map.get(metadata, :worker_host),
+           workspace_path: Map.get(metadata, :workspace_path),
+@@ -1378,6 +1403,7 @@ defmodule SymphonyElixir.Orchestrator do
+           attempt: attempt,
+           due_in_ms: max(0, due_at_ms - now_ms),
+           identifier: Map.get(retry, :identifier),
++          issue_url: Map.get(retry, :issue_url),
+           error: Map.get(retry, :error),
+           worker_host: Map.get(retry, :worker_host),
+           workspace_path: Map.get(retry, :workspace_path)
+@@ -1390,6 +1416,7 @@ defmodule SymphonyElixir.Orchestrator do
+         %{
+           issue_id: issue_id,
+           identifier: Map.get(metadata, :identifier),
++          issue_url: blocked_issue_url(metadata),
+           state: blocked_issue_state(metadata),
+           worker_host: Map.get(metadata, :worker_host),
+           workspace_path: Map.get(metadata, :workspace_path),
+@@ -1435,6 +1462,9 @@ defmodule SymphonyElixir.Orchestrator do
+   defp blocked_issue_state(%{issue: %Issue{state: state}}), do: state
+   defp blocked_issue_state(_metadata), do: nil
+ 
++  defp blocked_issue_url(%{issue: %Issue{url: url}}), do: url
++  defp blocked_issue_url(_metadata), do: nil
++
+   defp integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do
+     token_delta = extract_token_delta(running_entry, update)
+     codex_input_tokens = Map.get(running_entry, :codex_input_tokens, 0)
+diff --git a/lib/symphony_elixir/workspace.ex b/lib/symphony_elixir/workspace.ex
+index 14e29da..68e44b8 100644
+--- a/lib/symphony_elixir/workspace.ex
++++ b/lib/symphony_elixir/workspace.ex
+@@ -403,7 +403,7 @@ defmodule SymphonyElixir.Workspace do
+       "#{variable_name}=#{shell_escape(raw_path)}",
+       "case \"$#{variable_name}\" in",
+       "  '~') #{variable_name}=\"$HOME\" ;;",
+-      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#~/}\" ;;",
++      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#\\~/}\" ;;",
+       "esac"
+     ]
+     |> Enum.join("\n")
+diff --git a/lib/symphony_elixir_web/components/layouts.ex b/lib/symphony_elixir_web/components/layouts.ex
+index afac13e..7cc0c0d 100644
+--- a/lib/symphony_elixir_web/components/layouts.ex
++++ b/lib/symphony_elixir_web/components/layouts.ex
+@@ -7,7 +7,11 @@ defmodule SymphonyElixirWeb.Layouts do
+ 
+   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
+   def root(assigns) do
+-    assigns = assign(assigns, :csrf_token, Plug.CSRFProtection.get_csrf_token())
++    assigns =
++      assigns
++      |> assign(:csrf_token, Plug.CSRFProtection.get_csrf_token())
++      |> assign(:dashboard_css_url, SymphonyElixirWeb.StaticAssets.dashboard_css_url())
++      |> assign(:favicon_url, SymphonyElixirWeb.StaticAssets.favicon_url())
+ 
+     ~H"""
+     <!DOCTYPE html>
+@@ -17,6 +21,7 @@ defmodule SymphonyElixirWeb.Layouts do
+         <meta name="viewport" content="width=device-width, initial-scale=1" />
+         <meta name="csrf-token" content={@csrf_token} />
+         <title>Symphony Observability</title>
++        <link rel="icon" type="image/png" sizes="128x128" href={@favicon_url} />
+         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
+         <script defer src="/vendor/phoenix/phoenix.js"></script>
+         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
+@@ -36,7 +41,7 @@ defmodule SymphonyElixirWeb.Layouts do
+             window.liveSocket = liveSocket;
+           });
+         </script>
+-        <link rel="stylesheet" href="/dashboard.css" />
++        <link rel="stylesheet" href={@dashboard_css_url} />
+       </head>
+       <body>
+         {@inner_content}
+diff --git a/lib/symphony_elixir_web/controllers/static_asset_controller.ex b/lib/symphony_elixir_web/controllers/static_asset_controller.ex
+index faaaf46..d36a40c 100644
+--- a/lib/symphony_elixir_web/controllers/static_asset_controller.ex
++++ b/lib/symphony_elixir_web/controllers/static_asset_controller.ex
+@@ -11,6 +11,9 @@ defmodule SymphonyElixirWeb.StaticAssetController do
+   @spec dashboard_css(Conn.t(), map()) :: Conn.t()
+   def dashboard_css(conn, _params), do: serve(conn, "/dashboard.css")
+ 
++  @spec favicon(Conn.t(), map()) :: Conn.t()
++  def favicon(conn, _params), do: serve(conn, "/favicon.png")
++
+   @spec phoenix_html_js(Conn.t(), map()) :: Conn.t()
+   def phoenix_html_js(conn, _params), do: serve(conn, "/vendor/phoenix_html/phoenix_html.js")
+ 
+diff --git a/lib/symphony_elixir_web/live/dashboard_live.ex b/lib/symphony_elixir_web/live/dashboard_live.ex
+index 43fc3ef..7439e3a 100644
+--- a/lib/symphony_elixir_web/live/dashboard_live.ex
++++ b/lib/symphony_elixir_web/live/dashboard_live.ex
+@@ -158,7 +158,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
+                   <tr :for={entry <- @payload.running}>
+                     <td>
+                       <div class="issue-stack">
+-                        <span class="issue-id"><%= entry.issue_identifier %></span>
++                        <.issue_identifier identifier={entry.issue_identifier} url={entry.issue_url} />
+                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                       </div>
+                     </td>
+@@ -239,7 +239,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
+                   <tr :for={entry <- @payload.blocked}>
+                     <td>
+                       <div class="issue-stack">
+-                        <span class="issue-id"><%= entry.issue_identifier %></span>
++                        <.issue_identifier identifier={entry.issue_identifier} url={entry.issue_url} />
+                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                       </div>
+                     </td>
+@@ -311,7 +311,7 @@ defmodule SymphonyElixirWeb.DashboardLive do
+                   <tr :for={entry <- @payload.retrying}>
+                     <td>
+                       <div class="issue-stack">
+-                        <span class="issue-id"><%= entry.issue_identifier %></span>
++                        <.issue_identifier identifier={entry.issue_identifier} url={entry.issue_url} />
+                         <a class="issue-link" href={"/api/v1/#{entry.issue_identifier}"}>JSON details</a>
+                       </div>
+                     </td>
+@@ -341,6 +341,42 @@ defmodule SymphonyElixirWeb.DashboardLive do
+     Endpoint.config(:snapshot_timeout_ms) || 15_000
+   end
+ 
++  attr(:identifier, :string, required: true)
++  attr(:url, :string, default: nil)
++
++  defp issue_identifier(assigns) do
++    assigns = assign(assigns, :href, external_issue_url(assigns.url))
++
++    ~H"""
++    <%= if @href do %>
++      <a
++        class="issue-id issue-id-link"
++        href={@href}
++        target="_blank"
++        rel="noopener noreferrer"
++        aria-label={"Open #{@identifier} in the issue tracker"}
++      ><%= @identifier %></a>
++    <% else %>
++      <span class="issue-id"><%= @identifier %></span>
++    <% end %>
++    """
++  end
++
++  defp external_issue_url(url) when is_binary(url) do
++    url = String.trim(url)
++
++    case URI.parse(url) do
++      %URI{scheme: scheme, host: host}
++      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
++        url
++
++      _ ->
++        nil
++    end
++  end
++
++  defp external_issue_url(_url), do: nil
++
+   defp completed_runtime_seconds(payload) do
+     payload.codex_totals.seconds_running || 0
+   end
+diff --git a/lib/symphony_elixir_web/presenter.ex b/lib/symphony_elixir_web/presenter.ex
+index 3595cfe..7bd7097 100644
+--- a/lib/symphony_elixir_web/presenter.ex
++++ b/lib/symphony_elixir_web/presenter.ex
+@@ -103,6 +103,7 @@ defmodule SymphonyElixirWeb.Presenter do
+     %{
+       issue_id: entry.issue_id,
+       issue_identifier: entry.identifier,
++      issue_url: Map.get(entry, :issue_url),
+       state: entry.state,
+       worker_host: Map.get(entry, :worker_host),
+       workspace_path: Map.get(entry, :workspace_path),
+@@ -124,6 +125,7 @@ defmodule SymphonyElixirWeb.Presenter do
+     %{
+       issue_id: entry.issue_id,
+       issue_identifier: entry.identifier,
++      issue_url: Map.get(entry, :issue_url),
+       attempt: entry.attempt,
+       due_at: due_at_iso8601(entry.due_in_ms),
+       error: entry.error,
+@@ -136,6 +138,7 @@ defmodule SymphonyElixirWeb.Presenter do
+     %{
+       issue_id: entry.issue_id,
+       issue_identifier: entry.identifier,
++      issue_url: Map.get(entry, :issue_url),
+       state: entry.state,
+       error: entry.error,
+       worker_host: Map.get(entry, :worker_host),
+diff --git a/lib/symphony_elixir_web/router.ex b/lib/symphony_elixir_web/router.ex
+index e3f09a8..42ca5ce 100644
+--- a/lib/symphony_elixir_web/router.ex
++++ b/lib/symphony_elixir_web/router.ex
+@@ -16,6 +16,7 @@ defmodule SymphonyElixirWeb.Router do
+ 
+   scope "/", SymphonyElixirWeb do
+     get("/dashboard.css", StaticAssetController, :dashboard_css)
++    get("/favicon.png", StaticAssetController, :favicon)
+     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
+     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
+     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
+diff --git a/lib/symphony_elixir_web/static_assets.ex b/lib/symphony_elixir_web/static_assets.ex
+index 7d6418b..9d0f2d1 100644
+--- a/lib/symphony_elixir_web/static_assets.ex
++++ b/lib/symphony_elixir_web/static_assets.ex
+@@ -2,27 +2,43 @@ defmodule SymphonyElixirWeb.StaticAssets do
+   @moduledoc false
+ 
+   @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
++  @favicon_path Path.expand("../../priv/static/favicon.png", __DIR__)
+   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
+   @phoenix_js_path Application.app_dir(:phoenix, "priv/static/phoenix.js")
+   @phoenix_live_view_js_path Application.app_dir(:phoenix_live_view, "priv/static/phoenix_live_view.js")
+ 
+   @external_resource @dashboard_css_path
++  @external_resource @favicon_path
+   @external_resource @phoenix_html_js_path
+   @external_resource @phoenix_js_path
+   @external_resource @phoenix_live_view_js_path
+ 
+   @dashboard_css File.read!(@dashboard_css_path)
++  @dashboard_css_digest :crypto.hash(:sha256, @dashboard_css)
++                        |> Base.encode16(case: :lower)
++                        |> binary_part(0, 12)
++  @favicon File.read!(@favicon_path)
++  @favicon_digest :crypto.hash(:sha256, @favicon)
++                  |> Base.encode16(case: :lower)
++                  |> binary_part(0, 12)
+   @phoenix_html_js File.read!(@phoenix_html_js_path)
+   @phoenix_js File.read!(@phoenix_js_path)
+   @phoenix_live_view_js File.read!(@phoenix_live_view_js_path)
+ 
+   @assets %{
+     "/dashboard.css" => {"text/css", @dashboard_css},
++    "/favicon.png" => {"image/png", @favicon},
+     "/vendor/phoenix_html/phoenix_html.js" => {"application/javascript", @phoenix_html_js},
+     "/vendor/phoenix/phoenix.js" => {"application/javascript", @phoenix_js},
+     "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
+   }
+ 
++  @spec dashboard_css_url() :: String.t()
++  def dashboard_css_url, do: "/dashboard.css?v=#{@dashboard_css_digest}"
++
++  @spec favicon_url() :: String.t()
++  def favicon_url, do: "/favicon.png?v=#{@favicon_digest}"
++
+   @spec fetch(String.t()) :: {:ok, String.t(), binary()} | :error
+   def fetch(path) when is_binary(path) do
+     case Map.fetch(@assets, path) do
+diff --git a/priv/static/dashboard.css b/priv/static/dashboard.css
+index bc191c0..d5b453d 100644
+--- a/priv/static/dashboard.css
++++ b/priv/static/dashboard.css
+@@ -388,6 +388,14 @@ pre,
+   letter-spacing: -0.01em;
+ }
+ 
++.issue-id-link {
++  color: inherit;
++  text-decoration: underline;
++  text-decoration-color: currentColor;
++  text-decoration-thickness: 1px;
++  text-underline-offset: 0.18em;
++}
++
+ .issue-link {
+   color: var(--muted);
+   font-size: 0.86rem;
+diff --git a/priv/static/favicon.png b/priv/static/favicon.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..01a738fc29f12459c895d1f27d89a075e1825391
+GIT binary patch
+literal 17493
+zcmeAS@N?(olHy`uVBq!ia0y~yU}ykg4mJh`hQoG=rx_SrWISCQLn>~)t*xvGasBqq
+zGW7emx2lSqjSPvw4o7xKUy&4<RePUBD&$+LLtx4k$B?v~$A1E11R{?(2C}#)oZZKH
+z;@YbRD_G1qHgPnqQLL`oU7LUP=f4;4R2C>lJIvAlYE$Vl>B9H0xvQ+6+rF>lcX+x&
+zX6oXikiJuamRjyuI5D}*v3la=yYH^~^z)y+wBGdY|JVM<=bmQ|zxny^!t&Z2qxiYz
+z=P%|zxUi1@|JU`rN%wbil}R5HtG~am_SWC#_EJfUB$vlG%(eZSxo(Bp{<6F9aNf1K
+z-<FtXyOwXyh`zEkeg8(T{+in_OSJZX|9rRn|KGLmb8r9Lz3lszWxHo>|G4%2t<RZC
+zN&BCFo_qh@uB!0)&Bv9)*3L?uZ&m!3yRx;_-%GJ^i3ww1V5q1}+3jc2`B{HX>|f@0
+zSGrbwR}ue<GzQ6{-{0PD>zN)`{jenO-+i9TEDD)S3l?c`S-iP+e%<bOv)rGbne{by
+z=gwtb%oh8fFN)*m%PM?xqf>HO;=MJmcd;lqxUe;-EEVZmr6txKHAmw8kK@O-YNsnC
+z<uvJkS21RoU>nPC;s5lBAOGw}&o-<R77Tpyv!TJGz%?)=lv7n*)%O3zRjTWi7VY`e
+zR`pJN=dEpa><q82oc;RZyuJMGXW!ZL_*$LRl1~UoDl;)Cr1WSWGHJOlzhYASli9a+
+zy3ap(kuxp)!HwylfO~tR^YZMPe+SMkOt|2};=;n_z`)Vbqv<q5NrETR|GBtN*1c_)
+ze|>y>Ts<aN`u!>chV8e{o|>cD|D?w;&hcJwql19tgmV(XOH>w|c;a?GkjdrAoP~NV
+z4GtO=zo*W)I%kdy3&Vx4A7UphVRBJCHbFS><}J4#5dq0`9?b{eTbp)We0Siy`Yc9<
+zoiXc9>=t_XK9}ds_qYm%13f)FGbc_|WQ@7<w8&6VHLSD0{$S$v*2cnKk69ZJ+nPmt
+zD5y?!IcC~^_uJ90*G(!s+|<5ol3O3QKAeGJb-41+ty-Zn-66i4g&3I@bmY`BxG*R&
+zC~2w+-h9KidYM-I5;gTV8rvUmbcmR8{QEzb|3QhB==$r~N=#p*EnZBs=w6!g?aj^h
+zQ}y{L;{O#rzsKyJ_N(^aGAE8C9!`dd9V`kOVZO~RS|8WvR((CnS#jC-p?1Z7B?bZK
+z7QVYxe^u8n_>gLwqr!RFL^4^Xp+SX{DIg@Y^~sY}>-~P*PCmai>#A1BzrF2!bt+%)
+zN*WglTx4P3WBBCtn?3v<Lx+G;-z168SAt9T-QJl!%U)s+zaW!mC+GT{h`lvRO0#;U
+zO0V$AM6AEOE_Rxkzs=v8LIs0+9J9}u@IHuP+<mudN8Q^fe*J$1_uMyLRw?R=xwtc#
+zLBXxRZcpI1e}D5ufB(%ryo-;4LClwVb=t{w)20}dUEOrXm!aW7NzsR@vm29-$4~zH
+zcYA)zp@-LGJ|<+nedVtcza_)_%<&HuHjnC!*7e{0+`(WQ`&WL)Zr9zy+wa|N%G>k!
+z{HJBh&aQZAyY}V1YqHz#+ZQBUezE?;jEQy@84=ypw@c3K+FUvNky!5TGxIG9lfJ$P
+zT=eIjx+FuxqJkG!)?N?xeV;qEJpJ>wgWKlr+P^dD=$i_LhAmr6yw4=<`u58FgTL<W
+z`TO3!6DujMGTycGrESUcy=zyNKF^!{{Os)KJ1%Lc$GyC8?rqufnoslBT=)Ld_-~gS
+zo06tL1G56-1csEZw7^~|(^b2#>%{)yQtG;~(bMJ6R7vBk9(m(uKdx?xUbLK_k-_%!
+z8DrC~Ly51?oSe)*egC;TdF8Lv<KNWmU2)|4`3r{`7?g^d1Q;2L)-5=@>g~F4^{*F?
+zazD%49dunX?j+}{>-8u0y8A!V`SAO1X>UP9!8r*=g@7lX0t`yut&My)FNzH||MI>%
+zetqC#H`Z7^aqaClE_OQak~+BhhViZ#y)P9uo8C7!&yu&Ex!FK~XQ`B1go1)Ii;7mg
+zvDf6nbrB)lDym2J?kIeF>bb!ql~eX9A`UJ~Eo$A|*qm9c3V(h1eDtVl=~B(6ImUh>
+zv43Xl6lP#3V$=A$Psmur%<9eE-P`?g)Lr_c-xclru<FPL8#%_*_qw(dCrsp%wfhwk
+z*r|Wjq?dvD7~^R<Im2)9Aq^gEOm%?)PwLCAEbhP0#b9LCF49@>PlD}1(M}7cpeve>
+z{gw-NFsunX&A#eXXG4yQ2<O{HVgjrc3=Az3Cf$C^r@FA~@mBl4Fa7PU=K39d{E=h*
+z^=zXyr7EEdp))fytMdz%E)igGC@MPSwEJor(}LJZ2B&*uPc1y`;pCBdaZSwSE6$-g
+zrwSPkym^z;bAw%op<qRV^8?Y^E7g1BPMkY8EqJ-#+I#C_cQ5IcHW!n%tBJ6h>z8`^
+z*jMYh=cdhX`|=@n(t<VtCnct%O6i)O8mm^_cysOY%B`#T|7RTCq{+@N7h?DSPjT__
+zKG|>c`{w`KKjq4<^Y@E>%WnPt_U7ODVQZsi`YjK(todPZFw|nx=FOZ89}e7;-<N%R
+z-Q8(P@h4+h)+`fo5@OgWA>g1Q(6~~pSM|v4>09@0pZa>~^f-%&^X9F~yS3${i_48&
+zrP+_}>@04cFp*Jjdbj)kx2un{cUW3;J-@JV`Rk8+{`^VrJTYs|9Fyd;la8KOUNmpo
+zw6v4w&hf2}*r@dHZ27Z&lV(r<KS7gaf`A&MX4q=pRUw_x)yI3c+Za`TI&zp{0aJrv
+z!iy8T`DK6pd>f!q)1CNY!78y0nbTyi#|6LN`1AeVzdzrLu*DU;OE}zC*>`=}`U*{b
+z`}&?l2?v)p5g}36z%^mniCJf-d|W+ErzYC1kDZSp>B-`Lvzzq~K4d@KP`LbTR&??C
+zx!Y|fPn<YW_@~`T@2|}pntC`G9qdfX-h8!x^Rv(`uyg&|%vlaD3o@l{n7n=6#+%hY
+z&${|seUd&K!-duFneX~N74zeic5}{@`Zq;N^L%d1-Y=z!O0QQG@X7A_E;WC4{0}Du
+zfh`lJs3o6RGGS7o>qV1L71d+=Hzj^uE!olgb+zurqHkLzij%5s4Hn#98C-d}Y2gLa
+zAg_+{8|L?mUh^)#U-S2C?MB~2lFfO0f7{kP3OToALSBfVQ^O*Sgv(dvzg~8&?#||d
+zcR{NfJUFzKwmhEWy!_o>_vcSU_ek)y3%6v>VmKfusN#80B3NYI49%;n|J`@jp6=)3
+zVqBJVW|pbu!^`@0S=n1}?w|kn+3Vj)9XD2NOn&|Te))@d)>c*7o(+6G#+)oY9Z7=C
+zQ-T&{UEJVRbLaZXtwHiJ7T@3Q&D$=${?X(GB0RI~YO6lAt)0*7+;CZbZPcfInOq+J
+z{^6T9ZR)wW*!}wdy8r%{n;HYkZPzddsHCVU9hA@#>t_4N_xpG3t?e@3x9|U}`#p$9
+zUjOSCi61AFL;2rZ|7bif|4QOosRK*n2@6I?oju(#?_11f%dVZ3T0Qp_=Q`JJvAG3S
+zbML(VIx9U^`O(MY^8UB>6@TxWur6M^B~xJmlS9NSn?w;)1||ibRkMzUt<5?#sW&@p
+zM^YPWxaGyCZ(^mZ-_83g_oh@!y?okv@fB`CT*oFb&Ji^7(qz?K)f(Q}Zy%$p`A`3}
+zZMR+7?#9%Vn2Hl8^d6pj&fu`qy;zQ)<*@AGDh-j3A%>fNq(@04pD+;NVX67&u=&vh
+zOP#chdeghh-&nX6Tg~-4Jxy1Y;lj#Aiz<|5_FXgKNnq%3;1KEkb2^o|^Ms0mw1;A7
+zXe1ZI456=k)<1jrv4TZ#;pwNFmMrfNVPx1FxBlfkL*;iTCMJKb+2>%&U?eb6nDLn3
+z-WRitk6BC)l5joh`n7-liH~RI+wb=(`KVvv9B&e;X?C&a;B*I<jx$~=zAnoSNHVym
+zoc7Z6O*ykJ^2#BW*|o|H3(l9@R_)E7Z8%>+Rkd~Z-Mnvyxb<b;-P!!T;ZM_~mH!+R
+zB4;d1=rPn__V3UTGQ6?&+F{dG;eSsTonO??*znh}pyUWgwQ9^emkH~pO!<(uJ9qhc
+z`5Zl-$#WSeUX+aPTB7oRr?I%q<+91+B>&<y9PhV<-)Fa)bK>M&L7q10nadQF*39tO
+z<K-g65D=)FarMgE-u1iFp6t1~xxD%E%7*LNcE8_j-r6_kT)x=*4RwF7N$1P-OwyTo
+z{IOua-Ondm<KN%0y(`aCCg{Y#G}DD8Xj0PFC`CKHyq%k4yW5S9^`5rmZvE{n^Z%Xa
+z<X5JvVs{rjIM8@hP^qVVncrNg?VlF=t``;i{ZGhKXQD&O9uZAtfk_?FI${Mk)~uGk
+zy8i2l-|zST|9tcpV??0hxjCA_LigjhR~B`iH`ft*<RL7;$q{mOkyBC7BX9Zju^(eh
+zzH)LfeE(Yg;o$uK`E#6(1PQFPSX#A}^L4o1OvRRlK3VIm*Vorymvnw{Y4iINbME|^
+z-n=kCDVay)+#yfTPXGM4?MYozzPO)Uka*_#Oq0x@Lv3s4?-k;B$=sNd*E{7&dYJyn
+z7>B3NHW#12S6l4&+~3qUGI&NCCx=F>%CVhETeDQJPG0SIV?))=5=GTNaefchN0s)+
+z{rxrf%-PvOTraooSk#afSiffC9FwY}mySv=4)3!}JvHUXRr&ncF+q>y#W+|PI(<@n
+zF0PTv5Ifx_EoD-Z^X-lK_oHR33@08gb~nGZ|Nn>L6EpVut(~Q>U-5tL`bF~$T?37F
+z%-XzQ<B28Z{}1N+%{^0j`8j_~e#_y8j)bi@7kJI7t^2(DeT9;;vhw!8#csD6nc2TA
+zpI5c&T=@NWGvh)Yz0Q<kTd|5utov8y<k#zKGtRAvyvcCjPM&#;*OlOj8<H~X{(L+x
+zzkYA_{e^~e3Kz$oP79t_^XX)bhkv-D_UVGV_6zQAoO4I=V8V)xf_(1lxLJCBlmr=_
+z+j%!ldtI3B$D93OI<>(ZC+GO7Ti@RNpZV!oL57Ui*VbO^T)*d|Q)1ysi^B$v9+zEQ
+z_(UXQ0(aa^`@7Qb?G<-h?q}<IAFA>Q-YValUlG7xT4*72`<mYAIei@=ffxDWItA2i
+zZDa3lOm2U1WApjqojY0cVy`nY`nUurX;l3D+|8m?6uQ-6&*6{PuJx{#cXa8AvT`dI
+zi9NdUpZ?|r%<blub&r0u+tq(CQ<hOXHld?IFd#Foqrt~zS%i+3%8}!~zi%h=+nc7J
+zlezr(<DVwgkclhQ<CdAHpUb^1!QgO8xqrg){CLBfABW9rwwKqJDF_JkB!1b_ainyq
+zxWv@76Ne_9NV<Au&U(As)1*>=AG+H0>95;{H4GJJtE0<fV&3q7o4QQWg(aFt&hqy&
+zH3iKUlU%deOVhq)IbUD<WzYK(tEp3_h<vKBc~G?T!F8TTLC2o1j5v8>!o3K&+q-!g
+z8D3xUwEX&aU+r#@(7m2q&ITzeD|Ie(?iHG7!a3t;-sY(x>!*Fmu+-bj@?&wR+0qHe
+znG>#VncA4JqW|CpH>VjVW(2iOntHoSsKYQVv4=7E#>$8tvetpNa_8lz35p~$hu+=x
+zcXhb;pM!}H3nT;_6qx!S$*6RmSd{4#JXQbo_4TGX7xz@|u0MUabZ3l>+hx1zEjc%X
+z{@pUHTxYaa<Ms4&--{RRPo8HTQn%slMd9WDMEPd(wi>WFsD$**VicVCplek`h^qS1
+zs;wJehgFEVdY^vsUqqFMVL`Ef`2EW}f9AIwcGK1LVdPO2T+ww%(NgncukY)yKKCOZ
+zEM@k7=B(9HvJ7GT-`34s(Q^Ckx?eBF<M#(fgxCaJFYRbO!mwb48262})3&}WziU@@
+z>$JXnr{uZ+QrZ%XF+2y9kM&AV|22Q^?qzIF3++@mL%OS!ELXl-{5ni0u1v1aZ%fIW
+zgVmotcfI@glWCHo(Xok3G(9&)Z1Bt4dUhta*c+Yg4IVCgoVUj@b8~eEiJWU$CoM6v
+zcIpX}op%#YS6{eV{BA|y;+{|QFYk{3|IA+A`eVAH&q6J&$qJ5Mo*i@4RgcWQu_5g#
+z`^A7M=bp+aGnBlzR9sNk`M&h9!Rkp<7HHT6*zUZwS^B!pT&*Q7+B44|xW8GgLDA{B
+z+}^4m%nPsFzML2P@tCy!ybh(7NBe!#&TN+Z`{OZh`I{elw?&q?y-=BW*o4W3>BgFC
+zi}Z45$D1b}YPs{}%S5lRYq#B||NiywYf0V3DFqrFbBYC27&#g?avT+qY(CPmW4YP-
+z=&xB(vrbQ%`<9bm-fq{$@4vsjH}rAtOxoe#vh=8Y*CGe6t4EGsUl;S~Sfx%(<_ep%
+zGxw$HcBg+g4w_Wu`}f!SdV}<9+eHPh$IJRD%-Ou_7>mM`mJNAFFHL1&xYwJVy!(l{
+zZhf@ME`xfTijsy2OWM9Ba7@(P_$GOY5qqoLGtU42KF#i9FpyW^mT*3C_VjCEju%Xg
+zK9@}@*7RLgU^+L0!A11}|Chv`y|Z$yJs23={pY{RnbDRc<;Kw<qRD9x#&IH`r8R)7
+ztE*k`qKS)*xSk_}LX4jHe7nC}<rx!L7!IUA_3P;A;ra1@iOHHZI;UQiXgRbzXMR($
+zH_p+zYz6DjpWmh19D5A888mnT6MHlT`K3jaWtJ^^^hmCQAu=-ZnEk(xF}|0lY-jT1
+zV-Rx)VQ_GCX;lpFIN&s?;)X$f)vuS!vz^1HHFhj`UA0>yY%$Y<Lzdk&e2bhWnP{qV
+zw>X*eNq(9heQx`i(~m!LY`=Z>z{`*WFGKF+eSbggNK&|S)|J;^XBEg5<dqa<UYMPK
+zUsokozr~Z`ghAK@b_NyBjt)W3DM8z2ndMd)F&yZ7UuHgC<?*7K?ly}f>?dvOnlgv+
+z*8cPNZZk0?JUY^OvaWu?OatE@rD;p`Sf?&iUFzUarlr4M+#&Mgi=E0(c{t<NbH=Uz
+zS=|&>ukmxzjVE%pl|>AU0!*hkoLf$56)`eQR21M;T>0u)?*BYyh6kV7tv!BfS29~M
+zHz-{;S*aqB#n15JrTBdlbDzMe3@l1+mYgA{Ui3b(p2(?qK>Wk~?b+A$yiIzJ*q@s7
+zZz0ct*I&7gNw6><e3ls7KSjt>Gv$r9hhitoL=l#RHeO~fF0TBpX^-xCu}J*9ShQdG
+zuaYMdN6Q2u-^+V6XPw#?7#PB!=^L2mp~))9skwwfDRb7cD~FHyYMbS(kUMIv#rweM
+z>7|)dgdRO!BY$H}Sb>Gis<Ua2!)Ev1eq)xm`Swl_XZ6(EZ_Cau()wANy<`m|L&=S;
+zl44W6S6@xrcsut_-uC$)Q#aq<nYKBLZ+GvTvRpNWgrG^an(h`^TW^~9ZZ6n;_nd6s
+zi}Sa0?xbxlbdQ-MBrbnkM=RdoVW+wu1H*6SCz|W(dKcVJxy-;@|KeduLYA!&kBS?I
+zp?Ftug3AdB<F#71Epu;eQQr6==f#S^?Mhm`B2%0g43yd!m;@$HFceZ-*-`Vq`v0td
+zrEkjRs^4ssI=btpI?KYM0G8yAAR$fzMhC`oGpDGD?6=Oowe7{%rusc|j>-pGtt<NT
+z-*#f&_SvcF>B(mdeLOuE&e<aKC9T5u`xMR2`1)_I%KHTcq_URoHk7$G^~x*FgFipt
+zzk7F)Yqzn%g!6WPue`A@d7*o}fBv=zohX*>4GbQ!i;k}Q#JKm}--Y@2-T(S6pS^s^
+zpG{iJ7i}(?%Ellb*VENukagwp%KPt6-xJ|!o8=;4t>gMu#dAYeSm4&INAdPi4`)6s
+z+F215C6$_za>6Wjm;a}!EXUiO6ccQuJ~B3`aCUH%t^Rtt`u(o8e^2Z0kEvN2e0gI^
+z$j>tmu6DBsE!>>y&G+HHanbbTEj=~MeturL*!fV~%_Abq7+JI?E(wy-Tg1^;5;r0K
+zgNoo@QD4)`#=`1h@%z&r3olD#Qt(LRU<=HvUZOSm%!Wnxw!XixQI5gjJy+6K4u*8*
+zl!%E(_17Fyy&`b(_19VVG!7Ily`r}#ZoPt%j+WLtNxpVfxBI%A-tjCpV)5ac%yW2+
+zan23r>&MGJmPg*d*LfmDNyy>AhBFCD62b}+ZHk|}xpukRcdwhkrODV(@>TxM($MAa
+zCci7bTQC3I=1^PFPOT+DGeRF6UUdAiAh(!~$E$m*@88JV8~b14ecAQyDE&A;=Z<Ne
+zmtXAf%NOE#xqbGsPL~6QVGaFHzjQLNC~6)5Ts-S&-Tmj^w@#bb+_WNwlW*Fi)&soC
+zXa1-*UgJ(X=flLnIDKWDeU#m@3L81Y^mB8Ln9Z%;_x<t0!`YvTJ|F*I^XSW_>Zq;%
+zD-K+kSl)bGnc?Fk(PKYUx$RO@KD>F8vrvPp<aO=;54!Vn;v)iL?wpsu5IxtTtms1S
+z_T{hbQ{MmDlz)Gp&>TNjJ%3Ge`<fpceEe1#o{{I+#;(b#WMswsu3K|+W6!&y`xBk*
+z^^}$7e0{g4bJx1%Zi@SgUh{1%QgLBfxJvBz$)+aRo4fa&FH21ikLWC`)RL{(%hJy8
+zeZ4_(?e^Ml^QYRyFX)xy;$)b#EHgkuCNCr=#^_7i>^$F{_piQw9l1G8G`>r}UDR>P
+z3-gMK(~pn)?GfN<o7G+-+i)VKhmk>}$FQTn|M#AUTfhGQ_Rl&$cYn`RGtkJK9dFyA
+z`aZF~Psa5Or?OsiTv(*lUS9Vu*W}Mc_gA&w-_EN&nBc+4(&e}>U6R+}n2*b`NkXf2
+zZtY4ud*D;(IZ@9UinmfT@4tPoFCrq+-=C#1vtxyewjv`VD`Vj~3yU}3g0HSp|6iQ?
+ztZC-cl%n+~L>m|!l-=#Z*85JM_nGgF{f@0Gb}XsX5E0>U=vnCG!X-FS(<kuJ=f9TK
+z=l7krDtT*~d#p#Y@Tu1+ZIf9SP0ogda8Gy9a+ze#BN&<EvNTQ9HE?IzRyK?Dl#Mr=
+zoVXYpdK4e?NOr5#DcSeyd{R}7+_6Yw)gl%KhB<!etakNJtR#(|Jlv&wtM~ttlDLOI
+z0yJDYRFb>-Q+FB3FgkEt*7^85OUAx1%Wb({?XUPX4^(#FI4Nge7j&rn_qUok)8j1+
+zM7TI7IVmXhr(I35@8FrpeObhAzyC8avEIntg|EBQPb>}V;b(AZ0rdiN_8i{V%a~%^
+zw%hXg%`Tyzk9ty#+ja{oTI-$Lwm0yxoAMHsAJ?Cpv@D$U%VEypX-gxo+?|tX<~;4J
+z<>@fdd26+7W-GsY*0t$);`X&3yWh=v&d9Jm_qLjzX^!q)mUGi&7+yU1sC-`ZcTG9>
+zVGc#5V^5xGhH=KKsWW$+SSp~X$l{^)ig`}G+NVkD8YDuqKdcD6{^nQR{e=kz8AazN
+zFj%^6E(&>7K6T-uAg{UFtHRc1J!+4>zW$xRo_PBflct^=mJb0wfv<xeXR|P*{J*=+
+zEdSn`Et!{(O$mGz+Oy!0CHrL)%jYqFr23gBHVQ0S)MDfvd2VCu>yH&K%iq<u%{zCx
+zUSEPsu>Tt0oTJkHMjnnr3{g5_J)3Wv-M{qYT3!A=OU?gDA3D2jk4XpyzUI5DHkGBx
+zzqQmh=x_Ie0Lzoxi>~Eqb*+k6dn?@BY}dluyWjhrwv3iupwuOI>h;%HH6e}NB9^~C
+zsa#K=U%Tzv1V!gh(&l+<+^3#Tax>7-xBtI3!DIXMu;}TJ&v{EuoP0Uts)wInRo&lJ
+zsrs>Ae2*s0JrKvw^QPv{jgy&*vH2OZ+Ip;%b)H@3P;6bK<rS24=u|rUm)G|bFDTUe
+za3-IbVOYBF{`X+F8wOGqCZ{LqN?+fj>7uC_6rymeEpQ^!t6RSh>Qz=&nmSjVP!U?O
+zN^613q#%v0SxaPMx7rjtyZqVdbkUBbpon3;W!@a?(&OK)<G=r8o@@E&<E^bh$Mj?W
+zJoIYlSd>v#R#tIhf@1j_yMmO)b<(~bv($`^DTQ7X61jTlP1xJpyGn!PPsJE~x1WBi
+zgGt*V)o0I_OWvN++v>h`otKwc=<YS^?2EfcO;#V1Da$>!-#lMNd5O;4j^FRz-+y}J
+z;^g-)mPK+eVOggkkiR{D@3OMB>d(&2{p;&`?f=n#bGO~C>iPcji)WQa$f*|(dm2@k
+z6j^S(E%Wg7liHW{a?y7!uD9C%`Q}!Cdsk|;K4F)@6sc>a2|bO=G6mAN|6A?+`kBA|
+z-!GS44SQ3*i<CdQwl#jQFi-1mmS#qWV-BGfDq$;)o-TZN-si>b?U5Ul<_T(dJk%Cw
+ztol;5;rPircQkjci_hj_3|q|>D*R~vogHOIUzgtzy!q9oMRwP>D#i61Uc66?Wmhs<
+z9LHSPs?DPivNh{b_v~wHXSH;=u`UT;Y{hClWp{MXeQ^$!*Njb^3_OgB+Z-BtINN-B
+zH{UL=`FHZz?xkxw7WH^U&y+MyJE9xC_u*5a`h*e%iJmL2Mo&B(CaGw2oqAJtdta31
+z)nhubdlHf}6E%`AY^;92ytw$YTw2fbE9;`O4_#vYZ02@PGq!N2)Cupq3K17u7hGPx
+zf5x7gxBKUtvYM`&Hs#N?O=o_-PICWunBV@+gWI<D`-Cs`UfU%%>4bnlL*U9F1x}?0
+zVY7L2%wC6^PI~-*SINgmZ>J}*Y)miVmHF|!nZ5sCG=Hm7ZtRAdWcHShfW-{mt6r>q
+zzjyV?CnqQK$0rG@F){39<1795<?_UtyYiNJCZ6CB-dXd-)qzFLC?v$SF)MWPGTRHw
+zkN+rreN9r%e~HPz6BFNVW4ms~KPymuONg4fk@9pG)#nABO%wF@{Ycs*H2=ouHnq%^
+z?BCx0ExfzS_n<TTw|twLg8zqXckjO~A6v7zd_UvaZ~se5CZCtzbJC<lSn_coSG?r}
+zHpyfUrx{8jJXdu!Kl1O{esr()=KcTwg?usAzrnF8eEm6oc{`op*Kxli6a;p;b17~x
+z@mUbGpuJ-PM@!bmh^DF!?SHH5Pjo5vh$olaym@nz^Y`Do=2*<!?RWjF)Uw1GJd*tp
+z(sLJXXy@qZSRxQ4vFyj^#^&~duU)CL=lZGJ*IbXac&hK;w)m{Ug7W?Uawlb9n;W{`
+zaj~QC?0Yl6AAT46dt2q+l8sF>-zbIXP3h_3Icd2#Z{5G<@OAh9l;-*UYghLd&&jyB
+z?(`<mfNuYvj9EutmS{y57P2su7(M@DG2cF5?h?tammE`-KTo@VkAq=O$DxKZkG{9A
+zVw`e~`2+VE?F19gC1RpeOH6s0BSaQ0DeBf=?Bah+LSh+b>(PIC9pclz6z+_Xnd1jC
+zmz`fOg@NIq!wE^gcG1Kxh439r9jPB}9<6VfsgR=58oT#PSMRZJE-krMUw`axZtu_2
+z()+koTkqRe+nO&=qSBAAo5|eHzhChccZ`9=5xp-SpR4vRdwuZW%lfRFd52F<UVe|i
+z?aQtzjg(ha9wK6*cfUW~Uj6U#+U2YD9m;OJ{yHmjd9VaS!`+3oi&kkdEHI4{sbV`U
+zc6uG7W{b+|vss>gUR8x}Pc6Mybgu8goTEjLp65tOs-_3cKUklcGwV^C#>~k|CuIZ}
+z6gp1*<8erswM@XtEc)BMIY&->KR@$}BSS|_>qVW6u&`+_i*{B#mX`7@zOgnw!sINQ
+z%Oai2A!UDEuAWm7R16PU+jV&3zh|$d|0$Q*R_~1~{_)~s@4L*qiN%hAA6qsEs%6e{
+z@=`2`o!;7dblsab%+|L`Uw*9r{M>)7(Cpb=-xviLUc3~K_xbnBKHhfn^za`u)=6tk
+z?09uU(XILkhr<)G(AFhdobSKAyI6SV#l^+kF?!<hyGmBRxU~2CgE@Peu74@mF)LFd
+z^_4<uMWaJXOsMG0Ia4ftJucNwKl-QrxLoy`W9IfUH8WLAH%99go2`wud_AYMMDPM@
+zo2}8hYvuRf*$D7Sn@!r(qaqY)m>l>czRSZTX?x_iv$em^MoXFJ$^2U@uzFAbh3^L)
+zb^GR@lU>2^_U5j_yHh0o)_|5j9IluB?p9a#(0P{}+qpm`rS5a$0U>h7)3!=^dUF21
+zv8U|mX(z9O-FM%#_VC<Xd!G5P|Fb#s<hWjWI!UM{`)Ixw3OrJ=b6IA>#)vu}pC0MY
+z7rU0q&&@B?oVR}Bo?ow4e|!4c?w`pL>Fv^qa~m9l+=ADoCjH-da?+}-hhe_90n5wY
+z*3IO;_unc^#Ol{c_1EuznN??X+Fv+q;=`c8$l&9pDe<`L@WT_{zH2Ym-#qkF`qlOI
+z`L;Db3Ql}IuwZxJJd2$M5|^ZBEMr`?$SG;6mh`&pnE&hZ&(HXH*wRCYhau(qyuG)l
+zvwTr+T9_b{-XkEGJZX!dG@Fpqg1c$wSB9HE{aN{b-|xHmzDYaP#Jqm%eNTNNE@mtJ
+zI_KGj=<Rndf4O#W{hm*!0vQ4X4&+>4`us%GqDSV35-+PQ$#gjKJYiK<qS@-FzuB%Y
+z>5DNae^;+?D?Q=lB-KT+*XOMVwKln34}~>WY&##Ow$_nBO<;u>xBb=q{^zsj*L*tp
+z;HSm;ihXfkHnbnR^Y8CFTkBd?)m^JJ#JWOm&nulem-DaDx(v?HN9J|gelF%?SYR>t
+z9LJke5+$!Lrn}_T9n@YpVP1*^n?@JYthAfev5Twrik+D`nRh}O;|ad<*H5L2-lUxK
+zxh$|v<JO4=kD|~}omEkj1fEyaJ>E4n_*`S#)PJ_x_5Aa{p5fq_^kR?y5k}|sdsR;|
+z&Yf{kxS}J$BarOlvbtBadzIY!(7nGpM7{0*a4cGMow=Pi``6=x$)EooOb~A4Sap=?
+zW8pVR|GW2pzm#yewlzC^;>3xH@$>!_y)rs~{CHQlx6e7tZm;)q89Aq?u4e2wkkGSo
+z*0O(79=^J{<nxV<4?i<@+^C$A=gE*znjLaCIq;|0>a*)SCo!EeRzKAkxG`B&VCEvN
+z1*>ZOOO7{~Yw2k&X)!%*oc{l3-|Tl?{hQZ&d3c=g^y!JexAN=W?`~r95*PC}haO*-
+zFJnK``Z&jIGtH$gE~>Lu2K!tVsjFA8+rA*9=rrHmZM^dTKJb3HU(Io3j<VWf>-BHC
+zz5dI5-BQ2$uQe0H<DS6wcYEb;@BaVc+oDI4(iR4&$Tx9tDQPTA>~K(+Q1#=+#nN1>
+zuO|XT@)#_p{(Qf8`{L;KX=jCmAI1B7tk|@|@$Rlz^Yzh|%MLGatZVS#P2OV9uzTmj
+zvy}{695+Xa9`P_Y)LOpO<!Ozl<`T}1RfiMpgUq*HYdDvD{FUMV<xaH?p_|igE?*z_
+zKPoQn;NgV<91_W!_M}c*xo1L1Xsf!K+8JrvnhWtZa{V2rW_O%9bEYNuVDPCK2a`V~
+zSr>htrrWtTYO7X{?Ar1>h3-@5?*5)S?FUn?)4>HDZx{|3&oXv<l%B-Hn{wyThRpl_
+zt6v}cQnZM>#4;nwds>Cd>^|E#O$|Ls@mz6jLFGd?(sg@8f||~zrGMl*K5O0ExwYYI
+zqf-CO+VA9IQFdp??Du<LuWPRT{q5_~16$9W@p*mwz5a}e;Q=N-{H-0uZUKDej7**`
+z3$n!0u5T$Vzc<b7QLp(ui$cX6oN+#rmIQydbN>8^d-=<U1u-s11g75b_V&!!eA8fO
+zmeaB0*<m*NonF5mmcG22pOTkX$7U3;Ds-(`<=0F6@tW!kM=xD=|FmY!_TK8~@`_X9
+z7vjazBHUAMNw%NWzsKFG()p3^_s8>lXG^(VJbe1-E!T4rcQ3Aa%2=;Z!JE$EazNQa
+zXxg;p$9WnJSu~ffTP3zOF01#P_B6eJ8n(8vtPC1jT1o7DG8fo+WUF5HxA*-$ZE|+^
+z+OXFLr#v}g=q+9^QT&KOFy*%2UHS9c8g;rde8vn$l16%-Tnr&5XPHih3g4Y=AN99M
+z;8D}V&)l5Mi_QDH>$hZ`oHILr-#fY8cYpB)i?Avko!mCzNKTpb(rZ4F`x3u?dM<5}
+zvx2eV#@6iVx0V(6Z}*#HVS4)c=c`|SGhgkSZ}T%~^R&0yd*p0?xoJ$D-2LZz(#9u+
+z=NdSscm%g>US;9ktf>+_BVlvY!m_znHU>sYmhIHIeR16~f%NUZ+p@y+Qr8%n7I8j~
+z<WW&v(%F;E<-Y&$Dw!UyXO3ZE(>^}#Xa6EsD<`qB{QtxH-!+Z)txk$sI$Bv3FHUSM
+zmEHY)rUb8j>ftuot^L>6&bsvC))hXp*<~?-x?L)r9Wfhku5o{Tef{mi$FoHBITUXk
+zoia0?MQDbv-}2zdeJLk9#p4U=KRiA-f0g%vWgRC>yQ2d1x4Nwt^%m3ZTp8OZYyWN5
+z_WRL0Hf=a@{WQnxri~oV*9{Iid1MvrT2S%8cl*7#KbQaQjemDzqw}s9y?tp<H?0p}
+z7w7C~d*_saZyQJ27VYw%#oY{nQKs7deqJ&=(r!LFb6Qt!=G?iydeght$L@V}Iy!HE
+zY}+9>X~mY45}%A*4AT~=NIdVlyG%Bx!1u46e4WAj?B$nN>O^llGiPs-YmH~%gSU77
+zG}XUQyeo82VS=zr)!A2xi;v#<$sJYx{?g0)(q=kmJiUt}x8+9e`Og^seyQrd1En1S
+zXCH1@zxVsO=<5B}uh-@;(pa!VVu^@8WBl<G=h$D}TwgyuK%=I1@vg7oe)Ip`>fg8}
+z?L9ktsa4&hC)IWF3zi8i>+I27+GIQNrjW}4(a^?KoSd&`nXIv{dUj@}d(xuJzrVic
+z|NFf0az2~$ud^FNil?YL2YD^b3|s1#byhu0H`e5-*Q-|+bN!xP_O~~@UGnBzRNch)
+zp0*-7^S4iTX%X{1e5B<^YWe-@@6P(ZGYYJ})%<1W|9AP|Vf8e2=U=@`BRJ;VboJrL
+zENay*<a1B-y1K+rdz#)ag|>DBmxzr;saxgl?tUH=$#t_wDC<b7X~U<M?h}8%c{g|4
+zW=#M6>(2biv-cZ_Tv1ly>ew%JIEY2gSXaz<Yt)tV+w*VVu+eHgwI^=<&gA2Kzc-)%
+z|M_T>)BPI(8Y~Pc9Eu0CHm?d5Uj3)|@~+VHN9~05s=o%ZZ0q{!;J|QkPww*T+}*YP
+z+=@Lf{;rQQT|F~M_vK99)zkN@Eoqsk?7k|0|KDwe{|_{7m;dwf$hQQ86kX-&f9C$(
+zEQ|%SuX2?J2k+KD{U_n8q)q3FFL`G&^vn#8=pA`wY-FU8>=FCxi|my}vDf`?m%rco
+zW1_oUCJ#fv{g+#I#punOI#pGW(d*B@_R_l(It1KO{_MXkrR1FA79sA`k<D0E%rHSy
+zQ*+9+X=$0awq#~Jo;9_8@3y=w_uXf!95zRV?!LRsD(BkC=xggM&w-ljk&(})M*Q)3
+z-W8PYBE;}N=X9I;s&MZ)$=h#-tWFD-HM@Q9Sns;roq10$U0;`b!NFVJGU)87Q%npE
+zO-++_^D3@!5z$eteiV5w_se>LiIb-&1`BZ*&7QaOq}!?qQ&Vj$AD;ZR)~a;=<yFc3
+zytTi0OAK8=%Nx%xZLLUDcd+EUJy}@o%KvAxW7ms|P5WYWDDlCZ=0zX=WM^HMdmCv}
+zU)XY0DDZmL{iVkz?_@o?{^dde!#1Nw`49B}cy)b=VE5g;A<8t1CwBX#&vkFOEPn^4
+zrJnPOn7(tZz4NrqcQz-STpF}RujC`YuKXO154<te_qVq`eeNG<QM&iMse`#o(s{q!
+z=lxQqt6se6eO9(x(cFCdvvYTUZ)a&*__{T7j^lT&?cK>=H7ANyh2@^lH8*+l;aYUQ
+zZ11-~jkRLGe%|<ald*n-no`rEf{y;~=xbl5srm2yb}QR{UOuPfyzpR+V+*q1|8Ade
+zGu7DhdT*AKgi_NiPbG(=X;&3AH8X!5yRP1Q_*n1PFJDSZpP!rSc06yd+$mj+8e18&
+zob>$#IUgA(M(T)7j9Gf>ul)M>ttw}qZc3@PdDy7z{_p3Hi*pK{Iwsw|EcLhe)D%s2
+zy=IOlJH_ww@)$LIJChrHRqWrp>V+zH7c*Y`bDhE|^ZVcTT@5ph)75fse7k8db@S!Z
+z#`bf>o9C+g&55Y}JMFyKv>(j5KFTtC+0G@DdMY{jZcYkHI`l~I?HqpFe?K0#8p<~n
+z^W|E7EqE?2Vkh6&vGk;bvnFRq=+jw8gCZ7Jefq3DU2j&IU5um6@vjbx-Fm(5{=WQi
+zyI0M>yuhjNgM6%JomE!SG(CIjt=ZevYQ9o@b8U;Cy}QBOFJbs=TP*vx{m(zM=BrEQ
+z{uTNe!`KkBIjT$g>iX{w7O@szKepjNXhqJ~&*#;}I5gKfu$0Z#-Cve<Dt@}o9Q*kk
+zGfqDZvXS%u(RJr%ZR0~By}mPk|Drr*{ti8Krf=QdTF&!X7pBa!3)0oPb%;;KV!?NL
+z!$<z?{4z7sB_3HF6L|DE$J>op)?!Qk{eAm17Eas#@<wS`qGv*eg@}-Z==na?wh-5e
+zS0_)N_pjpZsc_Z6%zKG*s$*VFpZ~sc`H|<Z*R+2L`j={H5yzmgJtAa<(DNT_9Pd^s
+z->?0?R=)1F%7J2o`inQ$eV&#Szri))I<ITushJP;<{tdxdQ5b6nx^N<SvEOuwa!nv
+z5x6hwn$GVhOSR*8Sq?2Ojb&GC;q2%-oOX8iy2R#n+|SPa^Vi9Fb7}Sc8<Us&?HA-~
+zWl)StY*`Tz!W~k0<JtDy%JYxU+x^bDH#I}hIWNF~`E2w1uxO7Ui>uP?=4-C!cxiMU
+zxp*_u(WT|w_pg-}>gxGj>!fF?Br+(h=vs6uciY_U_Y0HfOHNjoZ~9U)_3fR^E$?o8
+zy?Li;QRl@aGg4v_`DT~Bm{qm4O>d6<{pfkRcP@Wz`26JM9sVZAy?vQdYR)0&&Skhv
+zz24d3b4=9qT;lIXo6o*}|8uR{l^@aW|MygWmbsjE)>4k=rCHkv<;*k2!3-SfD@tau
+zEI4vAxA9%=tr+9PH!YX_mPdcAGWKC<xW~`4<Nu3|lk;1AH?yU0*zWjt*LU4Gn|gnp
+zHCcCeK0n>sdeonlnNji}x7X`09$uO|7k#MM{WoFmt*vrVUk?73k3W~)u&t?S?E#w)
+zWxm^&wan9hcs+K$*^kw=PuR+?y>n++03N%F-(6VMX>XzO;JdTP!xV{?!NxlmX_d|X
+znv&J~iXSv|6@8}r{f)o-et-VdwM;RobarU;y)W0K<!0Gb7Wu8|j&gHj>y<WNckSBw
+z@;97pU$rFOYJc$FAbk4bZKb4ezTID+h|ka2xlG2Y>Ruqj&KNzrj0+0&d+u6!UN$lP
+z#P7Z}bfHMM-Dg38iN<_A9~WHR(&Zt&ouj~oVVWwpeMHG|-`@P}D=Qpd+ugOgyR+is
+zAKRBNU%vVgx3}VS-(9gM&z{+fe))Yi!=6#cUCQy8#B`?_uBxiMe6p6iHWu?=pU|z_
+zZgu^}t3I872Q9zGm_BAc-+t!Eyv*kPx3*v9_4;|VU$wWbU+!+k$F9=(PoIhNakBhr
+z+Q^X>&&Fx&$`vd!eae+TFJE-_@Ba4EnydVs$)(GeuYO%UP5;%MZ9jd>?^d49ouBt_
+z#q}pACl_0ly;<SfsLsM*<a?RVB~-ve$$Ij+uzU3mE)ym#nR4W9nYH(tNk4d$r1qP-
+zSLlUlJGH&JbouLr&N+KtE({1r>|l~Cvg*F+GO2~-QP}FO7H@a8)jr>EU+w(!$Dixl
+zvflhYd%Lve@bl}(XC>PDFibNJm{`<0>*6loW|faimT2wXo`18Vd%`BC(5=bm?*98e
+z>(0a#^G;}SMX8%f&HP+`%ZqDU)8@mzeI18x?t8uKkx;z4vJ4;d1Xe{M{b}j-uA9FJ
+z30}<FoVc}R$Gq2J>mw?|jx1(4uzuUImsRs$Zwy}kc^Mm%qeIUGuTx6xmu8v@&Rn$0
+zt8lK>R<<=~Vs`wBIdZM|0fXcuh99#;=hZL0=JD>qhTDEdt`D6&Hcz?fBCtB_VPW46
+zW!_iUvu*$Xy(ukK`esFHYN}+v{qLN&VY0jTUS1SC-SjUzZ?^nlkwr5a85k~<K0fbe
+zAv5uz?P@#gRez=TCMn5hT{KAx)RA5~<w4QT4NA6kZ@3@r=8wMKk*;p`%PFUL@x-0=
+z_g|^8M*UrN+`oh2kcn<vB16&=g|>4>Up?feGYCq0O7gYya=d!Dd(o26mu0&nqh_6E
+zVtDpIP&qIA-m=R}w#n|c^$GlW2UG=}Ejqtt$|}yiI;*0D3YRGBemN!LeUc@m>u{oV
+z!Qrphw?)j{Sy0NeduND(hs9jK)UQS7r$y&^XQy4(i8olM!I0t>eMsuWj-;)b_wScg
+z&$|5i;T@gjmosfQ)a|`j|DnUa_T$fUZ-2HPRsO`yy<6tT%jdkZyT8{a-rkmb=<&x6
+zH(Bdd3=E;dkCtbPaVK|Z33klzZ)928EoXUeNhd?roWt8HUu84TTk5gcqtdgqO5}Au
+zM~9?B`I{L_)n3J~pU83K&D<Clrf4RQKcex6-<CB`Y1x_`UVkWWv#6)%#=d(O1)Ay}
+zYA_r522Z_n?7CSD1H+5m|EkWMI5FYo&3Ogwa^HJzZT`Rf?NQZzA1hmr8b@z^zw6-J
+zvg>C~oidu^x4iW2s;8&(eX?)dc~~IBkkX}MB;e?w>Fc^x<0Id1_3g`Jum5SbEZ%1u
+zpCO|k^2oOMQ_AfxrL)t1GA(ReCdk&E#<)7|=AA$5ZpThm^VRB*&78aIyJU%#{r~tx
+z+nmWNyetVF9WjA3V>jpQeA?DlU-^3NcD`fl8t?u6wcWDn(~~(3_95m{x3$urTxVo?
+zJSThB)Aq2rv&?3HIkTi`g~63p>&BTgWqy6r)pjY}`QyYk_M7)#nI-qlVSRr*^6PJY
+z(W`lNw^!88pR0YZUv}fV-|SngE1tY?-zCR(Y=Ud%v!&`Y1P(pvT6M(o&HbzE!#CeQ
+zw6nOrqcLsf%$eJ^-}|2s6_|LELwOA|qr}8DE0#s+zIr(2)yd}Y3bCr>iI<Z5ZNrj}
+zm)qB@kWR~X=4XD)^XPGo{2tTNPakII?b57K^xW8elGUS)W35$LwUb9d;kkc%Gv9t%
+zzSxE5Nl)Nuzq{(9Vq*RLtmpTvS9-UyL!>J!E3S9eR=KFBksDO5xt3g65x8~#|A!BD
+zD;|C$aIN&D1e21H=F%yXB4T1<-sNt;dm-oAmdxM!il4<9w=*RCDxa@*cWTb%_v`MO
+zC@?6zo_lP&Nssl{+=(wMHvK#Bc)j}}2ZQtF#U-z6|33iLqw*X-e2-OZ39)06jyCDN
+zZF0J6pRF~&oOM}F;h7KZJu;P__x-isE6>yV-hkKH#s6uCU+a`6h8>FxHoJX&<)0U`
+zyGAN-$!`up&D`BzW@Jb$+PO;W^tLteUuR7zIe2ty1?N?lBbLn)hn^PgtT^1pyZX=b
+z*LUBGPXAH$YGFX;^X#6x-KqB`IHcUk+S(NQc=8_k_4V5_FE8^73!ApEfKS(|q;lbg
+z1wZ7SW;nPcGK7SL8fGsI$={#Wdc1mKcmKsd=64N}pKZ9KbU#4tW!1`6irmSOro6Sc
+z!iA6J|E(&!JUdT%WAXIcy80`m%X1uWm%RGczo+SuxX)n@<8uLAD~np4w?0`SzCAa>
+zSTXF+ug>e)+uq+wPH>!9pVktQJWZ|rRAHU>M91BS8$TBIS$@A)d3*8An>VZ8{5`$)
+zpsQ%-C+~&sZ*OgtKJfI>xmQ<zy1%~0>0NVmW$V#>|JvlZloxeXlznAB*5~3jY00|R
+zLOU-#I=y~V*!tM5k5=4%8@4U)E?4`v_jilF+n(LTb2vklMRnDxCey5|GMmaOpJgq-
+zymC$S_IHQG@4t1swXOGT;x>LiuRpu<B)*o|zTse2X=%v_N|9)OUHbat=Oga-Z!@g3
+zyJKzqyQ!vISl!QK`Q?=r=Jk7Y-#&}Z;^Zv%R@`wmjr;1FxY8TPOtqH@2zF0B`n|T`
+zgY9wuxp8m5|JHR-k#K%`=B5_!=Lv=^hYflPZsb&HJ>Rmc?CYss@NS6fu^zk2riUpV
+zoEpN}9i`yt@;+WkNusTCv7{Ntgoo>yMW1r?b~Nx<3P_fTb}=$+%e~EZaYEnPh(8Z!
+z?atr*@tjp@mQ9%Y*0j^5-r}_nigx~RefsBa9-pM-rjt)3`=4dsYTl$^f96nPBSTA7
+zhr*KCi4Lbs&y+`<nNww5VIy=du!QNq>ncB?jlQqL>|)ktO-+~K`@MT>_SKAyc~3X}
+z{QBB@t>5y=KWnZlGdO6-tdm~a`|_gM#{#$MKV}?po093~qOgR8v%vYu<{*u(mbgh3
+zDX!o6rpfLq$)7wqe#<2TA8WTC|NczhDcw^ll5RFTR4v^1#s0dhpIkR8n_Qa7{2=_o
+z>h9j}f(!}A`((Y2n@ZPlc<pJM$;PPEe!^DT(Cr-0hKMUEl6Bud6xYi;=51$^lzjG7
+zX$p^|k;_ce^nZ&M<b9iP$b|9KmWH~E0h2r!l(t8k*8knLb$5l>x&KQR9Z`yOE&W@t
+z`|gg!x2t@wo36NgDRH};)03D}9exgyGlUZv6_tWRug05NZv6Z!^tAX<gXXZgyT4{#
+zTXlF{_3e^dcNa#lS2PS<Vlw@7(Z&S-9=X4t4mN-7OtdvP%;Uwaqtq_y#w95+Lygs^
+zu=Y!_erD0-%a^aZ^-5(jFfh0A?q2EoTkn5S*$b=8Pft#U?u}c&Gw-g|<JI-~uV)Ip
+zuLuv+HH=f8TU#LHDJ=Q8Z1&rT!)({LebbrqzIAn=rpYp{SvwOBhS%?V{H*%Xqc?Hu
+zR&aS5O;mI(W_1$!xWmG|@YYw~U3n2ZbDaPF`ns0=+WPCezrM6ywqrxe%Ja|jV`5^8
+zV&fby&M})?b#C6@Pp7}-^sCn>s<g*TM`?&;st5mDq${4>G-cw7xrM7bgblT|Pg@i`
+zXt=jFe81vve!07GAt6Smo^$uaZ~OK*SJ}NU^To%CBVVtZZ>-t%a<SmmRcbyVp{8C&
+zx^LZ?g4~>rxBS?#=Jxv?AMdq(zW4Xi)1tx^4nOanzGgG4<H|JIUHhJXXK!zJQk*o&
+z$2Bx$>Sy87S4+y`UjF<b?cu%o!MryG?Rk6Eo;(x(J713LWJI``gF>tJokd!^*RPGw
+z|FMYwSxw=@>kce0Ztj}8{Lk<1yNsN@5gINHJ<~7dOEd_uS;=IXPEC`mdbQGB?;BS~
+zYs>BJ`P+Nz>mEt(6Z-FwI7?xv0i$H$xsbDqWV0)B|Hg4Y-}^hYcKPM18?Sk{zP(hN
+zQ&;y<x-F4`K_ZANM0b|Z^9}3EO5a-~yt%RQ==A0<r}W%~HMZYAD{%48lgC??SE;Mp
+zWp2$%*_xGAGv{%@=Cqf&;Z=5j)NE~IpH_cwi!OWdFRIS*<NwwsN5RxPg$^km2Y8ip
+z*qnd$w)g${<GFm^x{W=Cm4a^G6K0;=5UOo_Gp~ATw2qIEr-EjKgVI75&$cHqp{<D~
+ztL7QZ)%(Yl5V!vNp86jjqL2N3Jb(Vr+Qx~AvEnY1B$BzD16nh?0yIK?A9rpy|Ni3Y
+z_S=c;%|q_L+>#fyJ1gsN)ympjv+Raq*Q+M0gVts}nms=+>UuKRPpdcIcsixKf9a|x
+z8zw5x{?+`9*H`LF?CgmXC(7rl>qnQq_*J)2-#}r_Yc=O5=^<Rle-uh|Hj7?u;tYLs
+z@Aj^`uN*q+o68i9*1T!uiTwUv-$#3!^|2Xkj0!0&w@wO}v`TI@&3&=mzbBR<&wTfX
+zWHTl9%L}95vvYBE-{WIzE@VhiTIBR}>18GLJuD2%w6vC9TV+^u_S2c0hAdaVK4{+l
+zRGcj)%=c&7+fS<Vy29B1%l=|@nXvkk`;%?Cw_RrY-Mz1`@rjqK-I*=j=dY-l-%c%Q
+zB~8y`M=gKM&)dK8<dv1d-{+}6YF&5c%%$LSo2$(~_3(WDmYM(U^kwJ6e|8nhG8;Y4
+z*(O_RlDg{qMfd$XlCSA(bqor6x&QUc+u?K4*E3Zm9ctNi+y3___xbh<m^>R#R8+2$
+zpEkR2l8UOpjkkQ$W+ce}{x~c2a$W1)nwysW;R}j0o_O8ZmMh&YBy%QxUZv*FBjObY
+z3=X?($xN=CIU^%)x6akhjw2F_49?y;;xdn&L1O9h`Ng^C;v5(mtmUdx3>kF#YM*#A
+zbO`cocI!3Tr1yb$e*M2n76z_gHHB@7D;$Chj#X4n=X>arDB+O66TrgEcu?TD@WnF`
+z@BS5;w(szo<<9)>)R_>sb2ZO{>mBxcdn6h#OnorjO~9DPGbJh{bY+}w<%_nfr|;Rv
+zr)OO2lYRBew)#?YV?$HV#6=njv(#pE#CUj4beqU<VCSL+POj%lZGWQIge`kfRdDjd
+z!^r283yOB%eKY@mjpMz`tN#8;iZ5vBDVeRKK1VWC#rm=k4@1afnQgMSx99EIJ?DY(
+zU;XVpi3|$IdnAL^v#;-S{pavup3$)nlCFG9PbHqP@b~G6|8;X&|F19aE<eB1E&ugF
+z{tTP98)Gz=d(G#+kkl!|>2xIE1jlCi(>nUob~>go1T`(vDDZ9Cd-nNa_x!@tv`@t`
+z>>LaqE_v&#uDiA2Y4m*i2zHO4HA~h`nI~PG$KjLWvoT87UCK1$!sEj`H}Bs&r~L2L
+zE9L=A41V+N{=PW!d|uw{2-UpCRasn~ngS1fD%qGgJI<_%^t*fc%e8h@L2qww>-l#T
+zEg3{aM80WiYAp=7VbZj30nfA_DFzbL7B=WH?_0pb_T|KMeU;{a6L@|&8;M*<y&ylu
+zalZW<WjD)(1>0x*FIe~b*wdno>GLX=EeOl{nz(9_g5U{`)eC*BEl({pnYl>g<HtVP
+z`dxp|J(E8-_wU*F8-MK2zP#en6(i@2%PZ5}90M;FS9!22P3m#|U>VF2ygAG3Z`Ian
+zo%k&YS1V=z2J+V(`SY`M+B@4V{_GnHm6Q|>Z}B|iae6(|^snI}Wkx2iOFBAzN9H|#
+z$7z227x!F!z6-mOx1V%XZB#$BZ~>=aVt0qalqt(rMNQdJaeURmzg4^vhDk0bpXz1p
+z)v|7PTPwR%<=@9!Pv7lYX)3oNBT9fll2KyPlDtj^#m&?8qc)t9%w1eG?|n=BGqEjV
+zg@tB48qJAQa=vwYJl?OdjnN=Q<eKO7lG@+q_xDILyr>a!nRv@qeEzqK-se}y>{m_U
+zQkub_vQ)t7@*1zAt4Frm-Q4kQpP;halt1(49$w#eZKKHIIlAX#cC2vRdn<R<k>j#q
+zBB8FwOjlpsv^~H7Tt72|eSYn~H#trWT0E`0P83K?SX3Z?IDTH`QcLfizzL`KIkIRt
+za`+~@H&^ZEo}pi~`|=C5J(@A=)6O0&+kI8R$<-@qR@&36lZ4fC{$*UvaB1-lQTluT
+zrR<xpRlcBBo!Ghmds1&d`>qnwS*@>l@87}F-t{j(y;$7;>rS5eT=B2n90wl@zOVTf
+zS)(9Q7G%NG(KFTCWnST*<elr-(*G&0ia){NDfGkVW@jveRm3dulYbuEp7P{KVA$%V
+z2NJi>UlXlfdZF#=>G&lbSzNKawrwA?UbFquo?LYAsJx;7-*qeVx7`nabU%U3NvKic
+zuady=8~gN2&z@G-*|_FhBZr{rIi|VmSKh6-H$n0EqNAHi6b1Wlzg;(N)~qa-Za3{I
+z$M{4QzVn3#R#z15zI$f&q(ch7-PrQP53#O@OIg0O@I%$ot<KBcYZ~g^V#QsKctsyS
+z>SU)A{qmDt)lLiDYo#oXlNfw2mneUEd$L!0KPv<4p14ZJaGB3ld;ghcUwa`KViFy;
+zt#5D7duNvkvpzohew4-B=<t+=11n^<#YAO?EmMwXv-x}Lh=<X|hXJcHa}F*n^ygCu
+zS7Y~&FBHs8dXV)-_sqZWFuQ9uo4&reS<a$rs(9Fdqfuqz0uL314i68_)+wp=>YOZr
+zPtFVcX6pK9!||ZUMMI-TwJ~gR*qV-hJ-fJsVC!8`(%#ztwb>@rKJMjUSRkG9Jakoo
+zslWpTR)**4FLup2xSiQ*v8%$P^&2FXK1tcgAiV5x`yLx@hA9VTp6ovL?PK`m-wF(-
+zvkhP0+h7oM(u6fwM8|f0E5o_-Mb#}DYkxi16Qk}S_><ejH_1%8SYyWC(kCbGhI`Fe
+z1UhO%_(4*;w(;cWbEJ3g-@w7@a41w@dpOP$I3Q<p9B=La&mQ(CzfgVSr~eEL3=E#G
+KelF{r5}E+$SI&+A
+
+literal 0
+HcmV?d00001
+
+diff --git a/test/support/test_support.exs b/test/support/test_support.exs
+index 484c1ca..ef30b29 100644
+--- a/test/support/test_support.exs
++++ b/test/support/test_support.exs
+@@ -97,6 +97,7 @@ defmodule SymphonyElixir.TestSupport do
+           tracker_api_token: "token",
+           tracker_project_slug: "project",
+           tracker_assignee: nil,
++          tracker_required_labels: [],
+           tracker_active_states: ["Todo", "In Progress"],
+           tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"],
+           poll_interval_ms: 30_000,
+@@ -134,6 +135,7 @@ defmodule SymphonyElixir.TestSupport do
+     tracker_api_token = Keyword.get(config, :tracker_api_token)
+     tracker_project_slug = Keyword.get(config, :tracker_project_slug)
+     tracker_assignee = Keyword.get(config, :tracker_assignee)
++    tracker_required_labels = Keyword.get(config, :tracker_required_labels)
+     tracker_active_states = Keyword.get(config, :tracker_active_states)
+     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
+     poll_interval_ms = Keyword.get(config, :poll_interval_ms)
+@@ -172,6 +174,7 @@ defmodule SymphonyElixir.TestSupport do
+         "  api_key: #{yaml_value(tracker_api_token)}",
+         "  project_slug: #{yaml_value(tracker_project_slug)}",
+         "  assignee: #{yaml_value(tracker_assignee)}",
++        "  required_labels: #{yaml_value(tracker_required_labels)}",
+         "  active_states: #{yaml_value(tracker_active_states)}",
+         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
+         "polling:",
+diff --git a/test/symphony_elixir/core_test.exs b/test/symphony_elixir/core_test.exs
+index 0151935..eee4e06 100644
+--- a/test/symphony_elixir/core_test.exs
++++ b/test/symphony_elixir/core_test.exs
+@@ -514,6 +514,130 @@ defmodule SymphonyElixir.CoreTest do
+     refute Process.alive?(agent_pid)
+   end
+ 
++  test "reconcile stops running issue when a required label is removed" do
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
++
++    issue_id = "issue-unlabeled"
++
++    agent_pid =
++      spawn(fn ->
++        receive do
++          :stop -> :ok
++        end
++      end)
++
++    state = %Orchestrator.State{
++      running: %{
++        issue_id => %{
++          pid: agent_pid,
++          ref: nil,
++          identifier: "MT-562",
++          issue: %Issue{
++            id: issue_id,
++            identifier: "MT-562",
++            state: "In Progress",
++            labels: ["symphony"]
++          },
++          started_at: DateTime.utc_now()
++        }
++      },
++      claimed: MapSet.new([issue_id]),
++      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
++      retry_attempts: %{}
++    }
++
++    issue = %Issue{
++      id: issue_id,
++      identifier: "MT-562",
++      state: "In Progress",
++      title: "Opted out active issue",
++      labels: []
++    }
++
++    updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
++
++    refute Map.has_key?(updated_state.running, issue_id)
++    refute MapSet.member?(updated_state.claimed, issue_id)
++    refute Process.alive?(agent_pid)
++  end
++
++  test "reconcile releases a blocked issue when a required label is removed" do
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
++
++    issue_id = "blocked-unlabeled"
++
++    state = %Orchestrator.State{
++      blocked: %{
++        issue_id => %{
++          identifier: "MT-564",
++          error: "operator input required",
++          worker_host: nil
++        }
++      },
++      claimed: MapSet.new([issue_id]),
++      retry_attempts: %{}
++    }
++
++    issue = %Issue{
++      id: issue_id,
++      identifier: "MT-564",
++      title: "Blocked but opted out",
++      state: "In Progress",
++      labels: []
++    }
++
++    updated_state = Orchestrator.reconcile_blocked_issue_states_for_test([issue], state)
++
++    refute Map.has_key?(updated_state.blocked, issue_id)
++    refute MapSet.member?(updated_state.claimed, issue_id)
++  end
++
++  test "retry releases its claim when a required label is removed" do
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
++
++    issue_id = "retry-unlabeled"
++
++    state = %Orchestrator.State{
++      claimed: MapSet.new([issue_id]),
++      retry_attempts: %{}
++    }
++
++    issue = %Issue{
++      id: issue_id,
++      identifier: "MT-565",
++      title: "Retry opted out",
++      state: "In Progress",
++      labels: []
++    }
++
++    updated_state =
++      Orchestrator.handle_retry_issue_lookup_for_test(issue, state, issue_id, 1, %{
++        identifier: issue.identifier,
++        error: "agent exited"
++      })
++
++    refute MapSet.member?(updated_state.claimed, issue_id)
++    refute Map.has_key?(updated_state.retry_attempts, issue_id)
++  end
++
++  test "agent runner does not continue after a required label is removed" do
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
++
++    issue = %Issue{
++      id: "issue-label-continuation",
++      identifier: "MT-563",
++      title: "Stop after opt-out",
++      state: "In Progress",
++      labels: ["symphony"]
++    }
++
++    refreshed_issue = %{issue | labels: []}
++    fetcher = fn ["issue-label-continuation"] -> {:ok, [refreshed_issue]} end
++
++    assert {:done, ^refreshed_issue} =
++             AgentRunner.continue_with_issue_for_test(issue, fetcher)
++  end
++
+   test "normal worker exit schedules active-state continuation retry" do
+     issue_id = "issue-resume"
+     ref = make_ref()
+diff --git a/test/symphony_elixir/extensions_test.exs b/test/symphony_elixir/extensions_test.exs
+index 789eb3d..c83fbf1 100644
+--- a/test/symphony_elixir/extensions_test.exs
++++ b/test/symphony_elixir/extensions_test.exs
+@@ -347,6 +347,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+                %{
+                  "issue_id" => "issue-http",
+                  "issue_identifier" => "MT-HTTP",
++                 "issue_url" => "https://example.org/issues/MT-HTTP",
+                  "state" => "In Progress",
+                  "worker_host" => nil,
+                  "workspace_path" => nil,
+@@ -363,6 +364,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+                %{
+                  "issue_id" => "issue-retry",
+                  "issue_identifier" => "MT-RETRY",
++                 "issue_url" => "https://example.org/issues/MT-RETRY",
+                  "attempt" => 2,
+                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
+                  "error" => "boom",
+@@ -374,6 +376,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+                %{
+                  "issue_id" => "issue-blocked",
+                  "issue_identifier" => "MT-BLOCKED",
++                 "issue_url" => "https://example.org/issues/MT-BLOCKED",
+                  "state" => "In Progress",
+                  "error" => "codex turn requires operator input",
+                  "worker_host" => "dm-dev2",
+@@ -523,7 +526,11 @@ defmodule SymphonyElixir.ExtensionsTest do
+     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+ 
+     html = html_response(get(build_conn(), "/"), 200)
+-    assert html =~ "/dashboard.css"
++    assert html =~ ~r|/dashboard\.css\?v=[0-9a-f]{12}|
++
++    assert html =~
++             ~r|<link rel="icon" type="image/png" sizes="128x128" href="/favicon\.png\?v=[0-9a-f]{12}">|
++
+     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
+     assert html =~ "/vendor/phoenix/phoenix.js"
+     assert html =~ "/vendor/phoenix_live_view/phoenix_live_view.js"
+@@ -535,6 +542,11 @@ defmodule SymphonyElixir.ExtensionsTest do
+     assert dashboard_css =~ ".status-badge-live"
+     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
+     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
++    assert dashboard_css =~ "text-decoration-thickness: 1px"
++
++    favicon_conn = get(build_conn(), "/favicon.png")
++    assert response(favicon_conn, 200) == File.read!("priv/static/favicon.png")
++    assert Plug.Conn.get_resp_header(favicon_conn, "content-type") == ["image/png; charset=utf-8"]
+ 
+     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
+     assert phoenix_html_js =~ "phoenix.link.click"
+@@ -571,6 +583,10 @@ defmodule SymphonyElixir.ExtensionsTest do
+     assert html =~ "MT-HTTP"
+     assert html =~ "MT-RETRY"
+     assert html =~ "MT-BLOCKED"
++    assert html =~ ~s(href="https://example.org/issues/MT-HTTP")
++    assert html =~ ~s(href="https://example.org/issues/MT-RETRY")
++    assert html =~ ~s(href="https://example.org/issues/MT-BLOCKED")
++    assert html =~ ~s(aria-label="Open MT-HTTP in the issue tracker")
+     assert html =~ "rendered"
+     assert html =~ "turn blocked: waiting for user input"
+     assert html =~ "Runtime"
+@@ -590,6 +606,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+         %{
+           issue_id: "issue-http",
+           identifier: "MT-HTTP",
++          issue_url: "javascript:alert('nope')",
+           state: "In Progress",
+           session_id: "thread-http",
+           turn_count: 8,
+@@ -624,6 +641,8 @@ defmodule SymphonyElixir.ExtensionsTest do
+     assert_eventually(fn ->
+       render(view) =~ "agent message content streaming: structured update"
+     end)
++
++    refute render(view) =~ "javascript:alert"
+   end
+ 
+   test "dashboard liveview renders an unavailable state without crashing" do
+@@ -719,6 +738,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+         %{
+           issue_id: "issue-http",
+           identifier: "MT-HTTP",
++          issue_url: "https://example.org/issues/MT-HTTP",
+           state: "In Progress",
+           session_id: "thread-http",
+           turn_count: 7,
+@@ -736,6 +756,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+         %{
+           issue_id: "issue-retry",
+           identifier: "MT-RETRY",
++          issue_url: "https://example.org/issues/MT-RETRY",
+           attempt: 2,
+           due_in_ms: 2_000,
+           error: "boom"
+@@ -745,6 +766,7 @@ defmodule SymphonyElixir.ExtensionsTest do
+         %{
+           issue_id: "issue-blocked",
+           identifier: "MT-BLOCKED",
++          issue_url: "https://example.org/issues/MT-BLOCKED",
+           state: "In Progress",
+           error: "codex turn requires operator input",
+           worker_host: "dm-dev2",
+diff --git a/test/symphony_elixir/live_e2e_test.exs b/test/symphony_elixir/live_e2e_test.exs
+index 9bfeced..713909c 100644
+--- a/test/symphony_elixir/live_e2e_test.exs
++++ b/test/symphony_elixir/live_e2e_test.exs
+@@ -8,7 +8,6 @@ defmodule SymphonyElixir.LiveE2ETest do
+   @moduletag timeout: 300_000
+ 
+   @default_team_key "SYME2E"
+-  @default_docker_auth_json Path.join(System.user_home!(), ".codex/auth.json")
+   @docker_worker_count 2
+   @docker_support_dir Path.expand("../support/live_e2e_docker", __DIR__)
+   @docker_compose_file Path.join(@docker_support_dir, "docker-compose.yml")
+@@ -475,41 +474,45 @@ defmodule SymphonyElixir.LiveE2ETest do
+           "Symphony Live E2E #{backend} #{System.unique_integer([:positive])}"
+         )
+ 
+-      issue =
+-        create_issue!(
+-          team["id"],
+-          project["id"],
+-          active_state["id"],
+-          "Symphony live e2e #{backend} issue for #{project["name"]}"
++      try do
++        issue =
++          create_issue!(
++            team["id"],
++            project["id"],
++            active_state["id"],
++            "Symphony live e2e #{backend} issue for #{project["name"]}"
++          )
++
++        write_workflow_file!(workflow_file,
++          tracker_api_token: "$LINEAR_API_KEY",
++          tracker_project_slug: project["slugId"],
++          tracker_active_states: active_state_names(team),
++          tracker_terminal_states: terminal_states,
++          workspace_root: worker_setup.workspace_root,
++          worker_ssh_hosts: worker_setup.ssh_worker_hosts,
++          codex_command: worker_setup.codex_command,
++          codex_approval_policy: "never",
++          codex_turn_sandbox_policy: Map.get(worker_setup, :codex_turn_sandbox_policy),
++          codex_read_timeout_ms: 60_000,
++          codex_turn_timeout_ms: 600_000,
++          codex_stall_timeout_ms: 600_000,
++          observability_enabled: false,
++          prompt: live_prompt(project["slugId"])
+         )
+ 
+-      write_workflow_file!(workflow_file,
+-        tracker_api_token: "$LINEAR_API_KEY",
+-        tracker_project_slug: project["slugId"],
+-        tracker_active_states: active_state_names(team),
+-        tracker_terminal_states: terminal_states,
+-        workspace_root: worker_setup.workspace_root,
+-        worker_ssh_hosts: worker_setup.ssh_worker_hosts,
+-        codex_command: worker_setup.codex_command,
+-        codex_approval_policy: "never",
+-        codex_turn_timeout_ms: 600_000,
+-        codex_stall_timeout_ms: 600_000,
+-        observability_enabled: false,
+-        prompt: live_prompt(project["slugId"])
+-      )
+-
+-      assert :ok = AgentRunner.run(issue, self(), max_turns: 3)
+-
+-      runtime_info = receive_runtime_info!(issue.id)
++        assert :ok = AgentRunner.run(issue, self(), max_turns: 3)
+ 
+-      assert read_worker_result!(runtime_info, @result_file) ==
+-               expected_result(issue.identifier, project["slugId"])
++        runtime_info = receive_runtime_info!(issue.id)
+ 
+-      issue_snapshot = fetch_issue_details!(issue.id)
+-      assert issue_completed?(issue_snapshot)
+-      assert issue_has_comment?(issue_snapshot, expected_comment(issue.identifier, project["slugId"]))
++        assert read_worker_result!(runtime_info, @result_file) ==
++                 expected_result(issue.identifier, project["slugId"])
+ 
+-      assert :ok = complete_project(project["id"], completed_project_status["id"])
++        issue_snapshot = fetch_issue_details!(issue.id)
++        assert issue_completed?(issue_snapshot)
++        assert issue_has_comment?(issue_snapshot, expected_comment(issue.identifier, project["slugId"]))
++      after
++        assert :ok = complete_project(project["id"], completed_project_status["id"])
++      end
+     after
+       restart_orchestrator_if_needed()
+       cleanup_live_worker_setup(worker_setup)
+@@ -519,9 +522,11 @@ defmodule SymphonyElixir.LiveE2ETest do
+   end
+ 
+   defp live_worker_setup!(:local, _run_id, test_root) when is_binary(test_root) do
++    codex_home = isolated_codex_home!(test_root)
++
+     %{
+       cleanup: fn -> :ok end,
+-      codex_command: "codex app-server",
++      codex_command: "env CODEX_HOME=#{shell_escape(codex_home)} codex app-server",
+       ssh_worker_hosts: [],
+       workspace_root: Path.join(test_root, "workspaces")
+     }
+@@ -537,6 +542,28 @@ defmodule SymphonyElixir.LiveE2ETest do
+     end
+   end
+ 
++  defp isolated_codex_home!(test_root) when is_binary(test_root) do
++    codex_home = Path.join(test_root, "codex-home")
++    auth_json_path = Path.join(codex_home, "auth.json")
++
++    File.mkdir_p!(codex_home)
++    File.cp!(source_codex_auth_json!(), auth_json_path)
++    File.chmod!(auth_json_path, 0o600)
++
++    codex_home
++  end
++
++  defp source_codex_auth_json! do
++    codex_home = System.get_env("CODEX_HOME") || Path.join(System.user_home!(), ".codex")
++    auth_json_path = Path.join(codex_home, "auth.json")
++
++    if File.regular?(auth_json_path) do
++      auth_json_path
++    else
++      flunk("live e2e requires Codex auth at #{auth_json_path}")
++    end
++  end
++
+   defp cleanup_live_worker_setup(%{cleanup: cleanup}) when is_function(cleanup, 0) do
+     cleanup.()
+   end
+@@ -569,7 +596,7 @@ defmodule SymphonyElixir.LiveE2ETest do
+     ssh_root = Path.join(test_root, "live-docker-ssh")
+     key_path = Path.join(ssh_root, "id_ed25519")
+     config_path = Path.join(ssh_root, "config")
+-    auth_json_path = @default_docker_auth_json
++    auth_json_path = source_codex_auth_json!()
+     worker_ports = reserve_tcp_ports(@docker_worker_count)
+     worker_hosts = Enum.map(worker_ports, &"localhost:#{&1}")
+     project_name = docker_project_name(run_id)
+@@ -598,6 +625,7 @@ defmodule SymphonyElixir.LiveE2ETest do
+             base_cleanup.()
+           end,
+           codex_command: "codex app-server",
++          codex_turn_sandbox_policy: %{type: "dangerFullAccess"},
+           ssh_worker_hosts: worker_hosts,
+           workspace_root: remote_workspace_root
+         }
+diff --git a/test/symphony_elixir/orchestrator_status_test.exs b/test/symphony_elixir/orchestrator_status_test.exs
+index 35a2977..ebc081e 100644
+--- a/test/symphony_elixir/orchestrator_status_test.exs
++++ b/test/symphony_elixir/orchestrator_status_test.exs
+@@ -90,6 +90,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+     snapshot = GenServer.call(pid, :snapshot)
+     assert %{running: [snapshot_entry]} = snapshot
+     assert snapshot_entry.issue_id == issue_id
++    assert snapshot_entry.issue_url == "https://example.org/issues/MT-188"
+     assert snapshot_entry.session_id == "thread-live-turn-live"
+     assert snapshot_entry.turn_count == 1
+     assert snapshot_entry.last_codex_timestamp == now
+@@ -728,6 +729,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+       timer_ref: nil,
+       due_at_ms: System.monotonic_time(:millisecond) + 5_000,
+       identifier: "MT-500",
++      issue_url: "https://example.org/issues/MT-500",
+       error: "agent exited: :boom"
+     }
+ 
+@@ -744,6 +746,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+                attempt: 2,
+                due_in_ms: due_in_ms,
+                identifier: "MT-500",
++               issue_url: "https://example.org/issues/MT-500",
+                error: "agent exited: :boom"
+              }
+            ] = snapshot.retrying
+@@ -927,7 +930,12 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+       pid: worker_pid,
+       ref: make_ref(),
+       identifier: "MT-STALL",
+-      issue: %Issue{id: issue_id, identifier: "MT-STALL", state: "In Progress"},
++      issue: %Issue{
++        id: issue_id,
++        identifier: "MT-STALL",
++        state: "In Progress",
++        url: "https://example.org/issues/MT-STALL"
++      },
+       session_id: "thread-stall-turn-stall",
+       last_codex_message: nil,
+       last_codex_timestamp: stale_activity_at,
+@@ -952,6 +960,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+              attempt: 1,
+              due_at_ms: due_at_ms,
+              identifier: "MT-STALL",
++             issue_url: "https://example.org/issues/MT-STALL",
+              error: "stalled for " <> _
+            } = state.retry_attempts[issue_id]
+ 
+@@ -991,7 +1000,12 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+       pid: worker_pid,
+       ref: make_ref(),
+       identifier: "MT-MCP",
+-      issue: %Issue{id: issue_id, identifier: "MT-MCP", state: "In Progress"},
++      issue: %Issue{
++        id: issue_id,
++        identifier: "MT-MCP",
++        state: "In Progress",
++        url: "https://example.org/issues/MT-MCP"
++      },
+       worker_host: "dm-dev2",
+       workspace_path: "/workspaces/MT-MCP",
+       session_id: "thread-mcp-turn-mcp",
+@@ -1027,7 +1041,15 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+              workspace_path: "/workspaces/MT-MCP"
+            } = state.blocked[issue_id]
+ 
+-    assert %{blocked: [%{identifier: "MT-MCP", error: "codex MCP elicitation requires operator input"}]} =
++    assert %{
++             blocked: [
++               %{
++                 identifier: "MT-MCP",
++                 issue_url: "https://example.org/issues/MT-MCP",
++                 error: "codex MCP elicitation requires operator input"
++               }
++             ]
++           } =
+              Orchestrator.snapshot(orchestrator_name, 1_000)
+   end
+ 
+diff --git a/test/symphony_elixir/workspace_and_config_test.exs b/test/symphony_elixir/workspace_and_config_test.exs
+index faa5289..d4f2530 100644
+--- a/test/symphony_elixir/workspace_and_config_test.exs
++++ b/test/symphony_elixir/workspace_and_config_test.exs
+@@ -307,6 +307,18 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     refute issue.assigned_to_worker
+   end
+ 
++  test "linear issue routing requires every configured label" do
++    issue = %Issue{labels: [" Symphony ", "JavaScript"], assigned_to_worker: true}
++
++    assert Issue.routable?(issue, [])
++    assert Issue.routable?(issue, ["symphony"])
++    assert Issue.routable?(issue, ["SYMPHONY", "javascript"])
++    refute Issue.routable?(issue, ["symph"])
++    refute Issue.routable?(issue, [" "])
++    refute Issue.routable?(issue, ["symphony", "security"])
++    refute Issue.routable?(%{issue | assigned_to_worker: false}, ["symphony"])
++  end
++
+   test "linear client normalizes blockers from inverse relations" do
+     raw_issue = %{
+       "id" => "issue-1",
+@@ -538,6 +550,31 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     refute Orchestrator.should_dispatch_issue_for_test(issue, state)
+   end
+ 
++  test "issue without every required label is not dispatch-eligible" do
++    write_workflow_file!(Workflow.workflow_file_path(),
++      tracker_required_labels: ["symphony", "javascript"]
++    )
++
++    state = %Orchestrator.State{
++      max_concurrent_agents: 3,
++      running: %{},
++      claimed: MapSet.new(),
++      codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
++      retry_attempts: %{}
++    }
++
++    issue = %Issue{
++      id: "unlabeled-1",
++      identifier: "MT-1008",
++      title: "Not opted in",
++      state: "Todo",
++      labels: ["symphony"]
++    }
++
++    refute Orchestrator.should_dispatch_issue_for_test(issue, state)
++    assert Orchestrator.should_dispatch_issue_for_test(%{issue | labels: ["Symphony", "JavaScript"]}, state)
++  end
++
+   test "todo issue with terminal blockers remains dispatch-eligible" do
+     state = %Orchestrator.State{
+       max_concurrent_agents: 3,
+@@ -584,6 +621,24 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     assert skipped_issue.blocked_by == [%{id: "blocker-3", identifier: "MT-1006", state: "In Progress"}]
+   end
+ 
++  test "dispatch revalidation skips an issue after a required label is removed" do
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
++
++    stale_issue = %Issue{
++      id: "unlabeled-2",
++      identifier: "MT-1009",
++      title: "Initially opted in",
++      state: "Todo",
++      labels: ["symphony"]
++    }
++
++    refreshed_issue = %{stale_issue | labels: []}
++    fetcher = fn ["unlabeled-2"] -> {:ok, [refreshed_issue]} end
++
++    assert {:skip, ^refreshed_issue} =
++             Orchestrator.revalidate_issue_for_dispatch_for_test(stale_issue, fetcher)
++  end
++
+   test "workspace remove returns error information for missing directory" do
+     random_path =
+       Path.join(
+@@ -741,6 +796,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     assert config.tracker.endpoint == "https://api.linear.app/graphql"
+     assert config.tracker.api_key == nil
+     assert config.tracker.project_slug == nil
++    assert config.tracker.required_labels == []
+     assert config.workspace.root == Path.join(System.tmp_dir!(), "symphony_workspaces")
+     assert config.worker.max_concurrent_agents_per_host == nil
+     assert config.agent.max_concurrent_agents == 10
+@@ -772,6 +828,15 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     assert config.codex.read_timeout_ms == 5_000
+     assert config.codex.stall_timeout_ms == 300_000
+ 
++    write_workflow_file!(Workflow.workflow_file_path(),
++      tracker_required_labels: [" Symphony ", "SYMPHONY", "JavaScript"]
++    )
++
++    assert Config.settings!().tracker.required_labels == ["symphony", "javascript"]
++
++    write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: [" "])
++    assert Config.settings!().tracker.required_labels == [""]
++
+     write_workflow_file!(Workflow.workflow_file_path(),
+       codex_command: "codex --config 'model=\"gpt-5.5\"' app-server"
+     )
+@@ -1293,7 +1358,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+       assert trace =~ "-p 2200 worker-01 bash -lc"
+       assert trace =~ "__SYMPHONY_WORKSPACE__"
+       assert trace =~ "~/.symphony-remote-workspaces/MT-SSH-WS"
+-      assert trace =~ "${workspace#~/}"
++      assert trace =~ "${workspace#\\~/}"
+       assert trace =~ "echo before-run"
+       assert trace =~ "echo after-run"
+       assert trace =~ "echo before-remove"

@@ -1,0 +1,177 @@
+diff --git a/guides/advanced/troubleshooting.md b/guides/advanced/troubleshooting.md
+index 966b56c..dc56913 100644
+--- a/guides/advanced/troubleshooting.md
++++ b/guides/advanced/troubleshooting.md
+@@ -124,3 +124,26 @@ Look for these log messages confirming the switch to local mode:
+ - Wait for leadership restablishment after a restart in development
+ - Use `Oban.Peers.Global` in development
+ - Fix clustering and pubsub notifications in production
++
++## High Query Volume from Busy Queues
++
++Queues fetch available jobs after a brief [dispatch_cooldown][dc], which defaults to `5ms`. That
++favors low latency between insertion and execution, but every fetch is a database query and a busy
++queue may fetch up to 200 times per second.
++
++Increasing the cooldown will batche demand into fewer, larger fetches. For example, a cooldown of
++`50ms` reduces fetch queries by roughly 10x:
++
++```elixir
++config :my_app, Oban,
++  dispatch_cooldown: 50,
++  ...
++```
++
++There are two trade-offs to consider. First, jobs start roughly one cooldown period after
++insertion. Second, the cooldown caps a queue's maximum throughput at approximately `(1000 /
++cooldown) * limit` jobs per second. Neither of these trade-offs matter unless jobs must start
++within milliseconds of insertion, or a queue runs many jobs that each finish faster than the
++cooldown itself.
++
++[dc]: Oban.html#start_link/1-twiddly-options
+diff --git a/lib/oban/engines/basic.ex b/lib/oban/engines/basic.ex
+index 027ded1..657a6a9 100644
+--- a/lib/oban/engines/basic.ex
++++ b/lib/oban/engines/basic.ex
+@@ -270,10 +270,12 @@ defmodule Oban.Engines.Basic do
+   end
+ 
+   @impl Engine
+-  def snooze_job(%Config{} = conf, %Job{id: id}, seconds) when is_integer(seconds) do
++  def snooze_job(%Config{} = conf, %Job{id: id, meta: meta}, seconds) when is_integer(seconds) do
++    meta = Map.update(meta, "snoozed", 1, &(&1 + 1))
++
+     updates = [
+-      set: [state: "scheduled", scheduled_at: seconds_from_now(seconds)],
+-      inc: [max_attempts: 1]
++      set: [state: "scheduled", scheduled_at: seconds_from_now(seconds), meta: meta],
++      inc: [attempt: -1]
+     ]
+ 
+     Repo.update_all(conf, where(Job, id: ^id), updates)
+diff --git a/lib/oban/engines/inline.ex b/lib/oban/engines/inline.ex
+index 7355843..b9515b7 100644
+--- a/lib/oban/engines/inline.ex
++++ b/lib/oban/engines/inline.ex
+@@ -134,7 +134,13 @@ defmodule Oban.Engines.Inline do
+     %{job | state: "completed", completed_at: utc_now()}
+   end
+ 
+-  defp complete_job(%{job: job, result: {:snooze, snooze}, state: :snoozed}) do
+-    %{job | state: "scheduled", scheduled_at: DateTime.add(utc_now(), snooze, :second)}
++  defp complete_job(%{job: job, snooze: snooze, state: :snoozed}) do
++    %{
++      job
++      | attempt: job.attempt - 1,
++        meta: Map.update(job.meta, "snoozed", 1, &(&1 + 1)),
++        state: "scheduled",
++        scheduled_at: DateTime.add(utc_now(), snooze, :second)
++    }
+   end
+ end
+diff --git a/lib/oban/worker.ex b/lib/oban/worker.ex
+index 304ea7d..09b07d0 100644
+--- a/lib/oban/worker.ex
++++ b/lib/oban/worker.ex
+@@ -270,12 +270,12 @@ defmodule Oban.Worker do
+   Supported time units are: `:second`, `:seconds`, `:minute`, `:minutes`, `:hour`, `:hours`,
+   `:day`, `:days`, `:week`, `:weeks`.
+ 
+-  Snoozing is done by incrementing the job's `max_attempts` field and scheduling execution for
+-  the specified period in the future.
++  Snoozing schedules execution for the specified period in the future and rolls back the job's
++  `attempt`. The original `max_attempts` is preserved, so a snooze never consumes an attempt and
++  backoff calculation stays accurate no matter how many times a job snoozes.
+ 
+-  Executing bumps a job's `attempt` count. Despite snooze incrementing the `max_attempts` to
+-  preserve total retries, the change to `attempt` will affect the default backoff retry
+-  algorithm.
++  Each snooze also increments a `snoozed` count in the job's `meta`, which makes it possible to
++  differentiate between "real" attempts and snoozes.
+ 
+   ### Examples
+ 
+@@ -294,34 +294,12 @@ defmodule Oban.Worker do
+     def perform(job) do
+       if rate_limited?(job), do: {:snooze, {1, :hour}}, else: :ok
+     end
+-    ```
+-
+-  > #### 🌟 Snoozes and Attempts {: .info}
+-  >
+-  > Oban Pro's [Smart Engine](https://oban.pro/docs/pro/Oban.Pro.Engines.Smart.html) rolls back
+-  > the `attempt` and preserves the original `max_attempts` in order to differentiate between
+-  > "real" attempts and snoozes, which keeps backoff calculation accurate.
+-  >
+-  > Without attempt correction you may need a solution that compensates for snoozing, such as the
+-  > example below:
+-
+-      defmodule MyApp.SnoozingWorker do
+-        @max_attempts 20
+-
+-        use Oban.Worker, max_attempts: @max_attempts
+-
+-        @impl Worker
+-        def backoff(%Job{} = job) do
+-          corrected_attempt = @max_attempts - (job.max_attempts - job.attempt)
+ 
+-          Worker.backoff(%{job | attempt: corrected_attempt})
+-        end
+-
+-        @impl Worker
+-        def perform(job) do
+-          if MyApp.something?(job), do: :ok, else: {:snooze, 60}
+-        end
+-      end
++    # Give up after snoozing too many times
++    def perform(%Job{meta: %{"snoozed" => snoozed}}) when snoozed > 5 do
++      {:cancel, :snoozed_too_many_times}
++    end
++    ```
+ 
+   ## Workers in A Different Application
+ 
+diff --git a/test/oban/engine_test.exs b/test/oban/engine_test.exs
+index dc2738c..4e1b2f5 100644
+--- a/test/oban/engine_test.exs
++++ b/test/oban/engine_test.exs
+@@ -686,6 +686,26 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+       end
+     end
+ 
++    describe "snooze_job/3" do
++      setup :start_supervised_oban
++
++      test "rolling back the attempt and counting snoozes", %{name: name} do
++        conf = Oban.config(name)
++
++        meta = %{"key" => "val", "snoozed" => 1}
++
++        job_1 = insert!(name, %{ref: 1}, state: "executing", attempt: 2, max_attempts: 5)
++        job_2 = insert!(name, %{ref: 2}, state: "executing", attempt: 2, meta: meta)
++
++        assert :ok = Oban.Engine.snooze_job(conf, job_1, 60)
++        assert :ok = Oban.Engine.snooze_job(conf, job_2, 60)
++
++        assert %Job{state: "scheduled", scheduled_at: %_{}} = job_1 = reload(name, job_1)
++        assert %Job{attempt: 1, max_attempts: 5, meta: %{"snoozed" => 1}} = job_1
++        assert %Job{attempt: 1, meta: %{"key" => "val", "snoozed" => 2}} = reload(name, job_2)
++      end
++    end
++
+     describe "update_job/3" do
+       setup :start_supervised_oban
+ 
+diff --git a/test/oban/engines/inline_test.exs b/test/oban/engines/inline_test.exs
+index 67dc8e4..2a79dc0 100644
+--- a/test/oban/engines/inline_test.exs
++++ b/test/oban/engines/inline_test.exs
+@@ -14,7 +14,7 @@ defmodule Oban.Engines.InlineTest do
+ 
+     assert %{attempt: 1, completed_at: %_{}, state: "completed"} = job_1
+     assert %{attempt: 1, scheduled_at: %_{}, errors: [_], state: "retryable"} = job_2
+-    assert %{attempt: 1, scheduled_at: %_{}, state: "scheduled"} = job_3
++    assert %{attempt: 0, scheduled_at: %_{}, state: "scheduled"} = job_3
+     assert %{attempt: 1, discarded_at: %_{}, state: "discarded"} = job_4
+     assert %{attempt: 1, cancelled_at: %_{}, state: "cancelled"} = job_5
+ 

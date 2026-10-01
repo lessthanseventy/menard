@@ -1,0 +1,360 @@
+diff --git a/lib/symphony_elixir/orchestrator.ex b/lib/symphony_elixir/orchestrator.ex
+index e0c5782..c0a0d5f 100644
+--- a/lib/symphony_elixir/orchestrator.ex
++++ b/lib/symphony_elixir/orchestrator.ex
+@@ -457,7 +457,7 @@ defmodule SymphonyElixir.Orchestrator do
+     cond do
+       terminal_issue_state?(issue.state, terminal_states) ->
+         Logger.info("Blocked issue moved to terminal state: #{issue_context(issue)} state=#{issue.state}; releasing block")
+-        cleanup_issue_workspace(issue, blocked_issue_worker_host(state, issue.id))
++        cleanup_issue_workspace(issue, Map.get(state.blocked, issue.id, %{}))
+         release_issue_claim(state, issue.id)
+ 
+       !issue_routable?(issue) ->
+@@ -558,14 +558,13 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+       %{pid: pid, ref: ref, identifier: identifier} = running_entry ->
+         state = record_session_completion_totals(state, running_entry)
+-        worker_host = Map.get(running_entry, :worker_host)
++
++        stop_running_task(pid, ref, state.task_supervisor)
+ 
+         if cleanup_workspace do
+-          cleanup_issue_workspace(Map.get(running_entry, :issue, identifier), worker_host)
++          cleanup_issue_workspace(Map.get(running_entry, :issue, identifier), running_entry)
+         end
+ 
+-        stop_running_task(pid, ref, state.task_supervisor)
+-
+         %{
+           state
+           | running: Map.delete(state.running, issue_id),
+@@ -1105,7 +1104,7 @@ defmodule SymphonyElixir.Orchestrator do
+       terminal_issue_state?(issue.state, terminal_states) ->
+         Logger.info("Issue state is terminal: issue_id=#{issue_id} issue_identifier=#{issue.identifier} state=#{issue.state}; removing associated workspace")
+ 
+-        cleanup_issue_workspace(issue, metadata[:worker_host])
++        cleanup_issue_workspace(issue, metadata)
+         {:noreply, release_issue_claim(state, issue_id)}
+ 
+       retry_candidate_issue?(issue, terminal_states) ->
+@@ -1125,6 +1124,16 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+   defp cleanup_issue_workspace(identifier, worker_host \\ nil)
+ 
++  defp cleanup_issue_workspace(issue_or_identifier, metadata) when is_map(metadata) do
++    case Map.get(metadata, :workspace_path) do
++      workspace_path when is_binary(workspace_path) and workspace_path != "" ->
++        Workspace.remove_recorded(workspace_path, Map.get(metadata, :worker_host))
++
++      _ ->
++        cleanup_issue_workspace(issue_or_identifier, Map.get(metadata, :worker_host))
++    end
++  end
++
+   defp cleanup_issue_workspace(%Issue{} = issue, worker_host) do
+     Workspace.remove_issue_workspaces(issue, worker_host)
+   end
+@@ -1135,12 +1144,6 @@ defmodule SymphonyElixir.Orchestrator do
+ 
+   defp cleanup_issue_workspace(_issue_or_identifier, _worker_host), do: :ok
+ 
+-  defp blocked_issue_worker_host(%State{} = state, issue_id) do
+-    state.blocked
+-    |> Map.get(issue_id, %{})
+-    |> Map.get(:worker_host)
+-  end
+-
+   defp run_terminal_workspace_cleanup do
+     case Tracker.fetch_issues_by_states(Config.settings!().tracker.terminal_states) do
+       {:ok, issues} ->
+diff --git a/lib/symphony_elixir/workspace.ex b/lib/symphony_elixir/workspace.ex
+index 9f1b1ab..f1cb26c 100644
+--- a/lib/symphony_elixir/workspace.ex
++++ b/lib/symphony_elixir/workspace.ex
+@@ -93,8 +93,7 @@ defmodule SymphonyElixir.Workspace do
+       true ->
+         case validate_workspace_path(workspace, nil) do
+           :ok ->
+-            maybe_run_before_remove_hook(workspace, nil)
+-            File.rm_rf(workspace)
++            remove_local_workspace(workspace)
+ 
+           {:error, reason} ->
+             {:error, reason, ""}
+@@ -127,6 +126,35 @@ defmodule SymphonyElixir.Workspace do
+     end
+   end
+ 
++  @doc false
++  @spec remove_recorded(Path.t(), worker_host()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
++  def remove_recorded(workspace, nil) when is_binary(workspace) do
++    if Path.type(workspace) == :absolute do
++      case validate_recorded_workspace_path(workspace) do
++        :ok ->
++          remove_local_workspace(workspace)
++
++        {:error, reason} ->
++          {:error, reason, ""}
++      end
++    else
++      {:error, {:workspace_path_unreadable, workspace, :not_absolute}, ""}
++    end
++  end
++
++  def remove_recorded(workspace, worker_host) when is_binary(workspace) and is_binary(worker_host) do
++    remove(workspace, worker_host)
++  end
++
++  def remove_recorded(workspace, _worker_host) do
++    {:error, {:workspace_path_unreadable, workspace, :invalid}, ""}
++  end
++
++  defp remove_local_workspace(workspace) do
++    maybe_run_before_remove_hook(workspace, nil)
++    File.rm_rf(workspace)
++  end
++
+   @spec remove_issue_workspaces(term()) :: :ok
+   def remove_issue_workspaces(identifier), do: remove_issue_workspaces(identifier, nil)
+ 
+@@ -401,8 +429,31 @@ defmodule SymphonyElixir.Workspace do
+   end
+ 
+   defp validate_workspace_path(workspace, nil) when is_binary(workspace) do
++    validate_local_workspace_path(workspace, Config.settings!().workspace.root)
++  end
++
++  defp validate_workspace_path(workspace, worker_host)
++       when is_binary(workspace) and is_binary(worker_host) do
++    cond do
++      String.trim(workspace) == "" ->
++        {:error, {:workspace_path_unreadable, workspace, :empty}}
++
++      String.contains?(workspace, ["\n", "\r", <<0>>]) ->
++        {:error, {:workspace_path_unreadable, workspace, :invalid_characters}}
++
++      true ->
++        :ok
++    end
++  end
++
++  defp validate_recorded_workspace_path(workspace) when is_binary(workspace) do
++    validate_local_workspace_path(workspace, Path.dirname(workspace))
++  end
++
++  defp validate_local_workspace_path(workspace, workspace_root)
++       when is_binary(workspace) and is_binary(workspace_root) do
+     expanded_workspace = Path.expand(workspace)
+-    expanded_root = Path.expand(Config.settings!().workspace.root)
++    expanded_root = Path.expand(workspace_root)
+     expanded_root_prefix = expanded_root <> "/"
+ 
+     with {:ok, canonical_workspace} <- PathSafety.canonicalize(expanded_workspace),
+@@ -428,20 +479,6 @@ defmodule SymphonyElixir.Workspace do
+     end
+   end
+ 
+-  defp validate_workspace_path(workspace, worker_host)
+-       when is_binary(workspace) and is_binary(worker_host) do
+-    cond do
+-      String.trim(workspace) == "" ->
+-        {:error, {:workspace_path_unreadable, workspace, :empty}}
+-
+-      String.contains?(workspace, ["\n", "\r", <<0>>]) ->
+-        {:error, {:workspace_path_unreadable, workspace, :invalid_characters}}
+-
+-      true ->
+-        :ok
+-    end
+-  end
+-
+   defp remote_shell_assign(variable_name, raw_path)
+        when is_binary(variable_name) and is_binary(raw_path) do
+     [
+diff --git a/test/symphony_elixir/core_test.exs b/test/symphony_elixir/core_test.exs
+index 62b7c53..89f68ee 100644
+--- a/test/symphony_elixir/core_test.exs
++++ b/test/symphony_elixir/core_test.exs
+@@ -538,7 +538,7 @@ defmodule SymphonyElixir.CoreTest do
+     end
+   end
+ 
+-  test "terminal issue state stops running agent and cleans workspace" do
++  test "terminal issue state stops running agent before cleaning workspace" do
+     test_root =
+       Path.join(
+         System.tmp_dir!(),
+@@ -548,25 +548,38 @@ defmodule SymphonyElixir.CoreTest do
+     issue_id = "issue-2"
+     issue_identifier = "MT-556"
+     workspace = Path.join(test_root, issue_identifier)
++    worker_alive_marker = Path.join(test_root, "worker-alive")
++    cleanup_marker = Path.join(test_root, "cleanup-order")
+ 
+     try do
+       write_workflow_file!(Workflow.workflow_file_path(),
+         workspace_root: test_root,
+         tracker_active_states: ["Todo", "In Progress", "In Review"],
+-        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
++        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"],
++        hook_before_remove: "if [ -f \"#{worker_alive_marker}\" ]; then printf alive > \"#{cleanup_marker}\"; else printf stopped > \"#{cleanup_marker}\"; fi"
+       )
+ 
+-      File.mkdir_p!(test_root)
+       File.mkdir_p!(workspace)
++      {:ok, task_supervisor} = Task.Supervisor.start_link()
+ 
+-      agent_pid =
+-        spawn(fn ->
+-          receive do
+-            :stop -> :ok
++      {:ok, agent_pid} =
++        Task.Supervisor.start_child(task_supervisor, fn ->
++          Process.flag(:trap_exit, true)
++          File.write!(worker_alive_marker, "alive")
++
++          try do
++            receive do
++              {:EXIT, _from, :shutdown} -> :ok
++            end
++          after
++            File.rm(worker_alive_marker)
+           end
+         end)
+ 
++      assert eventually_value(fn -> if File.exists?(worker_alive_marker), do: true end)
++
+       state = %Orchestrator.State{
++        task_supervisor: task_supervisor,
+         running: %{
+           issue_id => %{
+             pid: agent_pid,
+@@ -595,12 +608,80 @@ defmodule SymphonyElixir.CoreTest do
+       refute Map.has_key?(updated_state.running, issue_id)
+       refute MapSet.member?(updated_state.claimed, issue_id)
+       refute Process.alive?(agent_pid)
++      assert File.read!(cleanup_marker) == "stopped"
+       refute File.exists?(workspace)
+     after
+       File.rm_rf(test_root)
+     end
+   end
+ 
++  test "terminal cleanup uses the workspace recorded for the running issue" do
++    test_root =
++      Path.join(
++        System.tmp_dir!(),
++        "symphony-elixir-terminal-recorded-workspace-#{System.unique_integer([:positive])}"
++      )
++
++    old_root = Path.join(test_root, "old-root")
++    new_root = Path.join(test_root, "new-root")
++    issue_id = "issue-recorded-workspace"
++    issue_identifier = "MT-557"
++    old_workspace = Path.join(old_root, issue_identifier)
++    new_workspace = Path.join(new_root, issue_identifier)
++
++    try do
++      write_workflow_file!(Workflow.workflow_file_path(),
++        workspace_root: old_root,
++        tracker_active_states: ["Todo", "In Progress", "In Review"],
++        tracker_terminal_states: ["Closed", "Cancelled", "Canceled", "Duplicate"]
++      )
++
++      File.mkdir_p!(old_workspace)
++      File.mkdir_p!(new_workspace)
++
++      agent_pid =
++        spawn(fn ->
++          receive do
++            :stop -> :ok
++          end
++        end)
++
++      state = %Orchestrator.State{
++        running: %{
++          issue_id => %{
++            pid: agent_pid,
++            ref: nil,
++            identifier: issue_identifier,
++            issue: %Issue{id: issue_id, state: "In Progress", identifier: issue_identifier},
++            workspace_path: old_workspace,
++            started_at: DateTime.utc_now()
++          }
++        },
++        claimed: MapSet.new([issue_id]),
++        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
++        retry_attempts: %{}
++      }
++
++      write_workflow_file!(Workflow.workflow_file_path(), workspace_root: new_root)
++
++      issue = %Issue{
++        id: issue_id,
++        identifier: issue_identifier,
++        state: "Closed",
++        title: "Done",
++        description: "Completed",
++        labels: []
++      }
++
++      _updated_state = Orchestrator.reconcile_issue_states_for_test([issue], state)
++
++      refute File.exists?(old_workspace)
++      assert File.exists?(new_workspace)
++    after
++      File.rm_rf(test_root)
++    end
++  end
++
+   test "missing running issues stop active agents without cleaning the workspace" do
+     test_root =
+       Path.join(
+diff --git a/test/symphony_elixir/workspace_and_config_test.exs b/test/symphony_elixir/workspace_and_config_test.exs
+index 98655bb..68c1c40 100644
+--- a/test/symphony_elixir/workspace_and_config_test.exs
++++ b/test/symphony_elixir/workspace_and_config_test.exs
+@@ -173,6 +173,42 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
+     end
+   end
+ 
++  test "recorded workspace removal rejects symlink escapes before hooks" do
++    test_root =
++      Path.join(
++        System.tmp_dir!(),
++        "symphony-elixir-recorded-workspace-symlink-#{System.unique_integer([:positive])}"
++      )
++
++    try do
++      recorded_root = Path.join(test_root, "recorded-workspaces")
++      current_root = Path.join(test_root, "current-workspaces")
++      outside_root = Path.join(test_root, "outside")
++      recorded_workspace = Path.join(recorded_root, "MT-SYM")
++      hook_marker = Path.join(test_root, "before-remove-ran")
++
++      File.mkdir_p!(recorded_root)
++      File.mkdir_p!(outside_root)
++      File.ln_s!(outside_root, recorded_workspace)
++
++      write_workflow_file!(Workflow.workflow_file_path(),
++        workspace_root: current_root,
++        hook_before_remove: "touch \"#{hook_marker}\""
++      )
++
++      assert {:ok, canonical_recorded_root} =
++               SymphonyElixir.PathSafety.canonicalize(recorded_root)
++
++      assert {:error, {:workspace_symlink_escape, ^recorded_workspace, ^canonical_recorded_root}, ""} =
++               Workspace.remove_recorded(recorded_workspace, nil)
++
++      refute File.exists?(hook_marker)
++      assert File.exists?(outside_root)
++    after
++      File.rm_rf(test_root)
++    end
++  end
++
+   test "workspace canonicalizes symlinked workspace roots before creating issue directories" do
+     test_root =
+       Path.join(

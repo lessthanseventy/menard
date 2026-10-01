@@ -1,0 +1,133 @@
+diff --git a/lib/symphony_elixir/orchestrator.ex b/lib/symphony_elixir/orchestrator.ex
+index c0a0d5f..b52e991 100644
+--- a/lib/symphony_elixir/orchestrator.ex
++++ b/lib/symphony_elixir/orchestrator.ex
+@@ -905,22 +905,35 @@ defmodule SymphonyElixir.Orchestrator do
+   end
+ 
+   defp dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
+-    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issues_by_ids/1, terminal_state_set()) do
++    case refresh_issue_for_dispatch(issue) do
+       {:ok, %Issue{} = refreshed_issue} ->
+         do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host)
+ 
++      {:skip, _reason} ->
++        state
++
++      {:error, _reason} ->
++        state
++    end
++  end
++
++  defp refresh_issue_for_dispatch(issue) do
++    case revalidate_issue_for_dispatch(issue, &Tracker.fetch_issues_by_ids/1, terminal_state_set()) do
++      {:ok, %Issue{} = refreshed_issue} ->
++        {:ok, refreshed_issue}
++
+       {:skip, :missing} ->
+         Logger.info("Skipping dispatch; issue no longer active or visible: #{issue_context(issue)}")
+-        state
++        {:skip, :missing}
+ 
+       {:skip, %Issue{} = refreshed_issue} ->
+         Logger.info("Skipping stale dispatch after issue refresh: #{issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
+ 
+-        state
++        {:skip, refreshed_issue}
+ 
+       {:error, reason} ->
+         Logger.warning("Skipping dispatch; issue refresh failed for #{issue_context(issue)}: #{inspect(reason)}")
+-        state
++        {:error, reason}
+     end
+   end
+ 
+@@ -1169,7 +1182,28 @@ defmodule SymphonyElixir.Orchestrator do
+     if retry_candidate_issue?(issue, terminal_state_set()) and
+          dispatch_slots_available?(issue, state) and
+          worker_slots_available?(state, metadata[:worker_host]) do
+-      {:noreply, dispatch_issue(state, issue, attempt, metadata[:worker_host])}
++      case refresh_issue_for_dispatch(issue) do
++        {:ok, %Issue{} = refreshed_issue} ->
++          {:noreply, do_dispatch_issue(state, refreshed_issue, attempt, metadata[:worker_host])}
++
++        {:skip, :missing} ->
++          {:noreply, release_issue_claim(state, issue.id)}
++
++        {:skip, %Issue{} = refreshed_issue} ->
++          handle_retry_issue_lookup(refreshed_issue, state, issue.id, attempt, metadata)
++
++        {:error, reason} ->
++          {:noreply,
++           schedule_issue_retry(
++             state,
++             issue.id,
++             attempt + 1,
++             Map.merge(metadata, %{
++               identifier: issue.identifier,
++               error: "retry dispatch refresh failed: #{inspect(reason)}"
++             })
++           )}
++      end
+     else
+       Logger.debug("No available slots for retrying #{issue_context(issue)}; retrying again")
+ 
+diff --git a/test/symphony_elixir/core_test.exs b/test/symphony_elixir/core_test.exs
+index 89f68ee..1263601 100644
+--- a/test/symphony_elixir/core_test.exs
++++ b/test/symphony_elixir/core_test.exs
+@@ -953,6 +953,54 @@ defmodule SymphonyElixir.CoreTest do
+     refute Map.has_key?(updated_state.retry_attempts, issue_id)
+   end
+ 
++  test "retry releases its claim when dispatch revalidation no longer finds the issue" do
++    test_root =
++      Path.join(
++        System.tmp_dir!(),
++        "symphony-elixir-retry-refresh-#{System.unique_integer([:positive])}"
++      )
++
++    issue_id = "retry-refreshed-issue"
++
++    try do
++      write_workflow_file!(Workflow.workflow_file_path(),
++        tracker_kind: "memory",
++        workspace_root: test_root,
++        hook_before_run: "exit 1"
++      )
++
++      Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
++      {:ok, task_supervisor} = Task.Supervisor.start_link()
++
++      state = %Orchestrator.State{
++        task_supervisor: task_supervisor,
++        claimed: MapSet.new([issue_id]),
++        retry_attempts: %{}
++      }
++
++      issue = %Issue{
++        id: issue_id,
++        identifier: "MT-566",
++        title: "Retry refreshed issue",
++        state: "In Progress",
++        dispatchable: true,
++        labels: []
++      }
++
++      updated_state =
++        Orchestrator.handle_retry_issue_lookup_for_test(issue, state, issue_id, 1, %{
++          identifier: issue.identifier,
++          error: "agent exited"
++        })
++
++      refute MapSet.member?(updated_state.claimed, issue_id)
++      refute Map.has_key?(updated_state.running, issue_id)
++      refute Map.has_key?(updated_state.retry_attempts, issue_id)
++    after
++      File.rm_rf(test_root)
++    end
++  end
++
+   test "agent runner does not continue after a required label is removed" do
+     write_workflow_file!(Workflow.workflow_file_path(), tracker_required_labels: ["symphony"])
+ 

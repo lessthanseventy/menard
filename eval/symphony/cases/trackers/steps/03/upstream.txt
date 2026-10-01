@@ -1,0 +1,32 @@
+d476215 2026-07-17
+
+Validate workflow before scheduling
+
+#### Context
+
+Symphony could start scheduling with semantically invalid workflow
+settings, while blank required values also passed validation.
+
+#### TL;DR
+
+*Validate workflow settings before they become effective or start scheduling.*
+
+#### Summary
+
+- Make WorkflowStore cache only semantically valid workflow settings.
+- Return startup errors before Orchestrator schedules cleanup or polling.
+- Reject blank Linear settings and whitespace-only Codex commands.
+- Keep last-good settings across invalid reloads and runtime restarts.
+- Add cold-start, reload, restart, and test-bootstrap coverage.
+
+#### Alternatives
+
+- Validating only in Orchestrator init was rejected because bad reloads
+  could break ordinary OTP restarts.
+- Keeping validation only per tick was rejected because startup still
+  appeared healthy with invalid settings.
+
+#### Test Plan
+
+- [x] `cd elixir && mise exec -- make all`
+- [x] `cd elixir && mise exec -- mix test --seed 567691 --max-failures 1`

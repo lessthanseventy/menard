@@ -1,0 +1,12 @@
+b9c86b1 2026-08-31
+
+Prevent newer execution from overwriting
+
+Acking now verifies that the database hasn't been updated by another
+execution. Writes from a new executor will no longer transition an acked
+job, e.g. erroring or snoozing a job back out of `completed`.
+
+This applies to ack operations in Basic, Dolphin, and Lite engines.
+
+Closes #1496
+

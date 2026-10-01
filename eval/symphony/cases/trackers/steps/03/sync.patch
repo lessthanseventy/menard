@@ -1,0 +1,655 @@
+diff --git a/lib/symphony_elixir.ex b/lib/symphony_elixir.ex
+index 18561af..afefead 100644
+--- a/lib/symphony_elixir.ex
++++ b/lib/symphony_elixir.ex
+@@ -4,11 +4,11 @@ defmodule SymphonyElixir do
+   """
+ 
+   @doc """
+-  Start the orchestrator in the current BEAM node.
++  Start the agent runtime in the current BEAM node.
+   """
+-  @spec start_link(keyword()) :: GenServer.on_start()
+-  def start_link(opts \\ []) do
+-    SymphonyElixir.Orchestrator.start_link(opts)
++  @spec start_link() :: Supervisor.on_start()
++  def start_link do
++    SymphonyElixir.AgentRuntimeSupervisor.start_link([])
+   end
+ end
+ 
+@@ -25,9 +25,8 @@ defmodule SymphonyElixir.Application do
+ 
+     children = [
+       {Phoenix.PubSub, name: SymphonyElixir.PubSub},
+-      {Task.Supervisor, name: SymphonyElixir.TaskSupervisor},
+       SymphonyElixir.WorkflowStore,
+-      SymphonyElixir.Orchestrator,
++      SymphonyElixir.AgentRuntimeSupervisor,
+       SymphonyElixir.HttpServer,
+       SymphonyElixir.StatusDashboard
+     ]
+diff --git a/lib/symphony_elixir/agent_runtime_supervisor.ex b/lib/symphony_elixir/agent_runtime_supervisor.ex
+new file mode 100644
+index 0000000..b03ede8
+--- /dev/null
++++ b/lib/symphony_elixir/agent_runtime_supervisor.ex
+@@ -0,0 +1,34 @@
++defmodule SymphonyElixir.AgentRuntimeSupervisor do
++  @moduledoc """
++  Supervises the scheduler authority together with its agent tasks.
++  """
++
++  use Supervisor
++
++  @spec start_link(keyword()) :: Supervisor.on_start()
++  def start_link(opts) do
++    name = Keyword.get(opts, :name, __MODULE__)
++    Supervisor.start_link(__MODULE__, opts, name: name)
++  end
++
++  @impl true
++  def init(opts) do
++    task_supervisor_name =
++      Keyword.get(opts, :task_supervisor_name, SymphonyElixir.TaskSupervisor)
++
++    orchestrator_name = Keyword.get(opts, :orchestrator_name, SymphonyElixir.Orchestrator)
++
++    children = [
++      Supervisor.child_spec(
++        {Task.Supervisor, name: task_supervisor_name},
++        id: task_supervisor_name
++      ),
++      Supervisor.child_spec(
++        {SymphonyElixir.Orchestrator, name: orchestrator_name, task_supervisor: task_supervisor_name},
++        id: orchestrator_name
++      )
++    ]
++
++    Supervisor.init(children, strategy: :one_for_all)
++  end
++end
+diff --git a/lib/symphony_elixir/config.ex b/lib/symphony_elixir/config.ex
+index 00e7f9b..6644524 100644
+--- a/lib/symphony_elixir/config.ex
++++ b/lib/symphony_elixir/config.ex
+@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Config do
+   """
+ 
+   alias SymphonyElixir.Config.Schema
+-  alias SymphonyElixir.Workflow
++  alias SymphonyElixir.{Workflow, WorkflowStore}
+ 
+   @default_prompt_template """
+   You are working on a Linear issue.
+@@ -28,13 +28,7 @@ defmodule SymphonyElixir.Config do
+ 
+   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
+   def settings do
+-    case Workflow.current() do
+-      {:ok, %{config: config}} when is_map(config) ->
+-        Schema.parse(config)
+-
+-      {:error, reason} ->
+-        {:error, reason}
+-    end
++    WorkflowStore.settings()
+   end
+ 
+   @spec settings!() :: Schema.t()
+@@ -93,7 +87,8 @@ defmodule SymphonyElixir.Config do
+ 
+   @spec validate!() :: :ok | {:error, term()}
+   def validate! do
+-    with {:ok, settings} <- settings() do
++    with :ok <- WorkflowStore.force_reload(),
++         {:ok, settings} <- settings() do
+       validate_semantics(settings)
+     end
+   end
+diff --git a/lib/symphony_elixir/orchestrator.ex b/lib/symphony_elixir/orchestrator.ex
+index f43f41b..aeb2b2a 100644
+--- a/lib/symphony_elixir/orchestrator.ex
++++ b/lib/symphony_elixir/orchestrator.ex
+@@ -33,6 +33,7 @@ defmodule SymphonyElixir.Orchestrator do
+       :poll_check_in_progress,
+       :tick_timer_ref,
+       :tick_token,
++      task_supervisor: SymphonyElixir.TaskSupervisor,
+       running: %{},
+       completed: MapSet.new(),
+       claimed: MapSet.new(),
+@@ -43,6 +44,7 @@ defmodule SymphonyElixir.Orchestrator do
+     ]
+   end
+ 
++  @doc false
+   @spec start_link(keyword()) :: GenServer.on_start()
+   def start_link(opts \\ []) do
+     name = Keyword.get(opts, :name, __MODULE__)
+@@ -50,7 +52,7 @@ defmodule SymphonyElixir.Orchestrator do
+   end
+ 
+   @impl true
+-  def init(_opts) do
++  def init(opts) do
+     now_ms = System.monotonic_time(:millisecond)
+     config = Config.settings!()
+ 
+@@ -61,6 +63,7 @@ defmodule SymphonyElixir.Orchestrator do
+       poll_check_in_progress: false,
+       tick_timer_ref: nil,
+       tick_token: nil,
++      task_supervisor: Keyword.get(opts, :task_supervisor, SymphonyElixir.TaskSupervisor),
+       codex_totals: @empty_codex_totals,
+       codex_rate_limits: nil
+     }
+@@ -556,7 +559,7 @@ defmodule SymphonyElixir.Orchestrator do
+           cleanup_issue_workspace(identifier, worker_host)
+         end
+ 
+-        stop_running_task(pid, ref)
++        stop_running_task(pid, ref, state.task_supervisor)
+ 
+         %{
+           state
+@@ -713,8 +716,8 @@ defmodule SymphonyElixir.Orchestrator do
+   defp codex_message_method(%{method: method}) when is_binary(method), do: method
+   defp codex_message_method(_message), do: nil
+ 
+-  defp terminate_task(pid) when is_pid(pid) do
+-    case Task.Supervisor.terminate_child(SymphonyElixir.TaskSupervisor, pid) do
++  defp terminate_task(pid, task_supervisor) when is_pid(pid) do
++    case Task.Supervisor.terminate_child(task_supervisor, pid) do
+       :ok ->
+         :ok
+ 
+@@ -723,11 +726,11 @@ defmodule SymphonyElixir.Orchestrator do
+     end
+   end
+ 
+-  defp terminate_task(_pid), do: :ok
++  defp terminate_task(_pid, _task_supervisor), do: :ok
+ 
+-  defp stop_running_task(pid, ref) do
++  defp stop_running_task(pid, ref, task_supervisor) do
+     if is_pid(pid) do
+-      terminate_task(pid)
++      terminate_task(pid, task_supervisor)
+     end
+ 
+     if is_reference(ref) do
+@@ -738,7 +741,12 @@ defmodule SymphonyElixir.Orchestrator do
+   end
+ 
+   defp stop_and_block_issue(%State{} = state, issue_id, running_entry, error) do
+-    stop_running_task(Map.get(running_entry, :pid), Map.get(running_entry, :ref))
++    stop_running_task(
++      Map.get(running_entry, :pid),
++      Map.get(running_entry, :ref),
++      state.task_supervisor
++    )
++
+     block_issue_from_entry(state, issue_id, running_entry, error)
+   end
+ 
+@@ -940,7 +948,7 @@ defmodule SymphonyElixir.Orchestrator do
+   end
+ 
+   defp spawn_issue_on_worker_host(%State{} = state, issue, attempt, recipient, worker_host) do
+-    case Task.Supervisor.start_child(SymphonyElixir.TaskSupervisor, fn ->
++    case Task.Supervisor.start_child(state.task_supervisor, fn ->
+            AgentRunner.run(issue, recipient, attempt: attempt, worker_host: worker_host)
+          end) do
+       {:ok, pid} ->
+diff --git a/lib/symphony_elixir/workflow_store.ex b/lib/symphony_elixir/workflow_store.ex
+index 3d687fd..7efe726 100644
+--- a/lib/symphony_elixir/workflow_store.ex
++++ b/lib/symphony_elixir/workflow_store.ex
+@@ -6,6 +6,7 @@ defmodule SymphonyElixir.WorkflowStore do
+   use GenServer
+   require Logger
+ 
++  alias SymphonyElixir.Config.Schema
+   alias SymphonyElixir.Workflow
+ 
+   @poll_interval_ms 1_000
+@@ -13,7 +14,7 @@ defmodule SymphonyElixir.WorkflowStore do
+   defmodule State do
+     @moduledoc false
+ 
+-    defstruct [:path, :stamp, :workflow]
++    defstruct [:path, :stamp, :workflow, :settings]
+   end
+ 
+   @spec start_link(keyword()) :: GenServer.on_start()
+@@ -32,6 +33,20 @@ defmodule SymphonyElixir.WorkflowStore do
+     end
+   end
+ 
++  @spec settings() :: {:ok, Schema.t()} | {:error, term()}
++  def settings do
++    case Process.whereis(__MODULE__) do
++      pid when is_pid(pid) ->
++        GenServer.call(__MODULE__, :settings)
++
++      _ ->
++        case load_state(Workflow.workflow_file_path()) do
++          {:ok, %State{settings: settings}} -> {:ok, settings}
++          {:error, reason} -> {:error, reason}
++        end
++    end
++  end
++
+   @spec force_reload() :: :ok | {:error, term()}
+   def force_reload do
+     case Process.whereis(__MODULE__) do
+@@ -39,8 +54,8 @@ defmodule SymphonyElixir.WorkflowStore do
+         GenServer.call(__MODULE__, :force_reload)
+ 
+       _ ->
+-        case Workflow.load() do
+-          {:ok, _workflow} -> :ok
++        case load_state(Workflow.workflow_file_path()) do
++          {:ok, _state} -> :ok
+           {:error, reason} -> {:error, reason}
+         end
+     end
+@@ -79,6 +94,16 @@ defmodule SymphonyElixir.WorkflowStore do
+     end
+   end
+ 
++  def handle_call(:settings, _from, %State{} = state) do
++    case reload_state(state) do
++      {:ok, new_state} ->
++        {:reply, {:ok, new_state.settings}, new_state}
++
++      {:error, _reason, new_state} ->
++        {:reply, {:ok, new_state.settings}, new_state}
++    end
++  end
++
+   @impl true
+   def handle_info(:poll, %State{} = state) do
+     schedule_poll()
+@@ -130,8 +155,9 @@ defmodule SymphonyElixir.WorkflowStore do
+ 
+   defp load_state(path) do
+     with {:ok, workflow} <- Workflow.load(path),
++         {:ok, settings} <- Schema.parse(workflow.config),
+          {:ok, stamp} <- current_stamp(path) do
+-      {:ok, %State{path: path, stamp: stamp, workflow: workflow}}
++      {:ok, %State{path: path, stamp: stamp, workflow: workflow, settings: settings}}
+     else
+       {:error, reason} ->
+         {:error, reason}
+diff --git a/test/symphony_elixir/core_test.exs b/test/symphony_elixir/core_test.exs
+index eee4e06..4238423 100644
+--- a/test/symphony_elixir/core_test.exs
++++ b/test/symphony_elixir/core_test.exs
+@@ -20,10 +20,6 @@ defmodule SymphonyElixir.CoreTest do
+ 
+     write_workflow_file!(Workflow.workflow_file_path(), poll_interval_ms: "invalid")
+ 
+-    assert_raise ArgumentError, ~r/interval_ms/, fn ->
+-      Config.settings!().polling.interval_ms
+-    end
+-
+     assert {:error, {:invalid_workflow_config, message}} = Config.validate!()
+     assert message =~ "polling.interval_ms"
+ 
+@@ -196,30 +192,161 @@ defmodule SymphonyElixir.CoreTest do
+     assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(workflow_path)
+   end
+ 
+-  test "SymphonyElixir.start_link delegates to the orchestrator" do
++  test "SymphonyElixir.start_link starts the agent runtime" do
+     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+     Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
+-    orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
++    runtime_pid = Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)
+ 
+     on_exit(fn ->
+-      if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
+-        case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
++      if is_nil(Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)) do
++        case Supervisor.restart_child(
++               SymphonyElixir.Supervisor,
++               SymphonyElixir.AgentRuntimeSupervisor
++             ) do
+           {:ok, _pid} -> :ok
+           {:error, {:already_started, _pid}} -> :ok
+         end
+       end
+     end)
+ 
+-    if is_pid(orchestrator_pid) do
+-      assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
++    if is_pid(runtime_pid) do
++      assert :ok =
++               Supervisor.terminate_child(
++                 SymphonyElixir.Supervisor,
++                 SymphonyElixir.AgentRuntimeSupervisor
++               )
+     end
+ 
+     assert {:ok, pid} = SymphonyElixir.start_link()
+-    assert Process.whereis(SymphonyElixir.Orchestrator) == pid
++    assert Process.whereis(SymphonyElixir.AgentRuntimeSupervisor) == pid
++    assert is_pid(Process.whereis(SymphonyElixir.TaskSupervisor))
++    assert is_pid(Process.whereis(SymphonyElixir.Orchestrator))
+ 
+     GenServer.stop(pid)
+   end
+ 
++  test "restarting the orchestrator does not overlap redispatched work" do
++    issue_suffix = System.unique_integer([:positive])
++
++    test_root =
++      Path.join(
++        System.tmp_dir!(),
++        "symphony-elixir-orchestrator-restart-#{issue_suffix}"
++      )
++
++    hook_marker = Path.join(test_root, "before-run-started")
++    hook_fifo = Path.join(test_root, "before-run-blocker")
++    runtime_supervisor_name = Module.concat(__MODULE__, "AgentRuntimeSupervisor#{issue_suffix}")
++    task_supervisor_name = Module.concat(__MODULE__, "TaskSupervisor#{issue_suffix}")
++    orchestrator_name = Module.concat(__MODULE__, "RestartOrchestrator#{issue_suffix}")
++
++    previous_memory_issues = Application.get_env(:symphony_elixir, :memory_tracker_issues)
++
++    issue = %Issue{
++      id: "issue-restart-#{issue_suffix}",
++      identifier: "MT-#{issue_suffix}",
++      title: "Restart an in-flight worker",
++      description: "Keep one worker active while the orchestrator restarts",
++      state: "In Progress",
++      url: "https://example.org/issues/MT-#{issue_suffix}",
++      labels: []
++    }
++
++    on_exit(fn ->
++      if pid = Process.whereis(runtime_supervisor_name) do
++        GenServer.stop(pid)
++      end
++
++      restore_app_env(:memory_tracker_issues, previous_memory_issues)
++      restart_default_runtime!()
++      File.rm_rf(test_root)
++    end)
++
++    if Process.whereis(SymphonyElixir.AgentRuntimeSupervisor) do
++      assert :ok =
++               Supervisor.terminate_child(
++                 SymphonyElixir.Supervisor,
++                 SymphonyElixir.AgentRuntimeSupervisor
++               )
++    end
++
++    write_workflow_file!(Workflow.workflow_file_path(),
++      tracker_kind: "memory",
++      workspace_root: test_root,
++      poll_interval_ms: 10,
++      hook_before_run: "mkfifo \"#{hook_fifo}\"; : > \"#{hook_marker}\"; read _ < \"#{hook_fifo}\"",
++      hook_timeout_ms: 60_000
++    )
++
++    Application.put_env(:symphony_elixir, :memory_tracker_issues, [issue])
++
++    assert {:ok, runtime_supervisor_pid} =
++             SymphonyElixir.AgentRuntimeSupervisor.start_link(
++               name: runtime_supervisor_name,
++               task_supervisor_name: task_supervisor_name,
++               orchestrator_name: orchestrator_name
++             )
++
++    Process.unlink(runtime_supervisor_pid)
++
++    orchestrator_pid = Process.whereis(orchestrator_name)
++    task_supervisor_pid = Process.whereis(task_supervisor_name)
++
++    assert is_pid(orchestrator_pid)
++    assert is_pid(task_supervisor_pid)
++
++    first_worker_pid =
++      eventually_value(fn ->
++        case Task.Supervisor.children(task_supervisor_name) do
++          [pid] -> pid
++          _ -> nil
++        end
++      end)
++
++    assert is_pid(first_worker_pid)
++    assert Process.alive?(first_worker_pid)
++    assert eventually_value(fn -> if File.exists?(hook_marker), do: true end)
++
++    monitor_ref = Process.monitor(orchestrator_pid)
++    Process.exit(orchestrator_pid, :kill)
++    assert_receive {:DOWN, ^monitor_ref, :process, ^orchestrator_pid, :killed}, 1_000
++
++    restarted_pid =
++      eventually_value(fn ->
++        case Process.whereis(orchestrator_name) do
++          pid when is_pid(pid) and pid != orchestrator_pid -> pid
++          _ -> nil
++        end
++      end)
++
++    restarted_task_supervisor_pid =
++      eventually_value(fn ->
++        case Process.whereis(task_supervisor_name) do
++          pid when is_pid(pid) and pid != task_supervisor_pid -> pid
++          _ -> nil
++        end
++      end)
++
++    assert is_pid(restarted_pid)
++    assert is_pid(restarted_task_supervisor_pid)
++    assert is_map(GenServer.call(restarted_pid, :snapshot))
++    refute Process.alive?(first_worker_pid)
++
++    second_worker_pid =
++      eventually_value(fn ->
++        children = Task.Supervisor.children(task_supervisor_name)
++        assert length(children) <= 1
++
++        case children do
++          [pid] when pid != first_worker_pid -> pid
++          _ -> nil
++        end
++      end)
++
++    assert is_pid(second_worker_pid)
++    assert Process.alive?(second_worker_pid)
++  end
++
+   test "linear issue state reconciliation fetch with no running issues is a no-op" do
+     assert {:ok, []} = Client.fetch_issue_states_by_ids([])
+   end
+@@ -884,6 +1011,39 @@ defmodule SymphonyElixir.CoreTest do
+   defp restore_app_env(key, nil), do: Application.delete_env(:symphony_elixir, key)
+   defp restore_app_env(key, value), do: Application.put_env(:symphony_elixir, key, value)
+ 
++  defp restart_default_runtime! do
++    if Process.whereis(SymphonyElixir.AgentRuntimeSupervisor) do
++      :ok =
++        Supervisor.terminate_child(
++          SymphonyElixir.Supervisor,
++          SymphonyElixir.AgentRuntimeSupervisor
++        )
++    end
++
++    case Supervisor.restart_child(
++           SymphonyElixir.Supervisor,
++           SymphonyElixir.AgentRuntimeSupervisor
++         ) do
++      {:ok, pid} -> pid
++      {:error, {:already_started, pid}} -> pid
++    end
++  end
++
++  defp eventually_value(fun, attempts \\ 100)
++
++  defp eventually_value(_fun, 0), do: nil
++
++  defp eventually_value(fun, attempts) do
++    case fun.() do
++      nil ->
++        Process.sleep(10)
++        eventually_value(fun, attempts - 1)
++
++      value ->
++        value
++    end
++  end
++
+   test "fetch issues by states with empty state set is a no-op" do
+     assert {:ok, []} = Client.fetch_issues_by_states([])
+   end
+diff --git a/test/symphony_elixir/extensions_test.exs b/test/symphony_elixir/extensions_test.exs
+index c83fbf1..2cc8a9c 100644
+--- a/test/symphony_elixir/extensions_test.exs
++++ b/test/symphony_elixir/extensions_test.exs
+@@ -105,17 +105,35 @@ defmodule SymphonyElixir.ExtensionsTest do
+     ensure_workflow_store_running()
+     assert {:ok, %{prompt: "You are an agent for this repository."}} = Workflow.current()
+ 
+-    write_workflow_file!(Workflow.workflow_file_path(), prompt: "Second prompt")
++    write_workflow_file!(Workflow.workflow_file_path(),
++      prompt: "Second prompt",
++      poll_interval_ms: 45_000
++    )
++
+     send(WorkflowStore, :poll)
+ 
+     assert_eventually(fn ->
+       match?({:ok, %{prompt: "Second prompt"}}, Workflow.current())
+     end)
+ 
++    good_settings = Config.settings!()
++    assert good_settings.polling.interval_ms == 45_000
++
+     File.write!(Workflow.workflow_file_path(), "---\ntracker: [\n---\nBroken prompt\n")
+     assert {:error, _reason} = WorkflowStore.force_reload()
+     assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
+ 
++    File.write!(
++      Workflow.workflow_file_path(),
++      "---\npolling:\n  interval_ms: nope\n---\nTyped-invalid prompt\n"
++    )
++
++    assert {:error, {:invalid_workflow_config, message}} = WorkflowStore.force_reload()
++    assert message =~ "polling.interval_ms"
++    assert {:ok, %{prompt: "Second prompt"}} = Workflow.current()
++    assert Config.settings!().polling.interval_ms == good_settings.polling.interval_ms
++    assert {:error, {:invalid_workflow_config, _message}} = Config.validate!()
++
+     third_workflow = Path.join(Path.dirname(Workflow.workflow_file_path()), "THIRD_WORKFLOW.md")
+     write_workflow_file!(third_workflow, prompt: "Third prompt")
+     Workflow.set_workflow_file_path(third_workflow)
+@@ -123,6 +141,8 @@ defmodule SymphonyElixir.ExtensionsTest do
+ 
+     assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, WorkflowStore)
+     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
++    assert {:ok, settings} = WorkflowStore.settings()
++    assert settings.polling.interval_ms == 30_000
+     assert :ok = WorkflowStore.force_reload()
+     assert {:ok, _pid} = Supervisor.restart_child(SymphonyElixir.Supervisor, WorkflowStore)
+   end
+@@ -144,6 +164,9 @@ defmodule SymphonyElixir.ExtensionsTest do
+ 
+     Workflow.set_workflow_file_path(missing_path)
+ 
++    assert {:error, {:missing_workflow_file, ^missing_path, :enoent}} =
++             WorkflowStore.settings()
++
+     assert {:error, {:missing_workflow_file, ^missing_path, :enoent}} =
+              WorkflowStore.force_reload()
+ 
+diff --git a/test/symphony_elixir/live_e2e_test.exs b/test/symphony_elixir/live_e2e_test.exs
+index 713909c..2e6fa79 100644
+--- a/test/symphony_elixir/live_e2e_test.exs
++++ b/test/symphony_elixir/live_e2e_test.exs
+@@ -442,13 +442,17 @@ defmodule SymphonyElixir.LiveE2ETest do
+     worker_setup = live_worker_setup!(backend, run_id, test_root)
+     team_key = System.get_env("SYMPHONY_LIVE_LINEAR_TEAM_KEY") || @default_team_key
+     original_workflow_path = Workflow.workflow_file_path()
+-    orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
++    runtime_pid = Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)
+ 
+     File.mkdir_p!(workflow_root)
+ 
+     try do
+-      if is_pid(orchestrator_pid) do
+-        assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
++      if is_pid(runtime_pid) do
++        assert :ok =
++                 Supervisor.terminate_child(
++                   SymphonyElixir.Supervisor,
++                   SymphonyElixir.AgentRuntimeSupervisor
++                 )
+       end
+ 
+       Workflow.set_workflow_file_path(workflow_file)
+@@ -514,7 +518,7 @@ defmodule SymphonyElixir.LiveE2ETest do
+         assert :ok = complete_project(project["id"], completed_project_status["id"])
+       end
+     after
+-      restart_orchestrator_if_needed()
++      restart_agent_runtime_if_needed()
+       cleanup_live_worker_setup(worker_setup)
+       Workflow.set_workflow_file_path(original_workflow_path)
+       File.rm_rf(test_root)
+@@ -570,9 +574,12 @@ defmodule SymphonyElixir.LiveE2ETest do
+ 
+   defp cleanup_live_worker_setup(_worker_setup), do: :ok
+ 
+-  defp restart_orchestrator_if_needed do
+-    if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
+-      case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
++  defp restart_agent_runtime_if_needed do
++    if is_nil(Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)) do
++      case Supervisor.restart_child(
++             SymphonyElixir.Supervisor,
++             SymphonyElixir.AgentRuntimeSupervisor
++           ) do
+         {:ok, _pid} -> :ok
+         {:error, {:already_started, _pid}} -> :ok
+       end
+diff --git a/test/symphony_elixir/orchestrator_status_test.exs b/test/symphony_elixir/orchestrator_status_test.exs
+index ebc081e..3a8cdea 100644
+--- a/test/symphony_elixir/orchestrator_status_test.exs
++++ b/test/symphony_elixir/orchestrator_status_test.exs
+@@ -1322,19 +1322,26 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
+   test "status dashboard coalesces rapid updates to one render per interval" do
+     dashboard_name = Module.concat(__MODULE__, :RenderDashboard)
+     parent = self()
+-    orchestrator_pid = Process.whereis(SymphonyElixir.Orchestrator)
++    runtime_pid = Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)
+ 
+     on_exit(fn ->
+-      if is_nil(Process.whereis(SymphonyElixir.Orchestrator)) do
+-        case Supervisor.restart_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator) do
++      if is_nil(Process.whereis(SymphonyElixir.AgentRuntimeSupervisor)) do
++        case Supervisor.restart_child(
++               SymphonyElixir.Supervisor,
++               SymphonyElixir.AgentRuntimeSupervisor
++             ) do
+           {:ok, _pid} -> :ok
+           {:error, {:already_started, _pid}} -> :ok
+         end
+       end
+     end)
+ 
+-    if is_pid(orchestrator_pid) do
+-      assert :ok = Supervisor.terminate_child(SymphonyElixir.Supervisor, SymphonyElixir.Orchestrator)
++    if is_pid(runtime_pid) do
++      assert :ok =
++               Supervisor.terminate_child(
++                 SymphonyElixir.Supervisor,
++                 SymphonyElixir.AgentRuntimeSupervisor
++               )
+     end
+ 
+     {:ok, pid} =

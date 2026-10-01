@@ -1,0 +1,10 @@
+47bb8b2 2026-08-13
+
+Support per-entry timezones in the crontab
+
+Individual crontab entries may now override the plugin's timezone with a
+`:timezone` option, e.g. `{"0 9 * * *", MyApp.Worker, timezone:
+"America/Chicago"}`. Previously every entry was evaluated in a single
+configured timezone, which forced a separate Cron instance for each
+zone.
+

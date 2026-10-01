@@ -1,0 +1,28 @@
+cdb466a 2026-07-17
+
+Preserve last good config on typed-invalid reloads
+
+#### Context
+
+A YAML-valid, typed-invalid reload replaced cached config and prompt, then made `Config.settings!` raise.
+
+#### TL;DR
+
+*Keep the last good typed workflow when a reload cannot be parsed.*
+
+#### Summary
+
+- Cache parsed settings with each workflow store state.
+- Reject typed-invalid reloads before config and prompt become current.
+- Keep preflight errors visible while runtime getters use last known good values.
+
+#### Alternatives
+
+- Did not fold semantic tracker preflight into store admission; that is a separate finding.
+- Did not add orchestrator rescue logic; invalid typed state no longer reaches `settings!`.
+
+#### Test Plan
+
+- [x] `mix test test/symphony_elixir/extensions_test.exs:104`
+- [x] `mix test --cover --seed 659305`
+- [x] `make -C elixir all`
