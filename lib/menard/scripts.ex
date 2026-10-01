@@ -170,7 +170,7 @@ defmodule Menard.Scripts do
       call_name(pattern) != nil -> callers(pattern, paths, menard)
       has.("lLq") -> nil
       has.("c") and not structure?(pattern) -> nil
-      true -> grep_read(pattern, paths, Enum.any?(flags, &context?/1), menard, root)
+      true -> grep_read(pattern, paths, Enum.any?(flags, &context?/1) && asked(flags), menard, root)
     end
   rescue
     MatchError -> nil
@@ -180,10 +180,25 @@ defmodule Menard.Scripts do
 
   # what the grep reads, first that holds: a file's structure (outline), with context a function's
   # body (clause get) or one test (block get), else a remote call's callers (find calls)
-  defp grep_read(pattern, paths, context?, menard, root) do
-    structure_read(pattern, paths, menard) || (context? && context_read(pattern, paths, menard, root)) ||
+  defp grep_read(pattern, paths, asked, menard, root) do
+    structure_read(pattern, paths, menard) || (asked && context_read(pattern, paths, asked, menard, root)) ||
       callers(pattern, paths, menard)
   end
+
+  # the lines a grep with context reads at its match (`-A 5`: 6), weighed against what a verb would
+  # answer in its place; a count not given is any
+  defp asked(flags) do
+    counts =
+      for [_, flag, n] <-
+            Regex.scan(~r/(?:^|\s)(-[ABC]|--(?:after-|before-)?context)[=\s]?(\d+)/, Enum.join(flags, " ")),
+          do: if(flag in ["-C", "--context"], do: 2, else: 1) * String.to_integer(n)
+
+    if counts == [], do: :any, else: 1 + Enum.sum(counts)
+  end
+
+  # a verb's answer of `size` lines in place of a read of `asked`: not much more than was asked
+  defp fits?(_size, :any), do: true
+  defp fits?(size, asked), do: size <= max(2 * asked, asked + 10)
 
   defp structure_read(pattern, [file], menard) when is_binary(file) do
     if elixir?(file) and structure?(pattern),
@@ -195,10 +210,10 @@ defmodule Menard.Scripts do
   defp structure_read(_pattern, _paths, _menard), do: nil
 
   # with context: a function's body, or one test's
-  defp context_read(pattern, paths, menard, root) do
+  defp context_read(pattern, paths, asked, menard, root) do
     case def_name(pattern) do
-      nil -> test_read(pattern, paths, menard, root)
-      name -> def_read(name, paths, menard, root)
+      nil -> test_read(pattern, paths, asked, menard, root)
+      name -> def_read(name, paths, asked, menard, root)
     end
   end
 
@@ -226,25 +241,26 @@ defmodule Menard.Scripts do
 
   # One test of a test file read by (part of) its label: the pattern is in that test's label and no
   # other's. One over several, `test "` say, is a listing, and runs.
-  defp test_read(pattern, [file], menard, root) when is_binary(root) do
+  defp test_read(pattern, [file], asked, menard, root) when is_binary(root) do
     with true <- elixir?(file),
          {:ok, source} <- File.read(Path.expand(file, root)),
          {:ok, modules} <- Menard.Outline.run(source),
          literal = String.replace(pattern, "\\", ""),
-         [{what, call, _}] <-
+         [{what, call, {a, b}}] <-
            for(
              {what, "" <> call, _} = item <- items(modules, file, menard) ++ describes(modules, file, menard),
              String.contains?(call, " block get "),
              String.contains?(what, literal),
              do: item
-           ) do
+           ),
+         true <- fits?(b - a + 1, asked) do
       "#{what} read by grep: #{call}" <> read_why()
     else
       _ -> nil
     end
   end
 
-  defp test_read(_pattern, _paths, _menard, _root), do: nil
+  defp test_read(_pattern, _paths, _asked, _menard, _root), do: nil
 
   # each describe, for a read of one by its label; not among `items/3`, where a range in one of its
   # tests would meet it as well and read as two
@@ -264,13 +280,13 @@ defmodule Menard.Scripts do
 
   # only toward a function the file has: `grep "defp auto_approve"` over a struct field was sent to a
   # clause get that answered nothing (Symphony 08)
-  defp def_read(name, [file], menard, root) when is_binary(file) do
-    if elixir?(file) and defines?(file, name, root),
+  defp def_read(name, [file], asked, menard, root) when is_binary(file) do
+    if elixir?(file) and fits_def?(file, name, asked, root),
       do: "a function's body by grep: #{menard} clause get #{file} #{name}" <> read_why(),
       else: nil
   end
 
-  defp def_read(name, paths, menard, _root),
+  defp def_read(name, paths, _asked, menard, _root),
     do:
       "a function's body by grep: #{menard} find defs #{name} #{Enum.join(paths, " ")}, then clause get" <>
         read_why()
@@ -303,6 +319,7 @@ defmodule Menard.Scripts do
          [{what, call, {a, b}}] <-
            Enum.filter(items(modules, file, menard), fn {_, _, {a, b}} -> a <= to and b >= from end),
          true <- 2 * (min(b, to) - max(a, from) + 1) >= to - from + 1,
+         true <- fits?(b - a + 1, to - from + 1),
          # the lines past it hold module code its verb does not give (Oban 03: lines 1-20 of a test
          # file, its `use` and aliases with the first test): read as asked
          false <- module_code?(source, Enum.to_list(from..(a - 1)//1) ++ Enum.to_list((b + 1)..to//1)) do
@@ -312,21 +329,26 @@ defmodule Menard.Scripts do
     end
   end
 
-  # every function and every test (a describe's own, not the describe), as {what, the call, lines}
-  # nil root: no file to look in, and the refusal stands as it was
-  defp defines?(_file, _name, nil), do: true
+  # a function the file has, no longer than a read of `asked` lines would take in; nil root: no file
+  # to look in, and the refusal stands as it was
+  defp fits_def?(_file, _name, _asked, nil), do: true
 
-  defp defines?(file, name, root) do
+  defp fits_def?(file, name, asked, root) do
     with {:ok, source} <- File.read(Path.expand(file, root)),
-         {:ok, modules} <- Menard.Outline.run(source) do
-      Enum.any?(all_defs(modules), &(to_string(&1.name) == name))
+         {:ok, modules} <- Menard.Outline.run(source),
+         [_ | _] = lines <- for(d <- all_defs(modules), to_string(d.name) == name, d.lines, do: d.lines) do
+      {first, _} = Enum.min(lines)
+      {_, last} = Enum.max_by(lines, &elem(&1, 1))
+      fits?(last - first + 1, asked)
     else
+      [] -> false
       _ -> true
     end
   end
 
   defp all_defs(modules), do: Enum.flat_map(modules, &(&1.defs ++ all_defs(&1.modules)))
 
+  # every function and every test (a describe's own, not the describe), as {what, the call, lines}
   defp items(modules, file, menard) do
     Enum.flat_map(modules, fn m ->
       defs =

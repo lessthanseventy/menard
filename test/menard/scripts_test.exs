@@ -319,4 +319,22 @@ defmodule Menard.ScriptsTest do
     assert Scripts.in_place("python3 -c 'print(1)'", @menard, dir) == nil
     assert Scripts.in_place("ls lib", @menard, dir) == nil
   end
+
+  @tag :tmp_dir
+  test "a read is put in a function's place only where the function is not much more than was asked", %{
+    tmp_dir: dir
+  } do
+    # a few lines asked of a long function are a few lines: rewritten to the whole function, a read of
+    # 7 lines came back as 27 (and could come back as 300). The function in their place only where it
+    # is not much more than was asked
+    File.mkdir_p!(Path.join(dir, "lib"))
+    body = Enum.map_join(1..40, "", &"    x#{&1} = #{&1}\n")
+    File.write!(Path.join(dir, "lib/long.ex"), "defmodule Long do\n  def go do\n" <> body <> "  end\nend\n")
+    why = &Scripts.refused(&1, @menard, dir)
+
+    assert why.("sed -n '3,9p' lib/long.ex") == nil
+    assert why.(~s(grep -n "def go" -A 5 lib/long.ex)) == nil
+    assert why.("sed -n '2,40p' lib/long.ex") =~ "clause get lib/long.ex go/0"
+    assert why.(~s(grep -n "def go" -A 35 lib/long.ex)) =~ "clause get lib/long.ex go"
+  end
 end
