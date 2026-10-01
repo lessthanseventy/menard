@@ -182,4 +182,17 @@ defmodule Menard.OutlineTest do
 
     assert plain.attrs == []
   end
+
+  @tag :tmp_dir
+  test "an outline leaves out the fields with nothing in them", %{tmp_dir: dir} do
+    # every def said `"doc":null,"spec":null,"attrs":[]` over MCP: a field with nothing in it is left out
+    file = Path.join(dir, "o.ex")
+    File.write!(file, "defmodule O do\n  def go(x), do: x\nend\n")
+
+    assert {:ok, %{modules: [module]}} = Menard.Verbs.Outline.run(%{file: file})
+    assert [entry] = module.defs
+    assert Map.keys(entry) |> Enum.sort() == [:arity, :head, :kind, :lines, :name]
+    refute Map.has_key?(module, :tests)
+    refute Map.has_key?(module, :doc)
+  end
 end

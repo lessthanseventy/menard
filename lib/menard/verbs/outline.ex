@@ -78,7 +78,7 @@ defmodule Menard.Verbs.Outline do
          {:ok, file} <- resolve(p.file, p),
          {:ok, source} <- read(file),
          {:ok, modules} <- outline(p.file, source) do
-      {:ok, %{file: file, version: Menard.remember(source), modules: modules}}
+      {:ok, %{file: file, version: Menard.remember(source), modules: compact(modules)}}
     end
   end
 
@@ -168,6 +168,14 @@ defmodule Menard.Verbs.Outline do
   end
 
   defp within?(%{lines: lines}, line), do: line in elem(lines || {0, 0}, 0)..elem(lines || {0, 0}, 1)//1
+
+  # a field with nothing in it, left out: every def said `"doc":null,"spec":null,"attrs":[]`
+  defp compact(list) when is_list(list), do: Enum.map(list, &compact/1)
+
+  defp compact(map) when is_map(map),
+    do: for({k, v} <- map, v not in [nil, []], into: %{}, do: {k, compact(v)})
+
+  defp compact(other), do: other
 
   defp outline(name, source) do
     with {:error, reason} <- Outline.run(source), do: {:error, "#{name}: #{reason}"}

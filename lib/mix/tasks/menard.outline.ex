@@ -43,27 +43,27 @@ defmodule Mix.Tasks.Menard.Outline do
 
   defp print_module(m, indent) do
     {a, b} = m.lines || {0, 0}
-    Mix.shell().info("#{indent}#{m.module}  L#{a}-#{b}#{if m.doc, do: "  — " <> m.doc, else: ""}")
+    Mix.shell().info("#{indent}#{m.module}  L#{a}-#{b}#{if m[:doc], do: "  — " <> m.doc, else: ""}")
 
-    for d <- m.defs do
+    for d <- m[:defs] || [] do
       {da, db} = d.lines || {0, 0}
 
       Mix.shell().info(
-        "#{indent}  #{d.kind} #{d.name}/#{d.arity}#{if d.head != "", do: " (#{d.head})"}  L#{da}-#{db}#{if d.doc, do: "  — " <> d.doc, else: ""}"
+        "#{indent}  #{d.kind} #{d.name}/#{d.arity}#{if d.head != "", do: " (#{d.head})"}  L#{da}-#{db}#{if d[:doc], do: "  — " <> d.doc, else: ""}"
       )
 
       # a component's attrs and slots: what calling it takes
       for a <- d[:attrs] || [], do: Mix.shell().info("#{indent}    #{a}")
     end
 
-    print_tests(m.tests, indent <> "  ")
-    Enum.each(m.modules, &print_module(&1, indent <> "  "))
+    print_tests(m[:tests] || [], indent <> "  ")
+    Enum.each(m[:modules] || [], &print_module(&1, indent <> "  "))
   end
 
   defp print_tests(tests, indent) do
     for t <- tests do
       {a, b} = t.lines || {0, 0}
-      label = if t.label, do: " " <> inspect(t.label), else: ""
+      label = if t[:label], do: " " <> inspect(t.label), else: ""
       Mix.shell().info("#{indent}#{t.kind}#{label}  L#{a}-#{b}")
       print_tests(t[:tests] || [], indent <> "  ")
     end
