@@ -111,8 +111,7 @@ defmodule Menard do
       reply =
         if moved == [],
           do: reply,
-          else:
-            Map.put(reply, :moved, Enum.map(moved, &"#{&1} to the module's end, below its public functions"))
+          else: Map.put(reply, :moved, moved)
 
       {:ok, unformatted(reply, format_error)}
     end

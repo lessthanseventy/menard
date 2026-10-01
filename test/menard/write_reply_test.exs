@@ -284,5 +284,14 @@ defmodule Menard.WriteReplyTest do
       assert {:ok, reply} = Menard.write(file, patched)
       assert [%{start: 2, removed: 1, added: 11}] = hd(reply.stages).hunks
     end
+
+    @tag :tmp_dir
+    test "a write says once what it laid out", %{tmp_dir: dir} do
+      file = write_file(dir, "m.ex", "defmodule M do\n  def a, do: 1\n\n  def b, do: 2\nend\n")
+      patched = String.replace(File.read!(file), "  def b", "  defp h, do: 0\n\n  def b")
+
+      assert {:ok, reply} = Menard.write(file, patched)
+      assert reply.moved == ["h/0 to the module's end, below its public functions"]
+    end
   end
 end
