@@ -72,4 +72,31 @@ defmodule Menard.ModuleTest do
 
     assert File.read!(file) == "defmodule A do\nend\n"
   end
+
+  @tag :tmp_dir
+  test "layout moves every private function above a public one below them, comments with them", %{
+    tmp_dir: dir
+  } do
+    file = Path.join(dir, "t.ex")
+
+    File.write!(file, """
+    defmodule T do
+      defp a, do: 1
+
+      def b, do: a()
+
+      # c's comment
+      defp c, do: 3
+
+      def d, do: c()
+
+      defp e, do: 5
+    end
+    """)
+
+    assert {:ok, _reply} = Menard.Verbs.Module.run(%{verb: "layout", file: file})
+
+    assert File.read!(file) ==
+             "defmodule T do\n  def b, do: a()\n\n  def d, do: c()\n\n  defp e, do: 5\n\n  defp a, do: 1\n\n  # c's comment\n  defp c, do: 3\nend\n"
+  end
 end
