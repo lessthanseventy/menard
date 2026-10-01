@@ -31,22 +31,6 @@ defmodule Menard.Tree do
   @spec modules(Macro.t()) :: [{String.t(), Macro.t()}]
   def modules(ast), do: modules_in(ast, nil)
 
-  defp modules_in({:defmodule, _, [{:__aliases__, _, parts} | _] = args} = node, parent) do
-    name =
-      case {parts, parent} do
-        {[{:__MODULE__, _, _} | _], _} -> Menard.Source.alias_name(parts, parent)
-        {_, nil} -> Menard.Source.alias_name(parts)
-        _ -> parent <> "." <> Menard.Source.alias_name(parts)
-      end
-
-    [{name, node} | modules_in(args, name)]
-  end
-
-  defp modules_in({form, _meta, args}, parent), do: modules_in(form, parent) ++ modules_in(args, parent)
-  defp modules_in({a, b}, parent), do: modules_in(a, parent) ++ modules_in(b, parent)
-  defp modules_in(list, parent) when is_list(list), do: Enum.flat_map(list, &modules_in(&1, parent))
-  defp modules_in(_leaf, _parent), do: []
-
   @doc """
   The module to act in: `name`d, or — nil — the file's one module. Several unnamed is refused,
   the same discipline as an unqualified name/arity two modules define: an edit must never land
@@ -128,4 +112,20 @@ defmodule Menard.Tree do
       _ -> nil
     end
   end
+
+  defp modules_in({:defmodule, _, [{:__aliases__, _, parts} | _] = args} = node, parent) do
+    name =
+      case {parts, parent} do
+        {[{:__MODULE__, _, _} | _], _} -> Menard.Source.alias_name(parts, parent)
+        {_, nil} -> Menard.Source.alias_name(parts)
+        _ -> parent <> "." <> Menard.Source.alias_name(parts)
+      end
+
+    [{name, node} | modules_in(args, name)]
+  end
+
+  defp modules_in({form, _meta, args}, parent), do: modules_in(form, parent) ++ modules_in(args, parent)
+  defp modules_in({a, b}, parent), do: modules_in(a, parent) ++ modules_in(b, parent)
+  defp modules_in(list, parent) when is_list(list), do: Enum.flat_map(list, &modules_in(&1, parent))
+  defp modules_in(_leaf, _parent), do: []
 end

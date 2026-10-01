@@ -39,28 +39,6 @@ defmodule Menard.Attr do
     end
   end
 
-  # The whole attribute, `@name value`, where its value was asked for: agents write it that way, and
-  # `@receipt @receipt """…` parsed, so nothing refused it. The indent it was written at comes off
-  # its continuation lines too, so a heredoc's text is unchanged.
-  defp own_value(name, value) do
-    at = "@" <> String.trim_leading(to_string(name), "@")
-    [first | rest] = String.split(value, "\n")
-    lead = String.length(first) - String.length(String.trim_leading(first))
-
-    case String.split(String.trim_leading(first), at, parts: 2) do
-      ["", after_name] when after_name == "" or binary_part(after_name, 0, 1) in [" ", "("] ->
-        Enum.join([String.trim_leading(after_name) | Enum.map(rest, &drop_indent(&1, lead))], "\n")
-
-      _ ->
-        value
-    end
-  end
-
-  defp drop_indent(line, n) do
-    pad = String.length(line) - String.length(String.trim_leading(line, " "))
-    String.slice(line, min(pad, n)..-1//1)
-  end
-
   @doc "Remove the attribute and the lines it occupies."
   @spec delete(String.t(), String.t() | atom(), keyword()) :: String.t() | {:error, String.t()}
   def delete(source, name, opts \\ []) do
@@ -253,5 +231,27 @@ defmodule Menard.Attr do
       nil -> false
       name -> Atom.to_string(name) == key
     end
+  end
+
+  # The whole attribute, `@name value`, where its value was asked for: agents write it that way, and
+  # `@receipt @receipt """…` parsed, so nothing refused it. The indent it was written at comes off
+  # its continuation lines too, so a heredoc's text is unchanged.
+  defp own_value(name, value) do
+    at = "@" <> String.trim_leading(to_string(name), "@")
+    [first | rest] = String.split(value, "\n")
+    lead = String.length(first) - String.length(String.trim_leading(first))
+
+    case String.split(String.trim_leading(first), at, parts: 2) do
+      ["", after_name] when after_name == "" or binary_part(after_name, 0, 1) in [" ", "("] ->
+        Enum.join([String.trim_leading(after_name) | Enum.map(rest, &drop_indent(&1, lead))], "\n")
+
+      _ ->
+        value
+    end
+  end
+
+  defp drop_indent(line, n) do
+    pad = String.length(line) - String.length(String.trim_leading(line, " "))
+    String.slice(line, min(pad, n)..-1//1)
   end
 end

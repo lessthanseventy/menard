@@ -57,14 +57,6 @@ defmodule Menard.Source do
     %{range | end: [line: b, column: line |> String.length() |> Kernel.+(1) |> min(c) |> off_blanks(line)]}
   end
 
-  # A literal before `end` (`fn -> nil end`) ends one past itself in Sourceror, on the space: a patch
-  # over it ate the space, `nilend`. No node ends on whitespace.
-  defp off_blanks(c, line) when c > 1 do
-    if String.at(line, c - 2) in [" ", "\t"], do: off_blanks(c - 1, line), else: c
-  end
-
-  defp off_blanks(c, _line), do: c
-
   @doc """
   `code` placed at `indent`: its first line bare (a patch starts at the column), every later line
   at `indent` — after dropping the indent those lines already share, so code sliced from a file
@@ -93,55 +85,6 @@ defmodule Menard.Source do
 
         Enum.join([first | rest], "\n")
     end
-  end
-
-  defp move_code({line, i}, content, shift, indent) do
-    if i in content, do: line, else: move(line, shift, indent)
-  end
-
-  defp move(line, shift, indent) do
-    if String.trim(line) == "", do: "", else: indent <> String.slice(line, shift..-1//1)
-  end
-
-  # The lines of `code` (1-based) inside a literal that spans several: after the line it opens on,
-  # through the line it closes on. A `->` arm (a statement `stmt` reaches) parses only inside a
-  # `fn`, which opens on the arm's own first line, so the numbers hold. Code that parses neither way
-  # has none found, and moves whole.
-  defp literal_lines(code) do
-    parsed =
-      with {:error, _} <- Sourceror.parse_string(code),
-           do: Sourceror.parse_string("fn " <> code <> "\nend")
-
-    case parsed do
-      {:ok, ast} -> ast |> Macro.prewalker() |> Enum.flat_map(&inner_lines/1) |> MapSet.new()
-      {:error, _} -> MapSet.new()
-    end
-  end
-
-  defp inner_lines(node) do
-    if literal?(node), do: lines_after_first(Sourceror.get_range(node)), else: []
-  end
-
-  defp lines_after_first(%{start: [line: a, column: _], end: [line: b, column: _]}) when b > a,
-    do: Enum.to_list((a + 1)..b)
-
-  defp lines_after_first(_range), do: []
-
-  defp literal?({:__block__, meta, [value]}) when is_binary(value) or is_list(value),
-    do: meta[:delimiter] != nil
-
-  defp literal?({:<<>>, meta, _parts}), do: meta[:delimiter] != nil
-
-  defp literal?({sigil, _meta, _args}) when is_atom(sigil),
-    do: String.starts_with?(Atom.to_string(sigil), "sigil_")
-
-  defp literal?(_node), do: false
-
-  defp shared_indent(lines) do
-    lines
-    |> Enum.reject(&(String.trim(&1) == ""))
-    |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
-    |> Enum.min(fn -> 0 end)
   end
 
   @doc """
@@ -243,67 +186,6 @@ defmodule Menard.Source do
     end
   end
 
-  # Sourceror ends an interpolated string with escaped quotes (`"n: \"#{x}\"} y"`) one column short
-  # of its closing quote, and every node that ends in one inherits it: an insert after such a
-  # statement went INSIDE the string, where it still parsed. The true end is the string's own
-  # closing quote, found by reading it from its opening one.
-  defp past_strings(range, node, source) do
-    lines = String.split(source, "\n")
-    now = {range.end[:line], range.end[:column]}
-
-    ends =
-      for {:<<>>, meta, _parts} = string <- node |> Macro.prewalker() |> Enum.to_list(),
-          meta[:delimiter] == "\"",
-          %{start: start} <- [Sourceror.get_range(string)],
-          stop = string_end(lines, start),
-          stop != nil,
-          do: stop
-
-    case Enum.max(ends, fn -> nil end) do
-      {line, column} = stop when stop > now -> %{range | end: [line: line, column: column]}
-      _ -> range
-    end
-  end
-
-  # `{line, column}` just past the closing quote of the string opening at `line:column`, honoring
-  # `\` escapes and `#{…}` interpolations (a string inside one is skipped whole); nil if unclosed.
-  # Read lazily, up to the closing quote: read to the end of the file, a node with many strings in
-  # it cost the rest of the file once per string.
-  defp string_end(lines, line: line, column: column) do
-    lines
-    |> Enum.drop(line - 1)
-    |> Stream.with_index(line)
-    |> Stream.flat_map(fn {text, no} ->
-      text
-      |> String.graphemes()
-      |> Stream.with_index(1)
-      |> Stream.map(fn {g, c} -> {g, no, c} end)
-      |> Stream.concat([{"\n", no, String.length(text) + 1}])
-    end)
-    |> Stream.drop(column - 1)
-    |> Enum.reduce_while(:open, &scan_string/2)
-    |> case do
-      {:closed, stop} -> stop
-      _unclosed -> nil
-    end
-  end
-
-  # The state is `{depths, pending}`: the interpolation depth of each string open, innermost first
-  # (a `"` inside `#{…}` opens another), and whether the last grapheme was a `\` or a `#`.
-  defp scan_string({"\"", _, _}, :open), do: {:cont, {[0], nil}}
-  defp scan_string(_g, :open), do: {:halt, nil}
-  defp scan_string(_escaped, {depths, :escape}), do: {:cont, {depths, nil}}
-  defp scan_string({"{", _, _}, {[0 | outer], :hash}), do: {:cont, {[1 | outer], nil}}
-  defp scan_string(g, {depths, :hash}), do: scan_string(g, {depths, nil})
-  defp scan_string({"\\", _, _}, {depths, nil}), do: {:cont, {depths, :escape}}
-  defp scan_string({"\"", no, c}, {[0], nil}), do: {:halt, {:closed, {no, c + 1}}}
-  defp scan_string({"\"", _, _}, {[0 | outer], nil}), do: {:cont, {outer, nil}}
-  defp scan_string({"\"", _, _}, {depths, nil}), do: {:cont, {[0 | depths], nil}}
-  defp scan_string({"#", _, _}, {[0 | _] = depths, nil}), do: {:cont, {depths, :hash}}
-  defp scan_string({"{", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d + 1 | outer], nil}}
-  defp scan_string({"}", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d - 1 | outer], nil}}
-  defp scan_string(_g, state), do: {:cont, state}
-
   @doc """
   The Elixir in a `~H` sigil node: each `{…}` (braces counted) and `<%… %>`, as `{line, column,
   text}`, the text exactly as written between the delimiters. ~H is a string to the AST, so this
@@ -374,4 +256,122 @@ defmodule Menard.Source do
 
     %{range | start: [line: line, column: col]}
   end
+
+  # A literal before `end` (`fn -> nil end`) ends one past itself in Sourceror, on the space: a patch
+  # over it ate the space, `nilend`. No node ends on whitespace.
+  defp off_blanks(c, line) when c > 1 do
+    if String.at(line, c - 2) in [" ", "\t"], do: off_blanks(c - 1, line), else: c
+  end
+
+  defp off_blanks(c, _line), do: c
+
+  defp move_code({line, i}, content, shift, indent) do
+    if i in content, do: line, else: move(line, shift, indent)
+  end
+
+  defp move(line, shift, indent) do
+    if String.trim(line) == "", do: "", else: indent <> String.slice(line, shift..-1//1)
+  end
+
+  # The lines of `code` (1-based) inside a literal that spans several: after the line it opens on,
+  # through the line it closes on. A `->` arm (a statement `stmt` reaches) parses only inside a
+  # `fn`, which opens on the arm's own first line, so the numbers hold. Code that parses neither way
+  # has none found, and moves whole.
+  defp literal_lines(code) do
+    parsed =
+      with {:error, _} <- Sourceror.parse_string(code),
+           do: Sourceror.parse_string("fn " <> code <> "\nend")
+
+    case parsed do
+      {:ok, ast} -> ast |> Macro.prewalker() |> Enum.flat_map(&inner_lines/1) |> MapSet.new()
+      {:error, _} -> MapSet.new()
+    end
+  end
+
+  defp inner_lines(node) do
+    if literal?(node), do: lines_after_first(Sourceror.get_range(node)), else: []
+  end
+
+  defp lines_after_first(%{start: [line: a, column: _], end: [line: b, column: _]}) when b > a,
+    do: Enum.to_list((a + 1)..b)
+
+  defp lines_after_first(_range), do: []
+
+  defp literal?({:__block__, meta, [value]}) when is_binary(value) or is_list(value),
+    do: meta[:delimiter] != nil
+
+  defp literal?({:<<>>, meta, _parts}), do: meta[:delimiter] != nil
+
+  defp literal?({sigil, _meta, _args}) when is_atom(sigil),
+    do: String.starts_with?(Atom.to_string(sigil), "sigil_")
+
+  defp literal?(_node), do: false
+
+  defp shared_indent(lines) do
+    lines
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.map(&(String.length(&1) - String.length(String.trim_leading(&1))))
+    |> Enum.min(fn -> 0 end)
+  end
+
+  # Sourceror ends an interpolated string with escaped quotes (`"n: \"#{x}\"} y"`) one column short
+  # of its closing quote, and every node that ends in one inherits it: an insert after such a
+  # statement went INSIDE the string, where it still parsed. The true end is the string's own
+  # closing quote, found by reading it from its opening one.
+  defp past_strings(range, node, source) do
+    lines = String.split(source, "\n")
+    now = {range.end[:line], range.end[:column]}
+
+    ends =
+      for {:<<>>, meta, _parts} = string <- node |> Macro.prewalker() |> Enum.to_list(),
+          meta[:delimiter] == "\"",
+          %{start: start} <- [Sourceror.get_range(string)],
+          stop = string_end(lines, start),
+          stop != nil,
+          do: stop
+
+    case Enum.max(ends, fn -> nil end) do
+      {line, column} = stop when stop > now -> %{range | end: [line: line, column: column]}
+      _ -> range
+    end
+  end
+
+  # `{line, column}` just past the closing quote of the string opening at `line:column`, honoring
+  # `\` escapes and `#{…}` interpolations (a string inside one is skipped whole); nil if unclosed.
+  # Read lazily, up to the closing quote: read to the end of the file, a node with many strings in
+  # it cost the rest of the file once per string.
+  defp string_end(lines, line: line, column: column) do
+    lines
+    |> Enum.drop(line - 1)
+    |> Stream.with_index(line)
+    |> Stream.flat_map(fn {text, no} ->
+      text
+      |> String.graphemes()
+      |> Stream.with_index(1)
+      |> Stream.map(fn {g, c} -> {g, no, c} end)
+      |> Stream.concat([{"\n", no, String.length(text) + 1}])
+    end)
+    |> Stream.drop(column - 1)
+    |> Enum.reduce_while(:open, &scan_string/2)
+    |> case do
+      {:closed, stop} -> stop
+      _unclosed -> nil
+    end
+  end
+
+  # The state is `{depths, pending}`: the interpolation depth of each string open, innermost first
+  # (a `"` inside `#{…}` opens another), and whether the last grapheme was a `\` or a `#`.
+  defp scan_string({"\"", _, _}, :open), do: {:cont, {[0], nil}}
+  defp scan_string(_g, :open), do: {:halt, nil}
+  defp scan_string(_escaped, {depths, :escape}), do: {:cont, {depths, nil}}
+  defp scan_string({"{", _, _}, {[0 | outer], :hash}), do: {:cont, {[1 | outer], nil}}
+  defp scan_string(g, {depths, :hash}), do: scan_string(g, {depths, nil})
+  defp scan_string({"\\", _, _}, {depths, nil}), do: {:cont, {depths, :escape}}
+  defp scan_string({"\"", no, c}, {[0], nil}), do: {:halt, {:closed, {no, c + 1}}}
+  defp scan_string({"\"", _, _}, {[0 | outer], nil}), do: {:cont, {outer, nil}}
+  defp scan_string({"\"", _, _}, {depths, nil}), do: {:cont, {[0 | depths], nil}}
+  defp scan_string({"#", _, _}, {[0 | _] = depths, nil}), do: {:cont, {depths, :hash}}
+  defp scan_string({"{", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d + 1 | outer], nil}}
+  defp scan_string({"}", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d - 1 | outer], nil}}
+  defp scan_string(_g, state), do: {:cont, state}
 end

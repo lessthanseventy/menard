@@ -36,10 +36,6 @@ defmodule Menard.Piped do
     end
   end
 
-  defp verb("precommit", _args), do: "check"
-  defp verb("test", ""), do: "test"
-  defp verb("test", args), do: "test " <> args
-
   @doc "What is so in this session, said at its start."
   @spec upfront(String.t()) :: String.t()
   def upfront(menard) do
@@ -49,4 +45,8 @@ defmodule Menard.Piped do
       "message, a failed assertion with its left and right. Nothing is cut, so no run is made " <>
       "again to read the rest."
   end
+
+  defp verb("precommit", _args), do: "check"
+  defp verb("test", ""), do: "test"
+  defp verb("test", args), do: "test " <> args
 end

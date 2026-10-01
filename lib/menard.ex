@@ -45,55 +45,6 @@ defmodule Menard do
   @doc "Format `content` for `file` without writing, formatter and plugins apart: `Menard.Format.staged/3`."
   defdelegate format_staged(file, content, opts \\ []), to: Menard.Format, as: :staged
 
-  # :formatter is what `mix format` alone changed; :plugins, when the host has any, what they
-  # (Styler) rewrote after it — so an agent can tell a rewrite it did not ask for from its own edit
-  defp stages(original, patched, formatted, nil),
-    do: [
-      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
-      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, formatted)}
-    ]
-
-  defp stages(original, patched, formatted, {plain, plugins}) do
-    [
-      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
-      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, plain)},
-      %{stage: :plugins, plugins: plugins, hunks: Menard.Diff.hunks(plain, formatted)}
-    ]
-  end
-
-  defp checked(file, content, original) do
-    with {:ok, patched} <- Menard.Write.checked(file, content),
-         :ok <- Menard.Write.together(file, original, patched) do
-      {:ok, patched}
-    else
-      {:error, reason} -> {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
-    end
-  end
-
-  # An edit computed against a version the file no longer has would overwrite whatever changed it
-  # since, so a version given is a version checked (docs/live.md, phase 3). The refusal carries
-  # what changed, when menard still has the version it handed out, so the agent can re-sync.
-  defp fresh(file, original, opts) do
-    expected = opts[:version]
-    current = version_of(original)
-
-    if is_nil(expected) or opts[:force] == true or expected == current do
-      :ok
-    else
-      since =
-        case File.read(version_path(expected)) do
-          {:ok, old} -> "changed since: " <> JSON.encode!(Menard.Diff.hunks(old, original))
-          {:error, _} -> "menard has no copy of #{expected} to diff against"
-        end
-
-      {:error,
-       "stale: #{Path.relative_to_cwd(file)} is no longer #{expected} but #{current}; #{since}. " <>
-         "Re-read it and redo the edit, or pass force to write anyway"}
-    end
-  end
-
-  defp version_of(content), do: "sha256:" <> Base.encode16(:crypto.hash(:sha256, content), case: :lower)
-
   # Every version handed out is kept, so a stale edit can be answered with the diff since it. A
   # week is longer than any session holds a version; older copies go when the next one is kept.
   @doc """
@@ -114,11 +65,6 @@ defmodule Menard do
         do: File.rm(old)
 
     version
-  end
-
-  defp version_path(version) do
-    hex = version |> String.replace_prefix("sha256:", "") |> Path.basename()
-    Path.join([cache_dir(), "versions", hex])
   end
 
   @doc """
@@ -170,15 +116,6 @@ defmodule Menard do
 
       {:ok, unformatted(reply, format_error)}
     end
-  end
-
-  # Written but not formatted is an answer the agent has to see: on stderr alone, the reply looked
-  # clean and neither the agent nor its check noticed (a host plugin that would not load here).
-  defp unformatted(reply, nil), do: reply
-
-  defp unformatted(reply, reason) do
-    stages = Enum.map(reply.stages, &if(&1.stage == :formatter, do: Map.put(&1, :error, reason), else: &1))
-    Map.merge(reply, %{unformatted: reason, stages: stages})
   end
 
   @doc """
@@ -238,6 +175,110 @@ defmodule Menard do
     argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
     {out, status} = bounded_cmd("sh", argv, opts, timeout, label)
     {note <> out, status}
+  end
+
+  @doc """
+  `term` as JSON can carry it. JSON has no tuple, and the library answers with them (`lines: {3, 9}`):
+  encoding one crashed the MCP tool call and `outline --json` alike.
+
+      iex> Menard.jsonable(%{module: "A", lines: {1, 3}, defs: [%{lines: {2, 2}}]})
+      %{module: "A", lines: [1, 3], defs: [%{lines: [2, 2]}]}
+  """
+  def jsonable(%{__struct__: _} = struct), do: struct
+  def jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
+  def jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
+  def jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
+  def jsonable(other), do: other
+
+  @doc """
+  A reply as the JSON both doors write: `jsonable/1`, what happened first (`ok`, `did`, the
+  counts) and what is only passed back or opened later last (`file`, `version`, `log`), the rest by
+  name. A map's own order was the VM's: `version`'s hash first, and a reader that kept the first 60
+  characters (the transcripts: 53 of 64 `cut -c1-60` on clause) saw nothing else.
+  """
+  @spec encode(term()) :: String.t()
+  def encode(reply), do: reply |> jsonable() |> ordered() |> IO.iodata_to_binary()
+
+  @first ~w(ok did tests failed)
+  @last ~w(file version log)
+
+  @doc """
+  Every `{file, version}` still current, or the stale refusal for the first that is not: for the
+  verbs that write several files (`rename`, `clause move`), checked before any of them is written.
+  """
+  @spec check_versions([{String.t(), String.t()}]) :: :ok | {:error, String.t()}
+  def check_versions(versions) do
+    Enum.reduce_while(versions, :ok, fn {file, version}, :ok ->
+      original = if File.regular?(file), do: File.read!(file), else: ""
+
+      case fresh(file, original, version: version) do
+        :ok -> {:cont, :ok}
+        stale -> {:halt, stale}
+      end
+    end)
+  end
+
+  # :formatter is what `mix format` alone changed; :plugins, when the host has any, what they
+  # (Styler) rewrote after it — so an agent can tell a rewrite it did not ask for from its own edit
+  defp stages(original, patched, formatted, nil),
+    do: [
+      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
+      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, formatted)}
+    ]
+
+  defp stages(original, patched, formatted, {plain, plugins}) do
+    [
+      %{stage: :patch, hunks: Menard.Diff.hunks(original, patched)},
+      %{stage: :formatter, hunks: Menard.Diff.hunks(patched, plain)},
+      %{stage: :plugins, plugins: plugins, hunks: Menard.Diff.hunks(plain, formatted)}
+    ]
+  end
+
+  defp checked(file, content, original) do
+    with {:ok, patched} <- Menard.Write.checked(file, content),
+         :ok <- Menard.Write.together(file, original, patched) do
+      {:ok, patched}
+    else
+      {:error, reason} -> {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
+    end
+  end
+
+  # An edit computed against a version the file no longer has would overwrite whatever changed it
+  # since, so a version given is a version checked (docs/live.md, phase 3). The refusal carries
+  # what changed, when menard still has the version it handed out, so the agent can re-sync.
+  defp fresh(file, original, opts) do
+    expected = opts[:version]
+    current = version_of(original)
+
+    if is_nil(expected) or opts[:force] == true or expected == current do
+      :ok
+    else
+      since =
+        case File.read(version_path(expected)) do
+          {:ok, old} -> "changed since: " <> JSON.encode!(Menard.Diff.hunks(old, original))
+          {:error, _} -> "menard has no copy of #{expected} to diff against"
+        end
+
+      {:error,
+       "stale: #{Path.relative_to_cwd(file)} is no longer #{expected} but #{current}; #{since}. " <>
+         "Re-read it and redo the edit, or pass force to write anyway"}
+    end
+  end
+
+  defp version_of(content), do: "sha256:" <> Base.encode16(:crypto.hash(:sha256, content), case: :lower)
+
+  defp version_path(version) do
+    hex = version |> String.replace_prefix("sha256:", "") |> Path.basename()
+    Path.join([cache_dir(), "versions", hex])
+  end
+
+  # Written but not formatted is an answer the agent has to see: on stderr alone, the reply looked
+  # clean and neither the agent nor its check noticed (a host plugin that would not load here).
+  defp unformatted(reply, nil), do: reply
+
+  defp unformatted(reply, reason) do
+    stages = Enum.map(reply.stages, &if(&1.stage == :formatter, do: Map.put(&1, :error, reason), else: &1))
+    Map.merge(reply, %{unformatted: reason, stages: stages})
   end
 
   # Past its deadline the host's mix is KILLED, not abandoned: a caller that gave up while it kept
@@ -305,31 +346,6 @@ defmodule Menard do
     end
   end
 
-  @doc """
-  `term` as JSON can carry it. JSON has no tuple, and the library answers with them (`lines: {3, 9}`):
-  encoding one crashed the MCP tool call and `outline --json` alike.
-
-      iex> Menard.jsonable(%{module: "A", lines: {1, 3}, defs: [%{lines: {2, 2}}]})
-      %{module: "A", lines: [1, 3], defs: [%{lines: [2, 2]}]}
-  """
-  def jsonable(%{__struct__: _} = struct), do: struct
-  def jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
-  def jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
-  def jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
-  def jsonable(other), do: other
-
-  @doc """
-  A reply as the JSON both doors write: `jsonable/1`, what happened first (`ok`, `did`, the
-  counts) and what is only passed back or opened later last (`file`, `version`, `log`), the rest by
-  name. A map's own order was the VM's: `version`'s hash first, and a reader that kept the first 60
-  characters (the transcripts: 53 of 64 `cut -c1-60` on clause) saw nothing else.
-  """
-  @spec encode(term()) :: String.t()
-  def encode(reply), do: reply |> jsonable() |> ordered() |> IO.iodata_to_binary()
-
-  @first ~w(ok did tests failed)
-  @last ~w(file version log)
-
   defp ordered(%{__struct__: _} = struct), do: JSON.encode!(struct)
 
   defp ordered(map) when is_map(map) do
@@ -351,21 +367,5 @@ defmodule Menard do
       i = Enum.find_index(@last, &(&1 == key)) -> {2, i, ""}
       true -> {1, 0, key}
     end
-  end
-
-  @doc """
-  Every `{file, version}` still current, or the stale refusal for the first that is not: for the
-  verbs that write several files (`rename`, `clause move`), checked before any of them is written.
-  """
-  @spec check_versions([{String.t(), String.t()}]) :: :ok | {:error, String.t()}
-  def check_versions(versions) do
-    Enum.reduce_while(versions, :ok, fn {file, version}, :ok ->
-      original = if File.regular?(file), do: File.read!(file), else: ""
-
-      case fresh(file, original, version: version) do
-        :ok -> {:cont, :ok}
-        stale -> {:halt, stale}
-      end
-    end)
   end
 end

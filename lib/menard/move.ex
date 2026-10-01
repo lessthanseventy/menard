@@ -102,153 +102,6 @@ defmodule Menard.Move do
   @tests [:test, :describe]
   @setups [:setup, :setup_all]
 
-  defp plan_blocks(source, dest_source, labels, created?) do
-    with {:ok, ast} <- parse(source),
-         {:ok, mod, module} <- source_module(ast, []),
-         body = Tree.module_body(module),
-         blocks = for({kind, _, [_ | _]} = n <- body, kind in (@tests ++ @setups), do: {block_key(n), n}),
-         {:ok, named} <- labelled(blocks, labels),
-         graph = Deps.graph(module, blocks),
-         setups = setups(blocks, created?),
-         taking = taking(named ++ setups, graph) -- setups,
-         :ok <- helpers_unshared(taking, graph),
-         dest_source = with_uses(dest_source, body, source, created?),
-         {:ok, dest_ast} <- parse(dest_source),
-         {:ok, dest_module} <- Tree.module_scope(dest_ast, nil),
-         :ok <- not_in(dest_module, Enum.reject(taking, &block_key?/1)),
-         {:ok, spans} <- block_spans(source, ast, mod, taking ++ setups),
-         lines = String.split(source, "\n"),
-         code = Enum.map_join(setups ++ taking, "\n\n", &function_text(lines, spans[&1])),
-         src = %{
-           source: source,
-           mod: mod,
-           module: module,
-           graph: graph,
-           named: named,
-           taking: taking,
-           spans: spans
-         },
-         {:ok, plan} <- move(src, %{code: code, dest: dest_source, module: dest_module}, []) do
-      {:ok, %{plan | report: block_report(plan.report, named, taking, graph)}}
-    end
-  end
-
-  # a block's key in the graph: no function's, as no function is named `#block`
-  defp block_key(node), do: {:"#block", Tree.start_line(node)}
-  defp block_key?(key), do: match?({:"#block", _}, key)
-
-  defp labelled(blocks, labels) do
-    Enum.reduce_while(labels, {:ok, []}, fn label, {:ok, acc} ->
-      case label_key(blocks, label) do
-        {:ok, key} -> {:cont, {:ok, acc ++ [key]}}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp label_key(blocks, label) do
-    case for({key, {kind, _, [l | _]}} <- blocks, kind in @tests, text(l) == label, do: key) do
-      [key] ->
-        {:ok, key}
-
-      [] ->
-        there = for {_, {kind, _, [l | _]}} <- blocks, kind in @tests, do: inspect(text(l))
-
-        {:error,
-         "no test or describe #{inspect(label)} in this module — there are: #{Enum.join(there, ", ")}"}
-
-      _ ->
-        {:error, "#{inspect(label)} labels several tests of this module: relabel one first"}
-    end
-  end
-
-  defp text({:__block__, _, [label]}) when is_binary(label), do: label
-  defp text(label), do: Sourceror.to_string(label)
-
-  defp helpers_unshared(taking, graph) do
-    shared =
-      for key <- taking,
-          not block_key?(key),
-          by = for({k, %{calls: calls}} <- graph, k not in taking, MapSet.member?(calls, key), do: k),
-          by != [],
-          do: {key, by}
-
-    case shared do
-      [] ->
-        :ok
-
-      shared ->
-        why =
-          Enum.map_join(shared, "; ", fn {key, by} ->
-            "#{na(key)} by #{Enum.map_join(by, ", ", &what(graph, &1))}"
-          end)
-
-        {:error,
-         "refused, nothing written: the moved tests call private helpers that stay called here too (#{why}). " <>
-           "Move those tests as well, or put the helpers in a test/support module both files import"}
-    end
-  end
-
-  # a key as a reader knows it: `test "a"`, `setup`, or `name/arity`
-  defp what(graph, key) do
-    case graph[key].nodes do
-      [{kind, _, [label | _]}] when kind in @tests -> "#{kind} #{inspect(text(label))}"
-      [{kind, _, _}] when kind in @setups -> "#{kind}"
-      _ -> na(key)
-    end
-  end
-
-  # the setups a created destination copies: the moved tests ran under them
-  defp setups(_blocks, false), do: []
-  defp setups(blocks, true), do: for({key, {kind, _, _}} <- blocks, kind in @setups, do: key)
-
-  # the source's `use` lines, as written, into the module the move creates
-  defp with_uses(dest_source, _body, _source, false), do: dest_source
-
-  defp with_uses(dest_source, body, source, true) do
-    lines = String.split(source, "\n")
-
-    uses =
-      for {:use, _, _} = node <- body do
-        {a, b} = Tree.line_span(node)
-        lines |> Enum.slice((a - 1)..(b - 1)) |> Enum.join("\n")
-      end
-
-    [first, rest] = String.split(dest_source, "\n", parts: 2)
-    Enum.join([first | uses], "\n") <> "\n" <> rest
-  end
-
-  # a block with the `@tag` and comment lines above it; a helper as `clause move` takes it
-  defp block_spans(source, ast, mod, keys) do
-    lines = String.split(source, "\n")
-
-    Enum.reduce_while(keys, {:ok, %{}}, fn key, {:ok, acc} ->
-      case span_of(key, source, ast, lines, mod) do
-        {:ok, spans} -> {:cont, {:ok, Map.put(acc, key, spans)}}
-        error -> {:halt, error}
-      end
-    end)
-  end
-
-  defp span_of({:"#block", first}, _source, ast, lines, _mod) do
-    {_, last} = ast |> Tree.modules() |> find_block(first) |> Tree.line_span()
-    above = lines |> Enum.take(first - 1) |> Enum.reverse() |> Enum.take_while(&attached?/1) |> length()
-    {:ok, [{first - 1 - above, last - 1}]}
-  end
-
-  defp span_of(key, source, _ast, _lines, mod), do: Clause.spans(source, "#{mod}.#{na(key)}")
-
-  defp find_block(modules, line) do
-    Enum.find_value(modules, fn {_, module} ->
-      Enum.find(Tree.module_body(module), &(Tree.start_line(&1) == line))
-    end)
-  end
-
-  defp attached?(line) do
-    line = String.trim_leading(line)
-    String.starts_with?(line, ["#", "@tag ", "@describetag "])
-  end
-
   # what moved by its label, the helpers that came along; no delegate stands in for a test
   @exunit for m <- [ExUnit.Assertions, ExUnit.Callbacks, ExUnit.Case],
               Code.ensure_loaded?(m),
@@ -256,17 +109,6 @@ defmodule Menard.Move do
               {name, _} <- m.__info__(kind),
               into: MapSet.new(),
               do: Atom.to_string(name)
-
-  defp block_report(report, named, taking, graph) do
-    %{
-      report
-      | moved: Enum.map(named, &what(graph, &1)),
-        carried: taking |> Enum.reject(&block_key?/1) |> Enum.map(&na/1),
-        unresolved:
-          Enum.reject(report.unresolved, &(&1 |> String.split("/") |> hd() |> then(fn n -> n in @exunit end)))
-    }
-    |> Map.drop([:delegated, :published, :qualified])
-  end
 
   @doc "`\"a/1,b/2\"` or a list of those: the names a move takes, trimmed, each once."
   @spec names(String.t() | [String.t()]) :: [String.t()]
@@ -1191,5 +1033,164 @@ defmodule Menard.Move do
     if File.exists?(Path.join(dir, "mix.exs")),
       do: {:ok, dir},
       else: dir |> Path.dirname() |> project_root()
+  end
+
+  defp plan_blocks(source, dest_source, labels, created?) do
+    with {:ok, ast} <- parse(source),
+         {:ok, mod, module} <- source_module(ast, []),
+         body = Tree.module_body(module),
+         blocks = for({kind, _, [_ | _]} = n <- body, kind in (@tests ++ @setups), do: {block_key(n), n}),
+         {:ok, named} <- labelled(blocks, labels),
+         graph = Deps.graph(module, blocks),
+         setups = setups(blocks, created?),
+         taking = taking(named ++ setups, graph) -- setups,
+         :ok <- helpers_unshared(taking, graph),
+         dest_source = with_uses(dest_source, body, source, created?),
+         {:ok, dest_ast} <- parse(dest_source),
+         {:ok, dest_module} <- Tree.module_scope(dest_ast, nil),
+         :ok <- not_in(dest_module, Enum.reject(taking, &block_key?/1)),
+         {:ok, spans} <- block_spans(source, ast, mod, taking ++ setups),
+         lines = String.split(source, "\n"),
+         code = Enum.map_join(setups ++ taking, "\n\n", &function_text(lines, spans[&1])),
+         src = %{
+           source: source,
+           mod: mod,
+           module: module,
+           graph: graph,
+           named: named,
+           taking: taking,
+           spans: spans
+         },
+         {:ok, plan} <- move(src, %{code: code, dest: dest_source, module: dest_module}, []) do
+      {:ok, %{plan | report: block_report(plan.report, named, taking, graph)}}
+    end
+  end
+
+  # a block's key in the graph: no function's, as no function is named `#block`
+  defp block_key(node), do: {:"#block", Tree.start_line(node)}
+
+  defp block_key?(key), do: match?({:"#block", _}, key)
+
+  defp labelled(blocks, labels) do
+    Enum.reduce_while(labels, {:ok, []}, fn label, {:ok, acc} ->
+      case label_key(blocks, label) do
+        {:ok, key} -> {:cont, {:ok, acc ++ [key]}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp label_key(blocks, label) do
+    case for({key, {kind, _, [l | _]}} <- blocks, kind in @tests, text(l) == label, do: key) do
+      [key] ->
+        {:ok, key}
+
+      [] ->
+        there = for {_, {kind, _, [l | _]}} <- blocks, kind in @tests, do: inspect(text(l))
+
+        {:error,
+         "no test or describe #{inspect(label)} in this module — there are: #{Enum.join(there, ", ")}"}
+
+      _ ->
+        {:error, "#{inspect(label)} labels several tests of this module: relabel one first"}
+    end
+  end
+
+  defp text({:__block__, _, [label]}) when is_binary(label), do: label
+  defp text(label), do: Sourceror.to_string(label)
+
+  defp helpers_unshared(taking, graph) do
+    shared =
+      for key <- taking,
+          not block_key?(key),
+          by = for({k, %{calls: calls}} <- graph, k not in taking, MapSet.member?(calls, key), do: k),
+          by != [],
+          do: {key, by}
+
+    case shared do
+      [] ->
+        :ok
+
+      shared ->
+        why =
+          Enum.map_join(shared, "; ", fn {key, by} ->
+            "#{na(key)} by #{Enum.map_join(by, ", ", &what(graph, &1))}"
+          end)
+
+        {:error,
+         "refused, nothing written: the moved tests call private helpers that stay called here too (#{why}). " <>
+           "Move those tests as well, or put the helpers in a test/support module both files import"}
+    end
+  end
+
+  # a key as a reader knows it: `test "a"`, `setup`, or `name/arity`
+  defp what(graph, key) do
+    case graph[key].nodes do
+      [{kind, _, [label | _]}] when kind in @tests -> "#{kind} #{inspect(text(label))}"
+      [{kind, _, _}] when kind in @setups -> "#{kind}"
+      _ -> na(key)
+    end
+  end
+
+  # the setups a created destination copies: the moved tests ran under them
+  defp setups(_blocks, false), do: []
+  defp setups(blocks, true), do: for({key, {kind, _, _}} <- blocks, kind in @setups, do: key)
+
+  # the source's `use` lines, as written, into the module the move creates
+  defp with_uses(dest_source, _body, _source, false), do: dest_source
+
+  defp with_uses(dest_source, body, source, true) do
+    lines = String.split(source, "\n")
+
+    uses =
+      for {:use, _, _} = node <- body do
+        {a, b} = Tree.line_span(node)
+        lines |> Enum.slice((a - 1)..(b - 1)) |> Enum.join("\n")
+      end
+
+    [first, rest] = String.split(dest_source, "\n", parts: 2)
+    Enum.join([first | uses], "\n") <> "\n" <> rest
+  end
+
+  # a block with the `@tag` and comment lines above it; a helper as `clause move` takes it
+  defp block_spans(source, ast, mod, keys) do
+    lines = String.split(source, "\n")
+
+    Enum.reduce_while(keys, {:ok, %{}}, fn key, {:ok, acc} ->
+      case span_of(key, source, ast, lines, mod) do
+        {:ok, spans} -> {:cont, {:ok, Map.put(acc, key, spans)}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp span_of({:"#block", first}, _source, ast, lines, _mod) do
+    {_, last} = ast |> Tree.modules() |> find_block(first) |> Tree.line_span()
+    above = lines |> Enum.take(first - 1) |> Enum.reverse() |> Enum.take_while(&attached?/1) |> length()
+    {:ok, [{first - 1 - above, last - 1}]}
+  end
+
+  defp span_of(key, source, _ast, _lines, mod), do: Clause.spans(source, "#{mod}.#{na(key)}")
+
+  defp find_block(modules, line) do
+    Enum.find_value(modules, fn {_, module} ->
+      Enum.find(Tree.module_body(module), &(Tree.start_line(&1) == line))
+    end)
+  end
+
+  defp attached?(line) do
+    line = String.trim_leading(line)
+    String.starts_with?(line, ["#", "@tag ", "@describetag "])
+  end
+
+  defp block_report(report, named, taking, graph) do
+    %{
+      report
+      | moved: Enum.map(named, &what(graph, &1)),
+        carried: taking |> Enum.reject(&block_key?/1) |> Enum.map(&na/1),
+        unresolved:
+          Enum.reject(report.unresolved, &(&1 |> String.split("/") |> hd() |> then(fn n -> n in @exunit end)))
+    }
+    |> Map.drop([:delegated, :published, :qualified])
   end
 end

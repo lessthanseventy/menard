@@ -50,55 +50,6 @@ defmodule Menard.Verbs do
     end
   end
 
-  # the root's own real path once, not per file: resolving 20,000 paths is a rename's first step
-  defp resolve_each(paths, nil), do: {:ok, Enum.map(paths, &Menard.resolve/1)}
-
-  defp resolve_each(paths, root) do
-    root = Path.expand(root)
-    real_root = real(root)
-
-    resolved =
-      Enum.reduce_while(paths, {:ok, []}, fn p, {:ok, acc} ->
-        case resolve_under(p, root, real_root) do
-          {:ok, abs} -> {:cont, {:ok, [abs | acc]}}
-          {:error, _} = refused -> {:halt, refused}
-        end
-      end)
-
-    with {:ok, reversed} <- resolved, do: {:ok, Enum.reverse(reversed)}
-  end
-
-  defp resolve_under(path, root, real_root) do
-    abs = Path.expand(path, root)
-
-    if under?(abs, root) and under?(real_below(abs, root, real_root), real_root),
-      do: {:ok, abs},
-      else: {:error, "refused: #{path} is outside #{root}"}
-  end
-
-  # only the part below the root is walked, from the root's own real path: each link looked up is a
-  # call to the file server, and resolve_all makes these for every file it is given
-  defp real_below(abs, root, real_root) do
-    abs |> Path.relative_to(root) |> Path.split() |> Enum.reduce(real_root, &follow(Path.join(&2, &1), 0))
-  end
-
-  defp under?(path, dir), do: path == dir or String.starts_with?(path, dir <> "/")
-
-  # `path` with each symlink in it followed, as far as it exists: a file about to be created is
-  # taken as written. A link loop stops following after 40 links, as the OS does.
-  defp real(path, hops \\ 0) do
-    path |> Path.split() |> Enum.reduce(&follow(Path.join(&2, &1), hops))
-  end
-
-  defp follow(path, hops) when hops > 40, do: path
-
-  defp follow(path, hops) do
-    case :file.read_link(path) do
-      {:ok, target} -> real(Path.expand(to_string(target), Path.dirname(path)), hops + 1)
-      {:error, _} -> path
-    end
-  end
-
   @doc """
   The fields a verb cannot do without, where the schema leaves them optional for the noun's other
   verbs: a path left out was `params[:to] || ""`, which resolved to the root directory itself.
@@ -147,4 +98,53 @@ defmodule Menard.Verbs do
   @spec module(String.t() | nil) :: String.t() | nil
   def module(m) when m in [nil, "-", ""], do: nil
   def module(m), do: m
+
+  # the root's own real path once, not per file: resolving 20,000 paths is a rename's first step
+  defp resolve_each(paths, nil), do: {:ok, Enum.map(paths, &Menard.resolve/1)}
+
+  defp resolve_each(paths, root) do
+    root = Path.expand(root)
+    real_root = real(root)
+
+    resolved =
+      Enum.reduce_while(paths, {:ok, []}, fn p, {:ok, acc} ->
+        case resolve_under(p, root, real_root) do
+          {:ok, abs} -> {:cont, {:ok, [abs | acc]}}
+          {:error, _} = refused -> {:halt, refused}
+        end
+      end)
+
+    with {:ok, reversed} <- resolved, do: {:ok, Enum.reverse(reversed)}
+  end
+
+  defp resolve_under(path, root, real_root) do
+    abs = Path.expand(path, root)
+
+    if under?(abs, root) and under?(real_below(abs, root, real_root), real_root),
+      do: {:ok, abs},
+      else: {:error, "refused: #{path} is outside #{root}"}
+  end
+
+  # only the part below the root is walked, from the root's own real path: each link looked up is a
+  # call to the file server, and resolve_all makes these for every file it is given
+  defp real_below(abs, root, real_root) do
+    abs |> Path.relative_to(root) |> Path.split() |> Enum.reduce(real_root, &follow(Path.join(&2, &1), 0))
+  end
+
+  defp under?(path, dir), do: path == dir or String.starts_with?(path, dir <> "/")
+
+  # `path` with each symlink in it followed, as far as it exists: a file about to be created is
+  # taken as written. A link loop stops following after 40 links, as the OS does.
+  defp real(path, hops \\ 0) do
+    path |> Path.split() |> Enum.reduce(&follow(Path.join(&2, &1), hops))
+  end
+
+  defp follow(path, hops) when hops > 40, do: path
+
+  defp follow(path, hops) do
+    case :file.read_link(path) do
+      {:ok, target} -> real(Path.expand(to_string(target), Path.dirname(path)), hops + 1)
+      {:error, _} -> path
+    end
+  end
 end

@@ -41,13 +41,6 @@ defmodule Menard.Format do
     for {file, content} <- pairs, do: {file, written(file, content, results[file])}
   end
 
-  defp written(_file, _content, {:error, reason}), do: {:error, reason}
-
-  defp written(file, content, {:ok, formatted, _split}) do
-    if formatted != content, do: File.write!(file, formatted)
-    :ok
-  end
-
   @doc """
   Format `content` for `file` without touching disk, and where the host's `.formatter.exs` has
   plugins, what the formatter alone made of it: `{:ok, formatted, {plain, plugins}}`, so a caller
@@ -157,5 +150,12 @@ defmodule Menard.Format do
 
   defp find_up(dir, name) do
     if File.exists?(Path.join(dir, name)), do: dir, else: find_up(Path.dirname(dir), name)
+  end
+
+  defp written(_file, _content, {:error, reason}), do: {:error, reason}
+
+  defp written(file, content, {:ok, formatted, _split}) do
+    if formatted != content, do: File.write!(file, formatted)
+    :ok
   end
 end

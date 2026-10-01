@@ -91,10 +91,6 @@ defmodule Menard.Verbs.Noun do
     typed ++ named
   end
 
-  defp flag_type(type) when type in [:boolean, :integer], do: type
-  defp flag_type({:list, _of}), do: :keep
-  defp flag_type(_text), do: :string
-
   @doc "The usage line of each shape, and the flags every one takes."
   @spec usage(t()) :: String.t()
   def usage(%{name: name, cli: %{shapes: shapes}} = noun) do
@@ -118,4 +114,8 @@ defmodule Menard.Verbs.Noun do
   defp label(field), do: field |> to_string() |> String.upcase()
 
   defp dashed(name), do: name |> to_string() |> String.replace("_", "-")
+
+  defp flag_type(type) when type in [:boolean, :integer], do: type
+  defp flag_type({:list, _of}), do: :keep
+  defp flag_type(_text), do: :string
 end

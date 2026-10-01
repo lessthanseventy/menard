@@ -55,6 +55,56 @@ defmodule Menard.Edit do
     end
   end
 
+  @doc """
+  The edits written as search/replace blocks, the CLI's form, where JSON would have every line
+  break and quote of the code escaped:
+
+      lib/a.ex
+      <<<<<<< SEARCH
+      the text to find
+      =======
+      the text to put there
+      >>>>>>> REPLACE
+  """
+  @spec blocks(String.t()) :: {:ok, [edit()]} | {:error, String.t()}
+  def blocks(text), do: text |> String.split("\n") |> blocks([])
+
+  defp blocks([], edits), do: {:ok, Enum.reverse(edits)}
+  defp blocks(["" | lines], edits), do: blocks(lines, edits)
+
+  defp blocks([file, "<<<<<<< SEARCH" | lines], edits) do
+    with {:ok, old, lines} <- upto(lines, "=======", file),
+         {:ok, new, lines} <- upto(lines, ">>>>>>> REPLACE", file) do
+      blocks(lines, [%{file: String.trim(file), old: old, new: new} | edits])
+    end
+  end
+
+  defp blocks([line | _lines], _edits),
+    do: {:error, "expected a file's path and then `<<<<<<< SEARCH`, got: #{line}"}
+
+  defp upto(lines, mark, file) do
+    case Enum.split_while(lines, &(&1 != mark)) do
+      {_text, []} -> {:error, "#{file}: a block has no `#{mark}` line"}
+      {text, [^mark | rest]} -> unmarked(text, rest, file)
+    end
+  end
+
+  # A marker inside a block's text is a block written wrong far more often than it is the text: a
+  # second `=======` was taken for a line of the replacement, and written into the file.
+  @marks ["<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE"]
+
+  defp unmarked(text, rest, file) do
+    case Enum.find(text, &(&1 in @marks)) do
+      nil ->
+        {:ok, Enum.join(text, "\n"), rest}
+
+      mark ->
+        {:error,
+         "#{file}: a block holds a second `#{mark}` line. If the text itself has that line, " <>
+           "make this edit through the MCP tool, whose edits are fields"}
+    end
+  end
+
   defp replaced(edits, before) do
     Enum.reduce_while(edits, {:ok, before, []}, fn edit, {:ok, contents, moved} ->
       case replace(contents[edit.file], edit) do
@@ -316,54 +366,4 @@ defmodule Menard.Edit do
   end
 
   defp refusal(file, why), do: {file, why}
-
-  @doc """
-  The edits written as search/replace blocks, the CLI's form, where JSON would have every line
-  break and quote of the code escaped:
-
-      lib/a.ex
-      <<<<<<< SEARCH
-      the text to find
-      =======
-      the text to put there
-      >>>>>>> REPLACE
-  """
-  @spec blocks(String.t()) :: {:ok, [edit()]} | {:error, String.t()}
-  def blocks(text), do: text |> String.split("\n") |> blocks([])
-
-  defp blocks([], edits), do: {:ok, Enum.reverse(edits)}
-  defp blocks(["" | lines], edits), do: blocks(lines, edits)
-
-  defp blocks([file, "<<<<<<< SEARCH" | lines], edits) do
-    with {:ok, old, lines} <- upto(lines, "=======", file),
-         {:ok, new, lines} <- upto(lines, ">>>>>>> REPLACE", file) do
-      blocks(lines, [%{file: String.trim(file), old: old, new: new} | edits])
-    end
-  end
-
-  defp blocks([line | _lines], _edits),
-    do: {:error, "expected a file's path and then `<<<<<<< SEARCH`, got: #{line}"}
-
-  defp upto(lines, mark, file) do
-    case Enum.split_while(lines, &(&1 != mark)) do
-      {_text, []} -> {:error, "#{file}: a block has no `#{mark}` line"}
-      {text, [^mark | rest]} -> unmarked(text, rest, file)
-    end
-  end
-
-  # A marker inside a block's text is a block written wrong far more often than it is the text: a
-  # second `=======` was taken for a line of the replacement, and written into the file.
-  @marks ["<<<<<<< SEARCH", "=======", ">>>>>>> REPLACE"]
-
-  defp unmarked(text, rest, file) do
-    case Enum.find(text, &(&1 in @marks)) do
-      nil ->
-        {:ok, Enum.join(text, "\n"), rest}
-
-      mark ->
-        {:error,
-         "#{file}: a block holds a second `#{mark}` line. If the text itself has that line, " <>
-           "make this edit through the MCP tool, whose edits are fields"}
-    end
-  end
 end
