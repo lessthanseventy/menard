@@ -114,8 +114,11 @@ if Code.ensure_loaded?(Anubis.Server) do
       shell = Mix.shell()
       Mix.shell(Mix.Shell.Quiet)
 
+      # every task as never run: `rerun("compile")` re-ran compile alone, and its compile.all and
+      # compile.elixir, run at the server's start, answered :noop
       try do
-        Mix.Task.rerun("compile")
+        Mix.Task.clear()
+        Mix.Task.run("compile")
       after
         Mix.shell(shell)
       end
