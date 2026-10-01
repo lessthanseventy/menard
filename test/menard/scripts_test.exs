@@ -240,10 +240,19 @@ defmodule Menard.ScriptsTest do
           "/p/bin/menard run test test/a_test.exs | jq -c '.failures[]'",
           "cd /x && bin/menard --frozen clause get lib/a.ex go/1 | jq -r .code",
           "/p/bin/menard outline lib/a.ex 2>&1 | head -40",
-          "menard find calls A.go lib | grep b.ex"
+          "menard find calls A.go lib | grep b.ex",
+          "for f in lib/a.ex lib/b.ex; do bin/menard module layout $f | jq -c .did; done",
+          "test -f x && /p/bin/menard outline x | head",
+          "/p/bin/menard block add t.exs test --label x 'assert 1' >/dev/null",
+          "/p/bin/menard outline lib/a.ex > /dev/null 2>&1",
+          "if true; then bin/menard outline lib/a.ex | head; fi",
+          "ls lib/*.ex | xargs -n1 /p/bin/menard outline | grep defp"
         ] do
-      assert Scripts.refused(command, @menard) =~ "whole", command
+      assert (Scripts.refused(command, @menard) || "") =~ "whole", command
     end
+
+    refute refused?("for f in a b; do echo $f | grep a; done")
+    refute refused?("/p/bin/menard run check > gate.json")
 
     for command <- [
           "/p/bin/menard outline lib/a.ex",
