@@ -137,6 +137,11 @@ defmodule Menard do
   def write(file, content, opts \\ []) do
     did = opts[:did] || "edit #{Path.relative_to_cwd(file)}"
     original = if File.regular?(file), do: File.read!(file), else: ""
+    # a private function it adds goes below the public ones, whoever wrote it where
+    {content, moved} =
+      if Path.extname(file) in [".ex", ".exs"],
+        do: Menard.Layout.private_last(original, content),
+        else: {content, []}
 
     with :ok <- fresh(file, original, opts),
          {:ok, patched} <- checked(file, content, original) do
@@ -156,6 +161,12 @@ defmodule Menard do
         stages: stages(original, patched, formatted, split),
         note: "the stages are every change this made: no need to Read the file back"
       }
+
+      reply =
+        if moved == [],
+          do: reply,
+          else:
+            Map.put(reply, :moved, Enum.map(moved, &"#{&1} to the module's end, below its public functions"))
 
       {:ok, unformatted(reply, format_error)}
     end

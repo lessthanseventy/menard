@@ -246,10 +246,10 @@ defmodule Menard.WriteReplyTest do
     test "takes top and bottom", %{tmp_dir: dir} do
       a = write_file(dir, "ia.ex", "defmodule IA do\n  def one, do: 1\n\n  defp helper, do: :h\nend\n")
 
-      ExUnit.CaptureIO.capture_io(fn -> Clause.run(["insert_at", a, "-", "top", "defp zero, do: 0"]) end)
+      ExUnit.CaptureIO.capture_io(fn -> Clause.run(["insert_at", a, "-", "top", "def zero, do: 0"]) end)
       ExUnit.CaptureIO.capture_io(fn -> Clause.run(["insert_at", a, "-", "bottom", "def last, do: 9"]) end)
 
-      assert File.read!(a) =~ "defp zero, do: 0\n\n  def one, do: 1"
+      assert File.read!(a) =~ "def zero, do: 0\n\n  def one, do: 1"
       assert File.read!(a) =~ "defp helper, do: :h\n\n  def last, do: 9"
     end
   end
