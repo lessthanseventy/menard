@@ -293,4 +293,29 @@ defmodule Menard.ScriptsTest do
     assert why.("sed -n '1,20p' test/app_test.exs") == nil
     assert why.("sed -n '6,20p' test/app_test.exs") =~ ~s(block get test/app_test.exs test --label "runs")
   end
+
+  @tag :tmp_dir
+  test "a read with one menard call in its place is run as that call, the rest of the command beside it", %{
+    tmp_dir: dir
+  } do
+    # a read a verb reads exactly runs as that verb, the rest of the command beside it: refused whole,
+    # nothing in it ran, and every part of it was sent again (Oban 03, 05)
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(
+      Path.join(dir, "lib/cart.ex"),
+      "defmodule Shop.Cart do\n  def total(c) do\n    c\n  end\nend\n"
+    )
+
+    assert Scripts.in_place(~s(cat lib/cart.ex; grep -n "def total" -A 20 lib/cart.ex), @menard, dir) ==
+             ~s(cat lib/cart.ex; #{@menard} clause get lib/cart.ex total)
+
+    assert Scripts.in_place(~s(ls lib && grep -rn "Shop.Cart.total" lib), @menard, dir) ==
+             ~s(ls lib && #{@menard} find calls Shop.Cart.total lib)
+
+    # no one call in its place: refused as before
+    assert Scripts.in_place(~s(grep -rn "def total" -A 3 lib), @menard, dir) == nil
+    assert Scripts.in_place("python3 -c 'print(1)'", @menard, dir) == nil
+    assert Scripts.in_place("ls lib", @menard, dir) == nil
+  end
 end

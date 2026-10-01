@@ -160,9 +160,18 @@ defmodule Menard.Hook do
   end
 
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
-    case Scripts.refused(hook.input["command"] || "", menard(), hook.root) do
-      nil -> hook |> marked() |> piped(hook)
-      why -> {:deny, why}
+    command = hook.input["command"] || ""
+
+    case Scripts.refused(command, menard(), hook.root) do
+      nil ->
+        hook |> marked() |> piped(hook)
+
+      why ->
+        # a read with one call in its place runs as that call, the rest of the command beside it
+        case Scripts.in_place(command, menard(), hook.root) do
+          nil -> {:deny, why}
+          instead -> {:rewrite, Map.put(hook.input, "command", instead)}
+        end
     end
   end
 

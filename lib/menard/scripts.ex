@@ -35,6 +35,31 @@ defmodule Menard.Scripts do
 
   @wrappers ~w(nohup env exec time command)
 
+  @doc """
+  `command` with each read a verb reads exactly swapped for that verb's call, to run in its place:
+  refused, nothing in the command ran, and all of it was sent again. nil where nothing in it is
+  such a read, or one has no single call in its place (`find defs …, then clause get`), or is not
+  once in the command; and for an interpreter or a filtered reply, which are refusals still.
+  """
+  @spec in_place(String.t(), String.t(), String.t() | nil) :: String.t() | nil
+  def in_place(command, menard, root \\ nil) do
+    reads =
+      for segment <- command |> outside_heredocs() |> commands() |> Enum.map(&String.trim/1),
+          why = read_one(segment, menard, root),
+          do: {segment, call(why, menard)}
+
+    cond do
+      interpreter(command) || filtered?(command) || reads == [] ->
+        nil
+
+      Enum.any?(reads, fn {segment, call} -> call == nil or length(String.split(command, segment)) != 2 end) ->
+        nil
+
+      true ->
+        Enum.reduce(reads, command, fn {segment, call}, acc -> String.replace(acc, segment, call) end)
+    end
+  end
+
   @doc "What is so in every session, said at its start."
   @spec upfront(String.t()) :: String.t()
   def upfront(menard) do
@@ -338,6 +363,15 @@ defmodule Menard.Scripts do
   defp module_code?(source, lines) do
     all = String.split(source, "\n")
     Enum.any?(lines, &(Enum.at(all, &1 - 1, "") =~ ~r/^\s*(defmodule|use|alias|import|require|@moduledoc)\b/))
+  end
+
+  # the call a read's refusal names, from menard's path to the sentence after it; none where it is
+  # two (`find defs …, then clause get`)
+  defp call(why, menard) do
+    case Regex.run(~r/#{Regex.escape(menard)} [^\n]*?(?=\. Here grep|\z)/, why) do
+      [call] -> if String.contains?(call, ", then"), do: nil, else: call
+      nil -> nil
+    end
   end
 
   defp read_why,
