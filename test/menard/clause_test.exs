@@ -962,7 +962,11 @@ defmodule Menard.ClauseTest do
     assert {:ok, %{code: code}} = Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "app"})
     assert code =~ "def app(assigns)"
 
-    assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "two"})
+    # of several, a get reads each; a write is refused, naming them
+    assert {:ok, %{functions: [%{name_arity: "two/1"}, %{name_arity: "two/2"}]}} =
+             Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "two"})
+
+    assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "delete", file: file, name_arity: "two"})
     assert why =~ "two/1, two/2"
   end
 
@@ -971,5 +975,24 @@ defmodule Menard.ClauseTest do
 
     assert {:error, why} = Clause.get(src, ~s[verb(run, "test", args)], nil)
     assert why =~ ~s[verb/3 'run, "test", args']
+  end
+
+  @tag :tmp_dir
+  test "clause get of a name with several arities answers each", %{tmp_dir: dir} do
+    # a grep for `defp analyze` read every arity; the clause get in its place refused "name one"
+    file = Path.join(dir, "g.ex")
+    File.write!(file, "defmodule G do\n  def go(a), do: a\n\n  def go(a, b), do: {a, b}\nend\n")
+
+    assert {:ok, %{functions: [one, two]}} =
+             Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "go"})
+
+    assert %{name_arity: "go/1", code: "def go(a), do: a"} = one
+    assert %{name_arity: "go/2", code: "def go(a, b), do: {a, b}"} = two
+
+    # a write to a name of several arities is still refused: which one it means is the caller's
+    assert {:error, why} =
+             Menard.Verbs.Clause.run(%{verb: "delete", file: file, name_arity: "go"})
+
+    assert why =~ "name one"
   end
 end
