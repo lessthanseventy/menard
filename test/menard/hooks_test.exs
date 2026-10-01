@@ -1307,6 +1307,37 @@ defmodule Menard.HooksTest do
     assert red.(~s({"ok":false,"failures":[],"log":"/tmp/x.log"})) =~ "/tmp/x.log"
   end
 
+  @tag :tmp_dir
+  test "the old command-hook wiring run under Claude Code says once to restart it", %{tmp_dir: dir} do
+    # 2026-09-30: a session started 09-26 ran the 09-26 wiring for days, with no MCP tools and no Read
+    # hook, and nothing said so. Today's wiring calls the MCP server: this script run under Claude Code
+    # (CLAUDE_PLUGIN_ROOT) is the old one, and says once to restart
+    root = Path.expand(".")
+
+    hook = fn session ->
+      payload =
+        JSON.encode!(%{
+          hook_event_name: "PostToolUse",
+          tool_name: "Bash",
+          session_id: session,
+          cwd: dir,
+          tool_input: %{command: "ls"}
+        })
+
+      {out, 0} =
+        System.cmd("sh", ["-c", ~s(printf '%s' "$P" | bash hooks/format-report.sh)],
+          env: [{"P", payload}, {"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}],
+          cd: root
+        )
+
+      out
+    end
+
+    session = "stale#{System.unique_integer([:positive])}"
+    assert hook.(session) =~ "restart Claude Code"
+    refute hook.(session) =~ "restart Claude Code"
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))
