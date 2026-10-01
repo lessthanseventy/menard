@@ -807,7 +807,18 @@ defmodule Menard.Clause do
       {mod, [name]} = path |> String.split(".") |> Enum.split(-1)
       {:ok, {if(mod == [], do: nil, else: Enum.join(mod, ".")), name, arity}}
     else
-      _ -> {:error, "expected [Mod.]name/arity, got #{inspect(spec)}"}
+      _ -> {:error, "expected [Mod.]name/arity, got #{inspect(spec)}" <> as_call(spec)}
+    end
+  end
+
+  # a call written where the name goes (`go(a, b)`): the address that reaches that clause
+  defp as_call(spec) do
+    case Code.string_to_quoted(spec) do
+      {:ok, {name, _, args}} when is_atom(name) and is_list(args) ->
+        ": a clause is its name/arity, then its head: `#{name}/#{length(args)} '#{Enum.map_join(args, ", ", &Macro.to_string/1)}'`"
+
+      _ ->
+        ""
     end
   end
 
