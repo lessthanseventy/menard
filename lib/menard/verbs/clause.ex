@@ -110,7 +110,7 @@ defmodule Menard.Verbs.Clause do
     with :ok <- need(p, [:file, :name_arity], "clause get"),
          {:ok, file} <- resolve(p.file, p),
          {:ok, source} <- read(file),
-         {:ok, got} <- Clause.get(source, p.name_arity, p[:head], nth(p)) do
+         {:ok, got} <- got(source, p) do
       {:ok, Map.merge(got, %{file: file, version: Menard.remember(source)})}
     end
   end
@@ -295,6 +295,8 @@ defmodule Menard.Verbs.Clause do
       case arities do
         [one] -> {:ok, %{p | name_arity: "#{na}/#{one}"}}
         [] -> {:ok, p}
+        # a read reads them all, as the grep it stands in for did; a write is told to name one
+        many when p.verb == "get" -> {:ok, %{p | name_arity: Enum.map_join(many, ",", &"#{na}/#{&1}")}}
         many -> {:error, "#{na} has #{Enum.map_join(many, ", ", &"#{name}/#{&1}")} here: name one"}
       end
     else
@@ -303,4 +305,22 @@ defmodule Menard.Verbs.Clause do
   end
 
   defp all_modules(modules), do: Enum.flat_map(modules, &[&1 | all_modules(&1.modules)])
+
+  defp got_one(source, na, {:ok, acc}) do
+    case Clause.get(source, na, nil, []) do
+      {:ok, got} -> {:cont, {:ok, %{functions: acc.functions ++ [Map.put(got, :name_arity, na)]}}}
+      error -> {:halt, error}
+    end
+  end
+
+  # one function, or each of several arities (`go/1,go/2`, a bare name's)
+  defp got(source, p) do
+    case String.split(p.name_arity, ",") do
+      [_one] ->
+        Clause.get(source, p.name_arity, p[:head], nth(p))
+
+      names ->
+        Enum.reduce_while(names, {:ok, %{functions: []}}, &got_one(source, &1, &2))
+    end
+  end
 end
