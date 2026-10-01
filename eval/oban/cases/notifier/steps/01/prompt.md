@@ -1,0 +1,15 @@
+You are working on Oban, the job processing library, in this repository. Work comes as tickets, one at a time, in this session. Between tickets the team merges its own version of your last change, and other work lands: the tree you find for a ticket is main as it stands then, not what you left. After each ticket, tests you cannot see are run against the interface the ticket names: keep module names, function names, arities, option names and return shapes exactly as written. Write your own tests as well. Before you finish: `mix format`, `mix credo --strict`, and `mix test --exclude dolphin` (there is no MySQL here; the Postgres and SQLite tests run).
+
+**Ticket 1: the stager as a top-level service option**
+
+Staging can only be tuned through `:stage_interval`, which is out of line with the other services (`:cron`, `:pruner`, `:lifeline`, `:reindexer`). Make the stager a service key of its own: `stager:`, taking the same shapes as those keys.
+
+- `stager: false` disables staging. `stager: [interval: 5_000]` gives options to `Oban.Stager`; `stager: MyStager` and `stager: {MyStager, opts}` use another implementation.
+- `Oban.Stager` options: `:interval` (a timeout: milliseconds or `:infinity`, which disables staging; default `1_000`) and `:limit` (a positive integer, the most jobs staged per run; default `5_000`). Add `Oban.Stager.validate/1`, returning `:ok` or `{:error, message}`, which refuses unknown keys and bad values.
+- The `%Oban.Config{}` field `:stage_interval` is replaced by `:stager`, always normalized to `false` or a `{module, opts}` tuple. The default is `{Oban.Stager, []}`: the defaults live in the stager, not in the config. `stager: [limit: 1_000]` becomes `{Oban.Stager, [limit: 1_000]}`, `stager: FakeStager` becomes `{FakeStager, []}`.
+- Validation (`Oban.Config.validate/1`): `stager:` must be `false`, a keyword list, a loadable module or a `{module, keyword}` tuple; `nil` or a module that can't be loaded is an error. A module's options are checked by its `validate/1` when it exports one (so `stager: [interval: :none]`, `[limit: 0]` and `[unknown: true]` are errors, `[interval: :infinity]` is fine).
+- Legacy settings keep working, translated into the stager's `:interval`: `stage_interval:` (still validated: `stage_interval: :none` is an error), the older `poll_interval:`, and `Oban.Stager` listed in `:plugins` (with or without `interval:`), which is taken out of `:plugins`. An explicit `stager: [interval: ...]` wins over `stage_interval`, which wins over `poll_interval` (`poll_interval: :infinity, stage_interval: 1_000` gives `[interval: 1_000]`). Without any interval set, the options stay `[]`.
+- `testing: :manual` sets `stager: false` (where it now sets the stage interval to `:infinity`).
+- The stager keeps running under `plugins: false`; staging is essential. Update the docs in `Oban` for the new option and mark `:stage_interval` as a deprecated alias.
+
+The test support (`Oban.Case`) should start instances with `stager: false` rather than `stage_interval: :infinity`.
