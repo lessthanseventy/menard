@@ -253,6 +253,7 @@ defmodule Menard.ScriptsTest do
 
     refute refused?("for f in a b; do echo $f | grep a; done")
     refute refused?("/p/bin/menard run check > gate.json")
+    refute refused?(~s[mix run -e 'IO.inspect(Scripts.refused("bin/menard outline x | head", "m"))'])
 
     for command <- [
           "/p/bin/menard outline lib/a.ex",

@@ -429,6 +429,8 @@ defmodule Menard.Scripts do
       ~r/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)/s
       |> Regex.replace(command, "\\3")
       |> String.replace("2>&1", "")
+      # a quoted string is an argument, not a command: `mix run -e '… "bin/menard x | head" …'`
+      |> String.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"/, "''")
 
     # menard where a command starts (after a separator, or a loop's `do`, `then`, `xargs`), its
     # reply piped into a filter or thrown away
