@@ -4,7 +4,8 @@
 # formatter prints (a multi-line `left:` came back as its first line). It runs on the host's
 # Elixir, whatever version that is: no JSON module, only what ExUnit has had for years.
 #
-# At each suite's end it writes `:erlang.term_to_binary(%{tests, failed, skipped, failures})` to the path
+# At each suite's end it writes `:erlang.term_to_binary(%{tests, failed, skipped, excluded,
+# excluded_by, failures})` to the path
 # in MENARD_EXUNIT_OUT; each failure is the reply's shape (kind, message, at, name, module, and an
 # assertion's code/left/right). A `--repeat-until-failure` run writes once per suite, so the file
 # holds the last, the run the reply is about.
@@ -19,11 +20,24 @@ defmodule Menard.ExUnitFormatter do
   def handle_cast({:test_finished, %ExUnit.Test{state: state} = test}, acc) do
     acc =
       case state do
-        nil -> %{acc | tests: acc.tests + 1}
-        {:failed, failures} -> failed(acc, [test_failure(test, failures)])
-        {:invalid, _module} -> failed(acc, [])
-        {:skipped, _reason} -> %{acc | skipped: acc.skipped + 1}
-        _excluded -> acc
+        nil ->
+          %{acc | tests: acc.tests + 1}
+
+        {:failed, failures} ->
+          failed(acc, [test_failure(test, failures)])
+
+        {:invalid, _module} ->
+          failed(acc, [])
+
+        {:skipped, _reason} ->
+          %{acc | skipped: acc.skipped + 1}
+
+        # "due to slow filter": the tag a reply can say to --include
+        {:excluded, reason} ->
+          %{acc | excluded: acc.excluded + 1, excluded_by: [filter(reason) | acc.excluded_by]}
+
+        _ ->
+          acc
       end
 
     {:noreply, acc}
@@ -37,14 +51,22 @@ defmodule Menard.ExUnitFormatter do
   def handle_cast({:suite_finished, _run_us, _load_us}, acc), do: finish(acc)
   def handle_cast(_event, acc), do: {:noreply, acc}
 
-  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, failures: []}
+  defp fresh, do: %{tests: 0, failed: 0, skipped: 0, excluded: 0, excluded_by: [], failures: []}
+
+  defp filter(reason) do
+    case Regex.run(~r/^due to (.+) filter$/, reason) do
+      [_, tag] -> tag
+      nil -> reason
+    end
+  end
 
   defp failed(acc, failures),
     do: %{acc | tests: acc.tests + 1, failed: acc.failed + 1, failures: failures ++ acc.failures}
 
   defp finish(acc) do
     if path = System.get_env("MENARD_EXUNIT_OUT") do
-      File.write!(path, :erlang.term_to_binary(%{acc | failures: Enum.reverse(acc.failures)}))
+      acc = %{acc | failures: Enum.reverse(acc.failures), excluded_by: Enum.uniq(acc.excluded_by)}
+      File.write!(path, :erlang.term_to_binary(acc))
     end
 
     {:noreply, fresh()}
