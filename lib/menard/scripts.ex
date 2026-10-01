@@ -173,7 +173,7 @@ defmodule Menard.Scripts do
   defp context_read(pattern, paths, menard, root) do
     case def_name(pattern) do
       nil -> test_read(pattern, paths, menard, root)
-      name -> def_read(name, paths, menard)
+      name -> def_read(name, paths, menard, root)
     end
   end
 
@@ -237,13 +237,15 @@ defmodule Menard.Scripts do
   defp grep_args(["-" <> _ = flag | more], flags, rest), do: grep_args(more, [flag | flags], rest)
   defp grep_args([word | more], flags, rest), do: grep_args(more, flags, [word | rest])
 
-  defp def_read(name, [file], menard) when is_binary(file) do
-    if elixir?(file),
+  # only toward a function the file has: `grep "defp auto_approve"` over a struct field was sent to a
+  # clause get that answered nothing (Symphony 08)
+  defp def_read(name, [file], menard, root) when is_binary(file) do
+    if elixir?(file) and defines?(file, name, root),
       do: "a function's body by grep: #{menard} clause get #{file} #{name}" <> read_why(),
       else: nil
   end
 
-  defp def_read(name, paths, menard),
+  defp def_read(name, paths, menard, _root),
     do:
       "a function's body by grep: #{menard} find defs #{name} #{Enum.join(paths, " ")}, then clause get" <>
         read_why()
@@ -275,7 +277,10 @@ defmodule Menard.Scripts do
          {:ok, modules} <- Menard.Outline.run(source),
          [{what, call, {a, b}}] <-
            Enum.filter(items(modules, file, menard), fn {_, _, {a, b}} -> a <= to and b >= from end),
-         true <- 2 * (min(b, to) - max(a, from) + 1) >= to - from + 1 do
+         true <- 2 * (min(b, to) - max(a, from) + 1) >= to - from + 1,
+         # the lines past it hold module code its verb does not give (Oban 03: lines 1-20 of a test
+         # file, its `use` and aliases with the first test): read as asked
+         false <- module_code?(source, Enum.to_list(from..(a - 1)//1) ++ Enum.to_list((b + 1)..to//1)) do
       "lines #{from}-#{to} of #{file} are #{what}: #{call}" <> read_why()
     else
       _ -> nil
@@ -283,6 +288,20 @@ defmodule Menard.Scripts do
   end
 
   # every function and every test (a describe's own, not the describe), as {what, the call, lines}
+  # nil root: no file to look in, and the refusal stands as it was
+  defp defines?(_file, _name, nil), do: true
+
+  defp defines?(file, name, root) do
+    with {:ok, source} <- File.read(Path.expand(file, root)),
+         {:ok, modules} <- Menard.Outline.run(source) do
+      Enum.any?(all_defs(modules), &(to_string(&1.name) == name))
+    else
+      _ -> true
+    end
+  end
+
+  defp all_defs(modules), do: Enum.flat_map(modules, &(&1.defs ++ all_defs(&1.modules)))
+
   defp items(modules, file, menard) do
     Enum.flat_map(modules, fn m ->
       defs =
@@ -314,6 +333,11 @@ defmodule Menard.Scripts do
       _ ->
         []
     end)
+  end
+
+  defp module_code?(source, lines) do
+    all = String.split(source, "\n")
+    Enum.any?(lines, &(Enum.at(all, &1 - 1, "") =~ ~r/^\s*(defmodule|use|alias|import|require|@moduledoc)\b/))
   end
 
   defp read_why,
