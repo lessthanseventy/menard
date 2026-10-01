@@ -1,7 +1,0 @@
-89b18fd 2026-09-04
-
-Move listener registry to Notifiers namespace
-
-Rename `Oban.Notifier.Registry` to `Oban.Notifiers.Listeners` so all
-notifier-related modules live in a single place.
-

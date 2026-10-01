@@ -686,6 +686,320 @@ index 4d6d00b..4703924 100644
        end
      end)
    end
+diff --git a/lib/oban/engines/basic.ex b/lib/oban/engines/basic.ex
+index 657a6a9..226e84b 100644
+--- a/lib/oban/engines/basic.ex
++++ b/lib/oban/engines/basic.ex
+@@ -17,6 +17,9 @@ defmodule Oban.Engines.Basic do
+   alias Ecto.Changeset
+   alias Oban.{Config, Engine, Job, Repo}
+ 
++  @acking_states ["executing"]
++  @cancel_states ["executing", "cancelled"]
++
+   # This is a replacement for `push`, which uses `array_append` and isn't compatible with jsonb
+   # arrays. The `||` operator works with both arrays and jsonb.
+   defmacrop concat_errors(column, error) do
+@@ -224,11 +227,9 @@ defmodule Oban.Engines.Basic do
+ 
+   @impl Engine
+   def complete_job(%Config{} = conf, %Job{} = job) do
+-    Repo.update_all(
+-      conf,
+-      where(Job, id: ^job.id),
+-      set: [state: "completed", completed_at: utc_now()]
+-    )
++    query = ack_query(job, @acking_states)
++
++    Repo.update_all(conf, query, set: [state: "completed", completed_at: utc_now()])
+ 
+     :ok
+   end
+@@ -236,8 +237,8 @@ defmodule Oban.Engines.Basic do
+   @impl Engine
+   def discard_job(%Config{} = conf, %Job{} = job) do
+     query =
+-      Job
+-      |> where(id: ^job.id)
++      job
++      |> ack_query(@acking_states)
+       |> update([j],
+         set: [
+           state: "discarded",
+@@ -254,8 +255,8 @@ defmodule Oban.Engines.Basic do
+   @impl Engine
+   def error_job(%Config{} = conf, %Job{} = job, seconds) when is_integer(seconds) do
+     query =
+-      Job
+-      |> where(id: ^job.id)
++      job
++      |> ack_query(@acking_states)
+       |> update([j],
+         set: [
+           state: "retryable",
+@@ -270,7 +271,7 @@ defmodule Oban.Engines.Basic do
+   end
+ 
+   @impl Engine
+-  def snooze_job(%Config{} = conf, %Job{id: id, meta: meta}, seconds) when is_integer(seconds) do
++  def snooze_job(%Config{} = conf, %Job{meta: meta} = job, seconds) when is_integer(seconds) do
+     meta = Map.update(meta, "snoozed", 1, &(&1 + 1))
+ 
+     updates = [
+@@ -278,29 +279,35 @@ defmodule Oban.Engines.Basic do
+       inc: [attempt: -1]
+     ]
+ 
+-    Repo.update_all(conf, where(Job, id: ^id), updates)
++    Repo.update_all(conf, ack_query(job, @acking_states), updates)
+ 
+     :ok
+   end
+ 
+   @impl Engine
+-  def cancel_job(%Config{} = conf, %Job{} = job) do
+-    query = where(Job, id: ^job.id)
++  def cancel_job(%Config{} = conf, %Job{unsaved_error: unsaved} = job) when is_map(unsaved) do
++    query =
++      job
++      |> ack_query(@cancel_states)
++      |> update([j],
++        set: [
++          state: "cancelled",
++          cancelled_at: ^utc_now(),
++          errors: concat_errors(j.errors, ^[Job.format_attempt(job)])
++        ]
++      )
+ 
++    Repo.update_all(conf, query, [])
++
++    :ok
++  end
++
++  def cancel_job(%Config{} = conf, %Job{} = job) do
+     query =
+-      if is_map(job.unsaved_error) do
+-        update(query, [j],
+-          set: [
+-            state: "cancelled",
+-            cancelled_at: ^utc_now(),
+-            errors: concat_errors(j.errors, ^[Job.format_attempt(job)])
+-          ]
+-        )
+-      else
+-        query
+-        |> where([j], j.state not in ["cancelled", "completed", "discarded"])
+-        |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+-      end
++      Job
++      |> where(id: ^job.id)
++      |> where([j], j.state not in ["cancelled", "completed", "discarded"])
++      |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+ 
+     Repo.update_all(conf, query, [])
+ 
+@@ -560,5 +567,12 @@ defmodule Oban.Engines.Basic do
+     end
+   end
+ 
++  defp ack_query(%Job{} = job, states) do
++    Job
++    |> where([j], j.id == ^job.id)
++    |> where([j], j.state in ^states)
++    |> where([j], j.attempted_at == ^job.attempted_at)
++  end
++
+   defp seconds_from_now(seconds), do: DateTime.add(utc_now(), seconds, :second)
+ end
+diff --git a/lib/oban/engines/dolphin.ex b/lib/oban/engines/dolphin.ex
+index dee2448..b2f51ed 100644
+--- a/lib/oban/engines/dolphin.ex
++++ b/lib/oban/engines/dolphin.ex
+@@ -22,6 +22,9 @@ defmodule Oban.Engines.Dolphin do
+   alias Oban.{Config, Engine, Job, Repo}
+   alias Oban.Engines.Basic
+ 
++  @acking_states ["executing"]
++  @cancel_states ["executing", "cancelled"]
++
+   defmacrop json_push(column, value) do
+     quote do
+       fragment("json_array_append(?, '$', ?)", unquote(column), unquote(value))
+@@ -203,8 +206,8 @@ defmodule Oban.Engines.Dolphin do
+   @impl Engine
+   def discard_job(%Config{} = conf, job) do
+     query =
+-      Job
+-      |> where(id: ^job.id)
++      job
++      |> ack_query(@acking_states)
+       |> update([j],
+         set: [
+           state: "discarded",
+@@ -221,8 +224,8 @@ defmodule Oban.Engines.Dolphin do
+   @impl Engine
+   def error_job(%Config{} = conf, job, seconds) do
+     query =
+-      Job
+-      |> where(id: ^job.id)
++      job
++      |> ack_query(@acking_states)
+       |> update([j],
+         set: [
+           state: "retryable",
+@@ -240,23 +243,29 @@ defmodule Oban.Engines.Dolphin do
+   defdelegate snooze_job(conf, job, seconds), to: Basic
+ 
+   @impl Engine
+-  def cancel_job(%Config{} = conf, job) do
+-    query = where(Job, id: ^job.id)
++  def cancel_job(%Config{} = conf, %Job{unsaved_error: unsaved} = job) when is_map(unsaved) do
++    query =
++      job
++      |> ack_query(@cancel_states)
++      |> update([j],
++        set: [
++          state: "cancelled",
++          cancelled_at: ^utc_now(),
++          errors: json_push(j.errors, ^Job.format_attempt(job))
++        ]
++      )
++
++    Repo.update_all(conf, query, [])
++
++    :ok
++  end
+ 
++  def cancel_job(%Config{} = conf, job) do
+     query =
+-      if is_map(job.unsaved_error) do
+-        update(query, [j],
+-          set: [
+-            state: "cancelled",
+-            cancelled_at: ^utc_now(),
+-            errors: json_push(j.errors, ^Job.format_attempt(job))
+-          ]
+-        )
+-      else
+-        query
+-        |> where([j], j.state not in ~w(cancelled completed discarded))
+-        |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+-      end
++      Job
++      |> where(id: ^job.id)
++      |> where([j], j.state not in ~w(cancelled completed discarded))
++      |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+ 
+     Repo.update_all(conf, query, [])
+ 
+@@ -422,5 +431,12 @@ defmodule Oban.Engines.Dolphin do
+     end
+   end
+ 
++  defp ack_query(%Job{} = job, states) do
++    Job
++    |> where([j], j.id == ^job.id)
++    |> where([j], j.state in ^states)
++    |> where([j], j.attempted_at == ^job.attempted_at)
++  end
++
+   defp seconds_from_now(seconds), do: DateTime.add(utc_now(), seconds, :second)
+ end
+diff --git a/lib/oban/engines/lite.ex b/lib/oban/engines/lite.ex
+index d25c814..a86c238 100644
+--- a/lib/oban/engines/lite.ex
++++ b/lib/oban/engines/lite.ex
+@@ -22,6 +22,9 @@ defmodule Oban.Engines.Lite do
+   alias Oban.Engines.Basic
+   alias Oban.{Config, Engine, Job, JSON, Repo}
+ 
++  @acking_states ["executing"]
++  @cancel_states ["executing", "cancelled"]
++
+   @forever 60 * 60 * 24 * 365 * 99
+ 
+   # EctoSQLite3 doesn't implement `push` for updates, so a json_insert is required.
+@@ -169,8 +172,8 @@ defmodule Oban.Engines.Lite do
+   @impl Engine
+   def discard_job(%Config{} = conf, job) do
+     query =
+-      Job
+-      |> where(id: ^job.id)
++      job
++      |> ack_query(@acking_states)
+       |> update([j],
+         set: [
+           state: "discarded",
+@@ -187,8 +190,8 @@ defmodule Oban.Engines.Lite do
+   @impl Engine
+   def error_job(%Config{} = conf, job, seconds) do
+     query =
+-      Job
+-      |> where(id: ^job.id)
++      job
++      |> ack_query(@acking_states)
+       |> update([j],
+         set: [
+           state: "retryable",
+@@ -203,23 +206,29 @@ defmodule Oban.Engines.Lite do
+   end
+ 
+   @impl Engine
+-  def cancel_job(%Config{} = conf, job) do
+-    query = where(Job, id: ^job.id)
++  def cancel_job(%Config{} = conf, %Job{unsaved_error: unsaved} = job) when is_map(unsaved) do
++    query =
++      job
++      |> ack_query(@cancel_states)
++      |> update([j],
++        set: [
++          state: "cancelled",
++          cancelled_at: ^utc_now(),
++          errors: json_push(j.errors, ^encode_unsaved(job))
++        ]
++      )
++
++    Repo.update_all(conf, query, [])
++
++    :ok
++  end
+ 
++  def cancel_job(%Config{} = conf, job) do
+     query =
+-      if is_map(job.unsaved_error) do
+-        update(query, [j],
+-          set: [
+-            state: "cancelled",
+-            cancelled_at: ^utc_now(),
+-            errors: json_push(j.errors, ^encode_unsaved(job))
+-          ]
+-        )
+-      else
+-        query
+-        |> where([j], j.state not in ["cancelled", "completed", "discarded"])
+-        |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+-      end
++      Job
++      |> where(id: ^job.id)
++      |> where([j], j.state not in ["cancelled", "completed", "discarded"])
++      |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+ 
+     Repo.update_all(conf, query, [])
+ 
+@@ -392,6 +401,13 @@ defmodule Oban.Engines.Lite do
+     end
+   end
+ 
++  defp ack_query(%Job{} = job, states) do
++    Job
++    |> where([j], j.id == ^job.id)
++    |> where([j], j.state in ^states)
++    |> where([j], j.attempted_at == ^job.attempted_at)
++  end
++
+   defp seconds_from_now(seconds), do: DateTime.add(utc_now(), seconds, :second)
+ 
+   defp encode_unsaved(job) do
 diff --git a/lib/oban/job.ex b/lib/oban/job.ex
 index 723c3cb..86a4dcd 100644
 --- a/lib/oban/job.ex
@@ -884,7 +1198,7 @@ index 3a4bc1f..5525ff0 100644
    def validate(parent_key \\ nil, opts, validator)
  
 diff --git a/mix.exs b/mix.exs
-index 4cbe53d..7b728c5 100644
+index 4cbe53d..c846b02 100644
 --- a/mix.exs
 +++ b/mix.exs
 @@ -2,7 +2,7 @@ defmodule Oban.MixProject do
@@ -896,7 +1210,24 @@ index 4cbe53d..7b728c5 100644
  
    def project do
      [
-@@ -93,6 +93,7 @@ defmodule Oban.MixProject do
+@@ -47,7 +47,15 @@ defmodule Oban.MixProject do
+   end
+ 
+   def cli do
+-    [preferred_envs: [bench: :test, "test.ci": :test, "test.reset": :test, "test.setup": :test]]
++    [
++      preferred_envs: [
++        bench: :test,
++        precommit: :test,
++        "test.ci": :test,
++        "test.reset": :test,
++        "test.setup": :test
++      ]
++    ]
+   end
+ 
+   def application do
+@@ -93,6 +101,7 @@ defmodule Oban.MixProject do
        "guides/upgrading/v2.17.md",
        "guides/upgrading/v2.20.md",
        "guides/upgrading/v2.21.md",
@@ -904,6 +1235,116 @@ index 4cbe53d..7b728c5 100644
  
        # Recipes
        "guides/recipes/recursive-jobs.md",
+@@ -207,6 +216,12 @@ defmodule Oban.MixProject do
+   defp aliases do
+     [
+       bench: "run bench/bench_helper.exs",
++      precommit: [
++        "format --check-formatted",
++        "deps.unlock --check-unused",
++        "credo --strict",
++        "test --raise"
++      ],
+       release: [
+         "cmd git tag v#{@version}",
+         "cmd git push",
+diff --git a/test/oban/engine_test.exs b/test/oban/engine_test.exs
+index 4e1b2f5..a9a2286 100644
+--- a/test/oban/engine_test.exs
++++ b/test/oban/engine_test.exs
+@@ -5,7 +5,7 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+     alias Ecto.Adapters.SQL.Sandbox
+     alias Ecto.Multi
+     alias Oban.Engines.{Basic, Dolphin, Lite}
+-    alias Oban.{Notifier, TelemetryHandler}
++    alias Oban.{Engine, Notifier, TelemetryHandler}
+ 
+     @engine engine
+ 
+@@ -15,6 +15,8 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+              Lite -> LiteRepo
+            end)
+ 
++    @unsaved %{kind: :error, reason: %RuntimeError{message: "boom"}, stacktrace: []}
++
+     @moduletag lite: engine == Lite
+     @moduletag dolphin: engine == Dolphin
+ 
+@@ -694,8 +696,23 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+ 
+         meta = %{"key" => "val", "snoozed" => 1}
+ 
+-        job_1 = insert!(name, %{ref: 1}, state: "executing", attempt: 2, max_attempts: 5)
+-        job_2 = insert!(name, %{ref: 2}, state: "executing", attempt: 2, meta: meta)
++        attempted_at = DateTime.utc_now()
++
++        job_1 =
++          insert!(name, %{ref: 1},
++            state: "executing",
++            attempt: 2,
++            attempted_at: attempted_at,
++            max_attempts: 5
++          )
++
++        job_2 =
++          insert!(name, %{ref: 2},
++            state: "executing",
++            attempt: 2,
++            attempted_at: attempted_at,
++            meta: meta
++          )
+ 
+         assert :ok = Oban.Engine.snooze_job(conf, job_1, 60)
+         assert :ok = Oban.Engine.snooze_job(conf, job_2, 60)
+@@ -706,6 +723,48 @@ for engine <- [Oban.Engines.Basic, Oban.Engines.Lite, Oban.Engines.Dolphin] do
+       end
+     end
+ 
++    describe "acking" do
++      setup :start_supervised_oban
++
++      test "stale executions can't overwrite a newer execution's state", %{name: name} do
++        conf = Oban.config(name)
++
++        ackers = [
++          &Engine.complete_job/2,
++          &Engine.discard_job/2,
++          &Engine.error_job(&1, &2, 60),
++          &Engine.snooze_job(&1, &2, 60),
++          &Engine.cancel_job/2
++        ]
++
++        for ack <- ackers do
++          job = insert!(name, %{ref: 1}, state: "executing", attempted_at: seconds_ago(30))
++
++          # A newer execution takes over the row and completes it
++          now = DateTime.utc_now()
++
++          changes = [state: "completed", attempt: 2, attempted_at: now, completed_at: now]
++
++          {:ok, _} = Oban.Repo.update(conf, Ecto.Changeset.change(job, changes))
++
++          assert :ok = ack.(conf, %{job | unsaved_error: @unsaved})
++
++          assert %Job{state: "completed", attempt: 2, errors: []} = reload(name, job)
++        end
++      end
++
++      test "an execution cancelled while running records its error", %{name: name} do
++        conf = Oban.config(name)
++
++        job = insert!(name, %{ref: 1}, state: "executing", attempted_at: DateTime.utc_now())
++
++        assert :ok = Oban.cancel_job(name, job)
++        assert :ok = Engine.cancel_job(conf, %{job | unsaved_error: @unsaved})
++
++        assert %Job{state: "cancelled", errors: [_]} = reload(name, job)
++      end
++    end
++
+     describe "update_job/3" do
+       setup :start_supervised_oban
+ 
 diff --git a/test/oban/job_test.exs b/test/oban/job_test.exs
 index 2aa510d..e0c931e 100644
 --- a/test/oban/job_test.exs

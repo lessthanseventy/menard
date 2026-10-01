@@ -1,12 +1,10 @@
-b9c86b1 2026-08-31
+b95e362 2026-09-03
 
-Prevent newer execution from overwriting
+Track notify listeners in isolated registry
 
-Acking now verifies that the database hasn't been updated by another
-execution. Writes from a new executor will no longer transition an acked
-job, e.g. erroring or snoozing a job back out of `completed`.
+Listeners were tracked within each notifier process, which was lost if
+the notifier crashed. Registration now lives in a dedicated registry,
+owne by the Oban application, which is immune to process crashes.
 
-This applies to ack operations in Basic, Dolphin, and Lite engines.
-
-Closes #1496
+Closes #1499
 

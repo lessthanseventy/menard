@@ -1,314 +1,650 @@
-diff --git a/lib/oban/engines/basic.ex b/lib/oban/engines/basic.ex
-index 657a6a9..f09905d 100644
---- a/lib/oban/engines/basic.ex
-+++ b/lib/oban/engines/basic.ex
-@@ -11,6 +11,9 @@ defmodule Oban.Engines.Basic do
+diff --git a/lib/oban/application.ex b/lib/oban/application.ex
+index 494ad83..fe41a41 100644
+--- a/lib/oban/application.ex
++++ b/lib/oban/application.ex
+@@ -5,7 +5,7 @@ defmodule Oban.Application do
  
-   @behaviour Oban.Engine
+   def start(_type, _args) do
+     Supervisor.start_link(
+-      [Oban.Registry],
++      [Oban.Registry, Oban.Notifier.Registry],
+       strategy: :one_for_one,
+       name: __MODULE__
+     )
+diff --git a/lib/oban/notifier.ex b/lib/oban/notifier.ex
+index 3a735b5..bf95c87 100644
+--- a/lib/oban/notifier.ex
++++ b/lib/oban/notifier.ex
+@@ -40,6 +40,14 @@ defmodule Oban.Notifier do
  
-+  @acking_states ["executing"]
-+  @cancel_states ["executing", "cancelled"]
+   * `sonar` — periodic notification checks to monitor pubsub health and determine connectivity
+ 
++  > #### Durable Listeners {: .info}
++  >
++  > Listeners are tracked in a registry that lives outside of the notifier process. Registration
++  > happens transparently through `listen/2` and `unlisten/2`, and entries are removed
++  > automatically when the listening process exits. Because registrations survive a notifier
++  > crash, listening processes are guaranteed to receive notifications after the notifier restarts
++  > without any monitoring or resubscribing on their part.
 +
-   import Ecto.Query
-   import DateTime, only: [utc_now: 0]
+   ## Examples
  
-@@ -224,11 +227,9 @@ defmodule Oban.Engines.Basic do
+   Broadcasting after a job is completed:
+@@ -78,6 +86,7 @@ defmodule Oban.Notifier do
+   """
  
-   @impl Engine
-   def complete_job(%Config{} = conf, %Job{} = job) do
--    Repo.update_all(
--      conf,
--      where(Job, id: ^job.id),
--      set: [state: "completed", completed_at: utc_now()]
--    )
-+    query = ack_query(job, @acking_states)
+   alias Oban.{Config, JSON, Registry, Sonar}
++  alias Oban.Notifier.Registry, as: Listeners
+ 
+   require Logger
+ 
+@@ -128,6 +137,10 @@ defmodule Oban.Notifier do
+ 
+       {:notification, channel :: channel(), decoded :: map()}
+ 
++  Registration is durable across notifier restarts. If the notifier is unavailable when `listen/2`
++  is called, e.g. because it is restarting after a crash, the registration is still recorded and
++  the notifier picks it up when it reconnects.
 +
-+    Repo.update_all(conf, query, set: [state: "completed", completed_at: utc_now()])
+   ## Example
+ 
+   Register to listen for all `:gossip` channel messages:
+@@ -142,9 +155,20 @@ defmodule Oban.Notifier do
+ 
+       Oban.Notifier.listen(MyApp.MyOban, [:gossip, :signal])
+   """
+-  @spec listen(name_or_conf(), channel() | [channel()]) :: :ok | {:error, Exception.t()}
++  @spec listen(name_or_conf(), channel() | [channel()]) :: :ok
+   def listen(name_or_conf \\ Oban, channels) when is_atom(channels) or is_list(channels) do
+-    apply_callback(name_or_conf, :listen, [normalize_channels(channels)])
++    conf = to_conf(name_or_conf)
++    channels = normalize_channels(channels)
++
++    for channel <- channels, do: Listeners.register(conf, channel)
++
++    apply_callback(conf, :listen, [channels])
++
++    :ok
++  catch
++    # The registry is the source of truth. A notifier that's missing or crashing mid-call will
++    # pick registrations up when it restarts, so there's nothing for the caller to handle.
++    :exit, _reason -> :ok
+   end
+ 
+   @doc """
+@@ -164,9 +188,18 @@ defmodule Oban.Notifier do
+ 
+       Oban.Notifier.unlisten(MyApp.MyOban, [:gossip])
+   """
+-  @spec unlisten(name_or_conf(), channel() | [channel()]) :: :ok | {:error, Exception.t()}
++  @spec unlisten(name_or_conf(), channel() | [channel()]) :: :ok
+   def unlisten(name_or_conf \\ Oban, channels) when is_atom(channels) or is_list(channels) do
+-    apply_callback(name_or_conf, :unlisten, [normalize_channels(channels)])
++    conf = to_conf(name_or_conf)
++    channels = normalize_channels(channels)
++
++    for channel <- channels, do: Listeners.unregister(conf, channel)
++
++    apply_callback(conf, :unlisten, [channels])
++
++    :ok
++  catch
++    :exit, _reason -> :ok
+   end
+ 
+   @doc """
+@@ -192,7 +225,7 @@ defmodule Oban.Notifier do
+   """
+   @spec notify(name_or_conf(), channel(), payload()) :: :ok | {:error, Exception.t()}
+   def notify(name_or_conf \\ Oban, channel, payload) when is_atom(channel) do
+-    conf = if is_struct(name_or_conf, Config), do: name_or_conf, else: Oban.config(name_or_conf)
++    conf = to_conf(name_or_conf)
+     meta = %{conf: conf, channel: channel, payload: payload}
+ 
+     :telemetry.span([:oban, :notifier, :notify], meta, fn ->
+@@ -265,7 +298,14 @@ defmodule Oban.Notifier do
+   end
+ 
+   @doc false
+-  @spec relay(Config.t(), [pid()], atom(), binary()) :: :ok
++  @spec relay(Config.t(), channel(), binary()) :: :ok
++  def relay(conf, channel, payload) when is_atom(channel) and is_binary(payload) do
++    relay(conf, Listeners.listeners(conf, channel), channel, payload)
++  end
++
++  # Retained for external notifiers that track listeners themselves.
++  @doc false
++  @spec relay(Config.t(), [pid()], channel(), binary()) :: :ok
+   def relay(_conf, [], _channel, _payload), do: :ok
+ 
+   def relay(conf, listeners, channel, payload) when is_atom(channel) and is_binary(payload) do
+@@ -280,9 +320,10 @@ defmodule Oban.Notifier do
+ 
+   # Helpers
+ 
+-  defp apply_callback(name_or_conf, callback, args) do
+-    conf = if is_struct(name_or_conf, Config), do: name_or_conf, else: Oban.config(name_or_conf)
++  defp to_conf(%Config{} = conf), do: conf
++  defp to_conf(name), do: Oban.config(name)
+ 
++  defp apply_callback(conf, callback, args) do
+     %{name: name, notifier: {notifier, _}} = conf
+ 
+     case Registry.whereis(name, __MODULE__) do
+diff --git a/lib/oban/notifier/registry.ex b/lib/oban/notifier/registry.ex
+new file mode 100644
+index 0000000..f03ed3e
+--- /dev/null
++++ b/lib/oban/notifier/registry.ex
+@@ -0,0 +1,41 @@
++defmodule Oban.Notifier.Registry do
++  @moduledoc false
++
++  alias Oban.Config
++
++  @type channel :: Oban.Notifier.channel()
++
++  def child_spec(_arg) do
++    [keys: :duplicate, name: __MODULE__]
++    |> Registry.child_spec()
++    |> Supervisor.child_spec(id: __MODULE__)
++  end
++
++  @spec register(Config.t(), channel()) :: :ok
++  def register(%Config{name: name}, channel) when is_atom(channel) do
++    key = {name, channel}
++
++    if Registry.values(__MODULE__, key, self()) == [] do
++      Registry.register(__MODULE__, key, nil)
++    end
++
++    :ok
++  end
++
++  @spec unregister(Config.t(), channel()) :: :ok
++  def unregister(%Config{name: name}, channel) when is_atom(channel) do
++    Registry.unregister(__MODULE__, {name, channel})
++  end
++
++  @spec channels(Config.t()) :: [channel()]
++  def channels(%Config{name: name}) do
++    __MODULE__
++    |> Registry.select([{{{name, :"$1"}, :_, :_}, [], [:"$1"]}])
++    |> Enum.uniq()
++  end
++
++  @spec listeners(Config.t(), channel()) :: [pid()]
++  def listeners(%Config{name: name}, channel) when is_atom(channel) do
++    for {pid, _value} <- Registry.lookup(__MODULE__, {name, channel}), do: pid
++  end
++end
+diff --git a/lib/oban/notifiers/isolated.ex b/lib/oban/notifiers/isolated.ex
+index 7829ecf..44bd8d9 100644
+--- a/lib/oban/notifiers/isolated.ex
++++ b/lib/oban/notifiers/isolated.ex
+@@ -7,7 +7,7 @@ defmodule Oban.Notifiers.Isolated do
+ 
+   alias Oban.Notifier
+ 
+-  defstruct [:conf, connected: true, listeners: %{}]
++  defstruct [:conf, connected: true]
+ 
+   @impl Notifier
+   def start_link(opts) do
+@@ -17,21 +17,15 @@ defmodule Oban.Notifiers.Isolated do
+   end
+ 
+   @impl Notifier
+-  def listen(server, channels) do
+-    GenServer.call(server, {:listen, channels})
+-  end
++  def listen(_server, _channels), do: :ok
+ 
+   @impl Notifier
+-  def unlisten(server, channels) do
+-    GenServer.call(server, {:unlisten, channels})
+-  end
++  def unlisten(_server, _channels), do: :ok
+ 
+   @impl Notifier
+   def notify(server, channel, payload) do
+     with {:ok, %{connected: true} = state} <- GenServer.call(server, :get_state) do
+-      for {pid, channels} <- state.listeners, message <- payload, channel in channels do
+-        Notifier.relay(state.conf, [pid], channel, message)
+-      end
++      for message <- payload, do: Notifier.relay(state.conf, channel, message)
+     end
  
      :ok
+@@ -46,35 +40,4 @@ defmodule Oban.Notifiers.Isolated do
+   def handle_call(:get_state, _from, state) do
+     {:reply, {:ok, state}, state}
    end
-@@ -236,8 +237,8 @@ defmodule Oban.Engines.Basic do
-   @impl Engine
-   def discard_job(%Config{} = conf, %Job{} = job) do
-     query =
--      Job
--      |> where(id: ^job.id)
-+      job
-+      |> ack_query(@acking_states)
-       |> update([j],
-         set: [
-           state: "discarded",
-@@ -254,8 +255,8 @@ defmodule Oban.Engines.Basic do
-   @impl Engine
-   def error_job(%Config{} = conf, %Job{} = job, seconds) when is_integer(seconds) do
-     query =
--      Job
--      |> where(id: ^job.id)
-+      job
-+      |> ack_query(@acking_states)
-       |> update([j],
-         set: [
-           state: "retryable",
-@@ -270,7 +271,7 @@ defmodule Oban.Engines.Basic do
-   end
- 
-   @impl Engine
--  def snooze_job(%Config{} = conf, %Job{id: id, meta: meta}, seconds) when is_integer(seconds) do
-+  def snooze_job(%Config{} = conf, %Job{meta: meta} = job, seconds) when is_integer(seconds) do
-     meta = Map.update(meta, "snoozed", 1, &(&1 + 1))
- 
-     updates = [
-@@ -278,29 +279,35 @@ defmodule Oban.Engines.Basic do
-       inc: [attempt: -1]
-     ]
- 
--    Repo.update_all(conf, where(Job, id: ^id), updates)
-+    Repo.update_all(conf, ack_query(job, @acking_states), updates)
- 
-     :ok
-   end
- 
-   @impl Engine
--  def cancel_job(%Config{} = conf, %Job{} = job) do
--    query = where(Job, id: ^job.id)
-+  def cancel_job(%Config{} = conf, %Job{unsaved_error: unsaved} = job) when is_map(unsaved) do
-+    query =
-+      job
-+      |> ack_query(@cancel_states)
-+      |> update([j],
-+        set: [
-+          state: "cancelled",
-+          cancelled_at: ^utc_now(),
-+          errors: concat_errors(j.errors, ^[Job.format_attempt(job)])
-+        ]
-+      )
- 
-+    Repo.update_all(conf, query, [])
-+
-+    :ok
-+  end
-+
-+  def cancel_job(%Config{} = conf, %Job{} = job) do
-     query =
--      if is_map(job.unsaved_error) do
--        update(query, [j],
--          set: [
--            state: "cancelled",
--            cancelled_at: ^utc_now(),
--            errors: concat_errors(j.errors, ^[Job.format_attempt(job)])
--          ]
--        )
--      else
--        query
--        |> where([j], j.state not in ["cancelled", "completed", "discarded"])
--        |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+-
+-  def handle_call({:listen, channels}, {pid, _}, %{listeners: listeners} = state) do
+-    if Map.has_key?(listeners, pid) do
+-      {:reply, :ok, state}
+-    else
+-      Process.monitor(pid)
+-
+-      {:reply, :ok, %{state | listeners: Map.put(listeners, pid, channels)}}
+-    end
+-  end
+-
+-  def handle_call({:unlisten, channels}, {pid, _}, %{listeners: listeners} = state) do
+-    orig_channels = Map.get(listeners, pid, [])
+-
+-    listeners =
+-      case orig_channels -- channels do
+-        [] -> Map.delete(listeners, pid)
+-        new_channels -> Map.put(listeners, pid, new_channels)
 -      end
-+      Job
-+      |> where(id: ^job.id)
-+      |> where([j], j.state not in ["cancelled", "completed", "discarded"])
-+      |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
- 
-     Repo.update_all(conf, query, [])
- 
-@@ -560,5 +567,12 @@ defmodule Oban.Engines.Basic do
-     end
-   end
- 
-+  defp ack_query(%Job{} = job, states) do
-+    Job
-+    |> where([j], j.id == ^job.id)
-+    |> where([j], j.state in ^states)
-+    |> where([j], j.attempted_at == ^job.attempted_at)
-+  end
-+
-   defp seconds_from_now(seconds), do: DateTime.add(utc_now(), seconds, :second)
+-
+-    {:reply, :ok, %{state | listeners: listeners}}
+-  end
+-
+-  @impl GenServer
+-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+-    {:noreply, %{state | listeners: Map.delete(state.listeners, pid)}}
+-  end
+-
+-  def handle_info(_message, state) do
+-    {:noreply, state}
+-  end
  end
-diff --git a/lib/oban/engines/dolphin.ex b/lib/oban/engines/dolphin.ex
-index dee2448..76b4900 100644
---- a/lib/oban/engines/dolphin.ex
-+++ b/lib/oban/engines/dolphin.ex
-@@ -15,6 +15,9 @@ defmodule Oban.Engines.Dolphin do
+diff --git a/lib/oban/notifiers/pg.ex b/lib/oban/notifiers/pg.ex
+index 8734647..7ecc341 100644
+--- a/lib/oban/notifiers/pg.ex
++++ b/lib/oban/notifiers/pg.ex
+@@ -42,7 +42,7 @@ defmodule Oban.Notifiers.PG do
  
-   @behaviour Oban.Engine
+   alias Oban.Notifier
  
-+  @acking_states ["executing"]
-+  @cancel_states ["executing", "cancelled"]
-+
-   import DateTime, only: [utc_now: 0]
-   import Ecto.Query
+-  defstruct [:conf, :namespace, listeners: %{}]
++  defstruct [:conf, :namespace]
  
-@@ -203,8 +206,8 @@ defmodule Oban.Engines.Dolphin do
-   @impl Engine
-   def discard_job(%Config{} = conf, job) do
-     query =
--      Job
--      |> where(id: ^job.id)
-+      job
-+      |> ack_query(@acking_states)
-       |> update([j],
-         set: [
-           state: "discarded",
-@@ -221,8 +224,8 @@ defmodule Oban.Engines.Dolphin do
-   @impl Engine
-   def error_job(%Config{} = conf, job, seconds) do
-     query =
--      Job
--      |> where(id: ^job.id)
-+      job
-+      |> ack_query(@acking_states)
-       |> update([j],
-         set: [
-           state: "retryable",
-@@ -240,23 +243,29 @@ defmodule Oban.Engines.Dolphin do
-   defdelegate snooze_job(conf, job, seconds), to: Basic
+   @impl Notifier
+   def start_link(opts) do
+@@ -55,14 +55,10 @@ defmodule Oban.Notifiers.PG do
+   end
  
-   @impl Engine
--  def cancel_job(%Config{} = conf, job) do
--    query = where(Job, id: ^job.id)
-+  def cancel_job(%Config{} = conf, %Job{unsaved_error: unsaved} = job) when is_map(unsaved) do
-+    query =
-+      job
-+      |> ack_query(@cancel_states)
-+      |> update([j],
-+        set: [
-+          state: "cancelled",
-+          cancelled_at: ^utc_now(),
-+          errors: json_push(j.errors, ^Job.format_attempt(job))
-+        ]
-+      )
-+
-+    Repo.update_all(conf, query, [])
-+
-+    :ok
-+  end
+   @impl Notifier
+-  def listen(server, channels) do
+-    GenServer.call(server, {:listen, channels})
+-  end
++  def listen(_server, _channels), do: :ok
  
-+  def cancel_job(%Config{} = conf, job) do
-     query =
--      if is_map(job.unsaved_error) do
--        update(query, [j],
--          set: [
--            state: "cancelled",
--            cancelled_at: ^utc_now(),
--            errors: json_push(j.errors, ^Job.format_attempt(job))
--          ]
--        )
--      else
--        query
--        |> where([j], j.state not in ~w(cancelled completed discarded))
--        |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
--      end
-+      Job
-+      |> where(id: ^job.id)
-+      |> where([j], j.state not in ~w(cancelled completed discarded))
-+      |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
+   @impl Notifier
+-  def unlisten(server, channels) do
+-    GenServer.call(server, {:unlisten, channels})
+-  end
++  def unlisten(_server, _channels), do: :ok
  
-     Repo.update_all(conf, query, [])
- 
-@@ -422,5 +431,12 @@ defmodule Oban.Engines.Dolphin do
+   @impl Notifier
+   def notify(server, channel, payload) do
+@@ -100,42 +96,13 @@ defmodule Oban.Notifiers.PG do
      end
    end
  
-+  defp ack_query(%Job{} = job, states) do
-+    Job
-+    |> where([j], j.id == ^job.id)
-+    |> where([j], j.state in ^states)
-+    |> where([j], j.attempted_at == ^job.attempted_at)
-+  end
+-  @impl GenServer
+-  def handle_call({:listen, channels}, {pid, _}, %{listeners: listeners} = state) do
+-    if Map.has_key?(listeners, pid) do
+-      {:reply, :ok, state}
+-    else
+-      Process.monitor(pid)
+-
+-      {:reply, :ok, %{state | listeners: Map.put(listeners, pid, channels)}}
+-    end
+-  end
+-
+-  def handle_call({:unlisten, channels}, {pid, _}, %{listeners: listeners} = state) do
+-    orig_channels = Map.get(listeners, pid, [])
+-
+-    listeners =
+-      case orig_channels -- channels do
+-        [] -> Map.delete(listeners, pid)
+-        new_channels -> Map.put(listeners, pid, new_channels)
+-      end
+-
+-    {:reply, :ok, %{state | listeners: listeners}}
+-  end
+-
+   @impl GenServer
+   def handle_info({:notification, channel, payload}, state) do
+-    listeners = for {pid, channels} <- state.listeners, channel in channels, do: pid
+-
+-    Notifier.relay(state.conf, listeners, channel, payload)
++    Notifier.relay(state.conf, channel, payload)
+ 
+     {:noreply, state}
+   end
+ 
+-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+-    {:noreply, %{state | listeners: Map.delete(state.listeners, pid)}}
+-  end
+-
+   def handle_info(_message, state) do
+     {:noreply, state}
+   end
+diff --git a/lib/oban/notifiers/postgres.ex b/lib/oban/notifiers/postgres.ex
+index be5bbd9..c99fbba 100644
+--- a/lib/oban/notifiers/postgres.ex
++++ b/lib/oban/notifiers/postgres.ex
+@@ -40,16 +40,10 @@ if Code.ensure_loaded?(Postgrex) do
+     @behaviour Oban.Notifier
+ 
+     alias Oban.{Config, Notifier, Repo}
++    alias Oban.Notifier.Registry, as: Listeners
+     alias Postgrex.SimpleConnection, as: Simple
+ 
+-    defstruct [
+-      :conf,
+-      :from,
+-      :key,
+-      channels: %{},
+-      connected?: false,
+-      listeners: %{}
+-    ]
++    defstruct [:conf, :from, channels: MapSet.new(), connected?: false]
+ 
+     @impl Oban.Notifier
+     def start_link(opts) do
+@@ -70,12 +64,12 @@ if Code.ensure_loaded?(Postgrex) do
+ 
+     @impl Oban.Notifier
+     def listen(server, channels) do
+-      Simple.call(server, {:listen, self(), channels})
++      Simple.call(server, {:listen, channels})
+     end
+ 
+     @impl Oban.Notifier
+     def unlisten(server, channels) do
+-      Simple.call(server, {:unlisten, self(), channels})
++      Simple.call(server, {:unlisten, channels})
+     end
+ 
+     ## Server Callbacks
+@@ -88,9 +82,7 @@ if Code.ensure_loaded?(Postgrex) do
+ 
+     @impl Oban.Notifier
+     def notify(full_channel, payload, state) when is_binary(full_channel) do
+-      listeners = Map.get(state.channels, full_channel, [])
+-
+-      Notifier.relay(state.conf, listeners, reverse_channel(full_channel), payload)
++      Notifier.relay(state.conf, reverse_channel(full_channel), payload)
+     end
+ 
+     # This is a Notifier callback, but it has the same name and arity as SimpleConnection
+@@ -108,14 +100,19 @@ if Code.ensure_loaded?(Postgrex) do
+       end
+     end
+ 
+-    def handle_connect(%{channels: channels} = state) do
+-      state = %{state | connected?: true}
++    # Every connection, including a reconnect after a crash, listens on all channels that have
++    # registered listeners. The listener registry is the source of truth.
++    def handle_connect(state) do
++      channels =
++        state.conf
++        |> Listeners.channels()
++        |> Enum.map(&to_full_channel(&1, state.conf))
++        |> MapSet.new()
 +
-   defp seconds_from_now(seconds), do: DateTime.add(utc_now(), seconds, :second)
++      state = %{state | channels: channels, connected?: true}
+ 
+-      if map_size(channels) > 0 do
+-        listens =
+-          channels
+-          |> Map.keys()
+-          |> Enum.map_join("\n", &~s(LISTEN "#{&1}";))
++      if MapSet.size(channels) > 0 do
++        listens = Enum.map_join(channels, "\n", &~s(LISTEN "#{&1}";))
+ 
+         query(listens, state)
+       else
+@@ -127,17 +124,16 @@ if Code.ensure_loaded?(Postgrex) do
+       {:noreply, %{state | connected?: false}}
+     end
+ 
+-    def handle_call({:listen, pid, channels}, from, state) do
+-      channels = Enum.map(channels, &to_full_channel(&1, state.conf))
+-      new_channels = channels -- Map.keys(state.channels)
++    def handle_call({:listen, channels}, from, state) do
++      new_channels =
++        channels
++        |> Enum.map(&to_full_channel(&1, state.conf))
++        |> Enum.reject(&MapSet.member?(state.channels, &1))
+ 
+-      state =
+-        state
+-        |> put_listener(pid, channels)
+-        |> put_channels(pid, channels)
++      state = %{state | channels: Enum.into(new_channels, state.channels)}
+ 
+       if state.connected? and Enum.any?(new_channels) do
+-        listens = Enum.map_join(new_channels, " \n", &~s(LISTEN "#{&1}";))
++        listens = Enum.map_join(new_channels, "\n", &~s(LISTEN "#{&1}";))
+ 
+         query(listens, %{state | from: from})
+       else
+@@ -147,18 +143,18 @@ if Code.ensure_loaded?(Postgrex) do
+       end
+     end
+ 
+-    def handle_call({:unlisten, pid, channels}, from, state) do
+-      channels = Enum.map(channels, &to_full_channel(&1, state.conf))
++    def handle_call({:unlisten, channels}, from, state) do
++      # Only stop listening on channels that no longer have any registered listeners.
++      del_channels =
++        channels
++        |> Enum.filter(&(Listeners.listeners(state.conf, &1) == []))
++        |> Enum.map(&to_full_channel(&1, state.conf))
++        |> Enum.filter(&MapSet.member?(state.channels, &1))
+ 
+-      state =
+-        state
+-        |> del_listener(pid, channels)
+-        |> del_channels(pid, channels)
+-
+-      del_channels = channels -- Map.keys(state.channels)
++      state = %{state | channels: MapSet.difference(state.channels, MapSet.new(del_channels))}
+ 
+       if state.connected? and Enum.any?(del_channels) do
+-        unlistens = Enum.map_join(del_channels, " \n", &~s(UNLISTEN "#{&1}";))
++        unlistens = Enum.map_join(del_channels, "\n", &~s(UNLISTEN "#{&1}";))
+ 
+         query(unlistens, %{state | from: from})
+       else
+@@ -168,21 +164,6 @@ if Code.ensure_loaded?(Postgrex) do
+       end
+     end
+ 
+-    def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+-      case Map.pop(state.listeners, pid) do
+-        {{_ref, channel_set}, listeners} ->
+-          state =
+-            state
+-            |> Map.put(:listeners, listeners)
+-            |> del_channels(pid, MapSet.to_list(channel_set))
+-
+-          {:noreply, state}
+-
+-        {nil, _listeners} ->
+-          {:noreply, state}
+-      end
+-    end
+-
+     def handle_info(_message, state) do
+       {:noreply, state}
+     end
+@@ -221,66 +202,5 @@ if Code.ensure_loaded?(Postgrex) do
+ 
+       String.to_existing_atom(shortcut)
+     end
+-
+-    defp put_listener(%{listeners: listeners} = state, pid, channels) do
+-      new_set = MapSet.new(channels)
+-
+-      listeners =
+-        case Map.get(listeners, pid) do
+-          {ref, old_set} ->
+-            Map.replace!(listeners, pid, {ref, MapSet.union(old_set, new_set)})
+-
+-          nil ->
+-            ref = Process.monitor(pid)
+-
+-            Map.put(listeners, pid, {ref, new_set})
+-        end
+-
+-      %{state | listeners: listeners}
+-    end
+-
+-    defp put_channels(state, pid, channels) do
+-      listener_channels =
+-        for channel <- channels, reduce: state.channels do
+-          acc -> Map.update(acc, channel, [pid], &Enum.uniq([pid | &1]))
+-        end
+-
+-      %{state | channels: listener_channels}
+-    end
+-
+-    defp del_listener(%{listeners: listeners} = state, pid, channels) do
+-      new_set = MapSet.new(channels)
+-
+-      listeners =
+-        case Map.get(listeners, pid) do
+-          {ref, old_set} ->
+-            del_set = MapSet.difference(old_set, new_set)
+-
+-            if MapSet.size(del_set) == 0 do
+-              Process.demonitor(ref)
+-
+-              Map.delete(listeners, pid)
+-            else
+-              Map.replace!(listeners, pid, {ref, del_set})
+-            end
+-
+-          nil ->
+-            listeners
+-        end
+-
+-      %{state | listeners: listeners}
+-    end
+-
+-    defp del_channels(state, pid, channels) do
+-      listener_channels =
+-        for channel <- channels, reduce: state.channels do
+-          acc ->
+-            acc = Map.update(acc, channel, [], &List.delete(&1, pid))
+-
+-            if Enum.empty?(acc[channel]), do: Map.delete(acc, channel), else: acc
+-        end
+-
+-      %{state | channels: listener_channels}
+-    end
+   end
  end
-diff --git a/lib/oban/engines/lite.ex b/lib/oban/engines/lite.ex
-index d25c814..0f685ff 100644
---- a/lib/oban/engines/lite.ex
-+++ b/lib/oban/engines/lite.ex
-@@ -15,6 +15,9 @@ defmodule Oban.Engines.Lite do
+diff --git a/lib/oban/queues.ex b/lib/oban/queues.ex
+index 0b86cdf..01b1564 100644
+--- a/lib/oban/queues.ex
++++ b/lib/oban/queues.ex
+@@ -28,7 +28,7 @@ defmodule Oban.Queues do
  
-   @behaviour Oban.Engine
+   require Logger
  
-+  @acking_states ["executing"]
-+  @cancel_states ["executing", "cancelled"]
-+
-   import DateTime, only: [utc_now: 0]
-   import Ecto.Query
+-  defstruct [:conf, :notifier_ref, queues: []]
++  defstruct [:conf, queues: []]
  
-@@ -169,8 +172,8 @@ defmodule Oban.Engines.Lite do
-   @impl Engine
-   def discard_job(%Config{} = conf, job) do
-     query =
--      Job
--      |> where(id: ^job.id)
-+      job
-+      |> ack_query(@acking_states)
-       |> update([j],
-         set: [
-           state: "discarded",
-@@ -187,8 +190,8 @@ defmodule Oban.Engines.Lite do
-   @impl Engine
-   def error_job(%Config{} = conf, job, seconds) do
-     query =
--      Job
--      |> where(id: ^job.id)
-+      job
-+      |> ack_query(@acking_states)
-       |> update([j],
-         set: [
-           state: "retryable",
-@@ -203,23 +206,29 @@ defmodule Oban.Engines.Lite do
+   @doc false
+   @spec start_link(Keyword.t()) :: GenServer.on_start()
+@@ -90,13 +90,8 @@ defmodule Oban.Queues do
+   @impl GenServer
+   def handle_continue(:start, %State{conf: conf} = state) do
+     Notifier.listen(conf.name, :signal)
+-    ref = monitor_notifier(conf)
+ 
+-    {:noreply, %{state | notifier_ref: ref}}
+-  end
+-
+-  def handle_continue(:resubscribe, state) do
+-    resubscribe(state)
++    {:noreply, state}
    end
  
-   @impl Engine
--  def cancel_job(%Config{} = conf, job) do
--    query = where(Job, id: ^job.id)
-+  def cancel_job(%Config{} = conf, %Job{unsaved_error: unsaved} = job) when is_map(unsaved) do
-+    query =
-+      job
-+      |> ack_query(@cancel_states)
-+      |> update([j],
-+        set: [
-+          state: "cancelled",
-+          cancelled_at: ^utc_now(),
-+          errors: json_push(j.errors, ^encode_unsaved(job))
-+        ]
-+      )
-+
-+    Repo.update_all(conf, query, [])
-+
-+    :ok
-+  end
- 
-+  def cancel_job(%Config{} = conf, job) do
-     query =
--      if is_map(job.unsaved_error) do
--        update(query, [j],
--          set: [
--            state: "cancelled",
--            cancelled_at: ^utc_now(),
--            errors: json_push(j.errors, ^encode_unsaved(job))
--          ]
--        )
--      else
--        query
--        |> where([j], j.state not in ["cancelled", "completed", "discarded"])
--        |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
--      end
-+      Job
-+      |> where(id: ^job.id)
-+      |> where([j], j.state not in ["cancelled", "completed", "discarded"])
-+      |> update(set: [state: "cancelled", cancelled_at: ^utc_now()])
- 
-     Repo.update_all(conf, query, [])
- 
-@@ -392,6 +401,13 @@ defmodule Oban.Engines.Lite do
-     end
+   @impl GenServer
+@@ -120,14 +115,6 @@ defmodule Oban.Queues do
+     {:noreply, state}
    end
  
-+  defp ack_query(%Job{} = job, states) do
-+    Job
-+    |> where([j], j.id == ^job.id)
-+    |> where([j], j.state in ^states)
-+    |> where([j], j.attempted_at == ^job.attempted_at)
-+  end
-+
-   defp seconds_from_now(seconds), do: DateTime.add(utc_now(), seconds, :second)
+-  def handle_info({:DOWN, ref, :process, _pid, _reason}, %State{notifier_ref: ref} = state) do
+-    {:noreply, %{state | notifier_ref: nil}, {:continue, :resubscribe}}
+-  end
+-
+-  def handle_info(:resubscribe, state) do
+-    resubscribe(state)
+-  end
+-
+   def handle_info(message, state) do
+     Logger.warning(
+       [
+@@ -141,26 +128,5 @@ defmodule Oban.Queues do
+     {:noreply, state}
+   end
  
-   defp encode_unsaved(job) do
+-  defp resubscribe(%State{conf: conf} = state) do
+-    case Registry.whereis(conf.name, Oban.Notifier) do
+-      pid when is_pid(pid) ->
+-        Notifier.listen(conf.name, :signal)
+-
+-        {:noreply, %{state | notifier_ref: Process.monitor(pid)}}
+-
+-      nil ->
+-        Process.send_after(self(), :resubscribe, 100)
+-
+-        {:noreply, state}
+-    end
+-  end
+-
+-  defp monitor_notifier(conf) do
+-    case Registry.whereis(conf.name, Oban.Notifier) do
+-      pid when is_pid(pid) -> Process.monitor(pid)
+-      nil -> nil
+-    end
+-  end
+-
+   defp foreman(conf), do: Registry.via(conf.name, Foreman)
+ end
+diff --git a/lib/oban/sonar.ex b/lib/oban/sonar.ex
+index 260b372..d807793 100644
+--- a/lib/oban/sonar.ex
++++ b/lib/oban/sonar.ex
+@@ -48,7 +48,9 @@ defmodule Oban.Sonar do
+ 
+   @impl GenServer
+   def handle_continue(:start, state) do
+-    listen_notify(state.conf)
++    Notifier.listen(state.conf, :sonar)
++
++    notify(state.conf)
+ 
+     {:noreply, schedule_ping(state)}
+   end
+@@ -79,7 +81,7 @@ defmodule Oban.Sonar do
+     prev_status = state.status
+     prev_nodes = Map.keys(state.nodes)
+ 
+-    listen_notify(state.conf)
++    notify(state.conf)
+ 
+     state =
+       state
+@@ -122,8 +124,7 @@ defmodule Oban.Sonar do
+ 
+   # Helpers
+ 
+-  defp listen_notify(conf) do
+-    Notifier.listen(conf, :sonar)
++  defp notify(conf) do
+     Notifier.notify(conf, :sonar, %{node: conf.node, ping: true})
+   catch
+     :exit, _ -> :ok

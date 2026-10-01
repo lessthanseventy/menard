@@ -1,1 +1,1 @@
-test/oban/queues_test.exs
+test/oban/notifier/registry_test.exs

@@ -1,11 +1,15 @@
 Main has moved on since your last ticket: the team merged its own version of it, and other work landed.
 
-**Ticket 5: a stale execution can't overwrite a newer one**
+**Ticket 5: listeners that survive a notifier crash**
 
-When the same job ends up executing twice (an orphan rescued and run again, say), the older execution's ack can land after the newer one finished and transition the job back out of `completed`, e.g. to `retryable` or `scheduled`.
+Each notifier tracks its listeners in its own process state, so when the notifier crashes every registration is lost, and `Oban.Queues` and `Oban.Sonar` carry monitor-and-resubscribe code to cope. Keep registrations somewhere that outlives the notifier instead.
 
-Acking must only touch the execution it belongs to. In the Basic, Lite and Dolphin engines, `complete_job/2`, `discard_job/2`, `error_job/3`, `snooze_job/3`, and `cancel_job/2` for a job carrying an `unsaved_error` (the executor cancelling its own job) apply only when the row is still `executing` and its `attempted_at` is the one on the job struct passed in. Otherwise they change nothing, errors included, and still return `:ok`.
-
-One exception: a job cancelled from outside while it runs (`Oban.cancel_job/2`) is already `cancelled` when the executor's own cancel ack arrives. That ack still applies, so the attempt's error is recorded in the job's `errors`.
-
-`cancel_job/2` without an `unsaved_error` (a cancel from outside) keeps its current behaviour.
+- New module `Oban.Notifier.Registry`, an Elixir `Registry` started by the Oban application (`Oban.Application`), keyed per Oban instance and channel. Its functions take an `%Oban.Config{}`:
+  - `register(conf, channel)` and `unregister(conf, channel)`, for the calling process, returning `:ok`. Registering a channel twice records one listener.
+  - `listeners(conf, channel)`: the pids listening on that channel of that instance.
+  - `channels(conf)`: the channels with at least one listener on that instance.
+  A listener that exits is dropped from the registry with no work from anyone.
+- `Oban.Notifier.listen/2` and `unlisten/2` record the registration there, then tell the notifier. `listen/2` returns `:ok` even when the notifier is down or restarting: the registration stands and the notifier picks it up when it comes back.
+- Every notifier delivers to the listeners in the registry. Isolated and PG drop their own listener tracking. Postgres `LISTEN`s, on every connect including a reconnect after a crash, on all channels that have registered listeners, and `UNLISTEN`s a channel only once no listener is left on it.
+- A process that listened before a notifier crash gets notifications after the restart without listening again. The resubscribe code in `Oban.Queues` and the re-listen on each ping in `Oban.Sonar` can go.
+- `Oban.Notifier.relay/4`, which takes an explicit list of pids, stays for external notifiers that track their own listeners.
