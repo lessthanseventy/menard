@@ -1287,6 +1287,26 @@ defmodule Menard.HooksTest do
     assert why =~ "then clause get"
   end
 
+  test "a red gate with nothing parsed still says what it was" do
+    # hooks_test.exs:566 at load 22-30: a red gate refused with nothing under it. A reply with no
+    # failures, no tail and nothing on stderr still says what it was, and where its log is
+    red = fn reply ->
+      lib = Path.expand("hooks/lib.sh")
+      err = Path.join(System.tmp_dir!(), "menard-red-#{System.unique_integer([:positive])}")
+      File.write!(err, "")
+
+      # lib.sh reads the hook's payload from stdin as it is sourced
+      {out, 0} = System.cmd("bash", ["-c", ~s(source "$0" </dev/null; red_lines "$1" "$2"), lib, reply, err])
+
+      File.rm(err)
+      out
+    end
+
+    assert red.(~s({"ok":false,"failures":[{"kind":"test","at":"a:1","message":"boom"}]})) =~ "test a:1 boom"
+    assert red.("") =~ "no answer"
+    assert red.(~s({"ok":false,"failures":[],"log":"/tmp/x.log"})) =~ "/tmp/x.log"
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

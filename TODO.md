@@ -33,9 +33,6 @@ commit lands.
 
 
 
-- The commit gate refused with a red gate and no failures in it ("the project's gate (what CI
-  runs) is red: DIR:\n\nFix these"), hooks_test.exs:566, in a full gate at load 22-30
-  (2026-10-01); green alone. A red gate with nothing parsed should say why (the tail, a timeout).
 
 - bin_test's build tests (bin_test.exs:73, :229) failed in a full gate while the agent ran an
   unfrozen `bin/menard` beside it (2026-10-01); green alone. They change the `_build` every other

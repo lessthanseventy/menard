@@ -25,5 +25,12 @@ red_lines() {
   why=$(jq -r '(.failures // [])[:15][] | "  \(.kind) \(.at // "") \(.message | split("\n")[0])"' <<<"$1" 2>/dev/null)
   [[ -n "$why" ]] || why=$(jq -r '.tail // empty' <<<"$1" 2>/dev/null | tail -12)
   [[ -n "$why" ]] || why=$(tail -12 "$2")
+  # nothing parsed, no tail, nothing on stderr (a run stopped under load): say so, and where its log
+  # is, rather than a refusal with nothing under it
+  if [[ -z "$why" ]]; then
+    local log
+    log=$(jq -r '.log // empty' <<<"$1" 2>/dev/null)
+    why="  menard run check gave no answer it could read${log:+; its log: $log}"
+  fi
   printf '%s' "$why"
 }
