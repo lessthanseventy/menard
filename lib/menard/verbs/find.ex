@@ -37,9 +37,32 @@ defmodule Menard.Verbs.Find do
           file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
         end)
 
-      {:ok, with_lsp(%{hits: hits}, p, files)}
+      {:ok, %{hits: hits} |> with_lsp(p, files) |> with_mentions(p.target, files)}
     end
   end
+
+  # Nothing found, where the name is written: `{"hits":[]}` for a config key (Oban 01) sent the
+  # agent back to grep. Its first few lines as text, the name as a word.
+  defp with_mentions(%{hits: []} = reply, target, files) do
+    name = target |> String.split("/") |> hd() |> String.split(".") |> List.last()
+    word = ~r/(?<![\w?!])#{Regex.escape(name)}(?![\w?!])/
+
+    mentions =
+      files
+      |> Stream.flat_map(fn file ->
+        file
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.with_index(1)
+        |> Enum.filter(fn {line, _} -> line =~ word end)
+        |> Enum.map(fn {line, n} -> "#{file}:#{n}: #{String.trim(line)}" end)
+      end)
+      |> Enum.take(5)
+
+    if mentions == [], do: reply, else: Map.put(reply, :mentions, mentions)
+  end
+
+  defp with_mentions(reply, _target, _files), do: reply
 
   # `calls` of `Mod.fun` also asks the language server, which sees the calls the AST cannot: one
   # through an `import`, a `defdelegate`, a `use`, an `apply`. What only it found is a `reference`,
