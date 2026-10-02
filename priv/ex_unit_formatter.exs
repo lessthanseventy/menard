@@ -161,10 +161,21 @@ defmodule Menard.ExUnitFormatter do
       for {_m, _f, _a, location} = entry <- stack,
           file = location[:file],
           String.starts_with?(Path.relative_to_cwd(to_string(file)), ["lib/", "test/"]),
-          do: Exception.format_stacktrace_entry(entry)
+          frame = Exception.format_stacktrace_entry(entry),
+          # each application's frame is printed `(app 1.0.0) lib/…`: elixir's own lib/file.ex is not
+          # the project's, its own app is, and a test file's has no app
+          own?(frame),
+          do: frame
 
     if frames == [], do: nil, else: Enum.take(frames, 3)
   end
+
+  defp own?("(" <> _ = frame) do
+    app = Mix.Project.config()[:app]
+    app != nil and String.starts_with?(frame, "(#{app} ")
+  end
+
+  defp own?(_frame), do: true
 
   defp message(:error, %ExUnit.AssertionError{message: message}, _stack), do: message
 
