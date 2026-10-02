@@ -19,7 +19,9 @@ defmodule Menard.Verbs.Find do
       defdelegate, an apply) comes back as `kind: reference`, and `lsp` says what answered.
       """,
       fields: [
-        {:kind, :enum, [values: ["calls", "defs", "aliases"], required: true]},
+        # `verb` as every other noun names it, `kind` as find always has: either, one needed
+        {:kind, :enum, [values: ["calls", "defs", "aliases"]]},
+        {:verb, :enum, [values: ["calls", "defs", "aliases"]]},
         {:target, :string, [required: true]},
         {:files, {:list, :string}, [required: true]}
       ]
@@ -27,6 +29,10 @@ defmodule Menard.Verbs.Find do
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
+  # `verb` for `kind`, as every other noun takes it (Fable's review, 2026-10-01)
+  def run(%{verb: verb} = p) when is_binary(verb) and not is_map_key(p, :kind),
+    do: p |> Map.delete(:verb) |> Map.put(:kind, verb) |> run()
+
   def run(p) do
     with :ok <- need(p, [:kind, :target], "find"),
          {:ok, finder} <- finder(p.kind, p.target),
@@ -152,7 +158,8 @@ defmodule Menard.Verbs.Find do
   defp patterns(%{files: [_ | _] = files} = p), do: resolve_all(files, p)
   defp patterns(_p), do: {:error, "find needs files"}
 
-  defp finder("calls", target), do: {:ok, &Find.calls(&1, target)}
+  # a call is found by name: `Mod.fun/2`'s arity, the address the other verbs take, refused it
+  defp finder("calls", target), do: {:ok, &Find.calls(&1, target |> String.split("/") |> hd())}
   defp finder("defs", target), do: {:ok, &Find.defs(&1, target)}
   defp finder("aliases", target), do: {:ok, &Find.aliases(&1, target)}
 
