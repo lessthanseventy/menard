@@ -1359,6 +1359,39 @@ defmodule Menard.HooksTest do
     assert read.("PreToolUse") == :quiet
   end
 
+  @tag :tmp_dir
+  test "a session's start sweeps menard's files a week old", %{tmp_dir: dir} do
+    # Fable 2026-10-01: 7,022 menard-* files in /tmp, 5,054 of them per-session marks, and 378 run-log
+    # directories, and nothing swept them. A session's start sweeps what is a week old
+    old = System.os_time(:second) - 8 * 24 * 3600
+    mark = Path.join(dir, "menard-touched-oldsession")
+    recent = Path.join(dir, "menard-touched-thissession")
+    File.write!(mark, "")
+    File.write!(recent, "")
+    File.touch!(mark, old)
+
+    logs =
+      Path.join([
+        System.tmp_dir!(),
+        "menard-run",
+        "sweep-test-#{System.pid()}-#{System.unique_integer([:positive])}"
+      ])
+
+    File.mkdir_p!(logs)
+    File.write!(Path.join(logs, "x.log"), "")
+    File.touch!(Path.join(logs, "x.log"), old)
+    File.touch!(logs, old)
+
+    Menard.Hook.run(
+      %{"hook_event_name" => "SessionStart", "source" => "startup", "session_id" => "s", "cwd" => dir},
+      state_dir: dir
+    )
+
+    refute File.exists?(mark)
+    assert File.exists?(recent)
+    refute File.exists?(logs)
+  end
+
   defp bigread(payload, dir) do
     input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
     File.write!(input, JSON.encode!(payload))

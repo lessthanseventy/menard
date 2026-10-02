@@ -138,6 +138,8 @@ defmodule Menard.Hook do
     if hook.source == "compact",
       do: Enum.each(Path.wildcard(Path.join(hook.state, "menard-read-*-#{hook.session}")), &File.rm/1)
 
+    sweep(hook.state)
+
     {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
   end
 
@@ -265,6 +267,23 @@ defmodule Menard.Hook do
   end
 
   defp menard, do: Menard.bin()
+
+  # What a week-old session left: its marks and reads, and a project's run logs (/tmp held 7,022
+  # menard files and 378 log directories, and nothing swept them; Fable's review, 2026-10-01)
+  defp sweep(state) do
+    week_ago = System.os_time(:second) - 7 * 24 * 3600
+    old? = fn path -> match?({:ok, %{mtime: m}} when m < week_ago, File.stat(path, time: :posix)) end
+
+    for file <- Path.wildcard(Path.join(state, "menard-*")),
+        File.regular?(file),
+        old?.(file),
+        do: File.rm(file)
+
+    for logs <- Path.wildcard(Path.join([System.tmp_dir!(), "menard-run", "*"])),
+        File.dir?(logs),
+        Enum.all?([logs | Path.wildcard(Path.join(logs, "*"))], old?),
+        do: File.rm_rf(logs)
+  end
 
   # Unchanged since it was read: what was read is what it holds (worked 5 of 5). Changed, it is read:
   # answered with the diff, 3 of 6 were read at once anyway (`cat`), the diff, the file and a turn all
