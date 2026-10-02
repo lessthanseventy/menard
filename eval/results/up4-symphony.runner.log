@@ -1,0 +1,20 @@
+22:13 up4-symphony trackers basis: agent 8675978efa5c3cae, graders 55c2cc0c895fb885, 2.1.283 (Claude Code)
+22:13 up4-symphony seed=3076340806 arms=with, and without where there is no baseline menard=82ebec8
+22:13 up4-symphony trackers claude-sonnet-5: without is the baseline, 1 rows on this basis
+22:13 up4-symphony trackers claude-opus-5-5: without is the baseline, 1 rows on this basis
+22:13 up4-symphony trackers.with.claude-opus-5-5.1: resumed at 02
+  2 process(es) left running in the workspace, killed
+22:20 up4-symphony trackers.with.claude-opus-5-5.1 step 02: PASS turns=21 out=12456 new_in=31854 agent_s=417.9 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+22:27 up4-symphony trackers.with.claude-opus-5-5.1 step 03: PASS turns=26 out=16130 new_in=37376 agent_s=408.8 | 250 tests, 0 failures, 2 skipped
+  2 process(es) left running in the workspace, killed
+22:31 up4-symphony trackers.with.claude-opus-5-5.1 step 04: PASS turns=14 out=8495 new_in=26789 agent_s=191.5 | 291 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+22:34 up4-symphony trackers.with.claude-opus-5-5.1 step 05: PASS turns=14 out=12075 new_in=27154 agent_s=157.3 | 299 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+22:37 up4-symphony trackers.with.claude-opus-5-5.1 step 06: PASS turns=13 out=10129 new_in=20506 agent_s=167.6 | 299 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+22:40 up4-symphony trackers.with.claude-opus-5-5.1 step 07: PASS turns=16 out=11060 new_in=27130 agent_s=175.8 | 301 tests, 0 failures, 6 skipped
+  2 process(es) left running in the workspace, killed
+22:44 up4-symphony trackers.with.claude-opus-5-5.1 step 08: PASS turns=15 out=10349 new_in=27678 agent_s=185.8 | 303 tests, 0 failures, 6 skipped
+22:44 up4-symphony trackers.with.claude-opus-5-5.1: PASS turns=143 cost=8.662 wall=2216.4s tool_errors=3 red_runs=11 tools={'Bash': 135, 'menard-cli:outline': 1, 'menard-cli:edit': 39, 'menard-cli:run': 26, 'menard-cli:clause': 4}
