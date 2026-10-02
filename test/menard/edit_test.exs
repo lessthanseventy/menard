@@ -20,7 +20,8 @@ defmodule Menard.EditTest do
     :ok
   end
 
-  defp edit(dir, edits, more \\ %{}), do: Verbs.Edit.run(Map.merge(%{root: dir, edits: edits}, more))
+  # as both doors call it: `then` runs in `Menard.Verbs.call/2`
+  defp edit(dir, edits, more \\ %{}), do: Verbs.call(Verbs.Edit, Map.merge(%{root: dir, edits: edits}, more))
   defp read(dir, file), do: File.read!(Path.join(dir, file))
 
   test "every replacement is made, in every file, and each file answers with what changed", %{
@@ -392,4 +393,37 @@ defmodule Menard.EditTest do
     assert why =~ "the same"
     assert why =~ "nothing was written"
   end
+
+  @tag :tmp_dir
+  test "every writing verb takes then, as edit does", %{tmp_dir: dir} do
+    # every writing verb takes `then`, as edit does: a test added with block add was run by a second call
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n\n  test \"one\", do: assert(A.one() == 1)\nend\n"
+    )
+
+    assert {:ok, %{run: run} = reply} =
+             Verbs.call(Verbs.Block, %{
+               root: dir,
+               verb: "add",
+               file: Path.join(dir, "test/a_test.exs"),
+               name: "test",
+               label: "two",
+               code: "assert A.two() == 2",
+               then: "test"
+             })
+
+    assert reply.did =~ "then run test"
+    assert %{ok: true, tests: 2} = run
+
+    assert {:error, why} =
+             Verbs.call(Verbs.Block, %{verb: "list", file: Path.join(dir, "test/a_test.exs"), then: "lint"})
+
+    assert why =~ "no then"
+  end
+
+  @tag :tmp_dir
 end

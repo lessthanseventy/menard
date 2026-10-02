@@ -40,8 +40,11 @@ defmodule Menard.CLI do
     {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
 
     case shaped(noun.cli.shapes, args) do
-      nil -> usage(Noun.usage(noun))
-      params -> answer(verbs.run(given |> flagged(flags) |> Map.merge(from_stdin(params, noun))))
+      nil ->
+        usage(Noun.usage(noun))
+
+      params ->
+        answer(Menard.Verbs.call(verbs, given |> flagged(flags) |> Map.merge(from_stdin(params, noun))))
     end
   end
 

@@ -204,7 +204,8 @@ defmodule Menard.DoorsTest do
     # the tasks written by hand call the verb layer, as the ones made from a noun do
     for task <- Path.wildcard(Path.expand("../../lib/mix/tasks/menard.*.ex", __DIR__)),
         Path.basename(task) != "menard.mcp.ex" do
-      assert File.read!(task) =~ ~r/\bVerbs\.[A-Z]\w+\.run\(/,
+      # a writing verb's through `Verbs.call/2`, where its `then` runs
+      assert File.read!(task) =~ ~r/\bVerbs\.([A-Z]\w+\.run|call)\(/,
              "#{Path.basename(task)} does not call the verb layer"
     end
 
