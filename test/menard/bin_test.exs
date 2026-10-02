@@ -3,6 +3,7 @@ defmodule Menard.BinTest do
   # `run` → one JSON line). Not async: it deletes and rebuilds a build of menard's, its own env's.
   use ExUnit.Case, async: false
 
+  alias Menard.Test.Host
   alias Menard.Verbs.Noun
 
   # A verb run without --frozen compiles menard first, and in a fresh worktree every dep with it:
@@ -257,5 +258,27 @@ defmodule Menard.BinTest do
 
     assert {out, 0} = System.cmd(bin, ["--frozen", "outline", file], env: env, stderr_to_stdout: true)
     assert out =~ "go/0"
+  end
+
+  @tag :tmp_dir
+  test "every VM menard starts has its schedulers' busy wait off, the caller's flags after", %{tmp_dir: dir} do
+    # A VM's schedulers spin while they wait: a one-test `mix test` was 4 CPU-seconds in half a second,
+    # every core busy, and the gate's hundreds of VMs 2,450 CPU-seconds. Every VM menard starts, and
+    # every one those start, has them off; the caller's own ERL_FLAGS come after them, and win
+    Host.mix_project(dir, :quiet)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/quiet_test.exs"), """
+    defmodule QuietTest do
+      use ExUnit.Case
+      test "busy wait is off", do: assert(System.get_env("ERL_FLAGS") =~ ~r/^\\+sbwt none .*\\+S 2$/)
+    end
+    """)
+
+    {out, 0} =
+      System.cmd(@bin, ["run", "test", "--in", dir], env: [{"ERL_FLAGS", "+S 2"}], stderr_to_stdout: true)
+
+    assert out =~ ~s("ok":true)
   end
 end
