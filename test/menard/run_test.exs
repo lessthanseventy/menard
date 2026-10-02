@@ -1000,4 +1000,47 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  test "a check's failed tests run once more; one that passes is a flake, not the change's", %{tmp_dir: dir} do
+    # up4 Oban 01: run check red twice on the notifier's flake, no rerun, and the agent stashed its work
+    # for a baseline; run test said `flaky` in the same step. A check reruns its failed tests too
+    flaky = """
+    defmodule FlakyTest do
+      use ExUnit.Case
+
+      test "once" do
+        marker = Path.join(__DIR__, "ran")
+        first? = not File.exists?(marker)
+        File.write!(marker, "")
+        refute first?
+      end
+    end
+    """
+
+    Host.mix_project(dir, :flakes)
+    File.write!(Path.join(dir, ".formatter.exs"), ~s([inputs: ["test/**/*.exs"]]\n))
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "test/flaky_test.exs"), flaky)
+
+    # no precommit alias: every step ran, so a check whose only failures were flakes is green
+    assert %{ok: true, flaky: [%{name: "once"}]} = Run.lean(Run.result(dir, "check", []))
+
+    # an alias stops at its failing step: what came after did not run, and the check says so
+    File.rm!(Path.join(dir, "test/ran"))
+
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Flakes.MixProject do
+      use Mix.Project
+      def project, do: [app: :flakes, version: "0.1.0", aliases: [precommit: ["test", "compile"]]]
+      def cli, do: [preferred_envs: [precommit: :test]]
+    end
+    """)
+
+    assert %{ok: false, flaky: [%{name: "once"}], failures: [], note: note} =
+             Run.lean(Run.result(dir, "check", []))
+
+    assert note =~ "run check again"
+  end
+
+  @tag :tmp_dir
 end
