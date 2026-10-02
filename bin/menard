@@ -35,6 +35,13 @@ quietly() {
 frozen=0
 [[ "${1:-}" == "--frozen" ]] && { frozen=1; shift; }
 
+# A VM's schedulers spin while they wait: a one-test `mix test` was 4 CPU-seconds in half a second
+# of wall, every core busy, and the gate's hundreds of VMs 2,450 CPU-seconds, loading the machine
+# for every session on it. Off, 0.6, the same wall. Exported, so every VM this one starts (a host's
+# mix, its formatter, the suite a gate runs and the VMs it starts) has them off; the caller's own
+# ERL_FLAGS come after, and win.
+export ERL_FLAGS="+sbwt none +sbwtdcpu none +sbwtdio none${ERL_FLAGS:+ $ERL_FLAGS}"
+
 # deps/ as mix.lock has them. A fresh install has none: git carries neither deps/ nor _build, and
 # nothing runs `mix deps.get` for a cloned Claude Code plugin. And git does not track deps/, so a
 # pull or checkout whose mix.lock gained a dep kept the old ones, and the compile died on
