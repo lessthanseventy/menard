@@ -906,12 +906,8 @@ defmodule Menard.HooksTest do
     File.write!(recent, "")
     File.touch!(mark, old)
 
-    logs =
-      Path.join([
-        System.tmp_dir!(),
-        "menard-run",
-        "sweep-test-#{System.pid()}-#{System.unique_integer([:positive])}"
-      ])
+    name = "sweep-test-#{System.pid()}-#{System.unique_integer([:positive])}"
+    logs = Path.join([System.tmp_dir!(), "menard-run", name <> "-#{System.pid()}"])
 
     File.mkdir_p!(logs)
     File.write!(Path.join(logs, "x.log"), "")
