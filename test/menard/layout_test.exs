@@ -134,4 +134,30 @@ defmodule Menard.LayoutTest do
     twice = String.replace(was, "  defp b, do: 2\n", "  @n 1\n  def c, do: @n\n  @n 2\n  defp b, do: @n\n")
     assert {^twice, []} = Layout.private_last(was, twice)
   end
+
+  test "a new function written between another's clauses goes after its last clause" do
+    # up4 Symphony 01: `clause rewrite` of one clause, a new helper written under it, between the
+    # function's clauses: refused, where edit's own writes move it. Every write moves it
+    was = """
+    defmodule T do
+      def a, do: go(1)
+
+      defp go(1), do: :one
+      defp go(n), do: n
+    end
+    """
+
+    now =
+      String.replace(
+        was,
+        "  defp go(1), do: :one\n",
+        "  defp go(1), do: helped(:one)\n\n  defp helped(x), do: x\n"
+      )
+
+    assert {code, ["helped/1 after the last clause of go/1, not between its clauses"]} =
+             Layout.private_last(was, now)
+
+    assert code ==
+             "defmodule T do\n  def a, do: go(1)\n\n  defp go(1), do: helped(:one)\n  defp go(n), do: n\n\n  defp helped(x), do: x\nend\n"
+  end
 end

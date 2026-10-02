@@ -35,9 +35,51 @@ defmodule Menard.Layout do
     was = shape(original)
     attrs = attributes(original)
     {content, joined} = loop(content, &next_join(&1, was), [])
+    {content, unsplit} = loop(content, &next_split(&1, was), [])
     {content, moved} = loop(content, &next_private(&1, was), [])
     {content, lifted} = loop(content, &next_attribute(&1, attrs), [])
-    {content, joined ++ moved ++ lifted}
+    {content, joined ++ unsplit ++ moved ++ lifted}
+  end
+
+  # A function whose clauses were together, apart now by a definition it did not have: that goes
+  # after its last clause. up4 Symphony 01: a `clause rewrite`, a new helper written under the
+  # clause, refused where edit's own writes moved it.
+  defp next_split({{mod, node}, content}, was) do
+    defs = defs(node)
+    before = Map.get(was, mod, [])
+    old = MapSet.new(before, &elem(&1, 1))
+    indexed = Enum.with_index(defs)
+
+    indexed
+    |> Enum.group_by(fn {{_kind, na}, _i} -> na end, fn {_def, i} -> i end)
+    |> Enum.find_value(fn {na, at} ->
+      new =
+        for {{_, other}, i} <- indexed,
+            i > Enum.min(at),
+            i < Enum.max(at),
+            other != na,
+            other not in old,
+            uniq: true,
+            do: other
+
+      if apart?(at) and together?(before, na) and new != [], do: unsplit(content, mod, na, hd(new))
+    end)
+  end
+
+  defp together?(defs, na) do
+    case for({{_kind, ^na}, i} <- Enum.with_index(defs), do: i) do
+      [] -> false
+      at -> not apart?(at)
+    end
+  end
+
+  defp unsplit(content, mod, na, intruder) do
+    {:ok, spans} = Menard.Clause.spans(content, "#{mod}.#{na}")
+    {:ok, taken} = Menard.Clause.spans(content, "#{mod}.#{intruder}")
+    {_, last} = List.last(spans)
+
+    {"#{intruder} after the last clause of #{na}, not between its clauses",
+     place(content, taken, {:after, last}, true)}
   end
 
   # each module's attribute names, as `shape/1` its definitions
@@ -185,7 +227,7 @@ defmodule Menard.Layout do
   # the lines of `spans` (0-based `{a, b}`) taken out and put back before line `to`, or after it, a
   # blank line between them and their new neighbour, and between two where one was; where a span
   # leaves a blank line on each side, one goes
-  defp place(content, spans, to) do
+  defp place(content, spans, to, close \\ false) do
     lines = List.to_tuple(String.split(content, "\n"))
 
     taken =
@@ -194,12 +236,7 @@ defmodule Menard.Layout do
       end)
       |> drop_last_blank()
 
-    gone =
-      MapSet.new(
-        Enum.flat_map(spans, fn {a, b} ->
-          if blank?(lines, a - 1) and blank?(lines, b + 1), do: a..(b + 1), else: a..b
-        end)
-      )
+    gone = MapSet.new(Enum.flat_map(spans, &gone(lines, &1, close)))
 
     Enum.flat_map(0..(tuple_size(lines) - 1), fn i ->
       line = if i in gone, do: [], else: [elem(lines, i)]
@@ -211,6 +248,16 @@ defmodule Menard.Layout do
       end
     end)
     |> Enum.join("\n")
+  end
+
+  # a span's lines, and a blank line beside it: one goes where it had one on each side; taken from
+  # between clauses (`close`), the one above goes too, and they come back together with none between
+  defp gone(lines, {a, b}, close) do
+    cond do
+      blank?(lines, a - 1) and blank?(lines, b + 1) -> a..(b + 1)
+      close and blank?(lines, a - 1) -> (a - 1)..b
+      true -> a..b
+    end
   end
 
   defp blank?(lines, i), do: i >= 0 and i < tuple_size(lines) and String.trim(elem(lines, i)) == ""
