@@ -946,3 +946,17 @@ work a rename verb would save. Not yet read: what the arm with did on the steps 
 03). Found along the way and fixed: piped runs behind `time`/`mise exec`/`cd X;` (9229aff); `edit
 --then test` ran the whole suite (04201ab); the format hook formatted files outside a project's
 formatter inputs (d58e6bc). Open in TODO: a run past the MCP cap answers nothing.
+
+Correction (2026-10-01, Fable's review): the two tables above are output tokens. `run.py` logged
+`input + output`, and input not read from cache is ~1k a session; what the turns wrote to the cache
+was left out. Per session, output / new input (fresh plus written to cache) / both:
+
+| | sonnet without | sonnet with | opus without | opus with |
+|---|---|---|---|---|
+| Symphony | 503k / 1,616k / 2,119k | 461k / 900k / 1,361k | 86k / 253k / 339k | 100k / 274k / 375k |
+| Oban | 189k / 430k / 619k | 255k / 1,071k / 1,326k | 68k / 182k / 250k | 81k / 205k / 286k |
+
+One arm a suite carries a context rewritten after a usage-limit wait expired its cache (Symphony
+sonnet without, Oban sonnet with): their new input is that, not the tools. And a redo after such a
+wait ran the step on the tree before its upstream sync (five steps): fixed in run.py, as is the log
+line, which now says `out=` and `new_in=` apart.

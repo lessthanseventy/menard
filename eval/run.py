@@ -815,7 +815,7 @@ def drop_stale_traces(out_dir, rid, point):
             t.unlink()
 
 
-def agent_turn(cmd, ws, trace, env, snap, label, progress, out_dir):
+def agent_turn(cmd, ws, trace, env, snap, label, progress, out_dir, after_restore=None):
     """run_agent, and when the API's limit rather than the agent ended it: the attempt kept aside as
     `<trace>.interruptedN.log` with its tokens under progress["interrupted"] (not the step's), the
     limit waited out, the run put back as `snap` holds it (the suite's cleanup too: its databases and
@@ -839,6 +839,10 @@ def agent_turn(cmd, ws, trace, env, snap, label, progress, out_dir):
         if CURRENT:
             cleanup(*CURRENT, fresh=True)
         restore(snap, ws, env, [hit["session_id"], progress["sid"]])
+        # the checkpoint is the tree before the step's upstream sync: a redo that skipped it ran the
+        # step on the tree before main moved on (five steps in up2/up3, Fable's review)
+        if after_restore:
+            after_restore()
         progress["_paused"] += time.time() - started
         save_progress(snap, progress)
     raise RoundStop(f"{label}: the API's limit ended it {MAX_REDOS} times ({hit['reason'][:150]});"
@@ -882,7 +886,8 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
         before = checkpoint(ws, env, progress, step.name)
         sync_upstream(step, ws)
         cmd = claude_cmd((step / "prompt.md").read_text().strip(), model, arm, resume=sid, persist=True)
-        timed_out, t0 = agent_turn(cmd, ws, trace, env, before, step.name, progress, out_dir)
+        timed_out, t0 = agent_turn(cmd, ws, trace, env, before, step.name, progress, out_dir,
+                                   after_restore=lambda step=step: sync_upstream(step, ws))
         # the agent's own wall, apart from the grading after it (~200 s a session in focus2)
         agent_wall = round(time.time() - t0, 1)
         m = trace_metrics(trace, ws)
@@ -905,7 +910,10 @@ def run_steps(case_dir, arm, model, rid, ws, out_dir, env, progress):
                       "agent_wall_s": agent_wall, "timed_out": timed_out, **m})
         s = steps[-1]
         log(f"{time.strftime('%H:%M')} {out_dir.name} {rid} step {step.name}: {'PASS' if s['pass'] else 'FAIL'}"
-            f" turns={s['turns']} tokens={s['tokens']['input'] + s['tokens']['output']} agent_s={agent_wall}"
+            # output, and the input not read from cache (fresh plus written to it): what was
+            # `tokens` summed input and output, ~1k of input a session, and read as both (Fable)
+            f" turns={s['turns']} out={s['tokens']['output']}"
+            f" new_in={s['tokens']['input'] + s['tokens']['cache_write']} agent_s={agent_wall}"
             f"{' TIMED OUT' if timed_out else ''} | {s['check'].splitlines()[-1] if s['check'] else ''}")
         if timed_out or not sid:
             break
