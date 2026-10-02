@@ -225,4 +225,17 @@ defmodule Menard.FindTest do
 
     assert out =~ "no calls of insert_trigger"
   end
+
+  @tag :tmp_dir
+  test "find takes a target with its arity, and verb for kind", %{tmp_dir: dir} do
+    # Fable 2026-10-01: find took `kind` where every other noun takes `verb`, and refused `Mod.fun/2`
+    file = Path.join(dir, "f.ex")
+    File.write!(file, "defmodule F do\n  def go(x), do: Shop.Cart.total(x)\nend\n")
+
+    assert {:ok, %{hits: [%{line: 2}]}} =
+             Menard.Verbs.Find.run(%{kind: "calls", target: "Shop.Cart.total/1", files: [file]})
+
+    assert {:ok, %{hits: [%{line: 2}]}} =
+             Menard.Verbs.Find.run(%{verb: "calls", target: "Shop.Cart.total", files: [file]})
+  end
 end
