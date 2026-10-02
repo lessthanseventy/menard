@@ -1096,4 +1096,39 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  test "a failing test the agent is writing carries no source and is not run again; an older one keeps both",
+       %{tmp_dir: dir} do
+    # Fable 2026-10-01: a failure's `source` was 44% of red replies, in a TDD loop the test written one
+    # call before; and every expected red was run a second time for flakes. A test file changed since
+    # HEAD is the agent's own: no source, no rerun. One unchanged keeps both
+    Host.mix_project(dir, :tdd)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/old_test.exs"),
+      "defmodule OldTest do\n  use ExUnit.Case\n  test \"old\", do: assert(1 == 2)\nend\n"
+    )
+
+    git = &System.cmd("git", ["-C", dir | &1], stderr_to_stdout: true)
+    git.(["init", "-q"])
+    git.(["add", "."])
+    git.(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"])
+
+    File.write!(
+      Path.join(dir, "test/new_test.exs"),
+      "defmodule NewTest do\n  use ExUnit.Case\n  test \"new\", do: assert(1 == 3)\nend\n"
+    )
+
+    # the new test alone: expected red, no source, and run once
+    log = Run.result(dir, "test", ["test/new_test.exs"])
+    assert [%{name: "new"} = new] = log.failures
+    refute Map.has_key?(new, :source)
+    refute File.exists?(log.log <> ".rerun.exunit")
+
+    # the old one: its source, as a regression's
+    assert %{failures: [%{name: "old", source: _}]} = Run.result(dir, "test", ["test/old_test.exs"])
+  end
+
+  @tag :tmp_dir
 end

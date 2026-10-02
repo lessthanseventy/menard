@@ -207,10 +207,16 @@ defmodule Menard.Run do
     # `at` relative to the project, however mix printed it: under a precommit alias ExUnit prints
     # absolute paths, and the same failure must not look different by which verb found it
     prefix = Path.expand(root) <> "/"
+    # a test file changed since HEAD is the agent's own, its test written a call ago: its body said
+    # back was 44% of red replies (Fable's review, 2026-10-01)
+    changed = changed_tests(root)
 
     sourced = fn f ->
       f = if is_binary(f[:at]), do: %{f | at: String.replace_prefix(f.at, prefix, "")}, else: f
-      if f[:kind] == "test", do: Map.put(f, :source, source_of(f[:at], root)), else: f
+
+      if f[:kind] == "test" and not changed?(f[:at], changed),
+        do: Map.put(f, :source, source_of(f[:at], root)),
+        else: f
     end
 
     %{result | failures: Enum.map(failures, sourced)}
@@ -505,7 +511,7 @@ defmodule Menard.Run do
     first = tested(run, args, run.log <> ".exunit")
     if first.ok and full?(args), do: warm_stale(run)
 
-    if rerun?(first, args),
+    if rerun?(first, args, run.dir),
       do:
         flakes(first, tested(run, List.delete(args, "--stale") ++ ["--failed"], run.log <> ".rerun.exunit")),
       else: first
@@ -824,7 +830,7 @@ defmodule Menard.Run do
   # after the tests too, so none left is green; an alias stops at the task that failed, and what came
   # after it never ran: red still, and the reply says why
   defp check_flakes(run, reply) do
-    if rerun?(reply, []) do
+    if rerun?(reply, [], run.dir) do
       again = flakes(reply, tested(run, ["--failed"], run.log <> ".rerun.exunit"))
 
       cond do
@@ -858,12 +864,33 @@ defmodule Menard.Run do
         not Enum.any?(args, &(&1 in ["--stale", "--failed", "--only"]))
 
   # red with test failures alone, few enough to run again, and not a run that is itself a rerun
-  defp rerun?(%{ok: false, failures: [_ | _] = failures}, args) do
+  # and one at least in a test file unchanged since HEAD: a red of the agent's own new test is the
+  # red it wrote, no flake to look for (Fable's review)
+  defp rerun?(%{ok: false, failures: [_ | _] = failures}, args, dir) do
+    changed = changed_tests(dir)
+
     length(failures) <= 10 and Enum.all?(failures, &(&1[:kind] == "test" and &1[:at] != nil)) and
+      Enum.any?(failures, &(not changed?(&1.at, changed))) and
       not Enum.any?(args, &(&1 in ["--failed", "--repeat-until-failure"]))
   end
 
-  defp rerun?(_first, _args), do: false
+  defp rerun?(_first, _args, _dir), do: false
+
+  # the files changed since HEAD, tracked and untracked, from `dir`; :unknown outside git
+  defp changed_tests(dir) do
+    git = &System.cmd("git", ["-C", dir | &1], stderr_to_stdout: true)
+
+    with {diff, 0} <- git.(["diff", "--name-only", "--relative", "HEAD"]),
+         {new, 0} <- git.(["ls-files", "--others", "--exclude-standard"]) do
+      MapSet.new(String.split(diff <> "\n" <> new, "\n", trim: true))
+    else
+      _ -> :unknown
+    end
+  end
+
+  defp changed?(_at, :unknown), do: false
+  defp changed?(at, changed) when is_binary(at), do: MapSet.member?(changed, at |> String.split(":") |> hd())
+  defp changed?(_at, _changed), do: false
 
   # a failure that passed again is a flake; one that failed again stands. A rerun that ran nothing
   # (it did not compile, mix refused) says nothing, and the first run is the answer
