@@ -61,7 +61,7 @@ defmodule Menard.WriteReplyTest do
 
       assert {:ok, reply} = Menard.write(file, patched)
       disk = File.read!(file)
-      expected = "sha256:" <> Base.encode16(:crypto.hash(:sha256, disk), case: :lower)
+      expected = "sha256:" <> binary_part(Base.encode16(:crypto.hash(:sha256, disk), case: :lower), 0, 12)
       assert reply.version == expected
     end
 
@@ -234,7 +234,8 @@ defmodule Menard.WriteReplyTest do
       File.touch!(recent, now - 6 * 24 * 3600)
       on_exit(fn -> Enum.each([old, recent], &File.rm/1) end)
 
-      assert "sha256:" <> _ = Menard.remember("defmodule Pruned do\nend\n")
+      # once a VM, not on every write
+      assert :ok = Menard.prune_versions()
       refute File.exists?(old)
       assert File.exists?(recent)
     end
