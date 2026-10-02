@@ -84,6 +84,8 @@ defmodule Menard.Hook do
   defp call(payload) do
     %{
       event: payload["hook_event_name"] || "",
+      # a session's start: startup, resume, clear or compact
+      source: payload["source"],
       tool: payload["tool_name"] || "",
       input: payload["tool_input"] || %{},
       response: payload["tool_response"] || %{},
@@ -127,7 +129,10 @@ defmodule Menard.Hook do
   # A shell command: a mark before it, and after it every Elixir file newer than the mark. One mark
   # per call: per session, a second call in flight moved the first one's mark past the files it had
   # written, and they went unformatted.
-  # what is so in this session, said before its first call (`Menard.Scripts`)
+  # what is so in this session, said before its first call (`Menard.Scripts`); a resumed session has
+  # it from its start (49 of 57 fires were resumes), a compacted one may have lost it
+  defp tool(%{event: "SessionStart", source: "resume"}), do: :quiet
+
   defp tool(%{event: "SessionStart"}) do
     {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
   end
@@ -169,15 +174,8 @@ defmodule Menard.Hook do
     command = hook.input["command"] || ""
 
     case Scripts.refused(command, menard(), hook.root) do
-      nil ->
-        hook |> marked() |> piped(hook)
-
-      why ->
-        # a read with one call in its place runs as that call, the rest of the command beside it
-        case Scripts.in_place(command, menard(), hook.root) do
-          nil -> {:deny, why}
-          instead -> {:rewrite, Map.put(hook.input, "command", instead)}
-        end
+      nil -> hook |> marked() |> piped(hook)
+      why -> {:deny, why}
     end
   end
 

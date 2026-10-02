@@ -18,8 +18,9 @@ with the plugin as a skill, and it is the one copy of that reference.
 - Found a bug and can't fix it now? It goes in `TODO.md`, not a chat message.
 
 **This repo is where menard is dogfooded.** You work under the same hooks every user does: no
-python/perl/ruby/node, a function read with `clause get` rather than `grep -A`/`sed -n`, callers
-with `find`. When menard gets in your way, that is the finding, not a detour:
+python/perl/ruby/node, and menard's replies read whole. Its reading aids (`outline`, `clause get`,
+`find`) and its refactoring verbs are there when you want them, not the required path: reads by
+grep and sed run. When menard gets in your way, that is the finding, not a detour:
 
 - a refusal that is wrong, or points at a call that answers nothing: fix the refusal;
 - a verb you skipped for a workaround (`edit` to delete four functions because `clause delete`

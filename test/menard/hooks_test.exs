@@ -1117,7 +1117,7 @@ defmodule Menard.HooksTest do
     start = JSON.decode!(out)["hookSpecificOutput"]
     assert start["hookEventName"] == "SessionStart"
     assert start["additionalContext"] =~ "There is no python"
-    assert start["additionalContext"] =~ "#{@root}/bin/menard edit --then test"
+    assert start["additionalContext"] =~ "#{@root}/bin/menard edit --then compile"
     assert start["additionalContext"] =~ "#{@root}/bin/menard clause get FILE NAME"
 
     for command <- [python, "python3 -c 'print(1)'"] do
@@ -1259,33 +1259,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "a Bash read with one menard call in its place runs as that call, the rest of the command beside it",
-       %{tmp_dir: dir} do
-    File.mkdir_p!(Path.join(dir, "lib"))
-    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def go(x) do\n    x\n  end\nend\n")
-
-    bash = fn command ->
-      Menard.Hook.run(
-        %{
-          "hook_event_name" => "PreToolUse",
-          "tool_name" => "Bash",
-          "session_id" => "b1",
-          "tool_use_id" => "t#{System.unique_integer([:positive])}",
-          "cwd" => dir,
-          "tool_input" => %{"command" => command}
-        },
-        state_dir: dir
-      )
-    end
-
-    assert {:rewrite, %{"command" => command}} = bash.(~s(ls lib; grep -n "def go" -A 5 lib/a.ex))
-    assert command =~ ~r/^ls lib; \S*menard clause get lib\/a.ex go$/
-
-    # no one call in its place: refused, saying why
-    File.write!(Path.join(dir, "lib/b.ex"), "defmodule B do\nend\n")
-    assert {:deny, why} = bash.(~s(grep -n "def go" -A 5 lib/a.ex lib/b.ex))
-    assert why =~ "then clause get"
-  end
 
   test "a red gate with nothing parsed still says what it was" do
     # hooks_test.exs:566 at load 22-30: a red gate refused with nothing under it. A reply with no
@@ -1336,6 +1309,25 @@ defmodule Menard.HooksTest do
     session = "stale#{System.unique_integer([:positive])}"
     assert hook.(session) =~ "restart Claude Code"
     refute hook.(session) =~ "restart Claude Code"
+  end
+
+  @tag :tmp_dir
+  test "the session's start says what is so once, not again on a resume", %{tmp_dir: dir} do
+    # Fable 2026-10-01: said again on every resume (49 of 57 fires), and its example's `--then test`
+    # was taken on 28 of 37 edits, the suite red mid-change. Reads are no longer refused, and the
+    # verbs are there when wanted, not the required path
+    start = fn source ->
+      Menard.Hook.run(
+        %{"hook_event_name" => "SessionStart", "source" => source, "session_id" => "s", "cwd" => dir},
+        state_dir: dir
+      )
+    end
+
+    assert {:context, text} = start.("startup")
+    assert text =~ "--then compile"
+    refute text =~ "are refused"
+    assert {:context, _} = start.("compact")
+    assert start.("resume") == :quiet
   end
 
   defp bigread(payload, dir) do
