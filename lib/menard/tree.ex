@@ -50,9 +50,10 @@ defmodule Menard.Tree do
       [node] ->
         {:ok, node}
 
+      # named by its last parts (`Tracker` for SymphonyElixir.Config.Schema.Tracker, up4 Symphony
+      # 01): the one whose name ends so, where one does; several are named, not guessed between
       [] ->
-        {:error,
-         "no module #{module} in this file — have: #{Enum.map_join(modules(ast), ", ", &elem(&1, 0))}"}
+        by_suffix(ast, module)
 
       # `if Code.ensure_loaded?(X) do defmodule M … else defmodule M … end`: an edit went to the first
       # whichever was meant
@@ -128,4 +129,18 @@ defmodule Menard.Tree do
   defp modules_in({a, b}, parent), do: modules_in(a, parent) ++ modules_in(b, parent)
   defp modules_in(list, parent) when is_list(list), do: Enum.flat_map(list, &modules_in(&1, parent))
   defp modules_in(_leaf, _parent), do: []
+
+  defp by_suffix(ast, module) do
+    case for {name, _} <- modules(ast), String.ends_with?(name, "." <> module), uniq: true, do: name do
+      [full] ->
+        module_scope(ast, full)
+
+      [_, _ | _] = ends ->
+        {:error, "#{module} could be any of #{Enum.join(ends, ", ")}: name one"}
+
+      [] ->
+        {:error,
+         "no module #{module} in this file — have: #{Enum.map_join(modules(ast), ", ", &elem(&1, 0))}"}
+    end
+  end
 end
