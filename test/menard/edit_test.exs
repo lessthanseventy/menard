@@ -451,4 +451,37 @@ defmodule Menard.EditTest do
   end
 
   @tag :tmp_dir
+  test "then takes the test files to run, where the change's are not its files' mirror", %{tmp_dir: dir} do
+    # a change whose tests are not the mirror of its files (a formatter in priv/, its tests in
+    # run_test.exs) named them, and ran them by a second call: `then` takes the files
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n  test \"a\", do: :ok\nend\n"
+    )
+
+    File.write!(
+      Path.join(dir, "test/b_test.exs"),
+      "defmodule BTest do\n  use ExUnit.Case\n  test \"b\", do: assert(A.two() == 22)\nend\n"
+    )
+
+    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+             edit(dir, [%{file: "lib/a.ex", old: "def two, do: 2", new: "def two, do: 22"}], %{
+               then: "test test/b_test.exs"
+             })
+
+    assert {:error, why} =
+             edit(dir, [%{file: "lib/a.ex", old: "def two, do: 22", new: "def two, do: 2"}], %{
+               then: "check lib"
+             })
+
+    assert why =~ "only test takes files"
+
+    assert {:error, _} =
+             edit(dir, [%{file: "lib/a.ex", old: "def two, do: 22", new: "def two, do: 2"}], %{then: "lint"})
+  end
+
+  @tag :tmp_dir
 end

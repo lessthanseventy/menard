@@ -7,8 +7,6 @@ defmodule Menard.Verbs.Edit do
 
   import Menard.Verbs
 
-  @then ~w(test check compile)
-
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
   @spec noun() :: Menard.Verbs.Noun.t()
   def noun do
@@ -22,7 +20,8 @@ defmodule Menard.Verbs.Edit do
       that is not there, or is there twice, refuses the whole call and says which: nothing is
       written unless all of it is. Elixir is parse-checked, and every file formatted with its
       project's formatter: the reply says what the formatter changed, and nothing of what you
-      wrote. `then` runs `test`, `check` or `compile` after, its answer in `run`.
+      wrote. `then` runs `test` (the tests of what it changed, or `test FILE…` those files), `check`
+      or `compile` after, its answer in `run`.
       """,
       deadline: 600_000,
       fields: [
@@ -34,14 +33,12 @@ defmodule Menard.Verbs.Edit do
             new: {:required, :string},
             all: :boolean
           }}, [required: true]},
-        {:then, :enum, [values: @then]}
+        {:then, :string, []}
       ]
     }
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
-  def run(%{then: then}) when then not in [nil | @then],
-    do: {:error, "edit has no then #{inspect(then)}: one of #{Enum.join(@then, ", ")}"}
 
   def run(p) do
     with :ok <- need(p, [:edits], "edit"),

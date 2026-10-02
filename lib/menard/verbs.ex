@@ -81,9 +81,18 @@ defmodule Menard.Verbs do
   """
   @spec call(module(), params()) :: result()
   def call(verbs, %{then: then} = params) when is_binary(then) and then != "" do
-    if then in Noun.thens(),
-      do: with({:ok, reply} <- verbs.run(params), do: {:ok, then_run(reply, params)}),
-      else: {:error, "no then #{inspect(then)}: one of #{Enum.join(Noun.thens(), ", ")}"}
+    # `test FILE…`: the test files to run, where a change's tests are not its files' mirror (a
+    # formatter in priv/, its tests in run_test.exs): named, they were run by a second call
+    case String.split(then) do
+      [verb | _] when verb not in ["test", "check", "compile"] ->
+        {:error, "no then #{inspect(verb)}: one of #{Enum.join(Noun.thens(), ", ")}"}
+
+      [verb, _ | _] when verb != "test" ->
+        {:error, "then #{verb} takes no files: only test takes files"}
+
+      [verb | files] ->
+        with {:ok, reply} <- verbs.run(params), do: {:ok, then_run(reply, params, verb, files)}
+    end
   end
 
   def call(verbs, params), do: verbs.run(params)
@@ -168,7 +177,13 @@ defmodule Menard.Verbs do
   # In the mix project of each file it wrote: the nearest mix.exs above it, the root at most. From the
   # root, a repo whose project is server/ (tlon's) mapped no test file, and --stale ran where there
   # was no mix.exs (Fable's review, 2026-10-01). Several projects, a run each, its `dir` named.
-  defp then_run(reply, %{then: verb} = p) do
+  # the files named: those, in the root
+  defp then_run(reply, p, "test", [_ | _] = files) do
+    {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: "test", args: files}))
+    reply |> Map.update(:did, "then run test", &(&1 <> ", then run test")) |> Map.put(:run, run)
+  end
+
+  defp then_run(reply, p, verb, []) do
     root = p[:root] || Menard.caller_dir()
 
     runs =
