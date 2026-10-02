@@ -1,0 +1,14 @@
+22:13 up4-oban notifier basis: agent 31cd9d6b82b740b6, graders 16655a86c4062312, 2.1.283 (Claude Code)
+22:13 up4-oban seed=161851189 arms=with, and without where there is no baseline menard=82ebec8
+22:13 up4-oban notifier claude-sonnet-5: without is the baseline, 1 rows on this basis
+22:13 up4-oban notifier claude-opus-5-5: without is the baseline, 1 rows on this basis
+22:13 up4-oban notifier.with.claude-opus-5-5.1: resumed at 03
+  2 process(es) left running in the workspace, killed
+22:18 up4-oban notifier.with.claude-opus-5-5.1 step 03: PASS turns=26 out=12736 new_in=30478 agent_s=316.0 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+22:21 up4-oban notifier.with.claude-opus-5-5.1 step 04: PASS turns=18 out=11001 new_in=30636 agent_s=148.9 | NOTE: green only on a rerun of the failed
+  2 process(es) left running in the workspace, killed
+22:26 up4-oban notifier.with.claude-opus-5-5.1 step 05: PASS turns=18 out=19770 new_in=39960 agent_s=281.9 | 32 doctests, 9 properties, 351 tests, 0 failures (158 excluded)
+  2 process(es) left running in the workspace, killed
+22:27 up4-oban notifier.with.claude-opus-5-5.1 step 06: PASS turns=6 out=2513 new_in=6137 agent_s=47.9 | NOTE: green only on a rerun of the failed
+22:27 up4-oban notifier.with.claude-opus-5-5.1: PASS turns=98 cost=4.976 wall=1116.5s tool_errors=2 red_runs=5 tools={'Bash': 92, 'menard-cli:edit': 26, 'menard-cli:run': 11}

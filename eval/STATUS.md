@@ -960,3 +960,29 @@ One arm a suite carries a context rewritten after a usage-limit wait expired its
 sonnet without, Oban sonnet with): their new input is that, not the tools. And a redo after such a
 wait ran the step on the tree before its upstream sync (five steps): fixed in run.py, as is the log
 line, which now says `out=` and `new_in=` apart.
+
+### up4-symphony and up4-oban (2026-10-01 20:08 - 22:44): the same replay, with on today's menard, 1 run
+
+The arm with only, against up2/up3's without (same basis: agent and graders hashes, Claude Code
+2.1.283). menard 4f4300c for both sonnet sessions; the opus sessions were cut by a Claude Code
+restart and resumed on 82ebec8 (two fixes later: a new function between another's clauses moved, a
+module named by its last parts), from Oban opus step 03 and Symphony opus step 02 (6db4ff9 keeps a
+round on one build from now). All 28 steps passed. Per session, output / new input (fresh plus
+written to cache), against without and the old with:
+
+| | without | old with (up2/up3) | up4 with |
+|---|---|---|---|
+| Symphony sonnet | 503k / 1,616k* | 461k / 900k | **407k / 828k** |
+| Symphony opus | 86k / 253k | 100k / 274k | **98k / 270k** |
+| Oban sonnet | 189k / 430k | 255k / 1,071k* | **190k / 406k** |
+| Oban opus | 68k / 182k | 81k / 205k | **69k / 180k** |
+
+\* a context rewritten after a usage-limit wait (Symphony sonnet without, step 05: ~730k).
+
+What it says, at one run a cell: sonnet with is 19% under without on Symphony's output and level on
+Oban's (old with: -8% and +35%); opus is level on Oban (old: +20%) and still over on Symphony
+(+14%, its steps small enough that a few thousand tokens swing them). Oban step 03 stays the costly
+one for both models (+89% and +63% output against without), the agent verifying more than without
+does, not a detour. In the traces the changes show: a flake named in check's reply instead of a
+stash for a baseline, excluded tests counted, a Symphony sonnet that leaned on clause (146 calls)
+coming out cheapest. Not yet read in depth: why Symphony opus stays over.
