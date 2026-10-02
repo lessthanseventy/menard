@@ -902,16 +902,31 @@ defmodule Menard.Run do
 
       {:error, :eexist} ->
         cond do
-          not held?(lock) -> File.rm(lock) && take(lock, deadline, waited)
+          not held?(lock) -> unstale(lock) && take(lock, deadline, waited)
           deadline && System.monotonic_time(:millisecond) > deadline -> waited
           true -> Process.sleep(1_000) && take(lock, deadline, waited + 1)
         end
     end
   end
 
-  # by another VM that is alive, or by a check of this one that still runs
-  defp held?(lock) do
-    case File.read(lock) do
+  # A dead holder's lock out of the way. Two waiters that both found it dead each removed "the"
+  # lock, and the second's was the first's new one (Fable's review, 2026-10-01): moved aside by a
+  # rename only one of them wins, and given back when what it moved is a live holder's after all.
+  defp unstale(lock) do
+    aside = "#{lock}.#{System.pid()}-#{System.unique_integer([:positive])}"
+
+    with :ok <- File.rename(lock, aside),
+         true <- held?(lock, aside),
+         do: File.ln(aside, lock)
+
+    File.rm(aside)
+    true
+  end
+
+  # by another VM that is alive, or by a check of this one that still runs (`file`: the lock's
+  # contents, moved aside)
+  defp held?(lock, file \\ nil) do
+    case File.read(file || lock) do
       {:ok, pid} ->
         if String.trim(pid) == System.pid(),
           do: :global.whereis_name({__MODULE__, :check, lock}) != :undefined,
