@@ -494,6 +494,7 @@ defmodule Menard.Run do
     # its failed tests once more, as `run test` does: a flake is not the change's (up4 Oban 01: check
     # red twice on the notifier's, and the agent stashed its work for a baseline)
     reply = check_flakes(run, reply)
+    if reply.ok, do: warm_stale(run)
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
     if formatted == [], do: reply, else: Map.put(reply, :formatted, formatted)
   end
@@ -502,6 +503,7 @@ defmodule Menard.Run do
   # named, not the change's (Oban 01, 04, Symphony 01: the agent stashed its work for a baseline)
   defp verb(run, "test", args) do
     first = tested(run, args, run.log <> ".exunit")
+    if first.ok and full?(args), do: warm_stale(run)
 
     if rerun?(first, args),
       do:
@@ -843,6 +845,17 @@ defmodule Menard.Run do
       reply
     end
   end
+
+  # `--stale` is the tests a change touches since the last `--stale` run, and nothing ran one: cold,
+  # it was every test (1,084 here). A green full run warms it, running nothing (every test excluded),
+  # so the next `--stale` (`then test` where no test file mirrors the change) is the change's tests
+  defp warm_stale(run), do: mix(run, ["test", "--stale", "--exclude", "test"], [])
+
+  # the whole suite: no file named, nor a selection of its own
+  defp full?(args),
+    do:
+      Enum.all?(args, &String.starts_with?(&1, "-")) and
+        not Enum.any?(args, &(&1 in ["--stale", "--failed", "--only"]))
 
   # red with test failures alone, few enough to run again, and not a run that is itself a rerun
   defp rerun?(%{ok: false, failures: [_ | _] = failures}, args) do

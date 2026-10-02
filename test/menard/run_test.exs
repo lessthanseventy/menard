@@ -1069,4 +1069,31 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  test "a green full run warms --stale, so the next is the tests the change touches", %{tmp_dir: dir} do
+    # `--stale` is the tests a change touches since the last `--stale` run, and nothing ran one: cold,
+    # it was every test (1,084 here). A green full run warms it, so `then test`'s fallback is the change's
+    Host.mix_project(dir, :warm)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def a, do: 1\nend\n")
+    File.write!(Path.join(dir, "lib/b.ex"), "defmodule B do\n  def b, do: 2\nend\n")
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n  test \"a\", do: assert(A.a() == 1)\nend\n"
+    )
+
+    File.write!(
+      Path.join(dir, "test/b_test.exs"),
+      "defmodule BTest do\n  use ExUnit.Case\n  test \"b\", do: assert(B.b() == 2)\nend\n"
+    )
+
+    assert %{ok: true, tests: 2} = Run.lean(Run.result(dir, "test", []))
+    Process.sleep(1_100)
+    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def a, do: 1 + 0\nend\n")
+    assert %{ok: true, tests: 1} = Run.lean(Run.result(dir, "test", ["--stale"]))
+  end
+
+  @tag :tmp_dir
 end
