@@ -1,6 +1,7 @@
 defmodule Menard.Piped do
   @moduledoc """
-  A test run piped through `tail`, `head` or `grep`, run through `menard run` in its place.
+  A test run (or a precommit, or a credo) piped through `tail`, `head` or `grep`, run through
+  `menard run` in its place.
 
   Across 288 of the operator's sessions, 90% of test and gate runs were piped to cut their output
   down, and 40% were run again with no edit between, to see a different slice of the same failure:
@@ -22,7 +23,7 @@ defmodule Menard.Piped do
   @piped Regex.compile!(
            ~S/^\s*(?<cd>(?:(?:"[^"]*"|'[^']*'|[^|;&()<>"'\n])+(?:&&|;)\s*)*)(?<time>time\s+)?(?<open>\(\s*)?/ <>
              ~S/(?:\w+=\S*\s+)*(?<mise>mise\s+(?:exec|x)\s+(?:[^\s;&|()]+\s+)*?--\s+)?(?:\w+=\S*\s+)*/ <>
-             ~S/mix\s+(?<task>test|precommit)\b(?<args>[^|;&<>()]*?)(?:\s*2>&1)?(?:/ <>
+             ~S/mix\s+(?<task>test|precommit|credo)\b(?<args>[^|;&<>()]*?)(?:\s*2>&1)?(?:/ <>
              @pipe <> ~S")+(?(<open>)\s*\))\s*$"
          )
 
@@ -49,6 +50,8 @@ defmodule Menard.Piped do
   end
 
   defp verb("precommit", _args), do: "check"
+  defp verb("credo", ""), do: "credo"
+  defp verb("credo", args), do: "credo " <> args
   defp verb("test", ""), do: "test"
   defp verb("test", args), do: "test " <> args
 end
