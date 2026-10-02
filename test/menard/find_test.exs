@@ -204,4 +204,25 @@ defmodule Menard.FindTest do
     # a remote one, once
     assert [%{line: 5}] = Find.calls(source, "Shop.Price.of")
   end
+
+  @tag :tmp_dir
+  test "a directory is the project's own files, and an empty answer says so", %{tmp_dir: dir} do
+    # Fable 2026-10-01: `find calls X .` walked deps/ and _build/, 3,876 files and 2 min, then raised
+    # on a file gone mid-walk. A directory is the project's own files, as the hooks prune it
+    for dir_in <- ~w(lib deps/x/lib _build/dev/lib .git/hooks node_modules/y) do
+      File.mkdir_p!(Path.join(dir, dir_in))
+      File.write!(Path.join([dir, dir_in, "a.ex"]), "defmodule A, do: def go, do: B.run()\n")
+    end
+
+    assert {:ok, [only]} = Find.files([dir])
+    assert only == Path.join(dir, "lib/a.ex")
+
+    # nothing found: the CLI says so, and where the name is written, not nothing at all
+    {out, 0} =
+      System.cmd(Path.expand("bin/menard"), ["find", "calls", "insert_trigger", Path.join(dir, "lib")],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ "no calls of insert_trigger"
+  end
 end

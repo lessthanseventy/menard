@@ -32,10 +32,11 @@ defmodule Menard.Verbs.Find do
          {:ok, finder} <- finder(p.kind, p.target),
          {:ok, patterns} <- patterns(p),
          {:ok, files} <- Find.files(patterns) do
-      hits =
-        Enum.flat_map(files, fn file ->
-          file |> File.read!() |> finder.() |> Enum.map(&Map.put(&1, :file, file))
-        end)
+      # a file without the name in it holds no call or def of it: not parsed (about 10x on a repo);
+      # one gone mid-walk is skipped, not raised on
+      needle = needle(p.target)
+
+      hits = Enum.flat_map(files, &hits_in(&1, needle, finder))
 
       {:ok, %{hits: hits} |> with_lsp(p, files) |> with_mentions(p.target, files)}
     end
@@ -44,14 +45,17 @@ defmodule Menard.Verbs.Find do
   # Nothing found, where the name is written: `{"hits":[]}` for a config key (Oban 01) sent the
   # agent back to grep. Its first few lines as text, the name as a word.
   defp with_mentions(%{hits: []} = reply, target, files) do
-    name = target |> String.split("/") |> hd() |> String.split(".") |> List.last()
-    word = ~r/(?<![\w?!])#{Regex.escape(name)}(?![\w?!])/
+    word = ~r/(?<![\w?!])#{Regex.escape(needle(target))}(?![\w?!])/
 
     mentions =
       files
       |> Stream.flat_map(fn file ->
         file
-        |> File.read!()
+        |> File.read()
+        |> case do
+          {:ok, text} -> text
+          _ -> ""
+        end
         |> String.split("\n")
         |> Enum.with_index(1)
         |> Enum.filter(fn {line, _} -> line =~ word end)
@@ -63,6 +67,17 @@ defmodule Menard.Verbs.Find do
   end
 
   defp with_mentions(reply, _target, _files), do: reply
+
+  defp hits_in(file, needle, finder) do
+    with {:ok, text} <- File.read(file), true <- String.contains?(text, needle) do
+      text |> finder.() |> Enum.map(&Map.put(&1, :file, file))
+    else
+      _ -> []
+    end
+  end
+
+  # the name a hit has in it: `Mod.fun/2`'s `fun`, a module's last part
+  defp needle(target), do: target |> String.split("/") |> hd() |> String.split(".") |> List.last()
 
   # `calls` of `Mod.fun` also asks the language server, which sees the calls the AST cannot: one
   # through an `import`, a `defdelegate`, a `use`, an `apply`. What only it found is a `reference`,
