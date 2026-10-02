@@ -20,6 +20,16 @@ defmodule Menard.Outline do
 
   # Top-level modules; a `defmodule` nested in a body lands under its parent's `modules`, with
   # the full name Elixir gives it (`Parent.Inner`).
+  @doc """
+  An outline as the lines a reader reads: the file and its version, each module, each def by its
+  head and lines, each test by its label. What both doors answer by default: as JSON, one
+  1,950-line file's outline was 26,710 characters against 18,190 as these lines (Fable's review).
+  """
+  @spec text(map()) :: String.t()
+  def text(%{file: file, version: version, modules: modules}) do
+    Enum.join(["#{file}  #{version}" | Enum.flat_map(modules, &module_lines(&1, "  "))], "\n")
+  end
+
   defp modules(ast, parent \\ nil)
   defp modules({:__block__, _, forms}, parent), do: Enum.flat_map(forms, &modules(&1, parent))
 
@@ -131,4 +141,38 @@ defmodule Menard.Outline do
   defp string_first_line(_other), do: nil
 
   defp lines(node), do: Menard.Tree.line_span(node)
+
+  defp module_lines(m, indent) do
+    {a, b} = span(m[:lines])
+    doc = if m[:doc], do: "  — " <> m.doc, else: ""
+
+    ["#{indent}#{m.module}  L#{a}-#{b}#{doc}"] ++
+      Enum.flat_map(m[:defs] || [], &def_lines(&1, indent)) ++
+      test_lines(m[:tests] || [], indent <> "  ") ++
+      Enum.flat_map(m[:modules] || [], &module_lines(&1, indent <> "  "))
+  end
+
+  # a head written over several lines is one here: the outline is a line a def
+  defp def_lines(d, indent) do
+    {a, b} = span(d[:lines])
+    head = if d.head != "", do: " (#{String.replace(d.head, ~r/\s*\n\s*/, " ")})", else: ""
+    doc = if d[:doc], do: "  — " <> d.doc, else: ""
+    # a component's attrs and slots: what calling it takes
+    [
+      "#{indent}  #{d.kind} #{d.name}/#{d.arity}#{head}  L#{a}-#{b}#{doc}"
+      | Enum.map(d[:attrs] || [], &"#{indent}    #{&1}")
+    ]
+  end
+
+  defp test_lines(tests, indent) do
+    Enum.flat_map(tests, fn t ->
+      {a, b} = span(t[:lines])
+      label = if t[:label], do: " " <> inspect(t.label), else: ""
+      ["#{indent}#{t.kind}#{label}  L#{a}-#{b}" | test_lines(t[:tests] || [], indent <> "  ")]
+    end)
+  end
+
+  defp span({a, b}), do: {a, b}
+  defp span([a, b]), do: {a, b}
+  defp span(_lines), do: {0, 0}
 end

@@ -31,7 +31,8 @@ defmodule Menard.Verbs.Outline do
         {:verb, :enum, [values: ["file", "map", "where"]]},
         {:file, :string, []},
         {:at, {:list, :string}, []},
-        {:all, :boolean, []}
+        {:all, :boolean, []},
+        {:json, :boolean, []}
       ]
     }
   end
@@ -86,6 +87,10 @@ defmodule Menard.Verbs.Outline do
     do: {:error, "outline has no verb #{inspect(verb)}: one of #{Enum.join(@verbs, ", ")}"}
 
   def run(p), do: run(Map.put(p, :verb, "file"))
+
+  @doc "A file's outline as its lines, what both doors answer by default (`Menard.Outline.text/1`)."
+  @spec text(map()) :: String.t()
+  def text(reply), do: Menard.Outline.text(reply)
 
   @doc "A module of the map as its line: `Shop.Cart  lib/shop/cart.ex  new/0 add/3 (+3 more)`."
   @spec line(map()) :: String.t()
