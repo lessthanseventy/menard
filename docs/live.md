@@ -193,7 +193,7 @@ The reply is harness-agnostic — one JSON shape, three doors:
 
 | harness | how the reply reaches the agent | guard |
 |---|---|---|
-| Claude Code | MCP tool result (the model sees it directly) | PreToolUse hook (menard-only.sh) |
+| Claude Code | MCP tool result (the model sees it directly) | none: the format hook after every write |
 | pi | MCP tool result (the model sees it directly) | tool_call extension (pi/extension.ts) |
 | opencode | MCP tool result (any MCP client) | its pre-edit hook, or none |
 

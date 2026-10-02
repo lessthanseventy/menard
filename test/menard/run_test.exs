@@ -693,15 +693,6 @@ defmodule Menard.RunTest do
            }
   end
 
-  test "outside a git work tree there is no tree to stamp: nil, not a crash" do
-    # off the repo: ExUnit's tmp_dir sits inside menard's own checkout
-    dir = Path.join(System.tmp_dir!(), "menard-tree-#{System.pid()}-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
-
-    assert Run.tree(dir) == nil
-  end
-
   test "run check says how many tests were skipped, as run test does", %{tmp_dir: dir} do
     # check reads ExUnit's prose, not menard's formatter: `2 tests, 0 failures, 1 skipped` came back
     # as `tests: 2` and no word of the skip

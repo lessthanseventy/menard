@@ -2,8 +2,6 @@ defmodule Menard.HooksTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../..", __DIR__)
-  # a stub menard's red reply (stub_menard/3)
-  @red ~s(echo '{"ok":false,"failures":[{"kind":"test","at":"t.exs:1","message":"red"}]}')
 
   # `sh` is dash on Debian/Ubuntu, and a bash script parsed by dash dies with exit 2 — which a
   # PreToolUse hook reads as "block", so every Edit/Write on every file was refused there.
@@ -25,63 +23,7 @@ defmodule Menard.HooksTest do
     end
   end
 
-  # Installed as a plugin, menard is reachable through CLAUDE_PLUGIN_ROOT, not a repo layout or PATH.
-  test "prefer-menard-run fires for a bare mix test when menard is only reachable as the plugin" do
-    path =
-      "PATH"
-      |> System.get_env()
-      |> String.split(":")
-      |> Enum.reject(&File.exists?(Path.join(&1, "menard")))
-      |> Enum.join(":")
-
-    payload = JSON.encode!(%{tool_name: "Bash", tool_input: %{command: "mix test"}})
-    tmp = Path.join(System.tmp_dir!(), "menard-hooks-#{System.pid()}-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(tmp)
-    on_exit(fn -> File.rm_rf!(tmp) end)
-    input = Path.join(tmp, "payload.json")
-    File.write!(input, payload)
-
-    {_out, status} =
-      System.cmd("bash", ["-c", "bash #{@root}/hooks/prefer-menard-run.sh < #{input}"],
-        env: [{"PATH", path}, {"CLAUDE_PLUGIN_ROOT", @root}, {"CLAUDE_PROJECT_DIR", tmp}],
-        stderr_to_stdout: true
-      )
-
-    assert status == 2
-  end
-
   @tag :tmp_dir
-  test "menard-only blocks an Edit on a module through the guard verb, and passes the rest", %{tmp_dir: dir} do
-    module = Path.join(dir, "a.ex")
-    File.write!(module, "defmodule A do\nend\n")
-    notes = Path.join(dir, "notes.md")
-    File.write!(notes, "hi\n")
-
-    run = fn file ->
-      input = Path.join(dir, "payload.json")
-      File.write!(input, JSON.encode!(%{tool_name: "Edit", tool_input: %{file_path: file}}))
-
-      System.cmd("bash", ["-c", "bash #{@root}/hooks/menard-only.sh < #{input}"],
-        env: [{"CLAUDE_PLUGIN_ROOT", @root}],
-        stderr_to_stdout: true
-      )
-    end
-
-    assert {out, 2} = run.(module)
-    # the plugin's MCP tools by name: CLI lines sent blocked agents to Bash
-    assert out =~ "mcp__plugin_menard_menard__clause"
-    assert {_, 0} = run.(notes)
-
-    # run from a checkout, with no plugin root: menard is the one beside the hook, not none
-    input = Path.join(dir, "payload.json")
-    File.write!(input, JSON.encode!(%{tool_name: "Edit", tool_input: %{file_path: module}}))
-
-    assert {_, 2} =
-             System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/menard-only.sh"), input],
-               env: [{"CLAUDE_PLUGIN_ROOT", nil}],
-               stderr_to_stdout: true
-             )
-  end
 
   @tag :tmp_dir
   test "shell-edits names a module a Bash command changed, and stays quiet otherwise", %{tmp_dir: dir} do
@@ -485,247 +427,24 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "stop-gate refuses the stop while a project the session wrote into is red, and says why", %{
-    tmp_dir: dir
-  } do
-    # agents told CI runs precommit ran it in 0 of 6 sessions (focus1): the gate runs at the stop
-    host(dir)
-    File.mkdir_p!(Path.join(dir, "test"))
-    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
-    File.write!(Path.join(dir, "menard-touched-s1"), dir <> "\n")
-
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s1"}, dir)
-    reply = JSON.decode!(out)
-    assert reply["decision"] == "block"
-    assert reply["reason"] =~ "lib/n.ex"
-
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x), do: x\nend\n")
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s1"}, dir)
-  end
 
   @tag :tmp_dir
-  test "stop-gate runs the tests the change made stale, not the suite", %{tmp_dir: dir} do
-    host(dir)
-    File.mkdir_p!(Path.join(dir, "test"))
-    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 1\nend\n")
-    File.write!(Path.join(dir, "lib/o.ex"), "defmodule O do\n  def g, do: 1\nend\n")
-
-    File.write!(
-      Path.join(dir, "test/n_test.exs"),
-      "defmodule NTest do\n  use ExUnit.Case\n  test \"f\", do: assert(N.f() == 1)\nend\n"
-    )
-
-    # red by a file no module depends on, so no change makes it stale: a suite run would refuse the stop
-    File.write!(
-      Path.join(dir, "test/o_test.exs"),
-      "defmodule OTest do\n  use ExUnit.Case\n  test \"g\", do: refute(File.exists?(\"red\"))\nend\n"
-    )
-
-    # mix tells stale by mtime, to the second: sources older than the build, the build older than
-    # the edit, with no wait for the clock
-    now = System.os_time(:second)
-
-    backdate = fn glob, t ->
-      for f <- Path.wildcard(Path.join(dir, glob), match_dot: true), do: File.touch!(f, t)
-    end
-
-    backdate.("**", now - 20)
-
-    # green once: mix records what is fresh only after a green `--stale` run
-    {_, 0} = System.cmd("mix", ["test", "--stale"], cd: dir, stderr_to_stdout: true)
-    backdate.("_build/**", now - 10)
-    File.write!(Path.join(dir, "red"), "")
-
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 2\nend\n")
-    File.write!(Path.join(dir, "menard-touched-s3"), dir <> "\n")
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s3"}, dir)
-    reason = JSON.decode!(out)["reason"]
-    assert reason =~ "test/n_test.exs"
-    refute reason =~ "test/o_test.exs"
-  end
 
   @tag :tmp_dir
-  test "stop-gate passes a stop with nothing written since it was last green", %{tmp_dir: dir} do
-    host(dir)
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x), do: x\nend\n")
-    File.write!(Path.join(dir, "menard-touched-s4"), dir <> "\n")
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s4"}, dir)
-
-    # red now, but not by a write this session made since: the gate already passed it
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s4"}, dir)
-
-    File.write!(Path.join(dir, "menard-touched-s4"), dir <> "\n" <> dir <> "\n")
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s4"}, dir)
-    assert JSON.decode!(out)["decision"] == "block"
-  end
 
   @tag :tmp_dir
-  test "commit-gate refuses a git commit while a project the session wrote into fails its whole gate", %{
-    tmp_dir: dir
-  } do
-    host(dir)
-    File.mkdir_p!(Path.join(dir, "test"))
-    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 1\nend\n")
-
-    File.write!(
-      Path.join(dir, "test/o_test.exs"),
-      "defmodule OTest do\n  use ExUnit.Case\n  test \"g\", do: assert(N.f() == 2)\nend\n"
-    )
-
-    File.write!(Path.join(dir, "menard-touched-c1"), dir <> "\n")
-
-    commit = %{hook_event_name: "PreToolUse", tool_name: "Bash", session_id: "c1"}
-    {out, 0} = commit_gate(put_in(commit[:tool_input], %{command: "git add -A && git commit -qm wip"}), dir)
-    denied = JSON.decode!(out)["hookSpecificOutput"]
-    assert denied["permissionDecision"] == "deny"
-    assert denied["permissionDecisionReason"] =~ "test/o_test.exs"
-
-    assert {"", 0} = commit_gate(put_in(commit[:tool_input], %{command: "git log --grep=commit"}), dir)
-
-    assert {"", 0} =
-             commit_gate(
-               Map.merge(commit, %{session_id: "c2", tool_input: %{command: "git commit -m x"}}),
-               dir
-             )
-
-    File.write!(
-      Path.join(dir, "test/o_test.exs"),
-      "defmodule OTest do\n  use ExUnit.Case\n  test \"g\", do: assert(N.f() == 1)\nend\n"
-    )
-
-    assert {"", 0} = commit_gate(put_in(commit[:tool_input], %{command: "git commit -m x"}), dir)
-  end
 
   @tag :tmp_dir
-  test "commit-gate knows a git commit behind git's global options, a shell keyword or a wrapper", %{
-    tmp_dir: dir
-  } do
-    host(dir)
-    File.mkdir_p!(Path.join(dir, "my dir"))
-    File.write!(Path.join(dir, "menard-touched-c4"), dir <> "\n")
-    red = stub_menard(dir, "red", @red)
-    gate = fn cmd -> commit_gate(%{session_id: "c4", tool_input: %{command: cmd}}, dir, red) end
-
-    for cmd <- [
-          ~s(git -C "my dir" commit -m x),
-          "git --no-pager commit -m x",
-          "git --git-dir=.git commit -m x",
-          "git -c user.name=x commit -m x",
-          "if true; then git commit -m x; fi",
-          "env A=1 git commit -m x",
-          "time git commit -m x",
-          ~s(bash -c "git commit -m x"),
-          "/usr/bin/git commit -m x"
-        ] do
-      {out, 0} = gate.(cmd)
-      assert out =~ ~s("deny"), "not gated: #{cmd}"
-    end
-
-    for cmd <- ["git log --grep=commit", "git commit-tree HEAD^{tree}", "legit commit"],
-        do: assert({"", 0} = gate.(cmd))
-  end
 
   @tag :tmp_dir
-  test "commit-gate gates the projects of the repo the commit lands in, not every one written into", %{
-    tmp_dir: dir
-  } do
-    [one, two] = for name <- ["one", "two"], do: Path.join(dir, name)
-    host(one)
-    host(two)
-    File.write!(Path.join(dir, "menard-touched-c5"), one <> "\n")
-    red = stub_menard(dir, "red", @red)
-
-    gate = fn cwd, cmd ->
-      commit_gate(%{session_id: "c5", cwd: cwd, tool_input: %{command: cmd}}, dir, red)
-    end
-
-    assert {"", 0} = gate.(two, "git commit -m x")
-    assert {"", 0} = gate.(dir, "git -C two commit -m x")
-    assert {out, 0} = gate.(one, "git commit -m x")
-    assert out =~ ~s("deny")
-    assert {out, 0} = gate.(two, "git -C ../one commit -m x")
-    assert out =~ ~s("deny")
-
-    # a leading cd moves the commit, in the command itself or inside bash -c
-    assert {out, 0} = gate.(two, "cd ../one && git commit -m x")
-    assert out =~ ~s("deny")
-    assert {"", 0} = gate.(one, "cd ../two; git commit -m x")
-    assert {out, 0} = gate.(dir, ~s(bash -c "cd one && git commit -m x"))
-    assert out =~ ~s("deny")
-    assert {out, 0} = gate.(dir, ~s(cd "#{one}" && git add -A && git commit -m x))
-    assert out =~ ~s("deny")
-  end
 
   @tag :tmp_dir
-  test "the gates read ok from menard's reply, not from a stderr line that says it", %{tmp_dir: dir} do
-    host(dir)
-    File.write!(Path.join(dir, "menard-touched-g1"), dir <> "\n")
-    liar = stub_menard(dir, "liar", @red <> ~s(\necho 'building: {"ok":true}' >&2))
-    refused = stub_menard(dir, "refused", "echo 'menard: no such verb' >&2\nexit 1")
-
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "g1"}, dir, liar)
-    assert JSON.decode!(out)["reason"] =~ "t.exs:1 red"
-
-    commit = %{session_id: "g1", tool_input: %{command: "git commit -m x"}}
-    {out, 0} = commit_gate(commit, dir, liar)
-    assert JSON.decode!(out)["hookSpecificOutput"]["permissionDecisionReason"] =~ "t.exs:1 red"
-
-    # no reply at all: menard's own error is the reason
-    {out, 0} = commit_gate(commit, dir, refused)
-    assert JSON.decode!(out)["hookSpecificOutput"]["permissionDecisionReason"] =~ "menard: no such verb"
-  end
 
   @tag :tmp_dir
-  test "the gates block, and say so, when menard does not answer by their deadline", %{tmp_dir: dir} do
-    # a hook the harness kills fails open, and its mix test outlives it: the gates keep their own
-    # deadline under `timeout`, whose 124 this stub answers with
-    host(dir)
-    File.write!(Path.join(dir, "menard-touched-g2"), dir <> "\n")
-    slow = stub_menard(dir, "slow", "exit 124")
-
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "g2"}, dir, slow)
-    assert JSON.decode!(out)["reason"] =~ "no answer within 280s"
-
-    {out, 0} = commit_gate(%{session_id: "g2", tool_input: %{command: "git commit -m x"}}, dir, slow)
-    assert JSON.decode!(out)["hookSpecificOutput"]["permissionDecisionReason"] =~ "no answer within 280s"
-  end
 
   @tag :tmp_dir
-  test "stop-gate lets a session end that wrote nothing, or was refused three times", %{tmp_dir: dir} do
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "none-written"}, dir)
-
-    host(dir)
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def big, do: 999999\nend\n")
-    File.write!(Path.join(dir, "menard-touched-s2"), dir <> "\n")
-    File.write!(Path.join(dir, "menard-stop-blocks-s2"), "3")
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s2"}, dir)
-  end
 
   @tag :tmp_dir
-  test "stop-gate clears its refusals on green, and gates again after it let a saturated stop through", %{
-    tmp_dir: dir
-  } do
-    # three early refusals switched the gate off for the rest of a multi-step session (the all arm)
-    red = stub_menard(dir, "red", @red)
-    green = stub_menard(dir, "green", ~s(echo '{"ok":true}'))
-    touched = Path.join(dir, "menard-touched-s5")
-    blocks = Path.join(dir, "menard-stop-blocks-s5")
-
-    File.write!(touched, dir <> "\n")
-    File.write!(blocks, "2")
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s5"}, dir, green)
-    refute File.exists?(blocks)
-
-    File.write!(touched, dir <> "\n" <> dir <> "\n")
-    File.write!(blocks, "3")
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "s5"}, dir, red)
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "s5"}, dir, red)
-    assert JSON.decode!(out)["decision"] == "block"
-  end
 
   @tag :tmp_dir
   test "format-report with MENARD_HOOK_COMPILE names a compiler warning in the file written", %{tmp_dir: tmp} do
@@ -757,19 +476,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "big-read answers a whole read of a big Elixir file with its outline, once", %{tmp_dir: dir} do
-    file = Path.join(dir, "big.ex")
-    defs = Enum.map_join(1..300, "\n", &"  def f#{&1}(x) do\n    x\n  end\n")
-    File.write!(file, "defmodule Big do\n" <> defs <> "end\n")
-    run = fn input -> bigread(Map.merge(%{session_id: "b1", tool_input: %{file_path: file}}, input), dir) end
-
-    reason = JSON.decode!(run.(%{}))["hookSpecificOutput"]["permissionDecisionReason"]
-    assert reason =~ "def f150/1"
-    assert reason =~ "offset and limit"
-    # the second whole read, and any read by range, go through
-    assert run.(%{}) == ""
-    assert bigread(%{session_id: "b2", tool_input: %{file_path: file, offset: 10}}, dir) == ""
-  end
 
   # A host menard can format: a mix.exs and a formatter, nothing fetched
   defp host(dir) do
@@ -786,78 +492,8 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "commit-gate does not run the gate again over the very files a green run check passed", %{tmp_dir: dir} do
-    # focus3: the agent ran the gate, green, and committed; the hook ran the whole gate again
-    host(dir)
-    # the hook's own files (its TMPDIR is this dir here) are no part of the project
-    File.write!(Path.join(dir, ".gitignore"), "/_build/\n/menard-*\n/payload-*\n")
-    File.mkdir_p!(Path.join(dir, "test"))
-    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 1\nend\n")
-    File.write!(Path.join(dir, "menard-touched-c3"), dir <> "\n")
-    assert %{ok: true} = Menard.Run.result(dir, "check", [])
-
-    commit = %{
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      session_id: "c3",
-      tool_input: %{command: "git commit -m x"}
-    }
-
-    gate_runs = fn -> Path.wildcard(Path.join(dir, "menard-run/**/*.log")) end
-
-    assert {"", 0} = commit_gate(commit, dir)
-    assert gate_runs.() == []
-    assert gate_err(dir) == "commit gate: skipped, files already green\n"
-
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f, do: 2\nend\n")
-    assert {"", 0} = commit_gate(commit, dir)
-    assert gate_runs.() != []
-  end
 
   @tag :tmp_dir
-  test "the gates leave one stderr line on every outcome, with timings, and nothing for the model", %{
-    tmp_dir: dir
-  } do
-    # a green gate was indistinguishable from one that never ran in the trace
-    host(dir)
-    green = stub_menard(dir, "green", ~s(echo '{"ok":true}'))
-    red = stub_menard(dir, "red", @red)
-    stop = fn root -> stop(%{hook_event_name: "Stop", session_id: "g3"}, dir, root) end
-
-    assert {"", 0} = stop.(green)
-    assert gate_err(dir) == "stop gate: nothing written this session\n"
-
-    File.write!(Path.join(dir, "menard-touched-g3"), dir <> "\n")
-    assert {"", 0} = stop.(green)
-
-    assert gate_err(dir) =~
-             ~r/\Astop gate: green in \d+s \(compile \d+s, credo --changed \d+s, test --stale \d+s\)\n\z/
-
-    assert {"", 0} = stop.(green)
-    assert gate_err(dir) == "stop gate: nothing new since green\n"
-
-    File.write!(Path.join(dir, "menard-touched-g3"), dir <> "\n" <> dir <> "\n")
-    {out, 0} = stop.(red)
-    assert JSON.decode!(out)["decision"] == "block"
-    assert gate_err(dir) =~ ~r/\Astop gate: red in \d+s \(compile \d+s\), refusal 1 of 3\n\z/
-
-    File.write!(Path.join(dir, "menard-stop-blocks-g3"), "3")
-    assert {"", 0} = stop.(red)
-    assert gate_err(dir) == "stop gate: let through after 3 refusals\n"
-
-    commit = fn cmd, session ->
-      commit_gate(%{session_id: session, tool_input: %{command: cmd}}, dir, green)
-    end
-
-    assert {"", 0} = commit.("git commit -m x", "g3")
-    assert gate_err(dir) =~ ~r/\Acommit gate: green in \d+s\n\z/
-    assert {"", 0} = commit.("git commit -m x", "none")
-    assert gate_err(dir) == "commit gate: nothing written this session\n"
-    # not a commit: no gate, no line
-    assert {"", 0} = commit.("git status", "g3")
-    assert gate_err(dir) == ""
-  end
 
   @tag :tmp_dir
   test "format-report leaves a file a merge stopped on alone: git wrote its conflict markers", %{tmp_dir: dir} do
@@ -903,88 +539,8 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  test "stop-gate passes a stop the agent's own green gate already checked, and not a red one", %{
-    tmp_dir: dir
-  } do
-    # riverside1: the stop gate ran 12s at every step and never refused one: each agent had just run the
-    # gate itself, piped through tail. A green gate the agent ran on what it wrote is the stop gate's too.
-    host(dir)
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
-    File.write!(Path.join(dir, "menard-touched-g1"), dir <> "\n")
-
-    ran = fn session, command, stdout ->
-      call = %{tool_name: "Bash", session_id: session, tool_use_id: "t#{System.unique_integer([:positive])}"}
-      {_, 0} = report(Map.merge(call, %{hook_event_name: "PreToolUse", tool_input: %{command: command}}), dir)
-
-      report(
-        Map.merge(call, %{
-          hook_event_name: "PostToolUse",
-          tool_input: %{command: command},
-          tool_response: %{stdout: stdout}
-        }),
-        dir
-      )
-    end
-
-    # green, the way ExUnit 1.19, 1.20 and menard say it
-    for {session, command, stdout} <- [
-          {"g1", "mix precommit 2>&1 | tail -3", "Finished in 1.2 seconds\n5 tests, 0 failures\n"},
-          {"g2", "mix precommit 2>&1 | tail -2", "Result: 5/5 passed, 1 excluded\n"},
-          {"g3", "bin/menard run check", ~s({"ok":true,"failures":[],"failed":0,"tests":5}\n)}
-        ] do
-      File.write!(Path.join(dir, "menard-touched-#{session}"), dir <> "\n")
-      ran.(session, command, stdout)
-      assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: session}, dir)
-      assert gate_err(dir) =~ "nothing new since green"
-    end
-
-    # red, or not the gate: the stop gate still runs, and blocks
-    for {session, command, stdout} <- [
-          {"r1", "mix precommit 2>&1 | tail -3", "5 tests, 1 failure\n"},
-          {"r2", "mix precommit 2>&1 | tail -3", "** (Mix) Credo found 2 issues\n5 tests, 0 failures\n"},
-          {"r3", "mix test test/n_test.exs", "5 tests, 0 failures\n"},
-          {"r4", "bin/menard run check", ~s({"ok":false,"failures":[{"kind":"test"}],"failed":1,"tests":5}\n)}
-        ] do
-      File.write!(Path.join(dir, "menard-touched-#{session}"), dir <> "\n")
-      ran.(session, command, stdout)
-      {out, 0} = stop(%{hook_event_name: "Stop", session_id: session}, dir)
-      assert JSON.decode!(out)["decision"] == "block", "#{session} passed"
-    end
-  end
 
   @tag :tmp_dir
-  test "stop-gate checks what menard wrote through MCP, not what it only read", %{tmp_dir: dir} do
-    # riverside2 events.all.fable.3: `clause replace`, `block add` and `directive add` through MCP,
-    # and the stop gate said "nothing written this session": its list is the format hook's, which saw
-    # no Edit, Write or Bash. A menard write through MCP is a write.
-    host(dir)
-    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def f(x) do\n    y = 1\n    x\n  end\nend\n")
-
-    mcp = fn session, tool, input ->
-      report(
-        %{
-          hook_event_name: "PostToolUse",
-          session_id: session,
-          tool_name: "mcp__plugin_menard_menard__" <> tool,
-          tool_input: input
-        },
-        dir
-      )
-    end
-
-    # a read through MCP writes nothing: no gate
-    {_, 0} = mcp.("m1", "clause", %{verb: "get", file: "lib/n.ex", name_arity: "f/1"})
-    {_, 0} = mcp.("m1", "outline", %{file: "lib/n.ex"})
-    assert {"", 0} = stop(%{hook_event_name: "Stop", session_id: "m1"}, dir)
-    assert gate_err(dir) =~ "nothing written"
-
-    # a write through MCP is gated like any other
-    {_, 0} =
-      mcp.("m2", "clause", %{verb: "replace", file: "lib/n.ex", name_arity: "f/1", head: "f(x)", code: "x"})
-
-    {out, 0} = stop(%{hook_event_name: "Stop", session_id: "m2"}, dir)
-    assert JSON.decode!(out)["decision"] == "block"
-  end
 
   @tag @tag :tmp_dir
   test "format-report formats what a shell command wrote within the second of its mark", %{tmp_dir: dir} do
@@ -1257,26 +813,6 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
 
-  test "a red gate with nothing parsed still says what it was" do
-    # hooks_test.exs:566 at load 22-30: a red gate refused with nothing under it. A reply with no
-    # failures, no tail and nothing on stderr still says what it was, and where its log is
-    red = fn reply ->
-      lib = Path.expand("hooks/lib.sh")
-      err = Path.join(System.tmp_dir!(), "menard-red-#{System.pid()}-#{System.unique_integer([:positive])}")
-      File.write!(err, "")
-
-      # lib.sh reads the hook's payload from stdin as it is sourced
-      {out, 0} = System.cmd("bash", ["-c", ~s(source "$0" </dev/null; red_lines "$1" "$2"), lib, reply, err])
-
-      File.rm(err)
-      out
-    end
-
-    assert red.(~s({"ok":false,"failures":[{"kind":"test","at":"a:1","message":"boom"}]})) =~ "test a:1 boom"
-    assert red.("") =~ "no answer"
-    assert red.(~s({"ok":false,"failures":[],"log":"/tmp/x.log"})) =~ "/tmp/x.log"
-  end
-
   @tag :tmp_dir
   test "the old command-hook wiring run under Claude Code says once to restart it", %{tmp_dir: dir} do
     # 2026-09-30: a session started 09-26 ran the 09-26 wiring for days, with no MCP tools and no Read
@@ -1391,60 +927,6 @@ defmodule Menard.HooksTest do
     assert File.exists?(recent)
     refute File.exists?(logs)
   end
-
-  defp bigread(payload, dir) do
-    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
-    File.write!(input, JSON.encode!(payload))
-
-    {out, 0} =
-      System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/big-read.sh"), input],
-        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}]
-      )
-
-    out
-  end
-
-  # A plugin root whose menard answers what the test says: the gates' own logic, without a real suite
-  defp stub_menard(dir, name, body) do
-    bin = Path.join([dir, name, "bin/menard"])
-    File.mkdir_p!(Path.dirname(bin))
-    File.write!(bin, "#!/usr/bin/env bash\n" <> body <> "\n")
-    File.chmod!(bin, 0o755)
-    Path.join(dir, name)
-  end
-
-  # a gate's stdout and exit status, as the harness reads them; its stderr, which the harness keeps
-  # in the trace and does not give the model, is in gate_err/1
-  defp stop(payload, dir, root \\ @root) do
-    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
-    File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
-
-    System.cmd(
-      "bash",
-      ["-c", ~s(bash "$0" < "$1" 2>"$2"), Path.join(@root, "hooks/stop-gate.sh"), input, gate_err_file(dir)],
-      env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}]
-    )
-  end
-
-  defp commit_gate(payload, dir, root \\ @root) do
-    input = Path.join(dir, "payload-#{System.unique_integer([:positive])}.json")
-    File.write!(input, JSON.encode!(Map.put_new(payload, :cwd, dir)))
-
-    System.cmd(
-      "bash",
-      [
-        "-c",
-        ~s(bash "$0" < "$1" 2>"$2"),
-        Path.join(@root, "hooks/commit-gate.sh"),
-        input,
-        gate_err_file(dir)
-      ],
-      env: [{"CLAUDE_PLUGIN_ROOT", root}, {"TMPDIR", dir}]
-    )
-  end
-
-  defp gate_err_file(dir), do: Path.join(dir, "menard-gate.err")
-  defp gate_err(dir), do: File.read!(gate_err_file(dir))
 
   # the real run verbs, each call sent to the test as `{:ran, verb, args}`
   defp counting do

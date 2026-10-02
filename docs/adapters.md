@@ -51,5 +51,6 @@ extension is three small files.
 
 ## Not portable, deliberately
 
-`prefer-menard-run.sh` (the nudge from a bare `mix test` to `menard run`) matches on Claude Code's
-`Bash` tool text. It's advisory, stays Claude Code-only, and no other adapter needs it.
+The piped rewrite (`mix test | tail` run as `menard run test`, `Menard.Piped`) rewrites Claude
+Code's `Bash` tool input through its PreToolUse `updatedInput`. A harness with no way to change a
+command before it runs gets no rewrite.

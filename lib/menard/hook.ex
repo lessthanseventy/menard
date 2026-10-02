@@ -14,10 +14,8 @@ defmodule Menard.Hook do
   Both doors call it: the MCP tool `hook`, which a `mcp_tool` hook reaches
   in the server already running, and `menard hook`, for a harness that can only run a command.
 
-  The session's state is files under the temp directory (`state_dir:` overrides it), shared with
-  the gates in `hooks/`: `menard-touched-SESSION`, the projects written into, a line per write;
-  `menard-stop-green-SESSION`, that count at the agent's own last green gate; and one
-  `menard-format-SESSION-CALL` mark per shell command in flight.
+  The session's state is files under the temp directory (`state_dir:` overrides it): what was read
+  (`menard-read-*-SESSION`), and one `menard-format-SESSION-CALL` mark per shell command in flight.
   """
 
   alias Menard.Piped
@@ -47,7 +45,6 @@ defmodule Menard.Hook do
   @spec run(map(), keyword()) :: answer()
   def run(payload, opts \\ []) do
     hook = Map.merge(call(payload), settings(opts))
-    green_gate(hook)
     tool(hook)
   end
 
@@ -104,9 +101,7 @@ defmodule Menard.Hook do
   end
 
   # A write through menard's own tools: menard wrote and formatted the file itself, so there is
-  # nothing to format, but the stop gate checks the projects on the touched list, and an MCP write
-  # went through no Edit, Write or Bash (riverside2: a session of such writes read as "nothing
-  # written"). Reads write nothing.
+  # nothing to format; what it wrote is known, as a Read's is. Reads write nothing.
   defp tool(%{tool: "mcp__" <> _ = tool} = hook) do
     noun = tool |> String.split("__") |> List.last()
 
@@ -114,12 +109,6 @@ defmodule Menard.Hook do
          hook.input["verb"] not in ~w(get list refs) do
       files = [hook.input["file"], hook.input["to"] | List.wrap(hook.input["files"])]
       edits = for %{"file" => file} <- List.wrap(hook.input["edits"]), do: file
-
-      for file <- files ++ edits,
-          is_binary(file),
-          project = project(Path.expand(file, hook.root)),
-          do: touched(hook, project)
-
       known(hook, files ++ edits)
     end
 
@@ -329,8 +318,6 @@ defmodule Menard.Hook do
   end
 
   defp report(hook, dir, files) do
-    # the Stop hook's list: the projects this session wrote Elixir into, the ones to gate before it ends
-    touched(hook, dir)
     before = Map.new(files, &{&1, File.read!(&1)})
     reply = hook.run.(dir, "format", files)
     failed = Map.new(reply[:failures] || [], &{&1.at, &1.message})
@@ -396,29 +383,6 @@ defmodule Menard.Hook do
     end
   end
 
-  # The agent's own gate, green, is the stop gate's too: riverside1's stop gate ran 12s at every
-  # step to re-check what the agent had just checked, and never refused one. `tail` hides the gate's
-  # exit code, so its output decides: the tests' summary at 0 failures is the last step of a
-  # precommit alias, which stops at its first failing step. Anything red in the output keeps the
-  # stop gate on; so does a write after this (the count moves on).
-  defp green_gate(%{tool: "Bash", event: "PostToolUse"} = hook) do
-    cmd = hook.input["command"] || ""
-    out = hook.response["stdout"] || ""
-    writes = hook |> session_file("touched") |> File.read() |> lines()
-
-    if writes != [] and
-         cmd =~ ~r/mix\s+precommit|menard[^|;&]*\srun\s+check|mix\s+menard\.run\s+check/ and
-         out =~ ~r/(^|[^0-9])0 failures|Result: ([0-9]+)\/\2 passed|"ok":true/ and
-         not (out =~ ~r/[1-9][0-9]* failures?|"ok":false|\*\* \(|error|warning/i),
-       do: File.write!(session_file(hook, "stop-green"), "#{length(writes)}\n")
-  end
-
-  defp green_gate(_hook), do: :ok
-
-  defp lines({:ok, text}), do: String.split(text, "\n", trim: true)
-  defp lines({:error, _}), do: []
-
-  defp touched(hook, dir), do: File.write!(session_file(hook, "touched"), dir <> "\n", [:append])
   defp mark(hook), do: session_file(hook, "format") <> "-" <> hook.call
   defp session_file(hook, name), do: Path.join(hook.state, "menard-#{name}-#{hook.session}")
   defp safe(id), do: String.replace(id, ~r/[^A-Za-z0-9_-]/, "")

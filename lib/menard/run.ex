@@ -47,30 +47,6 @@ defmodule Menard.Run do
     end
   end
 
-  @doc """
-  The project's files as a commit would take them now, untracked ones too and ignored ones not: a
-  git tree id, the same for the same files whatever HEAD is. A green `check` stamps it in the repo's
-  git dir (`green_stamp/1`), and the commit hook (hooks/commit-gate.sh, which computes it the same
-  way) skips a gate over files it already passed. nil outside a git repo.
-
-  `git add` into the scratch index writes each file's blob into the repo's `.git/objects`, as any
-  `git add` does: unreferenced, they stay loose objects until `git gc` prunes them.
-  """
-  def tree(dir) do
-    # a scratch index in the git dir: one under a TMPDIR inside the project would be one of its files.
-    # Named by the OS pid, like the hook's (`$$`), so no other live process's is the same file:
-    # `System.unique_integer` is unique in one VM only, and fresh VMs draw near the same numbers. The
-    # integer after the pid keeps two calls in one VM (the MCP server's) apart.
-    case System.cmd("git", ["-C", dir, "rev-parse", "--absolute-git-dir"], stderr_to_stdout: true) do
-      {git_dir, 0} ->
-        index = "menard-index-#{System.pid()}-#{System.unique_integer([:positive])}"
-        tree(dir, Path.join(String.trim(git_dir), index))
-
-      _ ->
-        nil
-    end
-  end
-
   # The project lints with credo when it has it: its lock names it, or its deps hold it
   def credo?(dir) do
     File.dir?(Path.join(dir, "deps/credo")) or
@@ -479,8 +455,7 @@ defmodule Menard.Run do
     # fails on nothing a formatter fixes (Oban 01: a file unformatted upstream, three calls to find it
     # was not the change's), and the reply names what it formatted
     formatted = for file <- verb(run, "format", []).changed, do: Path.relative_to(file, Path.expand(dir))
-    # the files as checked, taken before the gate runs: one written meanwhile is not what went green
-    tree = tree(dir)
+
     # mix's task trace on (priv/mix_debug.exs): it names each task it runs and each it finished, so
     # the alias step that failed is the one it never finished. Read here, out of every parser's way.
     {out, status, fetched} =
@@ -501,7 +476,7 @@ defmodule Menard.Run do
     # red twice on the notifier's, and the agent stashed its work for a baseline)
     reply = check_flakes(run, reply)
     if reply.ok, do: warm_stale(run)
-    if reply.ok and tree, do: File.write(green_stamp(dir), tree)
+
     if formatted == [], do: reply, else: Map.put(reply, :formatted, formatted)
   end
 
@@ -624,28 +599,6 @@ defmodule Menard.Run do
           fetched: fetched
         }
     end
-  end
-
-  defp tree(dir, index) do
-    env = [{"GIT_INDEX_FILE", index}]
-
-    try do
-      with {_, 0} <- System.cmd("git", ["-C", dir, "add", "-A", "."], env: env, stderr_to_stdout: true),
-           {tree, 0} <- System.cmd("git", ["-C", dir, "write-tree"], env: env, stderr_to_stdout: true),
-           do: String.trim(tree),
-           else: (_ -> nil)
-    after
-      File.rm(index)
-    end
-  end
-
-  # in the git dir, which the agent and the hooks share whatever TMPDIR each has; one per project of
-  # the repo (Tlön's server/ and console/), named by its path in it
-  defp green_stamp(dir) do
-    {git_dir, 0} = System.cmd("git", ["-C", dir, "rev-parse", "--absolute-git-dir"])
-    {prefix, 0} = System.cmd("git", ["-C", dir, "rev-parse", "--show-prefix"])
-    name = prefix |> String.trim() |> String.replace(~r/[^A-Za-z0-9]/, "-") |> String.trim_trailing("-")
-    Path.join(String.trim(git_dir), "menard-green-" <> if(name == "", do: "root", else: name))
   end
 
   # mix's task trace out of the output, and the alias step it started and never finished with what
