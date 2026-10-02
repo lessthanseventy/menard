@@ -103,7 +103,7 @@ defmodule Menard.Verbs.Clause do
   # "expected name/arity"): the one function of that name in the file; of several, their arities
   def run(%{name_arity: na, file: file} = p)
       when is_binary(na) and is_binary(file) and not is_map_key(p, :arity_given) do
-    with {:ok, p} <- arity(p), do: run(Map.put(p, :arity_given, true))
+    with {:ok, p} <- p |> outline_line() |> arity(), do: run(Map.put(p, :arity_given, true))
   end
 
   def run(%{verb: "get"} = p) do
@@ -191,6 +191,12 @@ defmodule Menard.Verbs.Clause do
 
   def run(%{verb: verb}),
     do: {:error, "clause has no verb #{inspect(verb)}: one of #{Enum.join(@verbs, ", ")}"}
+
+  # no verb, and nothing to write: a read (MCP's clause called with a file and a name alone)
+  def run(%{file: _, name_arity: _} = p)
+      when (not is_map_key(p, :verb) or :erlang.map_get(:verb, p) == nil) and
+             (not is_map_key(p, :code) or :erlang.map_get(:code, p) == nil),
+      do: run(Map.put(p, :verb, "get"))
 
   def run(_params), do: {:error, "clause needs verb: one of #{Enum.join(@verbs, ", ")}"}
 
@@ -306,6 +312,33 @@ defmodule Menard.Verbs.Clause do
 
   defp all_modules(modules), do: Enum.flat_map(modules, &[&1 | all_modules(&1.modules)])
 
+  # the outline's own line as the name, `handle_info/2 (:poll, state)`: its name/arity and its head
+  defp outline_line(%{name_arity: na} = p) do
+    case Regex.run(~r/^(\S+\/\d+)\s+\((.*)\)$/s, na) do
+      [_, name, head] ->
+        if p[:head] in [nil, ""],
+          do: Map.merge(p, %{name_arity: name, head: head}),
+          else: %{p | name_arity: name}
+
+      nil ->
+        p
+    end
+  end
+
+  # several modules define it, no head named: a read reads each, as it does each arity of a bare name
+  defp got_where(source, p, [_, _ | _] = mods) do
+    if p[:head] in [nil, ""],
+      do:
+        Enum.reduce_while(
+          for(mod <- mods, do: "#{mod}.#{p.name_arity}"),
+          {:ok, %{functions: []}},
+          &got_one(source, &1, &2)
+        ),
+      else: Clause.get(source, p.name_arity, p[:head], nth(p))
+  end
+
+  defp got_where(source, p, _mods), do: Clause.get(source, p.name_arity, p[:head], nth(p))
+
   defp got_one(source, na, {:ok, acc}) do
     case Clause.get(source, na, nil, []) do
       {:ok, got} -> {:cont, {:ok, %{functions: acc.functions ++ [Map.put(got, :name_arity, na)]}}}
@@ -317,7 +350,7 @@ defmodule Menard.Verbs.Clause do
   defp got(source, p) do
     case String.split(p.name_arity, ",") do
       [_one] ->
-        Clause.get(source, p.name_arity, p[:head], nth(p))
+        got_where(source, p, Clause.modules_defining(source, p.name_arity))
 
       names ->
         Enum.reduce_while(names, {:ok, %{functions: []}}, &got_one(source, &1, &2))

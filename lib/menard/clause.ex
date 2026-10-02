@@ -222,6 +222,17 @@ defmodule Menard.Clause do
     end
   end
 
+  @doc "The modules of `source` that define the unqualified `name_arity`, by their full names."
+  @spec modules_defining(String.t(), String.t()) :: [String.t()]
+  def modules_defining(source, name_arity) do
+    with {:ok, {nil, name, arity}} <- parse_name_arity(name_arity),
+         {:ok, ast} <- parse(source) do
+      for {mod, node} <- modules(ast), clauses(node, name, arity) != [], do: mod
+    else
+      _ -> []
+    end
+  end
+
   @doc """
   The lines `name_arity` owns: every clause with the `@doc`, `@spec` and `@impl` written above it and
   the comment above those, as zero-based `{first, last}` spans in source order. What `Menard.Move`
