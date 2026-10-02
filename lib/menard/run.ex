@@ -659,17 +659,21 @@ defmodule Menard.Run do
   # A host with no `precommit` alias: the steps `run check` stands for, each its own mix, so `test`
   # picks its own env. The first that fails is the answer. Credo too, when the project has it: at
   # its default level, `--strict` when the caller asks.
+  # `test` through `tested/3`, as `run test` is: its failures the formatter's, not the prose's.
   defp check_steps(%{dir: dir} = run, args) do
-    steps = [["format", "--check-formatted"], ["compile", "--warnings-as-errors"], ["test"]]
+    steps = [["format", "--check-formatted"], ["compile", "--warnings-as-errors"]]
 
-    {out, status, fetched} =
-      Enum.reduce_while(steps, {"", 0, []}, fn step, {_out, _status, fetched} ->
+    reply =
+      steps
+      |> Enum.reduce_while({"", 0, []}, fn step, {_out, _status, fetched} ->
         {out, status, more} = mix_fetching(run, step)
         next = {out, status, fetched ++ more}
         if status == 0, do: {:cont, next}, else: {:halt, next}
       end)
-
-    reply = gate(out, status, fetched, dir)
+      |> case do
+        {_out, 0, fetched} -> Map.update!(tested(run, [], run.log <> ".exunit"), :fetched, &(fetched ++ &1))
+        {out, status, fetched} -> gate(out, status, fetched, dir)
+      end
 
     lint =
       if credo?(dir), do: credo(run, Enum.filter(args, &(&1 == "--strict"))), else: %{ok: true, failures: []}
