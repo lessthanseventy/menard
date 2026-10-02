@@ -7,8 +7,6 @@ defmodule Menard.Verbs.Edit do
 
   import Menard.Verbs
 
-  alias Menard.Verbs.Run
-
   @then ~w(test check compile)
 
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
@@ -51,34 +49,9 @@ defmodule Menard.Verbs.Edit do
          {:ok, reply} <- Menard.Edit.run(edits, root: p[:root] || Menard.caller_dir()) do
       files = Enum.map_join(reply.changed, ", ", &Path.basename(&1.file))
       did = "edit #{files}: #{reply.replacements} replacement#{if reply.replacements != 1, do: "s"}"
-      {:ok, reply |> Map.put(:did, did) |> then_run(p)}
+      {:ok, Map.put(reply, :did, did)}
     end
   end
-
-  defp then_run(reply, %{then: verb} = p) when is_binary(verb) do
-    args = if verb == "test", do: tests_of(reply.changed, p[:root] || Menard.caller_dir()), else: []
-    {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args}))
-    %{reply | did: reply.did <> ", then run #{verb}"} |> Map.put(:run, run)
-  end
-
-  defp then_run(reply, _params), do: reply
-
-  # a run while working, not the gate: an edited test file, and the test file of an edited lib file
-  # (lib/a/b.ex, test/a/b_test.exs); none of those, the tests stale since the last run
-  defp tests_of(changed, root) do
-    tests =
-      for %{file: file} <- changed,
-          test = test_of(Path.relative_to(file, root)),
-          test && File.regular?(Path.join(root, test)),
-          uniq: true,
-          do: test
-
-    if tests == [], do: ["--stale"], else: tests
-  end
-
-  defp test_of("test/" <> _ = rel), do: if(String.ends_with?(rel, "_test.exs"), do: rel)
-  defp test_of("lib/" <> rest), do: "test/" <> Path.rootname(rest) <> "_test.exs"
-  defp test_of(_rel), do: nil
 
   defp edits(edits, p) do
     Enum.reduce_while(List.wrap(edits), {:ok, []}, fn edit, {:ok, done} ->

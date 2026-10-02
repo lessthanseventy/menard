@@ -13,6 +13,8 @@ defmodule Menard.Verbs do
   means it.
   """
 
+  alias Menard.Verbs.Noun
+  alias Menard.Verbs.Run
   @type params :: %{optional(atom()) => term()}
   @type result :: {:ok, map()} | {:error, String.t()}
 
@@ -70,6 +72,21 @@ defmodule Menard.Verbs do
       {:error, reason} -> {:error, "cannot read #{file}: #{:file.format_error(reason)}"}
     end
   end
+
+  @doc """
+  A verb as both doors run it: the noun's `run`, and then, when the params ask, a `run` verb after
+  it (`test`, `check`, `compile`), its answer in the reply's `run`. Every writing verb takes `then`
+  (`Menard.Verbs.Noun.of/1`), not `edit` alone: a test added with `block add` was run by a second
+  call, as an edit's need not be.
+  """
+  @spec call(module(), params()) :: result()
+  def call(verbs, %{then: then} = params) when is_binary(then) and then != "" do
+    if then in Noun.thens(),
+      do: with({:ok, reply} <- verbs.run(params), do: {:ok, then_run(reply, params)}),
+      else: {:error, "no then #{inspect(then)}: one of #{Enum.join(Noun.thens(), ", ")}"}
+  end
+
+  def call(verbs, params), do: verbs.run(params)
 
   @doc """
   The pipeline every writing verb is: `params.file` resolved and read, `change.(source)` (the new
@@ -147,4 +164,34 @@ defmodule Menard.Verbs do
       {:error, _} -> path
     end
   end
+
+  defp then_run(reply, %{then: verb} = p) do
+    root = p[:root] || Menard.caller_dir()
+    args = if verb == "test", do: tests_of(written(reply), root), else: []
+    {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args}))
+    reply |> Map.update(:did, "then run #{verb}", &(&1 <> ", then run #{verb}")) |> Map.put(:run, run)
+  end
+
+  # the files a write's reply names: one (`file`), or each it changed (`changed`, edit's and rename's)
+  defp written(reply) do
+    changed = for %{file: file} <- List.wrap(reply[:changed]), do: file
+    Enum.uniq(List.wrap(reply[:file]) ++ changed)
+  end
+
+  # a run while working, not the gate: an edited test file, and the test file of an edited lib file
+  # (lib/a/b.ex, test/a/b_test.exs); none of those, the tests stale since the last run
+  defp tests_of(files, root) do
+    tests =
+      for file <- files,
+          test = test_of(Path.relative_to(file, root)),
+          test && File.regular?(Path.join(root, test)),
+          uniq: true,
+          do: test
+
+    if tests == [], do: ["--stale"], else: tests
+  end
+
+  defp test_of("test/" <> _ = rel), do: if(String.ends_with?(rel, "_test.exs"), do: rel)
+  defp test_of("lib/" <> rest), do: "test/" <> Path.rootname(rest) <> "_test.exs"
+  defp test_of(_rel), do: nil
 end

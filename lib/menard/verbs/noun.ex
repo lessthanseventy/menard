@@ -43,6 +43,12 @@ defmodule Menard.Verbs.Noun do
   # an edit takes seconds; `run` and `deps` wait on a host's test suite or a fetch
   @deadline 90_000
 
+  # the nouns that write, as the format hook matches them (hooks/hooks.json), and what their `then`
+  # runs after: a test added with `block add` was run by a second call, as an edit's need not be
+  @writing ~w(write rename clause stmt directive attr block module)
+  @thens ~w(test check compile)
+  @then_doc "\n`then` runs `test` (the tests of what it wrote), `check` or `compile` after, its answer in `run`.\n"
+
   @doc "Every noun's verb module, in the order the MCP door lists its tools."
   @spec modules() :: [module()]
   def modules do
@@ -72,8 +78,16 @@ defmodule Menard.Verbs.Noun do
   @spec of(module()) :: t()
   def of(verbs) do
     Code.ensure_compiled!(verbs)
-    verbs.noun()
+    noun = verbs.noun()
+
+    if noun.name in @writing and not Enum.any?(noun.fields, &(elem(&1, 0) == :then)),
+      do: %{noun | fields: noun.fields ++ [{:then, :enum, [values: @thens]}], doc: noun.doc <> @then_doc},
+      else: noun
   end
+
+  @doc "What a writing verb's `then` runs after it (`Menard.Verbs.call/2`)."
+  @spec thens() :: [String.t()]
+  def thens, do: @thens
 
   @doc "The ms a door waits for the noun's verbs."
   @spec deadline(t()) :: pos_integer()

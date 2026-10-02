@@ -44,7 +44,7 @@ defmodule Mix.Tasks.Menard.Edit do
     case Menard.Edit.blocks(blocks) do
       {:ok, edits} ->
         edits = Enum.map(edits, &Map.put(&1, :all, flags[:all] == true))
-        finish(Verbs.Edit.run(%{edits: edits, then: flags[:then]}))
+        finish(Verbs.call(Verbs.Edit, %{edits: edits, then: flags[:then]}))
 
       {:error, why} ->
         usage(why <> "\n       " <> @usage)

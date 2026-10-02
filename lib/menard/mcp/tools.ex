@@ -35,7 +35,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    def call(verbs, params, frame, _ms), do: answer(frame, verbs.run(params(params)))
+    def call(verbs, params, frame, _ms), do: answer(frame, Verbs.call(verbs, params(params)))
 
     @doc """
     A call's bound: the tool's own, but an `edit` with no `then` is seconds of work, bounded as
@@ -44,6 +44,10 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     def deadline(ms, Verbs.Edit, params) when not is_map_key(params, :then) or params.then in [nil, ""],
       do: min(ms, Verbs.Noun.deadline(%{}))
+
+    # any writing verb's `then` runs tests: the run's bound, not the write's
+    def deadline(ms, _verbs, %{then: then}) when is_binary(then) and then != "",
+      do: max(ms, Verbs.Noun.deadline(Verbs.Run.noun()))
 
     def deadline(ms, _verbs, _params), do: ms
 
