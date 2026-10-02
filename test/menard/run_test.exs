@@ -280,6 +280,16 @@ defmodule Menard.RunTest do
     assert result.ok, result.tail
     assert result.ran =~ "no precommit alias"
     assert result.tail =~ "1 test, 0 failures"
+
+    # its test step's failures are the formatter's, as `run test`'s are: from the prose, a `left:`
+    # past one line came back as its first line (Fable's review, 2026-10-01)
+    File.write!(
+      Path.join(dir, "test/plain_test.exs"),
+      "defmodule PlainTest do\n  use ExUnit.Case\n  test \"go\", do: assert(Enum.to_list(1..60) == [])\nend\n"
+    )
+
+    assert %{ok: false, failures: [failure]} = Menard.Run.result(dir, "check", [])
+    assert failure.left =~ "22,\n 23, 24"
   end
 
   test "check names the precommit step that failed when nothing in its output parses", %{tmp_dir: dir} do
