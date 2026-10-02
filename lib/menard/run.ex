@@ -739,9 +739,6 @@ defmodule Menard.Run do
     )
   end
 
-  # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
-  # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
-  # and name what came.
   # ExUnit's failures as data, from a formatter required into the host's VM beside its CLI one: read
   # from the prose, a `left:` that did not fit one line came back as its first line. The prose
   # still says what no formatter sees (a test file that does not compile, mix refusing an option).
@@ -941,6 +938,9 @@ defmodule Menard.Run do
     end
   end
 
+  # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
+  # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
+  # and name what came.
   defp mix_fetching(run, args, host \\ []) do
     {out, status} = mix(run, args, host)
 
