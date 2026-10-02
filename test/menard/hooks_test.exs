@@ -1292,7 +1292,7 @@ defmodule Menard.HooksTest do
     # failures, no tail and nothing on stderr still says what it was, and where its log is
     red = fn reply ->
       lib = Path.expand("hooks/lib.sh")
-      err = Path.join(System.tmp_dir!(), "menard-red-#{System.unique_integer([:positive])}")
+      err = Path.join(System.tmp_dir!(), "menard-red-#{System.pid()}-#{System.unique_integer([:positive])}")
       File.write!(err, "")
 
       # lib.sh reads the hook's payload from stdin as it is sourced
