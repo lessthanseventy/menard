@@ -1202,14 +1202,25 @@ def main():
         limits = json.loads((suite / "settings.json").read_text())
         MAX_TURNS, TIMEOUT = limits.get("max_turns", MAX_TURNS), limits.get("timeout", TIMEOUT)
     build_template(suite, a.rebuild)
-    build_plugins(a.rebuild)
+    out_dir = EVAL / "results" / a.round
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # the menard a round runs is the one it started with: a resumed round keeps it, whatever HEAD is
+    # now. up4's opus sessions resumed after a restart on a copy rebuilt at HEAD, two commits on, and
+    # a session ran two builds. A copy at another commit than the round's is refused, not mixed.
+    round_pin = out_dir / "menard"
+    if round_pin.exists() and not a.rebuild:
+        want = round_pin.read_text().strip()
+        if pinned("with") != want:
+            sys.exit(f"{a.round} ran menard {want}, and the plugin copy is {pinned('with')}: "
+                     f"start a new round for this menard, or put {want} back in {PLUGINS}")
+    else:
+        build_plugins(a.rebuild)
+        round_pin.write_text(f"{pinned('with')}\n")
     warm_plugins()
     cases = sorted(p.parent for p in [*(suite / "cases").glob("*/prompt.md"), *(suite / "cases").glob("*/steps")])
     if a.cases:
         want = a.cases.split(",")
         cases = [c for c in cases if any(fnmatch.fnmatch(c.name, w) for w in want)]
-    out_dir = EVAL / "results" / a.round
-    out_dir.mkdir(parents=True, exist_ok=True)
     done = set()
     if (out_dir / "runs.jsonl").exists():
         done = {json.loads(l)["id"] for l in (out_dir / "runs.jsonl").read_text().splitlines() if l.strip()}
