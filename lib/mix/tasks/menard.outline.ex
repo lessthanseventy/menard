@@ -20,7 +20,7 @@ defmodule Mix.Tasks.Menard.Outline do
     # the exit status took a file it never got for one with nothing in it
     failed =
       Enum.flat_map(files, fn file ->
-        case Verbs.Outline.run(%{file: file}) do
+        case Verbs.call(Verbs.Outline, %{file: file}) do
           {:ok, reply} -> print(reply, opts[:json] == true)
           {:error, reason} -> [reason]
         end

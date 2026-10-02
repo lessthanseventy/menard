@@ -484,4 +484,23 @@ defmodule Menard.EditTest do
   end
 
   @tag :tmp_dir
+  test "a reply names a file under the root from the root", %{tmp_dir: dir} do
+    # Fable 2026-10-01: an absolute path in every file of every reply, 44% of a CLI find's characters.
+    # Under the root, a file is named from it
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/r.ex"), "defmodule R do\n  def go, do: 1\nend\n")
+
+    assert {:ok, reply} =
+             Verbs.call(Verbs.Edit, %{
+               root: dir,
+               edits: [%{file: "lib/r.ex", old: "def go, do: 1", new: "def go, do: 2"}]
+             })
+
+    assert [%{file: "lib/r.ex"}] = reply.changed
+
+    assert {:ok, %{hits: [%{file: "lib/b.ex"}, %{file: "lib/r.ex"}]}} =
+             Verbs.call(Verbs.Find, %{root: dir, kind: "defs", target: "go", files: [Path.join(dir, "lib")]})
+  end
+
+  @tag :tmp_dir
 end

@@ -229,8 +229,9 @@ defmodule Menard.MCPTest do
     # both files' replies, as any write gives: the version for the next edit, and what changed
     reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
     assert %{"created" => "B", "to" => to, "from" => from} = reply
-    assert to["file"] == Path.join(root, "lib/b.ex")
-    assert from["file"] == Path.join(root, "lib/a.ex")
+    # named from the root
+    assert to["file"] == "lib/b.ex"
+    assert from["file"] == "lib/a.ex"
 
     for {one, path} <- [{to, "lib/b.ex"}, {from, "lib/a.ex"}] do
       assert one["version"] == Menard.remember(File.read!(Path.join(root, path)))
@@ -512,10 +513,10 @@ defmodule Menard.MCPTest do
     reply = response.content |> hd() |> Map.fetch!("text") |> JSON.decode!()
     # each file changed carries its own write reply: the version for the next edit, and its stages
     assert [%{"file" => changed, "version" => "sha256:" <> _, "stages" => [_ | _]}] = reply["changed"]
-    assert changed == Path.join(root, "lib/ok.ex")
-    assert reply["unchanged"] == [Path.join(root, "lib/none.ex")]
+    assert changed == "lib/ok.ex"
+    assert reply["unchanged"] == ["lib/none.ex"]
     assert [%{"file" => broken, "why" => why}] = reply["skipped"]
-    assert broken == Path.join(root, "lib/broken.ex")
+    assert broken == "lib/broken.ex"
     assert why =~ "not parseable"
   end
 
