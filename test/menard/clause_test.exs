@@ -1020,4 +1020,28 @@ defmodule Menard.ClauseTest do
     assert File.read!(file) =~
              "defp go(1), do: helped(:one)\n  defp go(n), do: n\n\n  defp helped(x), do: x\n"
   end
+
+  test "a module named by its last parts is the one whose name ends so, where only one does" do
+    # up4 Symphony 01: `Tracker` refused, "have: SymphonyElixir.Config.Schema, …Schema.Tracker, …": a
+    # module named by its last parts is the one whose name ends so, where one does
+    src = """
+    defmodule App.Schema do
+      def a, do: 1
+
+      defmodule Tracker do
+        def kind, do: :jira
+      end
+
+      defmodule Other.Tracker do
+        def kind, do: :other
+      end
+    end
+    """
+
+    assert {:ok, %{code: "def kind, do: :jira"}} =
+             Menard.Clause.get(src, "Schema.Tracker.kind/0", nil)
+
+    assert {:error, why} = Menard.Clause.get(src, "Tracker.kind/0", nil)
+    assert why =~ "App.Schema.Tracker, App.Schema.Other.Tracker"
+  end
 end
