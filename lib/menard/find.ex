@@ -90,8 +90,7 @@ defmodule Menard.Find do
   @spec files([String.t()]) :: {:ok, [String.t()]} | {:error, String.t()}
   def files(paths) do
     Enum.reduce_while(paths, {:ok, []}, fn path, {:ok, acc} ->
-      found =
-        if File.dir?(path), do: Path.wildcard(Path.join(path, "**/*.{ex,exs}")), else: Path.wildcard(path)
+      found = if File.dir?(path), do: own_files(path), else: Path.wildcard(path)
 
       if found == [], do: {:halt, {:error, "#{path} matches no file"}}, else: {:cont, {:ok, acc ++ found}}
     end)
@@ -101,6 +100,14 @@ defmodule Menard.Find do
 
   # Walk every node with the aliases seen so far (a flat, file-wide map — good enough for a
   # module's worth of `alias` lines); `match.(node, aliases)` answers `{kind, node_to_report}`.
+  # A directory's Elixir files, the project's own: `find calls X .` walked deps/ and _build/, 3,876
+  # files and 2 min here (Fable's review, 1.3). What the hooks prune (Menard.Hook), pruned.
+  defp own_files(dir) do
+    for file <- Path.wildcard(Path.join(dir, "**/*.{ex,exs}"), match_dot: false),
+        not Enum.any?(Path.split(Path.relative_to(file, dir)), &(&1 in ~w(deps _build node_modules))),
+        do: file
+  end
+
   defp walk(source, match) do
     case Menard.Source.parse(source) do
       {:ok, ast} ->
