@@ -438,7 +438,7 @@ defmodule Menard.MCPTest do
     File.write!(file, "defmodule R do\n  def old, do: 1\nend\n")
     text = fn response -> response.content |> hd() |> Map.fetch!("text") end
 
-    version = JSON.decode!(text.(call(Menard.MCP.Outline, %{file: "lib/r.ex"})))["version"]
+    version = JSON.decode!(text.(call(Menard.MCP.Outline, %{file: "lib/r.ex", json: true})))["version"]
     File.write!(file, "defmodule R do\n  def old, do: 2\nend\n")
 
     stale =
@@ -679,5 +679,18 @@ defmodule Menard.MCPTest do
     assert Reply.deadline(600_000, Verbs.Edit, %{edits: []}) == 90_000
     assert Reply.deadline(600_000, Verbs.Edit, %{edits: [], then: "test"}) == 600_000
     assert Reply.deadline(600_000, Verbs.Run, %{verb: "check"}) == 600_000
+  end
+
+  test "the MCP outline answers the CLI's text, json: true the map", %{root: root} do
+    # Fable 2026-10-01: MCP's outline was JSON, the CLI's text, 26,710 against 18,190 characters for one
+    # 1,950-line file. MCP answers the text; `json: true` is the map
+    File.write!(Path.join(root, "lib/o.ex"), "defmodule O do\n  def go(x), do: x\nend\n")
+
+    text = call(Menard.MCP.Outline, %{file: "lib/o.ex"}).content |> hd() |> Map.fetch!("text")
+    assert text =~ "def go/1 (x)  L2-2"
+    refute text =~ ~s("defs")
+
+    json = call(Menard.MCP.Outline, %{file: "lib/o.ex", json: true}).content |> hd() |> Map.fetch!("text")
+    assert %{"modules" => [_]} = JSON.decode!(json)
   end
 end

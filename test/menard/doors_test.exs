@@ -74,11 +74,12 @@ defmodule Menard.DoorsTest do
        ["lib/a.ex", "go/1"]},
       {Menard.MCP.Clause, Mix.Tasks.Menard.Clause, %{verb: "get", file: "lib/a.ex", name_arity: "two/1"},
        ["get", "lib/a.ex", "two/1", "--json"]},
-      {Menard.MCP.Outline, Mix.Tasks.Menard.Outline, %{file: "lib/a.ex"}, ["--json", "lib/a.ex"]},
+      {Menard.MCP.Outline, Mix.Tasks.Menard.Outline, %{file: "lib/a.ex", json: true}, ["--json", "lib/a.ex"]},
       {Menard.MCP.Find, Mix.Tasks.Menard.Find, %{kind: "calls", target: "two", files: ["lib/a.ex"]},
        ["calls", "two", "lib/a.ex", "--json"]},
       # a parse error names the file, at both doors
-      {Menard.MCP.Outline, Mix.Tasks.Menard.Outline, %{file: "lib/bad.ex"}, ["--json", "lib/bad.ex"]},
+      {Menard.MCP.Outline, Mix.Tasks.Menard.Outline, %{file: "lib/bad.ex", json: true},
+       ["--json", "lib/bad.ex"]},
       # a miss is the same sentence
       {Menard.MCP.Clause, Mix.Tasks.Menard.Clause,
        %{verb: "replace", file: "lib/a.ex", name_arity: "nope/1", head: "x", code: "1"},

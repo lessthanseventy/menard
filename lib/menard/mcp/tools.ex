@@ -35,6 +35,19 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
+    # a file's outline is its text, as the CLI prints it: as JSON it was half again the characters
+    # (Fable's review, 2026-10-01); `json: true` is the map
+    def call(Verbs.Outline = verbs, params, frame, _ms)
+        when not is_map_key(params, :json) or :erlang.map_get(:json, params) != true do
+      case Verbs.call(verbs, params(params)) do
+        {:ok, %{modules: _, file: _, version: _} = reply} ->
+          {:reply, Response.text(Response.tool(), verbs.text(reply)), frame}
+
+        other ->
+          answer(frame, other)
+      end
+    end
+
     def call(verbs, params, frame, _ms), do: answer(frame, Verbs.call(verbs, params(params)))
 
     @doc """
