@@ -8,3 +8,7 @@ commit lands.
   edited and gated the same checkout; green alone. Its sibling's failure that run (a deleted
   _build/bintest dep) was the two gates racing, which one check at a time per project now stops.
   Whether a file can go missing from `git ls-files` to the copy without a second session: unknown.
+
+- `find calls Menard.Verbs.edit lib` found nothing, while every writing verb calls it as `edit(…)`
+  under `import Menard.Verbs` (2026-10-01). A local call in a module that imports the target's
+  module is a call of it.
