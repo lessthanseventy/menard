@@ -186,4 +186,22 @@ defmodule Menard.FindTest do
     assert {:ok, reply} = Menard.Verbs.Find.run(%{kind: "defs", target: "insert_trigger", files: [file]})
     refute Map.has_key?(reply, :mentions)
   end
+
+  test "a capture is a call: &fun/1 and &Mod.fun/1" do
+    # Fable 2026-10-01: `find calls line_total lib` found nothing with `Enum.map(&line_total/1)` in the
+    # file, and `clause delete … line_total/1` answered `left: []` over a module that then did not build
+    source = """
+    defmodule Shop.Cart do
+      alias Shop.Price
+
+      def totals(items), do: Enum.map(items, &line_total/1)
+      def prices(items), do: Enum.map(items, &Price.of/1)
+      defp line_total(item), do: item
+    end
+    """
+
+    assert [%{line: 4}] = Find.calls(source, "line_total")
+    # a remote one, once
+    assert [%{line: 5}] = Find.calls(source, "Shop.Price.of")
+  end
 end

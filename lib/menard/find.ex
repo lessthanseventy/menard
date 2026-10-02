@@ -227,6 +227,13 @@ defmodule Menard.Find do
 
   defp self_ref(_receiver, _name), do: nil
 
+  # a local capture is a call: `&line_total/1` (Fable 2026-10-01: missed, and `clause delete`'s
+  # `left` answered [] over a module that then did not build). A remote one's callee, `Price.of()`,
+  # is a remote call already.
+  defp call_to({:&, _, [{:/, _, [{name, _, ctx}, _arity]}]} = node, _aliases, nil, fun)
+       when is_atom(name) and is_atom(ctx),
+       do: if(Atom.to_string(name) == fun, do: {:call, node})
+
   defp call_to({name, _meta, args} = node, _aliases, nil, fun) when is_atom(name) and is_list(args),
     do: if(Atom.to_string(name) == fun, do: {:call, node})
 
