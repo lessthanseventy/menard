@@ -1043,4 +1043,30 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  test "a raised error says where it was raised: the frames in the project", %{tmp_dir: dir} do
+    # Fable 2026-10-01: a KeyError raised in lib/shop/cart.ex:25 answered its banner and the test's
+    # line, nothing of where it was raised. The frames in the project say where
+    Host.mix_project(dir, :raises)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.mkdir_p!(Path.join(dir, "test"))
+
+    File.write!(
+      Path.join(dir, "lib/cart.ex"),
+      "defmodule Cart do\n  def total(cart) do\n    Map.fetch!(cart, :items)\n  end\nend\n"
+    )
+
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/cart_test.exs"),
+      "defmodule CartTest do\n  use ExUnit.Case\n  test \"total\", do: Cart.total(%{})\nend\n"
+    )
+
+    assert %{failures: [%{message: message, stack: stack}]} = Run.lean(Run.result(dir, "test", []))
+    assert message =~ "KeyError"
+    assert Enum.any?(stack, &(&1 =~ "lib/cart.ex:3"))
+    assert length(stack) <= 3
+  end
+
+  @tag :tmp_dir
 end

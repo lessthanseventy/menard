@@ -128,6 +128,7 @@ defmodule Menard.ExUnitFormatter do
       module: inspect(test.module),
       at: at(test),
       message: message(kind, reason, stack),
+      stack: frames(reason, stack),
       code: code(reason),
       left: side(reason, :left),
       right: side(reason, :right)
@@ -148,6 +149,21 @@ defmodule Menard.ExUnitFormatter do
       at: at,
       message: "setup_all failed, so none of the module's tests ran: " <> message(kind, reason, stack)
     })
+  end
+
+  # Where a raise came from: up to three frames in the project (lib/, test/). A KeyError raised in
+  # lib/shop/cart.ex:25 answered its banner and the test's line alone (Fable's review, 2026-10-01).
+  # An assertion's own line is the test's, said by `at`.
+  defp frames(%ExUnit.AssertionError{}, _stack), do: nil
+
+  defp frames(_reason, stack) do
+    frames =
+      for {_m, _f, _a, location} = entry <- stack,
+          file = location[:file],
+          String.starts_with?(Path.relative_to_cwd(to_string(file)), ["lib/", "test/"]),
+          do: Exception.format_stacktrace_entry(entry)
+
+    if frames == [], do: nil, else: Enum.take(frames, 3)
   end
 
   defp message(:error, %ExUnit.AssertionError{message: message}, _stack), do: message
