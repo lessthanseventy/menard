@@ -1044,4 +1044,42 @@ defmodule Menard.ClauseTest do
     assert {:error, why} = Menard.Clause.get(src, "Tracker.kind/0", nil)
     assert why =~ "App.Schema.Tracker, App.Schema.Other.Tracker"
   end
+
+  @tag :tmp_dir
+  test "clause get takes the outline's line, no verb, and a function several modules define", %{tmp_dir: dir} do
+    # Fable 2026-10-01, first guesses: the outline's own line as the name, no verb at all, and a read of
+    # a function several modules define, refused
+    file = Path.join(dir, "h.ex")
+
+    File.write!(file, """
+    defmodule H do
+      def handle_info(:poll, state), do: state
+      def handle_info(_msg, state), do: state
+
+      defmodule A do
+        def changeset(x, y), do: {x, y}
+      end
+
+      defmodule B do
+        def changeset(x, y), do: {y, x}
+      end
+    end
+    """)
+
+    # the outline's line: `handle_info/2 (:poll, state)`
+    assert {:ok, %{code: "def handle_info(:poll, state), do: state"}} =
+             Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "handle_info/2 (:poll, state)"})
+
+    # no verb, nothing to write: a read
+    assert {:ok, %{code: _}} =
+             Menard.Verbs.Clause.run(%{file: file, name_arity: "handle_info/2", head: "_msg, state"})
+
+    # a read of one each module defines: each
+    assert {:ok, %{functions: [%{name_arity: "H.A.changeset/2"}, %{name_arity: "H.B.changeset/2"}]}} =
+             Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "changeset/2"})
+
+    # a write to one is still asked which
+    assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "delete", file: file, name_arity: "changeset/2"})
+    assert why =~ "qualify it"
+  end
 end
