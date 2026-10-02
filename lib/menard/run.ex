@@ -787,7 +787,26 @@ defmodule Menard.Run do
     |> with_sources(run.dir)
     |> Map.put(:fetched, fetched)
     |> Map.put(:slowest, slowest(args, held))
+    |> Map.put(:slowest_modules, slowest_modules(args, held))
   end
+
+  # `--slowest-modules N`: the test files that took longest, each its tests' time summed and counted
+  defp slowest_modules(args, %{times: times}) do
+    with [_, n | _] <- Enum.drop_while(args, &(&1 != "--slowest-modules")),
+         {n, ""} <- Integer.parse(n) do
+      times
+      |> Enum.group_by(&(&1.at |> String.split(":") |> hd()))
+      |> Enum.map(fn {file, tests} ->
+        %{file: file, ms: tests |> Enum.map(& &1.ms) |> Enum.sum(), tests: length(tests)}
+      end)
+      |> Enum.sort_by(& &1.ms, :desc)
+      |> Enum.take(n)
+    else
+      _ -> nil
+    end
+  end
+
+  defp slowest_modules(_args, _held), do: nil
 
   # red with test failures alone, few enough to run again, and not a run that is itself a rerun
   defp rerun?(%{ok: false, failures: [_ | _] = failures}, args) do

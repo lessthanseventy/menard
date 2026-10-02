@@ -975,4 +975,29 @@ defmodule Menard.RunTest do
   end
 
   @tag :tmp_dir
+  test "run test --slowest-modules N answers with the N test files that took longest, their tests counted", %{
+    tmp_dir: dir
+  } do
+    # what a suite's time goes to, by file: 1,080 tests' times were no way to read it
+    Host.mix_project(dir, :modules)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/slow_test.exs"),
+      "defmodule SlowTest do\n  use ExUnit.Case\n  test \"a\", do: Process.sleep(60)\n  test \"b\", do: Process.sleep(60)\nend\n"
+    )
+
+    File.write!(
+      Path.join(dir, "test/quick_test.exs"),
+      "defmodule QuickTest do\n  use ExUnit.Case\n  test \"c\", do: :ok\nend\n"
+    )
+
+    assert %{slowest_modules: [%{file: "test/slow_test.exs", tests: 2, ms: ms}]} =
+             Run.lean(Run.result(dir, "test", ["--slowest-modules", "1"]))
+
+    assert ms >= 120
+  end
+
+  @tag :tmp_dir
 end
