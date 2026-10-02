@@ -995,4 +995,29 @@ defmodule Menard.ClauseTest do
 
     assert why =~ "name one"
   end
+
+  @tag :tmp_dir
+  test "a clause rewritten with a new function under it is written, the function after the clauses", %{
+    tmp_dir: dir
+  } do
+    # up4 Symphony 01, as the agent called it: one clause rewritten with a new helper under it
+    file = Path.join(dir, "r.ex")
+
+    File.write!(
+      file,
+      "defmodule R do\n  def a, do: go(1)\n\n  defp go(1), do: :one\n  defp go(n), do: n\nend\n"
+    )
+
+    assert {:ok, %{moved: ["helped/1 after the last clause of go/1, not between its clauses"]}} =
+             Menard.Verbs.Clause.run(%{
+               verb: "rewrite",
+               file: file,
+               name_arity: "go/1",
+               head: "1",
+               code: "defp go(1), do: helped(:one)\n\ndefp helped(x), do: x"
+             })
+
+    assert File.read!(file) =~
+             "defp go(1), do: helped(:one)\n  defp go(n), do: n\n\n  defp helped(x), do: x\n"
+  end
 end
