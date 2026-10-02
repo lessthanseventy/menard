@@ -73,4 +73,19 @@ if Code.ensure_loaded?(Anubis.Server) do
     @doc "Every path resolved, globs expanded, or the first refusal — no partial edits."
     def resolve_all(paths), do: Menard.Verbs.resolve_all(paths, %{root: root()})
   end
+
+  defmodule Menard.MCP.Hooks do
+    @moduledoc """
+    The hooks' own server (`bin/menard mcp --hooks`), its one tool `hook`. A server takes one call
+    at a time, and with the verbs' it held every hook behind a `run check`: 38 PreToolUse hooks on
+    Bash cancelled at their 120 s timeout in one session (2026-10-01). Apart, a hook waits on no verb.
+    """
+    use Anubis.Server,
+      name: "menard-hooks",
+      version: Mix.Project.config()[:version],
+      capabilities: [:tools],
+      instructions: "menard's hooks, called by the harness, not by an agent."
+
+    component(Menard.MCP.Hook, name: "hook")
+  end
 end

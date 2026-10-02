@@ -45,7 +45,7 @@ defmodule Menard.Verbs.Noun do
 
   # the nouns that write, as the format hook matches them (hooks/hooks.json), and what their `then`
   # runs after: a test added with `block add` was run by a second call, as an edit's need not be
-  @writing ~w(write rename clause stmt directive attr block module)
+  @writing ~w(edit write rename clause stmt directive attr block module deps)
   @thens ~w(test check compile)
   @then_doc "\n`then` runs `test` (the tests of what it wrote), `check` or `compile` after, its answer in `run`.\n"
 
@@ -84,6 +84,10 @@ defmodule Menard.Verbs.Noun do
       do: %{noun | fields: noun.fields ++ [{:then, :enum, [values: @thens]}], doc: noun.doc <> @then_doc},
       else: noun
   end
+
+  @doc "The nouns that write: what the format hook matches of menard's own tools (hooks/hooks.json)."
+  @spec writing() :: [String.t()]
+  def writing, do: @writing
 
   @doc "What a writing verb's `then` runs after it (`Menard.Verbs.call/2`)."
   @spec thens() :: [String.t()]

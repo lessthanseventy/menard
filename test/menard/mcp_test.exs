@@ -109,11 +109,12 @@ defmodule Menard.MCPTest do
   end
 
   test "the plugin's MCP server waits out a first start: deps fetch and compile, on a slow network" do
-    [server] =
-      Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])
-
-    # an integer: nil compares greater than any number, so `>=` alone passes on a missing field
-    assert is_integer(server["timeout"]) and server["timeout"] >= 120_000
+    # the verbs' server and the hooks', each
+    for server <-
+          Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"]) do
+      # an integer: nil compares greater than any number, so `>=` alone passes on a missing field
+      assert is_integer(server["timeout"]) and server["timeout"] >= 120_000
+    end
   end
 
   @tag :tmp_dir
@@ -123,8 +124,7 @@ defmodule Menard.MCPTest do
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
 
-    [server] =
-      Map.values(JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"])
+    server = JSON.decode!(File.read!(Path.join(@root, ".claude-plugin/plugin.json")))["mcpServers"]["menard"]
 
     assert server["command"] == "${CLAUDE_PLUGIN_ROOT}/bin/menard"
     assert server["env"]["MENARD_ROOT"] == "${CLAUDE_PROJECT_DIR}"

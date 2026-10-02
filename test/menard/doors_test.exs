@@ -5,6 +5,7 @@ defmodule Menard.DoorsTest do
   use ExUnit.Case, async: false
 
   alias Anubis.Server.Frame
+  alias Menard.MCP.Hooks
   alias Menard.Verbs.Noun
   alias Mix.Tasks.Menard.Where
 
@@ -271,5 +272,30 @@ defmodule Menard.DoorsTest do
 
     assert {:error, ^why} =
              cli(Mix.Tasks.Menard.Edit, ["lib/a.ex\n<<<<<<< SEARCH\ndef three\n=======\nx\n>>>>>>> REPLACE\n"])
+  end
+
+  test "the hooks call their own server, PreToolUse fails open fast, and every writing tool is matched" do
+    # Fable 2026-10-01: an MCP edit never reached the hook (its matcher, written 09-28, left out `edit`,
+    # added 09-29), and every hook queued behind the verbs' server: 38 PreToolUse cancelled at 120 s
+    hooks = "hooks/hooks.json" |> File.read!() |> JSON.decode!()
+
+    calls =
+      for {event, groups} <- hooks["hooks"],
+          group <- groups,
+          hook <- group["hooks"],
+          hook["type"] == "mcp_tool",
+          do: {event, group["matcher"], hook}
+
+    assert Enum.all?(calls, fn {_, _, hook} -> hook["server"] == "plugin:menard:menard-hooks" end)
+    for {"PreToolUse", _, hook} <- calls, do: assert(hook["timeout"] <= 10)
+
+    assert [writes] = for({_, "mcp__plugin_menard_menard__" <> tools, _} <- calls, do: tools)
+    assert writes == "(" <> Enum.join(Noun.writing(), "|") <> ")"
+
+    plugin = ".claude-plugin/plugin.json" |> File.read!() |> JSON.decode!()
+    assert plugin["mcpServers"]["menard-hooks"]["args"] == ["mcp", "--hooks"]
+
+    assert [{Menard.MCP.Hook, "hook"}] =
+             for(tool <- Hooks.__components__(:tool), do: {tool.handler, tool.name})
   end
 end

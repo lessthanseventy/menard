@@ -14,7 +14,10 @@ defmodule Mix.Tasks.Menard.Mcp do
   @compile {:no_warn_undefined, Anubis.Server.Registry}
 
   @impl true
-  def run(_argv) do
+  def run(argv) do
+    # `--hooks`: the hooks' own server, so no hook waits on a verb (Menard.MCP.Hooks)
+    server = if "--hooks" in argv, do: Menard.MCP.Hooks, else: Menard.MCP
+
     Code.ensure_loaded?(Menard.MCP) ||
       Mix.raise(
         ~s(the MCP door needs the optional anubis_mcp: add {:anubis_mcp, "~> 2.0"} to your deps, ) <>
@@ -27,15 +30,15 @@ defmodule Mix.Tasks.Menard.Mcp do
     {:ok, _} = Application.ensure_all_started(:menard)
 
     logs_to_stderr()
-    {:ok, _} = Supervisor.start_child(Menard.Supervisor, {Menard.MCP, transport: :stdio})
+    {:ok, _} = Supervisor.start_child(Menard.Supervisor, {server, transport: :stdio})
     # what it runs is current now: a call compiles first only once menard's source is newer
     Reply.loaded!()
     # started now, so its index is built by the first `find` that asks it
-    Menard.Lsp.warm(Menard.MCP.root())
+    if server == Menard.MCP, do: Menard.Lsp.warm(Menard.MCP.root())
 
     # The transport stops when the client closes stdin, and the VM goes with it: kept alive, the
     # server of a client that died without killing it lingers for good.
-    ref = Process.monitor(Anubis.Server.Registry.transport_name(Menard.MCP, :stdio))
+    ref = Process.monitor(Anubis.Server.Registry.transport_name(server, :stdio))
 
     receive do
       {:DOWN, ^ref, :process, _pid, _reason} -> System.halt(0)

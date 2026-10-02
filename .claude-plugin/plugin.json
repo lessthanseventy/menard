@@ -23,6 +23,17 @@
       "env": {
         "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}"
       }
+    },
+    "menard-hooks": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/menard",
+      "args": [
+        "mcp",
+        "--hooks"
+      ],
+      "timeout": 620000,
+      "env": {
+        "MENARD_ROOT": "${CLAUDE_PROJECT_DIR}"
+      }
     }
   },
   "lspServers": {
