@@ -383,4 +383,13 @@ defmodule Menard.EditTest do
     assert {:error, why} = edit(dir, [%{file: "lib/n.ex", old: old, new: "  def go(a, b) do\n    a"}])
     assert why =~ "nearest, at line 2:\n  def go(\n        first_long_argument_name,"
   end
+
+  @tag :tmp_dir
+  test "a replacement the same as its text is refused, found or not", %{tmp_dir: dir} do
+    # a block whose text and replacement are the same changes nothing, found or not: written as one
+    # (2026-10-01), it missed, and the miss sent its writer to look for text it never meant to change
+    assert {:error, why} = edit(dir, [%{file: "lib/a.ex", old: "def one, do: 1", new: "def one, do: 1"}])
+    assert why =~ "the same"
+    assert why =~ "nothing was written"
+  end
 end

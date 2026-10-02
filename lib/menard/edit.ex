@@ -130,6 +130,9 @@ defmodule Menard.Edit do
   defp replace({:ok, _text}, %{old: ""}),
     do: {:error, "the file exists, and an empty `old` is no place in it: name the text to replace"}
 
+  defp replace({:ok, _text}, %{old: same, new: same}) when same != "",
+    do: {:error, "the text and what replaces it are the same: nothing to change (a block left as it was?)"}
+
   defp replace({:ok, text}, %{old: old, new: new} = edit) do
     case {:binary.matches(text, old), edit[:all] == true} do
       {[], _all} -> deeper(text, edit) || {:error, missed(text, old)}
