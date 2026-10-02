@@ -963,6 +963,8 @@ defmodule Menard.RunTest do
     # this VM's own, its check gone (killed at a deadline, its `after` never run): no wait
     File.write!(lock, System.pid())
     refute Map.has_key?(Run.result(dir, "check", []), :waited)
+    # a dead holder's lock is moved aside to be taken (a rename only one waiter wins), then gone
+    assert Path.wildcard(lock <> ".*") == []
   end
 
   @tag :tmp_dir
