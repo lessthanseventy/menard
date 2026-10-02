@@ -50,9 +50,8 @@ defmodule Menard.WriteReplyTest do
       # :formatter and :plugins follow only where they changed something
       assert [:patch] = Enum.map(reply.stages, & &1.stage)
 
-      assert hd(reply.stages).hunks == [
-               %{start: 2, removed: ["  def go, do: :a"], added: ["  def go, do: :b"]}
-             ]
+      # where the caller's code went, and how many lines: not the code said back
+      assert hd(reply.stages).hunks == [%{start: 2, removed: 1, added: 1}]
     end
 
     test "the version is the sha256 of the file on disk after the write", %{tmp_dir: dir} do
@@ -95,7 +94,7 @@ defmodule Menard.WriteReplyTest do
       content = "defmodule New do\n  def go, do: :ok\nend\n"
 
       assert {:ok, reply} = Menard.write(file, content, did: "write new.ex")
-      assert hd(reply.stages).hunks == [%{start: 1, removed: [], added: String.split(content, "\n")}]
+      assert hd(reply.stages).hunks == [%{start: 1, removed: 0, added: 4}]
       assert File.read!(file) == content
     end
 
@@ -112,7 +111,7 @@ defmodule Menard.WriteReplyTest do
       # bench1/bench2 B read files back after its last edit 2.6x as often as A
       file = write_file(dir, "a.ex", "defmodule A do\n  def go, do: :a\nend\n")
       assert {:ok, reply} = Menard.write(file, String.replace(File.read!(file), ":a", ":b"))
-      assert reply.note =~ "no need to Read"
+      assert reply.note =~ "no Read needed"
     end
   end
 

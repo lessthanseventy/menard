@@ -122,7 +122,10 @@ defmodule Menard do
         file: file,
         version: version,
         stages: stages(original, patched, formatted, split),
-        note: "the stages are every change this made: no need to Read the file back"
+        # kept on every write: without it, bench1/bench2's B read files back after its last edit
+        # 2.6x as often, and the CLI's caller never sees the MCP instructions; short, as it rides
+        # every reply
+        note: "the stages are every change: no Read needed"
       }
 
       reply =
@@ -258,7 +261,9 @@ defmodule Menard do
     end
   end
 
-  defp told(:patch, %{removed: removed, added: added} = h) when length(removed) + length(added) > 6,
+  # the caller's own code, said back: where it went and how many lines, small hunks too (they echoed
+  # every hunk of six lines or fewer, code and all; Fable's review)
+  defp told(:patch, %{removed: removed, added: added} = h),
     do: %{h | removed: length(removed), added: length(added)}
 
   defp told(_stage, %{start: start, removed: removed, added: added} = h) do

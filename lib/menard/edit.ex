@@ -50,6 +50,8 @@ defmodule Menard.Edit do
         |> Enum.group_by(fn {_file, {key, _}} -> key end, fn {file, {_, what}} ->
           "#{Path.relative_to(file, root)}: #{what}"
         end)
+        # once a file: `indented` was said per replacement, 42 copies in 29 replies
+        |> Map.new(fn {key, notes} -> {key, Enum.uniq(notes)} end)
 
       {:ok, Map.merge(%{changed: changed, replacements: length(edits)}, notes)}
     else
