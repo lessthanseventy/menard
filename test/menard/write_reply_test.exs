@@ -260,10 +260,12 @@ defmodule Menard.WriteReplyTest do
 
       out = ExUnit.CaptureIO.capture_io(fn -> Clause.run(["move", a, "go/0", "--to", dest, "--as", "MB"]) end)
 
-      assert %{"created" => "MB", "to" => %{"file" => ^dest, "version" => "sha256:" <> _}, "from" => from} =
+      assert %{"created" => "MB", "to" => %{"file" => to, "version" => "sha256:" <> _}, "from" => from} =
                JSON.decode!(out)
 
-      assert from["file"] == a
+      # named from where the CLI was called
+      assert Path.expand(to) == dest
+      assert Path.expand(from["file"]) == a
     end
 
     test "with no --to is refused by name, not a stack trace", %{tmp_dir: dir} do

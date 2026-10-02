@@ -24,7 +24,7 @@ defmodule Mix.Tasks.Menard.Find do
     case args do
       [kind, target | files] when files != [] ->
         print(
-          Verbs.Find.run(%{kind: kind, target: target, files: files}),
+          Verbs.call(Verbs.Find, %{kind: kind, target: target, files: files}),
           opts[:json] == true,
           {kind, target}
         )

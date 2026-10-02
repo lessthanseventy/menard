@@ -91,11 +91,12 @@ defmodule Menard.Verbs do
         {:error, "then #{verb} takes no files: only test takes files"}
 
       [verb | files] ->
-        with {:ok, reply} <- verbs.run(params), do: {:ok, then_run(reply, params, verb, files)}
+        with {:ok, reply} <- verbs.run(params),
+             do: {:ok, reply |> then_run(params, verb, files) |> from_root(params)}
     end
   end
 
-  def call(verbs, params), do: verbs.run(params)
+  def call(verbs, params), do: with({:ok, reply} <- verbs.run(params), do: {:ok, from_root(reply, params)})
 
   @doc """
   The pipeline every writing verb is: `params.file` resolved and read, `change.(source)` (the new
@@ -232,4 +233,21 @@ defmodule Menard.Verbs do
   defp test_of("test/" <> _ = rel), do: if(String.ends_with?(rel, "_test.exs"), do: rel)
   defp test_of("lib/" <> rest), do: "test/" <> Path.rootname(rest) <> "_test.exs"
   defp test_of(_rel), do: nil
+
+  # A file under the root named from it: an absolute path in every reply's every file was 44% of a CLI
+  # find's characters (Fable's review, 2026-10-01). After `then`, which finds each file's project.
+  defp from_root(reply, params), do: relative(reply, Path.expand(params[:root] || Menard.caller_dir()))
+
+  # a value that is a path under the root, wherever it is (a `file`, a list of the unchanged, a line
+  # `path:12: text`); a sentence that names one in its middle, or code, starts otherwise
+  defp relative(%{} = map, root) when not is_struct(map),
+    do: Map.new(map, fn {k, v} -> {k, relative(v, root)} end)
+
+  defp relative(list, root) when is_list(list), do: Enum.map(list, &relative(&1, root))
+  defp relative("/" <> _ = path, root), do: under(path, root)
+  defp relative(other, _root), do: other
+
+  defp under(path, root),
+    do:
+      if(String.starts_with?(path, root <> "/"), do: String.replace_prefix(path, root <> "/", ""), else: path)
 end
