@@ -1184,17 +1184,14 @@ defmodule Menard.HooksTest do
     assert {:deny, why} = read.("PreToolUse", %{})
     assert why =~ "lib/a.ex is unchanged since you read it"
 
-    # changed: the change is the answer, and becomes what was read
-    File.write!(file, String.replace(File.read!(file), "def f3, do: 3", "def f3, do: :three"))
-    assert {:deny, why} = read.("PreToolUse", %{})
-    assert why =~ "lib/a.ex changed since you read it"
     # desk7: shown as a "hook error", the answer was taken for a failure and the Read asked again
     assert why =~ "This is the Read's answer, not an error"
-    assert why =~ "a Read again answers"
-    assert why =~ "L4"
-    assert why =~ "-  def f3, do: 3"
-    assert why =~ "+  def f3, do: :three"
-    assert why =~ "edit"
+
+    # changed: read, and what it holds then is what was read (answered with a diff, it was read at
+    # once anyway half the time)
+    File.write!(file, String.replace(File.read!(file), "def f3, do: 3", "def f3, do: :three"))
+    assert read.("PreToolUse", %{}) == :quiet
+    read.("PostToolUse", %{})
     assert {:deny, why} = read.("PreToolUse", %{})
     assert why =~ "unchanged since you read it"
 
@@ -1328,6 +1325,38 @@ defmodule Menard.HooksTest do
     refute text =~ "are refused"
     assert {:context, _} = start.("compact")
     assert start.("resume") == :quiet
+  end
+
+  @tag :tmp_dir
+  test "after a compaction a file read before is read again", %{tmp_dir: dir} do
+    # compacted, what was read is out of the context: a Read of it is no reread
+    file = Path.join(dir, "lib/c.ex")
+    File.mkdir_p!(Path.dirname(file))
+    File.write!(file, "defmodule C do\nend\n")
+
+    read = fn event ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => event,
+          "tool_name" => "Read",
+          "session_id" => "c1",
+          "cwd" => dir,
+          "tool_use_id" => "t#{System.unique_integer([:positive])}",
+          "tool_input" => %{"file_path" => file}
+        },
+        state_dir: dir
+      )
+    end
+
+    read.("PostToolUse")
+    assert {:deny, _} = read.("PreToolUse")
+
+    Menard.Hook.run(
+      %{"hook_event_name" => "SessionStart", "source" => "compact", "session_id" => "c1", "cwd" => dir},
+      state_dir: dir
+    )
+
+    assert read.("PreToolUse") == :quiet
   end
 
   defp bigread(payload, dir) do
