@@ -73,14 +73,14 @@ defmodule Menard.Edit do
       >>>>>>> REPLACE
   """
   @spec blocks(String.t()) :: {:ok, [edit()]} | {:error, String.t()}
-  def blocks(text), do: text |> String.split("\n") |> blocks([])
+  def blocks(text), do: text |> String.split("\n") |> Enum.flat_map(&markers/1) |> blocks([])
 
   defp blocks([], edits), do: {:ok, Enum.reverse(edits)}
   defp blocks(["" | lines], edits), do: blocks(lines, edits)
 
   defp blocks([file, "<<<<<<< SEARCH" | lines], edits) do
     with {:ok, old, lines} <- upto(lines, "=======", file),
-         {:ok, new, lines} <- upto(lines, ">>>>>>> REPLACE", file) do
+         {:ok, new, lines} <- replacement(lines, file) do
       blocks(lines, [%{file: String.trim(file), old: old, new: new} | edits])
     end
   end
@@ -94,6 +94,23 @@ defmodule Menard.Edit do
       {text, [^mark | rest]} -> unmarked(text, rest, file)
     end
   end
+
+  # A replacement ends at `>>>>>>> REPLACE`, or at a second `=======` with the next block or the end
+  # right after it: written so as often, and the batch was sent again for it (Fable's review,
+  # 2026-10-01). A `=======` with more text before a REPLACE is a block written wrong, refused.
+  defp replacement(lines, file) do
+    {text, rest} = Enum.split_while(lines, &(&1 not in [">>>>>>> REPLACE", "======="]))
+
+    case {rest, Enum.drop_while(Enum.drop(rest, 1), &(&1 == ""))} do
+      {["=======" | _], []} -> unmarked(text, [], file)
+      {["=======" | _], [_file, "<<<<<<< SEARCH" | _] = next} -> unmarked(text, next, file)
+      _ -> upto(lines, ">>>>>>> REPLACE", file)
+    end
+  end
+
+  # `=======>>>>>>> REPLACE` on one line, as it is often written: the two markers
+  defp markers(line),
+    do: if(line =~ ~r/^=======\s*>>>>>>> REPLACE$/, do: ["=======", ">>>>>>> REPLACE"], else: [line])
 
   defp unmarked(text, rest, file) do
     case Enum.find(text, &(&1 in @marks)) do
@@ -286,11 +303,21 @@ defmodule Menard.Edit do
       else: ""
   end
 
-  defp several(text, old, found) do
+  # each place it is, with the lines around it: what to add to tell them apart. Said back, the text
+  # told its writer nothing it had not sent (Fable's review)
+  defp several(text, _old, found) do
+    all = String.split(text, "\n")
+
+    places =
+      Enum.map_join(found, "\n", fn {at, _length} ->
+        n = String.to_integer(line(text, at))
+        "line #{n}:\n" <> Enum.map_join(Enum.slice(all, max(n - 2, 0), 3), "\n", &("  " <> &1))
+      end)
+
     lines = Enum.map_join(found, ", ", fn {at, _length} -> line(text, at) end)
 
-    "this text is there #{length(found)} times (lines #{lines}): give more of what is around it, " <>
-      "or `all: true` for every one:\n#{old}"
+    "this text is there #{length(found)} times (lines #{lines}): give more of what is around it, or " <>
+      "`all: true` for every one:\n#{places}"
   end
 
   # `old` as clause get and block get give code, at column 0, where the file has it deeper: found once
