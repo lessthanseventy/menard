@@ -596,6 +596,8 @@ defmodule Menard.Run do
   defp credo(run, args) do
     {strict, args} = {"--strict" in args, args -- ["--strict"]}
     {changed, files} = {"--changed" in args, args -- ["--changed"]}
+    # the report is read as JSON: a caller's `--format oneline` came after it, won, and nothing parsed
+    files = drop_format(files)
 
     {out, status, fetched} =
       mix_fetching(run, ["credo", "--format", "json"] ++ if(strict, do: ["--strict"], else: []) ++ files)
@@ -717,6 +719,11 @@ defmodule Menard.Run do
       "format --check-formatted, compile --warnings-as-errors, test#{if credo?(dir), do: ", credo"} (no precommit alias)"
     )
   end
+
+  defp drop_format(["--format", _ | rest]), do: drop_format(rest)
+  defp drop_format(["--format=" <> _ | rest]), do: drop_format(rest)
+  defp drop_format([arg | rest]), do: [arg | drop_format(rest)]
+  defp drop_format([]), do: []
 
   defp credo_issue(i) do
     %{

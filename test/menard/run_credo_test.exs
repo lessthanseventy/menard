@@ -142,4 +142,38 @@ defmodule Menard.RunCredoTest do
     assert %{ok: false, failures: [%{kind: "credo", message: "no spec (Specs)"}]} =
              Run.result(dir, "check", ["--strict"])
   end
+
+  @tag :tmp_dir
+  test "run credo answers in its own format, whatever --format it was given", %{tmp_dir: dir} do
+    # a caller's `--format oneline` (a piped `mix credo` the hook made `run credo`) came after menard's
+    # json, won, and the reply was "credo gave no report": the reply's format is menard's
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Lint.MixProject do
+      use Mix.Project
+      def project, do: [app: :lint, version: "0.1.0"]
+    end
+    """)
+
+    File.write!(
+      Path.join(dir, "mix.lock"),
+      ~s|%{\n  "credo": {:hex, :credo, "1.7.12", "x", [:mix], [], "hexpm", "y"},\n}\n|
+    )
+
+    File.mkdir_p!(Path.join(dir, "lib"))
+
+    File.write!(Path.join(dir, "lib/credo.ex"), """
+    defmodule Mix.Tasks.Credo do
+      use Mix.Task
+      def run(args) do
+        formats = for {"--format", i} <- Enum.with_index(args), do: Enum.at(args, i + 1)
+
+        if List.last(formats) == "json",
+          do: IO.puts(JSON.encode!(%{"issues" => []})),
+          else: IO.puts("plain text")
+      end
+    end
+    """)
+
+    assert %{ok: true, failures: []} = Run.result(dir, "credo", ["--format", "oneline", "lib/credo.ex"])
+  end
 end

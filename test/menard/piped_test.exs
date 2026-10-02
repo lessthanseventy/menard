@@ -81,4 +81,16 @@ defmodule Menard.PipedTest do
     assert Piped.rewritten("sed -i 's/a;b/c/' lib/a.ex && mix test 2>&1 | tail", @menard) ==
              "sed -i 's/a;b/c/' lib/a.ex && #{@menard} run test"
   end
+
+  test "a piped credo is menard's run credo" do
+    # the agent's own `mix credo --strict … | grep -v "^Checking"`: a lint cut down to read, where
+    # `run credo` is the issues as one line
+    assert Piped.rewritten(
+             ~s(mix credo --strict --format oneline lib/a.ex 2>&1 | grep -v "^Checking"),
+             @menard
+           ) ==
+             "#{@menard} run credo --strict --format oneline lib/a.ex"
+
+    assert Piped.rewritten("mix credo | tail -20", @menard) == "#{@menard} run credo"
+  end
 end
