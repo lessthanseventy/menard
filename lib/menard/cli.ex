@@ -13,13 +13,27 @@ defmodule Menard.CLI do
   and a reader of the exit status alone would take it for clean.
   """
   @spec answer(Menard.Verbs.result()) :: map()
-  def answer({:ok, reply}) do
+  def answer(result, json \\ true)
+
+  # A read of code is the code, under one line naming where it is: printed JSON-escaped, 39 calls
+  # took it through `jq -r .code` (Fable's review, 2026-10-01). `--json` is the map, as for any reply.
+  def answer({:ok, %{code: code} = reply}, false) when not is_map_key(reply, :stages) do
+    Mix.shell().info(where(reply) <> code)
+    reply
+  end
+
+  def answer({:ok, %{functions: [%{code: _} | _] = functions} = reply}, false) do
+    Mix.shell().info(Enum.map_join(functions, "\n\n", &(where(Map.put(&1, :file, reply[:file])) <> &1.code)))
+    reply
+  end
+
+  def answer({:ok, reply}, _json) do
     Mix.shell().info(Menard.encode(reply))
     if reason = reply[:unformatted], do: Mix.shell().error("menard: " <> reason)
     reply
   end
 
-  def answer({:error, reason}), do: Mix.raise(reason)
+  def answer({:error, reason}, _json), do: Mix.raise(reason)
 
   @doc "`answer/1`, and a failing exit when the reply's `ok` is false — the way `run` and `deps` gate."
   @spec finish(Menard.Verbs.result()) :: map()
@@ -35,6 +49,8 @@ defmodule Menard.CLI do
   """
   @spec run(module(), [String.t()]) :: map()
   def run(verbs, argv) do
+    # `--json`: the reply as the map, where a read of code is otherwise printed as code
+    {json, argv} = {"--json" in argv, argv -- ["--json"]}
     noun = Noun.of(verbs)
     flags = Noun.flags(noun)
     {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
@@ -44,7 +60,7 @@ defmodule Menard.CLI do
         usage(Noun.usage(noun))
 
       params ->
-        answer(Menard.Verbs.call(verbs, given |> flagged(flags) |> Map.merge(from_stdin(params, noun))))
+        answer(Menard.Verbs.call(verbs, given |> flagged(flags) |> Map.merge(from_stdin(params, noun))), json)
     end
   end
 
@@ -128,4 +144,9 @@ defmodule Menard.CLI do
       params -> Map.update!(params, field, &stdin(&1, "menard.#{noun.name}"))
     end
   end
+
+  defp where(%{lines: [a, b]} = reply), do: "#{reply[:file]} L#{a}-#{b}\n"
+  defp where(%{lines: {a, b}} = reply), do: "#{reply[:file]} L#{a}-#{b}\n"
+  defp where(%{file: file}), do: file <> "\n"
+  defp where(_reply), do: ""
 end

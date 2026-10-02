@@ -66,14 +66,14 @@ defmodule Menard.DoorsTest do
       {Menard.MCP.Block, Mix.Tasks.Menard.Block, %{verb: "list", file: "lib/a_test.exs"},
        ["list", "lib/a_test.exs"]},
       {Menard.MCP.Block, Mix.Tasks.Menard.Block, %{verb: "get", file: "lib/a_test.exs", name: "test"},
-       ["get", "lib/a_test.exs", "test"]},
+       ["get", "lib/a_test.exs", "test", "--json"]},
       {Menard.MCP.Directive, Mix.Tasks.Menard.Directive, %{verb: "list", file: "lib/a.ex"},
        ["list", "lib/a.ex"]},
       {Menard.MCP.Module, Mix.Tasks.Menard.Module, %{verb: "list", file: "lib/a.ex"}, ["list", "lib/a.ex"]},
       {Menard.MCP.Deps, Mix.Tasks.Menard.Deps, %{verb: "refs", file: "lib/a.ex", name_arity: "go/1"},
        ["lib/a.ex", "go/1"]},
       {Menard.MCP.Clause, Mix.Tasks.Menard.Clause, %{verb: "get", file: "lib/a.ex", name_arity: "two/1"},
-       ["get", "lib/a.ex", "two/1"]},
+       ["get", "lib/a.ex", "two/1", "--json"]},
       {Menard.MCP.Outline, Mix.Tasks.Menard.Outline, %{file: "lib/a.ex"}, ["--json", "lib/a.ex"]},
       {Menard.MCP.Find, Mix.Tasks.Menard.Find, %{kind: "calls", target: "two", files: ["lib/a.ex"]},
        ["calls", "two", "lib/a.ex", "--json"]},
@@ -297,5 +297,22 @@ defmodule Menard.DoorsTest do
 
     assert [{Menard.MCP.Hook, "hook"}] =
              for(tool <- Hooks.__components__(:tool), do: {tool.handler, tool.name})
+  end
+
+  @tag :tmp_dir
+  test "a code read at the CLI is the code, under a line naming where; --json is the map", %{tmp_dir: dir} do
+    # Fable 2026-10-01: clause get and block get printed their code JSON-escaped, and 39 calls ran it
+    # through `jq -r .code` before the pipe was refused. Code is printed as code, under one line naming
+    # where it is; `--json` is the map
+    file = Path.join(dir, "g.ex")
+    File.write!(file, "defmodule G do\n  def go(x) do\n    x + 1\n  end\nend\n")
+
+    out = ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Menard.Clause.run(["get", file, "go/1"]) end)
+    assert out =~ ~r/g\.ex L2-4\n/
+    assert out =~ "def go(x) do\n  x + 1\nend"
+    refute out =~ ~s("code":)
+
+    json = ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Menard.Clause.run(["get", file, "go/1", "--json"]) end)
+    assert %{"code" => _, "lines" => [2, 4]} = JSON.decode!(json)
   end
 end
