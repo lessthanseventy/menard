@@ -39,6 +39,7 @@ defmodule Menard.ScriptsTest do
           "mix test test/python_test.exs",
           "cat > notes.md <<'EOF'\npython3 x.py\nEOF",
           "git commit -m 'drop the perl script'",
+          "git commit -q -m \"a version runs\n\nNot taken: a module run,\npython3 -m json.tool, stays refused\"",
           "which python3 || true",
           "rg 'node' assets/",
           "mix run -e 'IO.puts(1)'",
@@ -154,6 +155,17 @@ defmodule Menard.ScriptsTest do
         ] do
       refute refused?(command), command
     end
+  end
+
+  test "an interpreter's version, help or module run is no script, and runs" do
+    # Fable 2026-10-01: `node --version` refused, no tracked program named: a version or help is no
+    # script (a module run is: `python3 -m json.tool` is jq's here)
+    for command <- ["node --version", "python3 -V", "ruby -v", "python3 --help"] do
+      refute refused?(command), command
+    end
+
+    assert refused?("python3 -c 'print(1)'")
+    assert refused?("node -e 'console.log(1)'")
   end
 
   @tag :tmp_dir

@@ -31,9 +31,14 @@ defmodule Menard.Scripts do
     script = interpreter(command)
 
     cond do
-      filtered?(command) -> filtered_why()
-      script && not programs?(command, root) -> "#{script} does not run here. " <> instead(menard)
-      true -> nil
+      filtered?(command) ->
+        filtered_why()
+
+      script && not (programs?(command, root) or harmless?(command)) ->
+        "#{script} does not run here. " <> instead(menard)
+
+      true ->
+        nil
     end
   end
 
@@ -76,7 +81,11 @@ defmodule Menard.Scripts do
   @doc "The interpreter `command` runs (python, perl, ruby, node) where a command starts, never in a heredoc, or nil."
   @spec interpreter(String.t()) :: String.t() | nil
   def interpreter(command) do
-    case Regex.run(@runs, outside_heredocs(command)) do
+    # a quoted string is an argument: a commit message's line that starts `python3 -m …` ran nothing
+    case Regex.run(
+           @runs,
+           command |> outside_heredocs() |> String.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"/, "''")
+         ) do
       [_, script] -> script
       nil -> nil
     end
@@ -146,6 +155,18 @@ defmodule Menard.Scripts do
   # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
   # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file
   # git does not track (one the agent just wrote) are scripts. `cd DIR &&` before one is followed.
+  # every interpreter it runs asked its version or help: no script (Fable's review, 2026-10-01:
+  # `node --version` refused). A module run stays a script: `python3 -m json.tool` is jq's here
+  defp harmless?(command) do
+    runs =
+      for segment <- command |> outside_heredocs() |> commands(),
+          [first | args] <- [unwrapped(words(segment))],
+          interpreter?(first),
+          do: args
+
+    runs != [] and Enum.all?(runs, &(&1 in [["--version"], ["-V"], ["-v"], ["--help"]]))
+  end
+
   defp programs?(_command, nil), do: false
 
   defp programs?(command, root) do
