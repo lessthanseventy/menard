@@ -491,6 +491,9 @@ defmodule Menard.Run do
           |> credo_named(out, run, "--strict" in args)
           |> step_named(failed_step)
 
+    # its failed tests once more, as `run test` does: a flake is not the change's (up4 Oban 01: check
+    # red twice on the notifier's, and the agent stashed its work for a baseline)
+    reply = check_flakes(run, reply)
     if reply.ok and tree, do: File.write(green_stamp(dir), tree)
     if formatted == [], do: reply, else: Map.put(reply, :formatted, formatted)
   end
@@ -807,6 +810,32 @@ defmodule Menard.Run do
   end
 
   defp slowest_modules(_args, _held), do: nil
+
+  # A check's failures that pass again are flakes. Its own steps (no precommit alias) all ran, credo
+  # after the tests too, so none left is green; an alias stops at the task that failed, and what came
+  # after it never ran: red still, and the reply says why
+  defp check_flakes(run, reply) do
+    if rerun?(reply, []) do
+      again = flakes(reply, tested(run, ["--failed"], run.log <> ".rerun.exunit"))
+
+      cond do
+        not Map.has_key?(again, :flaky) or again.flaky == nil ->
+          reply
+
+        reply[:ran] != nil or not again.ok ->
+          again
+
+        true ->
+          %{again | ok: false}
+          |> Map.put(
+            :note,
+            "every test failure passed when run again (flaky), and the precommit steps after the tests did not run: run check again"
+          )
+      end
+    else
+      reply
+    end
+  end
 
   # red with test failures alone, few enough to run again, and not a run that is itself a rerun
   defp rerun?(%{ok: false, failures: [_ | _] = failures}, args) do
