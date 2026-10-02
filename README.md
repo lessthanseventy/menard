@@ -155,5 +155,6 @@ no menard at all; the tools, their schemas in every turn, cost 46% more for sonn
 on renames and big-file reads. So the hook is what every write gets, the tools wait until they are
 asked for, and the guard is gone from Claude Code: its blocks were a turn each and bought nothing
 measurable over the hook. `hooks/format-report.sh` is the same hook for a harness that can only
-run a command (`menard hook`); `hooks/menard-only.sh`, `shell-edits.sh`, `read-hint.sh` and
-`prefer-menard-run.sh` stay for the pi adapter.
+run a command (`menard hook`); `hooks/shell-edits.sh` and `read-hint.sh` stay for the pi adapter.
+The stop and commit gates, and the hooks wired nowhere, went with the slim (tag
+`pre-slim-2026-10-01` keeps them).

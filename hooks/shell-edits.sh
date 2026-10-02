@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre- and PostToolUse hook on Bash: the guard watches Edit/Write only (menard-only.sh says why),
+# Pre- and PostToolUse hook on Bash: the guard watches Edit/Write only,
 # so `sed -i` or a script on a module goes unseen. This does not judge the command's text. Before
 # it runs, a mark; after, any module under the project newer than the mark was changed by it, and
 # the agent hears so, with the check that proves it still compiles.
