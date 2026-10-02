@@ -208,17 +208,22 @@ def build_plugins(force=False):
 
 
 def build_plugin(dest, settings, force):
-    if dest.exists() and not force:
+    # which menard: the commit, and whether the tree held changes not in it
+    sha = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
+    dirty = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "lib", "bin", "hooks", "skills", "priv",
+                            ".claude-plugin", "mix.exs", "mix.lock"], capture_output=True, text=True).stdout.strip()
+    now = sha + ("+changes" if dirty else "")
+    # the copy a round runs is the repo as it is now: one pinned at another commit is rebuilt. Kept
+    # whenever it existed, up4 (2026-10-01) ran the menard up3 pinned, 59 commits back, and said
+    # nothing; a tree with changes is never the same twice, so it is rebuilt too
+    mark = dest / ".pinned"
+    if dest.exists() and not force and mark.exists() and mark.read_text().strip() == now and not dirty:
         return
     shutil.rmtree(dest, ignore_errors=True)
     # worktrees: .claude/worktrees holds whole checkouts of this repo, one per agent at work
     ignore = shutil.ignore_patterns(".git", "eval", "tmp", "doc", "erl_crash.dump", ".worktrees", "worktrees", "pi")
     shutil.copytree(REPO, dest, symlinks=True, ignore=ignore)
-    # which menard: the commit, and whether the tree held changes not in it
-    sha = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip()
-    dirty = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "lib", "bin", "hooks", "skills", "priv",
-                            ".claude-plugin", "mix.exs", "mix.lock"], capture_output=True, text=True).stdout.strip()
-    (dest / ".pinned").write_text(sha + ("+changes" if dirty else "") + "\n")
+    mark.write_text(now + "\n")
     if settings:
         manifest = dest / ".claude-plugin" / "plugin.json"
         d = json.loads(manifest.read_text())
@@ -1212,7 +1217,8 @@ def main():
     seed_file = out_dir / "seed"
     SEED = a.seed if a.seed is not None else int(seed_file.read_text()) if seed_file.exists() else random.randrange(1 << 32)
     seed_file.write_text(f"{SEED}\n")
-    log(f"{time.strftime('%H:%M')} {a.round} seed={SEED} arms={a.arms or 'with, and without where there is no baseline'}")
+    log(f"{time.strftime('%H:%M')} {a.round} seed={SEED} arms={a.arms or 'with, and without where there is no baseline'}"
+        f" menard={pinned('with')}")
     arms = a.arms.split(",") if a.arms else ["without", "with"]
     # without is a baseline: run where this basis has too few of it, not at every round
     kept = {}
