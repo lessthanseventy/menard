@@ -503,4 +503,25 @@ defmodule Menard.EditTest do
   end
 
   @tag :tmp_dir
+  test "edit blocks take the markers' first slips, and a text there twice is shown where", %{tmp_dir: dir} do
+    # Fable 2026-10-01: first guesses refused, the batch sent again (3 of 37 CLI edits in one session,
+    # 7.4k characters): the two markers on one line, and a block ended at its second `=======`
+    one_line = "lib/a.ex\n<<<<<<< SEARCH\nold\n=======>>>>>>> REPLACE\n"
+    assert {:ok, [%{file: "lib/a.ex", old: "old", new: ""}]} = Menard.Edit.blocks(one_line)
+
+    ended =
+      "lib/a.ex\n<<<<<<< SEARCH\nold\n=======\nnew\n=======\nlib/b.ex\n<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE\n"
+
+    assert {:ok, [%{file: "lib/a.ex", old: "old", new: "new"}, %{file: "lib/b.ex", old: "x", new: "y"}]} =
+             Menard.Edit.blocks(ended)
+
+    # there N times: each match with the lines around it, not the text said back
+    File.write!(Path.join(dir, "lib/n.ex"), "defmodule N do\n  def a, do: go()\n  def b, do: go()\nend\n")
+    assert {:error, why} = edit(dir, [%{file: "lib/n.ex", old: "go()", new: "run()"}])
+    assert why =~ "line 2:"
+    assert why =~ "  def a, do: go()"
+    assert why =~ "line 3:"
+  end
+
+  @tag :tmp_dir
 end
