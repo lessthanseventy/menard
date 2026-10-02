@@ -47,7 +47,7 @@ defmodule Menard.Verbs.Noun do
   # runs after: a test added with `block add` was run by a second call, as an edit's need not be
   @writing ~w(edit write rename clause stmt directive attr block module deps)
   @thens ~w(test check compile)
-  @then_doc "\n`then` runs `test` (the tests of what it wrote), `check` or `compile` after, its answer in `run`.\n"
+  @then_doc "\n`then` runs `test` (the tests of what it wrote, or `test FILE…` those files), `check` or `compile` after, its answer in `run`.\n"
 
   @doc "Every noun's verb module, in the order the MCP door lists its tools."
   @spec modules() :: [module()]
@@ -81,7 +81,7 @@ defmodule Menard.Verbs.Noun do
     noun = verbs.noun()
 
     if noun.name in @writing and not Enum.any?(noun.fields, &(elem(&1, 0) == :then)),
-      do: %{noun | fields: noun.fields ++ [{:then, :enum, [values: @thens]}], doc: noun.doc <> @then_doc},
+      do: %{noun | fields: noun.fields ++ [{:then, :string, []}], doc: noun.doc <> @then_doc},
       else: noun
   end
 
