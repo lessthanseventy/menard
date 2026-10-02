@@ -165,11 +165,34 @@ defmodule Menard.Verbs do
     end
   end
 
+  # In the mix project of each file it wrote: the nearest mix.exs above it, the root at most. From the
+  # root, a repo whose project is server/ (tlon's) mapped no test file, and --stale ran where there
+  # was no mix.exs (Fable's review, 2026-10-01). Several projects, a run each, its `dir` named.
   defp then_run(reply, %{then: verb} = p) do
     root = p[:root] || Menard.caller_dir()
-    args = if verb == "test", do: tests_of(written(reply), root), else: []
-    {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args}))
+
+    runs =
+      for {dir, files} <- by_project(written(reply), root) do
+        args = if verb == "test", do: tests_of(files, dir), else: []
+        {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
+        if dir == root, do: run, else: Map.put(run, :dir, Path.relative_to(dir, root))
+      end
+
+    run = with [one] <- runs, do: one
     reply |> Map.update(:did, "then run #{verb}", &(&1 <> ", then run #{verb}")) |> Map.put(:run, run)
+  end
+
+  defp by_project([], root), do: [{root, []}]
+
+  defp by_project(files, root),
+    do: files |> Enum.group_by(&project_of(Path.dirname(&1), root)) |> Enum.to_list()
+
+  defp project_of(dir, root) do
+    cond do
+      File.regular?(Path.join(dir, "mix.exs")) -> dir
+      dir == root or not String.starts_with?(dir, root <> "/") -> root
+      true -> project_of(Path.dirname(dir), root)
+    end
   end
 
   # the files a write's reply names: one (`file`), or each it changed (`changed`, edit's and rename's)

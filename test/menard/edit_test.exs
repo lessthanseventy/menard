@@ -426,4 +426,29 @@ defmodule Menard.EditTest do
   end
 
   @tag :tmp_dir
+  test "then runs in the mix project of the files it wrote, nested under the root or not", %{tmp_dir: dir} do
+    # Fable 2026-10-01: `then` ran in the root and mapped lib/ to test/ from it, so in a repo whose mix
+    # project is server/ (tlon's) no test was found and --stale ran where there was no mix.exs
+    server = Path.join(dir, "server")
+    File.mkdir_p!(server)
+    Host.mix_project(server, :nested)
+    File.mkdir_p!(Path.join(server, "lib"))
+    File.mkdir_p!(Path.join(server, "test"))
+    File.write!(Path.join(server, "lib/n.ex"), "defmodule N do\n  def go, do: 1\nend\n")
+    File.write!(Path.join(server, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(server, "test/n_test.exs"),
+      "defmodule NTest do\n  use ExUnit.Case\n  test \"go\", do: assert(N.go() == 2)\nend\n"
+    )
+
+    assert {:ok, %{run: run}} =
+             edit(dir, [%{file: "server/lib/n.ex", old: "def go, do: 1", new: "def go, do: 2"}], %{
+               then: "test"
+             })
+
+    assert %{ok: true, tests: 1, dir: "server"} = run
+  end
+
+  @tag :tmp_dir
 end
