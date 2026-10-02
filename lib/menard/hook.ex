@@ -133,14 +133,16 @@ defmodule Menard.Hook do
   # it from its start (49 of 57 fires were resumes), a compacted one may have lost it
   defp tool(%{event: "SessionStart", source: "resume"}), do: :quiet
 
-  defp tool(%{event: "SessionStart"}) do
+  defp tool(%{event: "SessionStart"} = hook) do
+    # compacted, what was read is out of the context: a Read of it is no reread
+    if hook.source == "compact",
+      do: Enum.each(Path.wildcard(Path.join(hook.state, "menard-read-*-#{hook.session}")), &File.rm/1)
+
     {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
   end
 
-  # A module read whole again (desk5: tickets.ex six times, 11 rereads in a session): answered with
-  # what changed since the read, or that nothing did, and that answer is then what was read. A part
-  # of one is read; so is a file that is not Elixir, and one rewritten past half its lines, whose
-  # diff would be longer than it.
+  # A module read whole again unchanged (desk5: tickets.ex six times, 11 rereads in a session): answered
+  # that nothing changed since the read. Changed, a part of one, a file that is not Elixir: read.
   defp tool(%{tool: "Read", event: "PreToolUse"} = hook) do
     file = hook.input["file_path"]
 
@@ -264,38 +266,19 @@ defmodule Menard.Hook do
 
   defp menard, do: Menard.bin()
 
+  # Unchanged since it was read: what was read is what it holds (worked 5 of 5). Changed, it is read:
+  # answered with the diff, 3 of 6 were read at once anyway (`cat`), the diff, the file and a turn all
+  # paid (Fable's review, 2026-10-01)
   defp reread(hook, file, seen, now) do
     rel = Path.relative_to(file, hook.root)
-    hunks = Menard.Diff.hunks(seen, now)
-    changed = hunks |> Enum.map(&(length(&1.removed) + length(&1.added))) |> Enum.sum()
 
-    cond do
-      hunks == [] ->
+    if seen == now,
+      do:
         {:deny,
          "This is the Read's answer, not an error: #{rel} is unchanged since you read it, so what you " <>
            "read is what it holds, and a Read again answers the same. One function of it: " <>
-           "#{menard()} clause get #{rel} NAME; every function's lines: #{menard()} outline #{rel}."}
-
-      changed * 2 > length(String.split(now, "\n")) ->
-        :quiet
-
-      true ->
-        File.write!(read_path(hook, file), now)
-
-        lines =
-          Enum.map_join(hunks, "\n", fn h ->
-            Enum.join(
-              ["L#{h.start}:"] ++ Enum.map(h.removed, &("-" <> &1)) ++ Enum.map(h.added, &("+" <> &1)),
-              "\n"
-            )
-          end)
-
-        {:deny,
-         "This is the Read's answer, not an error: #{rel} changed since you read it, and these are " <>
-           "all the lines that did. With them, what you read is what it holds now; a Read again answers " <>
-           "that it is unchanged.\n#{lines}\nTo change it, menard's edit (the Edit tool asks for a fresh " <>
-           "Read of a file changed since it was read); one function of it: #{menard()} clause get #{rel} NAME."}
-    end
+           "#{menard()} clause get #{rel} NAME; every function's lines: #{menard()} outline #{rel}."},
+      else: :quiet
   end
 
   defp whole?(input), do: input["offset"] == nil and input["limit"] == nil
