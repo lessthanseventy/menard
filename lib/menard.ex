@@ -52,23 +52,36 @@ defmodule Menard do
   # Every version handed out is kept, so a stale edit can be answered with the diff since it. A
   # week is longer than any session holds a version; older copies go when the next one is kept.
   @doc """
-  The version of `content` (`sha256:` + hex), with a copy kept, so a stale edit made against it
-  can be answered with the diff since. What every writing verb and `outline` hand out.
+  The version of `content` (`sha256:` + 12 hex), with a copy kept, so a stale edit made against it
+  can be answered with the diff since. What every writing verb and `outline` hand out. Twelve: a
+  version is one file's state, and the 64 of the whole hash were a quarter of a reply's characters
+  for none (handed out 277 times in the eval's sessions, passed back 0; Fable's review).
   """
   def remember(content) do
     version = version_of(content)
     path = version_path(version)
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, content)
+    # once a VM: a stat of every kept copy on each write and read was 2,733 files a call
+    unless :persistent_term.get({__MODULE__, :pruned}, false) do
+      :persistent_term.put({__MODULE__, :pruned}, true)
+      prune_versions()
+    end
+
+    version
+  end
+
+  @doc "The kept copies older than a week, gone: longer than any session holds a version."
+  def prune_versions do
     week_ago = System.os_time(:second) - 7 * 24 * 3600
 
     # a copy another menard pruned between the listing and the stat is already gone, not an error
-    for old <- Path.wildcard(Path.join(Path.dirname(path), "*")),
+    for old <- Path.wildcard(Path.join([cache_dir(), "versions", "*"])),
         {:ok, %{mtime: mtime}} <- [File.stat(old, time: :posix)],
         mtime < week_ago,
         do: File.rm(old)
 
-    version
+    :ok
   end
 
   @doc """
@@ -285,7 +298,8 @@ defmodule Menard do
     end
   end
 
-  defp version_of(content), do: "sha256:" <> Base.encode16(:crypto.hash(:sha256, content), case: :lower)
+  defp version_of(content),
+    do: "sha256:" <> binary_part(Base.encode16(:crypto.hash(:sha256, content), case: :lower), 0, 12)
 
   defp version_path(version) do
     hex = version |> String.replace_prefix("sha256:", "") |> Path.basename()
