@@ -36,6 +36,22 @@ defmodule Menard.Format.Worker do
     :exit, _ -> :unavailable
   end
 
+  @doc """
+  Stop `project`'s worker now, killing its host VM — the idle timeout otherwise waiting out
+  `@idle`. A no-op where none is running. For a caller that cannot wait out an idle worker it
+  started (a test's `tmp_dir` project, gone when the test ends): `DynamicSupervisor.terminate_child/2`
+  blocks for `terminate/2` to run, so the host VM is dead before this returns.
+  """
+  @spec stop(String.t()) :: :ok
+  def stop(project) do
+    case Registry.lookup(Menard.Format.Registry, project) do
+      [{pid, _}] -> DynamicSupervisor.terminate_child(Menard.Format.Workers, pid)
+      [] -> :ok
+    end
+
+    :ok
+  end
+
   defp worker(project) do
     case DynamicSupervisor.start_child(Menard.Format.Workers, {__MODULE__, project}) do
       {:ok, pid} -> {:ok, pid}
