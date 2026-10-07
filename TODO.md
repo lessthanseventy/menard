@@ -13,9 +13,14 @@ commit lands.
   under `import Menard.Verbs` (2026-10-01). A local call in a module that imports the target's
   module is a call of it.
 
-- `bin_test.exs:361` ("edit --then at the CLI runs the then") was seen red once under the full
-  gate's parallel load, 2026-10-07; 15/15 green standalone just now, and its module already carries
-  a deliberate 5-minute `@moduletag timeout` sized for cold-build contention (1ff3ab2), so a plain
-  timeout isn't the explanation this time. Likeliest the same class as the entry above — another
-  session racing this shared worktree (one was seen doing exactly that, same afternoon) — but not
-  reproduced, so left here rather than guessed at.
+- `bin_test.exs:361` ("edit --then at the CLI runs the then") failed twice under the full gate,
+  2026-10-07, differently each time (a 60s timeout, then `lib/t.ex: the file is not there` — ENOENT
+  on a file the test had just written); 15/15 green standalone both times after. Mechanism found:
+  ExUnit's `:tmp_dir` path is deterministic — `tmp/<module>/<test name>`, relative to this shared
+  worktree — "appropriate for running tests concurrently" WITHIN one `mix test`, but not across two:
+  a second session's `mix test` of the same suite, in this same worktree, computes the identical
+  path and recreates it (tmp_dir's setup removes-then-makes it fresh) out from under this one's
+  test mid-run. Same class as the entry above, same worktree, this time pinned down to the exact
+  ExUnit mechanic rather than left as "unknown" — but still not something to fix by changing
+  bin_test.exs itself (every `:tmp_dir` test in this repo shares the exposure); it is the shared
+  worktree's, which is tlon's to serialize, not menard's.
