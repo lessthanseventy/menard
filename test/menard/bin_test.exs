@@ -366,11 +366,13 @@ defmodule Menard.BinTest do
     File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\nend\n")
     blocks = "lib/t.ex\n<<<<<<< SEARCH\ndef go, do: 1\n=======\ndef go, do: 2\n>>>>>>> REPLACE\n"
 
-    # MENARD_CWD unset: a suite run by `bin/menard run test` inherits the caller's, and `cd:` is ours
+    # Both unset: bin/menard falls back MENARD_CWD -> MISE_ORIGINAL_CWD -> $PWD, and a suite run
+    # by `mise run check` (its own "test" task sets `dir =`, which makes mise export
+    # MISE_ORIGINAL_CWD for the whole run) inherits the caller's worktree root instead of `cd:`'s
     {out, 0} =
       System.cmd(@bin, ["edit", "--then", "compile", blocks],
         cd: dir,
-        env: [{"MENARD_CWD", nil}],
+        env: [{"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}],
         stderr_to_stdout: true
       )
 
