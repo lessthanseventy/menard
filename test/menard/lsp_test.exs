@@ -69,8 +69,22 @@ defmodule Menard.LspTest do
     assert reply["lsp"] =~ "the AST's alone"
   end
 
+  # On PATH is not enough: a broken install (e.g. a nix derivation missing its own release
+  # script) still resolves but exits nonzero the instant it's run — skip with that reason too,
+  # never go red for a binary that can't actually serve.
+  @expert_unusable (case System.find_executable("expert") do
+                      nil ->
+                        "expert is not on PATH"
+
+                      path ->
+                        case System.cmd(path, ["--version"], stderr_to_stdout: true) do
+                          {_, 0} -> false
+                          {out, status} -> "expert on PATH but exits #{status}: #{String.slice(out, 0, 160)}"
+                        end
+                    end)
+
   @tag timeout: 180_000
-  @tag skip: if(System.find_executable("expert"), do: false, else: "expert is not on PATH")
+  @tag skip: @expert_unusable
   test "a warm server adds what the AST cannot see, as references", %{project: project} do
     Menard.Lsp.warm(project)
     params = %{kind: "calls", target: "Bench.Math.total", files: ["lib"], root: project}
