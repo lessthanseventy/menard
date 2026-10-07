@@ -5,7 +5,16 @@ defmodule Menard.HostFormatTest do
   # import_deps from deps/, else from the copy the last good format cached.
   use ExUnit.Case, async: true
 
+  alias Menard.Format.Worker
+
   @moduletag :tmp_dir
+
+  # every test here is its own project (tmp_dir), so a warm worker it started is never reused —
+  # left running, it would idle out ten minutes later (Menard.Format.Worker's @idle), long past
+  # the suite, as an orphaned host VM (systemd-reparented once mix test's own VM is gone).
+  setup %{tmp_dir: dir} do
+    on_exit(fn -> Worker.stop(Path.expand(dir)) end)
+  end
 
   defp host(dir, formatter) do
     File.write!(Path.join(dir, "mix.exs"), "defmodule Broken.MixProject do\n  this does not parse (\n")
@@ -417,6 +426,21 @@ defmodule Menard.HostFormatTest do
     # the plugins are held as first loaded: a lock that changed since is a new VM
     File.write!(Path.join(dir, "mix.lock"), "%{}\n")
     assert vm.([]) != first
+  end
+
+  test "stopping a project's worker kills the host VM it started — nothing outlives the call", %{tmp_dir: dir} do
+    plugin = plug(dir, "Pid", ~S|"# " <> System.pid() <> "\n" <> contents|)
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "a.ex", "defmodule A do\nend\n")
+
+    {:ok, "# " <> rest, _split} = Menard.format_staged(file, File.read!(file), cache: Path.join(dir, "cache"))
+    pid = rest |> String.split("\n") |> hd()
+    assert {_, 0} = System.cmd("kill", ["-0", pid], stderr_to_stdout: true)
+
+    Worker.stop(Path.expand(dir))
+
+    assert {_, status} = System.cmd("kill", ["-0", pid], stderr_to_stdout: true)
+    assert status != 0, "the host's VM (pid #{pid}) outlived stop/1"
   end
 
   test "a plugin that prints is no part of the answer", %{tmp_dir: dir} do
