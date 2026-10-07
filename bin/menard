@@ -45,9 +45,15 @@ export ERL_FLAGS="+sbwt none +sbwtdcpu none +sbwtdio none${ERL_FLAGS:+ $ERL_FLAG
 # `mcp`'s own fast path: a fresh install's deps.get + compile, below, can run well past a client's
 # connect timeout (Claude Code's: 30s) before the real server ever reads the client's `initialize`.
 # Answered here instead, from mix.exs on disk — no compile needed — the moment that request's line
-# arrives; the real server still gets that same line, replayed, once it is up (further down), so it
-# reaches its own `initialized: true`. Not `mcp --help`: nothing will be piped to that.
+# arrives; the real server must NOT also see that line once this has answered it — Anubis.Server
+# .Session replies to any `initialize` it gets, unconditionally, and a second reply to the same
+# request id is a JSON-RPC violation. The client's own `notifications/initialized`, right behind it
+# on stdin, is what the real session needs instead: it alone flips the session to `initialized:
+# true` (Anubis.Server.Session's dispatch treats the initialize/notifications/initialized pair as
+# the lifecycle messages a session accepts before that flag is set), so dropping the replay costs
+# nothing a client's next request needs. Not `mcp --help`: nothing will be piped to that.
 mcp_first_line=
+answered_init=0
 if [[ "${1:-}" == "mcp" && "${2:-}" != "--help" && "${2:-}" != "-h" ]] && IFS= read -r mcp_first_line; then
   if [[ "$mcp_first_line" == *'"method":"initialize"'* ]]; then
     id=$(sed -n 's/.*"id":\([0-9]*\).*/\1/p' <<<"$mcp_first_line")
@@ -56,6 +62,7 @@ if [[ "${1:-}" == "mcp" && "${2:-}" != "--help" && "${2:-}" != "-h" ]] && IFS= r
     if [[ -n "$id" && -n "$version" && -n "$menard_version" ]]; then
       printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","serverInfo":{"name":"menard","version":"%s"},"capabilities":{"tools":{}}}}\n' \
         "$id" "$version" "$menard_version"
+      answered_init=1
     fi
   fi
 fi
@@ -174,7 +181,7 @@ script='
 # `mcp` is a long-running stdio SERVER: its stdout IS the JSON-RPC channel, so nothing may buffer
 # it — no capture and no wrapper, exec.
 if [[ "$verb" == "mcp" ]]; then
-  if [[ -n "$mcp_first_line" ]]; then
+  if [[ -n "$mcp_first_line" && "$answered_init" == 0 ]]; then
     exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@" < <(printf '%s\n' "$mcp_first_line"; cat)
   fi
   exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
