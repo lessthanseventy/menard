@@ -155,6 +155,37 @@ defmodule Menard.MCPTest do
     assert out =~ "go"
   end
 
+  @tag :tmp_dir
+  test "mcp answers the client's initialize exactly once — bin/menard's fast stub, not the real server too",
+       %{tmp_dir: dir} do
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
+
+    messages = [
+      %{
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+      },
+      %{jsonrpc: "2.0", method: "notifications/initialized"},
+      %{
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: %{name: "outline", arguments: %{file: "lib/a.ex"}}
+      }
+    ]
+
+    out = serve(~S[exec "$BIN" mcp], [{"MENARD_ROOT", dir}], messages, 2)
+
+    # bin/menard's bash stub answers id:1 itself so the client never times out; the real server
+    # (Anubis.Server.Session) must not answer that same request again once it comes up — a second
+    # reply to id:1 is a JSON-RPC protocol violation (two responses to one request).
+    assert length(Regex.scan(~r/"id":1[,}]/, out)) == 1, "more than one reply to id 1:\n#{out}"
+    assert out =~ "go"
+  end
+
   test "block add takes a test's context, and block delete removes one", %{root: root} do
     file = Path.join(root, "lib/a_test.exs")
 
