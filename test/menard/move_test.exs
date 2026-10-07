@@ -14,7 +14,10 @@ defmodule Menard.MoveTest do
     File.write!(from, "defmodule A do\n  def go, do: 1\n\n  def stays, do: 2\nend\n")
     dest = Path.join(dir, "lib/my_app/foo_bar.ex")
 
-    assert {:ok, %{created: "MyApp.FooBar"}} = Menard.Move.run(from, dest, "go/0")
+    # root: dir, or `left`'s lib/+test/ scan falls back to Menard.caller_dir() — mix test's cwd,
+    # menard's own ~120-file tree, not this tmp fixture (that's what made this test slow and
+    # timeout-prone under load: real AST work over the wrong, much bigger directory)
+    assert {:ok, %{created: "MyApp.FooBar"}} = Menard.Move.run(from, dest, "go/0", root: dir)
     assert File.read!(dest) == "defmodule MyApp.FooBar do\n  def go, do: 1\nend\n"
     assert File.read!(from) == "defmodule A do\n  def stays, do: 2\nend\n"
   end
