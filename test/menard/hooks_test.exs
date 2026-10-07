@@ -521,7 +521,9 @@ defmodule Menard.HooksTest do
 
     counting = counting()
 
-    cmd = "cd #{dir} && git -c user.name=t -c user.email=t@t merge -q other"
+    # -c merge.ff=false: forces a real merge commit so this box's global merge.ff=only
+    # (set in CLAUDE.md) can't turn the conflict this test wants into a fast-forward refusal
+    cmd = "cd #{dir} && git -c user.name=t -c user.email=t@t -c merge.ff=false merge -q other"
 
     call = %{
       tool_name: "Bash",
