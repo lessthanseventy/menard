@@ -32,3 +32,10 @@ Each as its own small commit, before the change you were making, so the fix is i
 the rest of your work runs on. What you can't fix now goes in `TODO.md`.
 - Design direction: `docs/scope.md` (what earns a verb), `docs/live.md` (the reply every verb
   should give), `docs/adapters.md` (one core, a thin adapter per harness).
+
+## Git: linear history
+
+Rebase and fast-forward — never a merge commit. Bring a branch up to date by rebasing it onto the
+default branch, not by merging that in. A change bigger than one review is a stack of small PRs, each
+on the last (`gh stack` where the repo is on GitHub). Rewriting history that is already pushed or
+shared is the human's call — ask first.
