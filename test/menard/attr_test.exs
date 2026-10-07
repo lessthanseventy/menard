@@ -311,4 +311,21 @@ defmodule Menard.AttrTest do
 
     assert value == "Total: {{total}}\n"
   end
+
+  test "set wraps a value that needs it: `@name case … end` is 2 args, not 1" do
+    src = "defmodule A do\n  @foo 1\n\n  def go, do: @foo\nend\n"
+    value = "case 1 do\n  1 -> :one\n  _ -> :other\nend"
+    out = Attr.set(src, "foo", value)
+
+    # unwrapped, `@foo case 1 do … end` parses as @foo(1, do: …) — 2 args, not the 1-arg attribute set
+    {_ast, args} =
+      out
+      |> Code.string_to_quoted!()
+      |> Macro.prewalk([], fn
+        {:@, _, [{:foo, _, args}]} = node, _acc when is_list(args) -> {node, args}
+        node, acc -> {node, acc}
+      end)
+
+    assert length(args) == 1
+  end
 end
