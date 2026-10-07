@@ -42,6 +42,24 @@ frozen=0
 # ERL_FLAGS come after, and win.
 export ERL_FLAGS="+sbwt none +sbwtdcpu none +sbwtdio none${ERL_FLAGS:+ $ERL_FLAGS}"
 
+# `mcp`'s own fast path: a fresh install's deps.get + compile, below, can run well past a client's
+# connect timeout (Claude Code's: 30s) before the real server ever reads the client's `initialize`.
+# Answered here instead, from mix.exs on disk — no compile needed — the moment that request's line
+# arrives; the real server still gets that same line, replayed, once it is up (further down), so it
+# reaches its own `initialized: true`. Not `mcp --help`: nothing will be piped to that.
+mcp_first_line=
+if [[ "${1:-}" == "mcp" && "${2:-}" != "--help" && "${2:-}" != "-h" ]] && IFS= read -r mcp_first_line; then
+  if [[ "$mcp_first_line" == *'"method":"initialize"'* ]]; then
+    id=$(sed -n 's/.*"id":\([0-9]*\).*/\1/p' <<<"$mcp_first_line")
+    version=$(sed -n 's/.*"protocolVersion":"\([^"]*\)".*/\1/p' <<<"$mcp_first_line")
+    menard_version=$(sed -n 's/.*@version "\([^"]*\)".*/\1/p' mix.exs)
+    if [[ -n "$id" && -n "$version" && -n "$menard_version" ]]; then
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","serverInfo":{"name":"menard","version":"%s"},"capabilities":{"tools":{}}}}\n' \
+        "$id" "$version" "$menard_version"
+    fi
+  fi
+fi
+
 # deps/ as mix.lock has them. A fresh install has none: git carries neither deps/ nor _build, and
 # nothing runs `mix deps.get` for a cloned Claude Code plugin. And git does not track deps/, so a
 # pull or checkout whose mix.lock gained a dep kept the old ones, and the compile died on
@@ -156,6 +174,9 @@ script='
 # `mcp` is a long-running stdio SERVER: its stdout IS the JSON-RPC channel, so nothing may buffer
 # it — no capture and no wrapper, exec.
 if [[ "$verb" == "mcp" ]]; then
+  if [[ -n "$mcp_first_line" ]]; then
+    exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@" < <(printf '%s\n' "$mcp_first_line"; cat)
+  fi
   exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
 fi
 
