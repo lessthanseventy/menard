@@ -6,6 +6,11 @@ defmodule Menard.RunTest do
   alias Menard.Run
   alias Menard.Test.Host
 
+  # Most of this module's tests run a real `check` (compile+format+test) in a tmp mix project —
+  # genuine subprocess work, not CPU-bound test logic. Timed at 15.1s alone, same as bin_test.exs's
+  # documented "28s cold at load average 17, past ExUnit's 60s default" (1ff3ab2): under this box's
+  # concurrent-session load, 60s isn't enough headroom and times out mid-`os.find_executable`.
+  @moduletag timeout: 150_000
   @moduletag :tmp_dir
 
   @out """
