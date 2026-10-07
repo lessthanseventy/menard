@@ -25,6 +25,10 @@ run = "bun test"
 description = "menard's own gate — format + warnings-as-errors + tests"
 run = "mix format --check-formatted && mix compile --warnings-as-errors && mix test"
 
+[tasks.check]
+description = "menard's gate, as a server's `mise run check` expects it: test:elixir and the pi bun suite"
+depends = ["test:elixir", "test"]
+
 [tasks."bench:identity"]
 description = "The identity corpus over pinned hex packages: every edit that writes back what is there must leave the file as it was"
 run = "mix test --only corpus test/menard/hex_corpus_test.exs"
