@@ -30,7 +30,7 @@ defmodule Menard.Attr do
   """
   @spec set(String.t(), String.t() | atom(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def set(source, name, value, opts \\ []) do
-    value = own_value(name, value)
+    value = name |> own_value(value) |> disambiguated(name)
 
     case one(source, name, opts) do
       {:ok, node} -> replace(source, node, name, value)
@@ -247,6 +247,18 @@ defmodule Menard.Attr do
 
       _ ->
         value
+    end
+  end
+
+  # `@name case … end` parses as @name(…, do: …) — 2 args, not the attribute's 1: whatever would
+  # misparse written bare (case, if, cond, receive, try, with, any do-block) gets wrapping parens.
+  # Redundant parens around anything else are harmless, so only add them when they're load-bearing.
+  defp disambiguated(value, name) do
+    candidate = "@#{key(name)} #{value}"
+
+    case Code.string_to_quoted(candidate) do
+      {:ok, {:@, _, [{_, _, [_single_arg]}]}} -> value
+      _ -> "(" <> value <> ")"
     end
   end
 
