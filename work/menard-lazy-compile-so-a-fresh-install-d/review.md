@@ -1,61 +1,42 @@
-VERDICT: REQUEST CHANGES
+VERDICT: APPROVE
 
-## Bug (confirmed, reproduced): duplicate `initialize` response, real instructions/capabilities dropped
+## Follow-up to my prior REQUEST CHANGES (duplicate `initialize` response)
 
-`bin/menard`'s fast path answers the client's `initialize` request itself (a bare stub: empty
-instructions, `capabilities: {"tools": {}}`), then later `exec`s the real Elixir server with that
-same `initialize` line replayed on its stdin. The real server (`Menard.MCP`, `use Anubis.Server`)
-has no awareness this request was already answered — `Anubis.Server.Session` unconditionally
-replies to any `initialize` it receives (deps/anubis_mcp/lib/anubis/server/session.ex:705-708). So
-the real server emits its **own, second** JSON-RPC response for the same request id.
+The bug I reproduced last round — `bin/menard`'s fast stub answering the client's `initialize`
+and then replaying that same line to the real Anubis-backed server, which replied to it *again*
+(same request id) — is fixed in 0f85b41. The replay is now gated on `answered_init`: once the
+stub has answered, the raw `initialize` line is dropped; only the client's own
+`notifications/initialized`, already next on stdin, reaches the real server.
 
-Reproduced directly (fresh checkout, `bin/menard mcp`, same message sequence as the new test):
+Verified this is sound, not just asserted, against the dependency source itself
+(`deps/anubis_mcp/lib/anubis/server/session.ex`):
+- `is_initialize_lifecycle/1` (mcp/message.ex) admits `notifications/initialized` on its own —
+  the server-not-initialized guard (session.ex:354, :607-609) doesn't require having first seen
+  `initialize` through this session.
+- `handle_notification` for `notifications/initialized` (session.ex:737-743) sets
+  `initialized: true` unconditionally on receipt — not contingent on this session having
+  processed an `initialize` call.
+So the real server reaching `initialized: true` from the notification alone, without the replayed
+request, is correct given Anubis's actual behavior, not just the comment's claim about it.
 
-```
-LINE: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"menard","version":"0.5.0"},"capabilities":{"tools":{}}}}
-LINE: {"id":1,"jsonrpc":"2.0","result":{"capabilities":{"tools":{}},"instructions":"Several replacements of text, in one file or many, are ONE call to edit, …","protocolVersion":"2025-06-18","serverInfo":{"name":"menard","version":"0.5.0"}}}
-LINE: {"id":2,"jsonrpc":"2.0","result":{"content":[…outline…]}}
-```
+Ran the regression test plus the full pair of files directly:
+`mix test test/menard/mcp_test.exs test/menard/bin_test.exs` → 50 tests, 0 failures. The new
+`mcp_test.exs` case asserts `Regex.scan(~r/"id":1[,}]/, out)` has length 1 — this would have
+caught the original bug (my prior review's gap: the old `bin_test.exs` test read past the
+duplicate without checking for it; this one directly counts).
 
-Two consequences:
-- JSON-RPC 2.0 forbids more than one response per request id; a strict client may treat the second
-  as a protocol violation.
-- The real server's `instructions` field — the one `lib/menard/mcp.ex` itself comments is load-bearing
-  ("an agent reads this before its first call: in the eval, 4 of 6 learned it from the guard
-  instead") — is sent but arrives *after* the client already completed its handshake on the fast
-  stub's empty instructions, and is very likely ignored. This directly undermines the cited eval
-  result and is the kind of regression this change should not introduce silently.
+## Scope check
+`git diff main...HEAD` is exactly 4 files / 138 lines: `bin/menard` (fast-path + the fix),
+`mise.toml` (`check` task composing `test:elixir` + `test`, needed so a server's `mise run check`
+gate exists at all for this repo), and the two test files. No unrelated changes riding along.
 
-The new test (`bin_test.exs`, "mcp answers initialize fast…") does not catch this: it reads until
-it sees `"id":1`, then reads until `"id":2`, and the duplicate `id:1` line lands unnoticed inside
-`rest`; nothing asserts there is exactly one response per id, and nothing asserts the real
-`instructions`/capabilities actually reach the client.
+## Minor, not blocking
+- Same note as last round: the fast reply's `protocolVersion` is echoed straight back from the
+  client's request rather than asserted against what menard supports — harmless while the values
+  coincide, but it's not actually validating the version.
+- `sed`-based extraction of `id`/`protocolVersion`/`menard_version` from the raw JSON line is
+  fragile to reformatting, consistent with the rest of the file.
 
-Fix needs to make the real server's `initialize` a no-op (or not replay it at all) once the fast
-path has already answered it — e.g. have the real server skip emitting its own reply for that one
-request when it was pre-answered, or have the fast path hand the real server the *real*
-capabilities/instructions and only fill in the delay, not a second answer.
-
-## Minor / lower confidence
-- `version` in the fast reply is taken from the client's own requested `protocolVersion` and echoed
-  straight back rather than reflecting what the server actually supports; harmless today since the
-  echoed value matches reality, but it's not verifying menard supports whatever version a future
-  client sends.
-- The `menard_version` / `id` / `protocolVersion` extraction via `sed` happens to work for the
-  current line shape (compact JSON, no spaces, `@version "x.y.z"` as a literal in mix.exs); fragile
-  if either shape changes, but that's consistent with the rest of the file's style and not a
-  regression.
-- `hooks_test.exs`'s scratch path now embeds `System.pid()` twice (once inside `name`, once
-  appended again) — redundant but harmless; read it as satisfying the scratch-dirs rule's textual
-  check on the `tmp_dir` line, not a bug.
-
-## Looks right
-- `check_steps`'s switch to `tested/3` (mirrors the existing `run test` path at run.ex:486) and the
-  `mise.toml` `check` task composing `test:elixir` + `test` (bun) both check out; the new
-  `run_test.exs` case exercising the formatter-parsed failure path is a reasonable regression test
-  for that half of the change.
-- `mix_fetching`'s comment move back above itself is a pure no-op reshuffle, confirmed by diff.
-
-Everything here was verified by reading the diff, running the merge-base diff, and reproducing the
-duplicate-response behavior with a standalone probe against `bin/menard mcp` in this worktree —
-not inferred from the PR description.
+Server's own `mise run check` evidence on this branch already shows 9 passed / 0 failed / 1
+skipped (recorded 2026-10-07T19:08:42Z). Approving on top of that plus my own direct re-run of the
+two changed test files.
