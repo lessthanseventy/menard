@@ -443,6 +443,68 @@ defmodule Menard.HostFormatTest do
     assert status != 0, "the host's VM (pid #{pid}) outlived stop/1"
   end
 
+  test "the host VM does not outlive the process that started it — killed outright, not stopped",
+       %{tmp_dir: dir} do
+    # exercises priv/format.exs's own watchdog directly, not through Worker/DynamicSupervisor:
+    # a stand-in "owner" OS process (not this test's BEAM) opens the warm VM exactly as
+    # Menard.Format.Worker does, reports its pid, and gets SIGKILLed outright — no terminate/2,
+    # no EOF the caller chose to send. The VM must notice its own ppid changed and exit anyway.
+    host(dir, "[inputs: [\"lib/**/*.ex\"]]")
+    script = Application.app_dir(:menard, "priv/format.exs")
+    owner_exs = Path.join(dir, "owner.exs")
+
+    File.write!(owner_exs, """
+    port =
+      Port.open({:spawn_executable, System.find_executable("sh")}, [
+        :binary,
+        :nouse_stdio,
+        :exit_status,
+        {:packet, 4},
+        args: ["-c", ~s(exec "$@" </dev/null >/dev/null 2>&1), "sh", "elixir", #{inspect(script)}, "serve"],
+        cd: #{inspect(dir)}
+      ])
+
+    receive do
+      {^port, {:data, data}} ->
+        case :erlang.binary_to_term(data) do
+          {:pid, pid} -> IO.puts(pid)
+        end
+    end
+
+    Process.sleep(:infinity)
+    """)
+
+    owner =
+      Port.open({:spawn_executable, System.find_executable("elixir")}, [
+        :binary,
+        :exit_status,
+        {:line, 1024},
+        args: [owner_exs]
+      ])
+
+    vm_pid =
+      receive do
+        {^owner, {:data, {:eol, line}}} -> line
+      after
+        10_000 -> flunk("the stand-in owner never reported the host VM's pid")
+      end
+
+    on_exit(fn -> System.cmd("kill", ["-KILL", vm_pid], stderr_to_stdout: true) end)
+    assert {_, 0} = System.cmd("kill", ["-0", vm_pid], stderr_to_stdout: true)
+
+    {:os_pid, owner_pid} = Port.info(owner, :os_pid)
+    # not stop/1, not a signal the VM is watching for: the owner is simply gone
+    System.cmd("kill", ["-KILL", "#{owner_pid}"], stderr_to_stdout: true)
+
+    dead =
+      Enum.any?([250, 500, 1_000, 2_000, 2_000, 2_000], fn ms ->
+        Process.sleep(ms)
+        match?({_, 1}, System.cmd("kill", ["-0", vm_pid], stderr_to_stdout: true))
+      end)
+
+    assert dead, "the host VM (pid #{vm_pid}) outlived its killed owner"
+  end
+
   test "a plugin that prints is no part of the answer", %{tmp_dir: dir} do
     # the worker's channel is its own: menard's stdout is the MCP channel, and a host's plugin may print
     plugin = plug(dir, "Loud", ~S|IO.puts("loud"); IO.puts(:stderr, "louder"); contents|)
