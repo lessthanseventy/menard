@@ -49,7 +49,11 @@ defmodule Menard.MixProject do
           "credo --strict",
           # through sh: mix cmd runs no shell, so a glob would reach shellcheck unexpanded
           ~s(cmd sh -c "shellcheck -x -P SCRIPTDIR -s bash hooks/*.sh bin/menard"),
-          "test"
+          # not bare "test": a kept-warm host VM (Menard.Format.Worker) a test leaves running on
+          # purpose looks like a leak from inside the very suite that started it — this runs
+          # `mix test` as its own process so it can tell "still warm" from "leaked" once that
+          # process is actually gone.
+          "test_no_leaks"
         ]
       ]
     ]

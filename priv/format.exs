@@ -22,6 +22,41 @@ Mix.start()
 # shutdown a plugin mid-format can hold up, and the caller has already answered "unformatted".
 :os.set_signal(:sigterm, :default)
 
+# This VM's own parent pid, or nil where it cannot be read (never treated as "the owner is
+# gone"). /proc avoids forking `ps` once a poll, which with ~80 of these warm at once in a
+# suite adds up; macOS (no /proc) falls back to it.
+ppid = fn ->
+  case File.read("/proc/self/status") do
+    {:ok, status} ->
+      case Regex.run(~r/^PPid:\s*(\d+)/m, status) do
+        [_, pid] -> pid
+        _ -> nil
+      end
+
+    {:error, _} ->
+      try do
+        case System.cmd("ps", ["-o", "ppid=", "-p", System.pid()], stderr_to_stdout: true) do
+          {out, 0} -> String.trim(out)
+          _ -> nil
+        end
+      rescue
+        _ -> nil
+      end
+  end
+end
+
+# `serve`'s EOF (below) answers a caller that closed the port or died outright — but a caller
+# that opens more than one of these (another project, kept warm the same way) can hand this
+# one's pipe to that NEXT host VM too (fork inherits every open fd unless it is marked
+# close-on-exec, and the spawn helper here is a plain `sh -c exec`, not a guarantee of that),
+# so the read end can stay open — no EOF — long after the real owner is gone. Reparenting is
+# the guarantee EOF is not: once the owner dies, this process is adopted by init (or the
+# nearest supervisor), and its ppid changes from whatever it was at birth.
+watch = fn watch, owner, parent ->
+  Process.sleep(2_000)
+  if ppid.() == owner, do: watch.(watch, owner, parent), else: send(parent, :orphaned)
+end
+
 format = fn %{root: root, project: project, cache: cache, plugins: plugins?, files: files} ->
   # The host's last build, whatever env built it: a plugin lives in `_build/*/lib/*/ebin`. Left off
   # the path when the caller asks for no plugins, so a plugin that is there is not found either.
@@ -109,14 +144,26 @@ case System.argv() do
     # the VM's own pid, first: what the caller kills at a deadline (mise does not exec into it)
     Port.command(port, :erlang.term_to_binary({:pid, System.pid()}))
 
+    case ppid.() do
+      nil ->
+        :ok
+
+      owner ->
+        me = self()
+        spawn(fn -> watch.(watch, owner, me) end)
+    end
+
     serve = fn serve ->
       receive do
         {^port, {:data, request}} ->
           Port.command(port, :erlang.term_to_binary(format.(:erlang.binary_to_term(request))))
           serve.(serve)
 
-        # the caller is gone, or closed the worker
+        # the caller closed the port, died outright, or (orphaned) is simply gone
         {^port, :eof} ->
+          :ok
+
+        :orphaned ->
           :ok
       end
     end
