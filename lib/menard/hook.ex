@@ -396,7 +396,7 @@ defmodule Menard.Hook do
     args = [dir, "("] ++ prune ++ [")", "-prune", "-o", "-type", "f"] ++ names ++ ["-newer", mark, "-print0"]
 
     case System.cmd("find", args, stderr_to_stdout: false) do
-      {out, _status} -> String.split(out, <<0>>, trim: true)
+      {out, _status} -> out |> String.split(<<0>>, trim: true) |> Enum.sort()
     end
   end
 
