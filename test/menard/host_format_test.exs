@@ -443,6 +443,11 @@ defmodule Menard.HostFormatTest do
     assert status != 0, "the host's VM (pid #{pid}) outlived stop/1"
   end
 
+  # a loaded box pays for two BEAM boots serialized (this owner, then the host VM it spawns):
+  # ~60 idle warm formatter VMs alone pushed one more boot past 9.5s in a probe on this machine,
+  # and the suite keeps ~80 of these warm (format.exs's own comment) while doing real AST work,
+  # not sitting idle, so 10s was never enough margin, not a hung watchdog.
+  @tag timeout: 90_000
   test "the host VM does not outlive the process that started it — killed outright, not stopped",
        %{tmp_dir: dir} do
     # exercises priv/format.exs's own watchdog directly, not through Worker/DynamicSupervisor:
@@ -486,7 +491,7 @@ defmodule Menard.HostFormatTest do
       receive do
         {^owner, {:data, {:eol, line}}} -> line
       after
-        10_000 -> flunk("the stand-in owner never reported the host VM's pid")
+        30_000 -> flunk("the stand-in owner never reported the host VM's pid")
       end
 
     on_exit(fn -> System.cmd("kill", ["-KILL", vm_pid], stderr_to_stdout: true) end)
