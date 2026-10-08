@@ -1,42 +1,22 @@
 VERDICT: APPROVE
 
-## Follow-up to my prior REQUEST CHANGES (duplicate `initialize` response)
+Read `git diff main...HEAD` (14 files). I did not re-run the gate. The server's own `mise run check` on this branch shows 1081 tests, 0 failures, 1 skipped, exit 0.
 
-The bug I reproduced last round — `bin/menard`'s fast stub answering the client's `initialize`
-and then replaying that same line to the real Anubis-backed server, which replied to it *again*
-(same request id) — is fixed in 0f85b41. The replay is now gated on `answered_init`: once the
-stub has answered, the raw `initialize` line is dropped; only the client's own
-`notifications/initialized`, already next on stdin, reaches the real server.
+## Core change: `bin/menard` fast `initialize`
+- The stub reads one stdin line, and only for `mcp` without `--help`/`-h`. On a non-`initialize` first line, or when `id`, `protocolVersion` or the mix.exs `@version` can't be extracted, it replays that line to the real server through `< <(printf; cat)`. That fallback is correct.
+- When the stub answered, it drops the `initialize` line. The real server therefore never answers the same request id twice, and it reaches `initialized` from `notifications/initialized` alone. The previous review checked this against the Anubis source, and I did not re-check it.
+- `mcp_test.exs` counts replies to id 1 and expects exactly one.
 
-Verified this is sound, not just asserted, against the dependency source itself
-(`deps/anubis_mcp/lib/anubis/server/session.ex`):
-- `is_initialize_lifecycle/1` (mcp/message.ex) admits `notifications/initialized` on its own —
-  the server-not-initialized guard (session.ex:354, :607-609) doesn't require having first seen
-  `initialize` through this session.
-- `handle_notification` for `notifications/initialized` (session.ex:737-743) sets
-  `initialized: true` unconditionally on receipt — not contingent on this session having
-  processed an `initialize` call.
-So the real server reaching `initialized: true` from the notification alone, without the replayed
-request, is correct given Anubis's actual behavior, not just the comment's claim about it.
-
-Ran the regression test plus the full pair of files directly:
-`mix test test/menard/mcp_test.exs test/menard/bin_test.exs` → 50 tests, 0 failures. The new
-`mcp_test.exs` case asserts `Regex.scan(~r/"id":1[,}]/, out)` has length 1 — this would have
-caught the original bug (my prior review's gap: the old `bin_test.exs` test read past the
-duplicate without checking for it; this one directly counts).
-
-## Scope check
-`git diff main...HEAD` is exactly 4 files / 138 lines: `bin/menard` (fast-path + the fix),
-`mise.toml` (`check` task composing `test:elixir` + `test`, needed so a server's `mise run check`
-gate exists at all for this repo), and the two test files. No unrelated changes riding along.
+## Riders (outside the lazy-compile ask)
+These are small and each has its own commit and test. They look like deflaking and gate repair. They are flagged here because they widen the diff well past the 4 files the earlier review approved.
+- `mise.toml` adds a `check` task.
+- `Attr.set` wraps a value in parens when it would misparse as `@name case … end`. `attr_test` covers it.
+- `Hook.newer` sorts the `find` output.
+- The test fixes are in `lsp_test`, `move_test`, `hooks_test`, `host_format_test`, `run_test` and `bin_test`.
 
 ## Minor, not blocking
-- Same note as last round: the fast reply's `protocolVersion` is echoed straight back from the
-  client's request rather than asserted against what menard supports — harmless while the values
-  coincide, but it's not actually validating the version.
-- `sed`-based extraction of `id`/`protocolVersion`/`menard_version` from the raw JSON line is
-  fragile to reformatting, consistent with the rest of the file.
-
-Server's own `mise run check` evidence on this branch already shows 9 passed / 0 failed / 1
-skipped (recorded 2026-10-07T19:08:42Z). Approving on top of that plus my own direct re-run of the
-two changed test files.
+- The `id` regex only matches numeric ids. A string id falls back to replaying the line, so the client then gets a late reply rather than a duplicate. Safe.
+- The stub replies with `capabilities: {"tools":{}}` and echoes the client's `protocolVersion`. That is fine while the real server advertises only tools.
+- `TODO.md` gains a stray trailing blank line.
+- If the real server's `deps.get` or compile fails after the stub has answered, the client sees a successful init and then silence. That is inherent to answering early.
+- The proof list shows intent.md, spec.md and plan.md not committed. That is a process gap for the operator, not a code issue.
