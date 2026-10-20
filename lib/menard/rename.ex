@@ -14,7 +14,66 @@ defmodule Menard.Rename do
   @def_kinds Menard.Tree.def_kinds()
 
   @spec run(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
-  def run(source, old, new, opts \\ []) when is_binary(source) do
+  def run(source, old, new, opts \\ [])
+
+  def run(source, old, new, opts) when is_binary(source) and is_binary(old) and old != "" do
+    if String.contains?(old, "."), do: qualified(source, old, new), else: by_name(source, old, new, opts)
+  end
+
+  # `old` as `Mod.fun`: that module's function alone, by what `find calls` resolves to it: its def
+  # heads in `Mod` (a nested module's are its own), calls through an alias or an import,
+  # `__MODULE__.fun` and bare calls inside `Mod`, and the captures of each. By name alone, `rename`
+  # took every module's `fun` (Fable's review, 2026-10-01). Code only: docs and comments stay
+  defp qualified(source, old, new) do
+    [spec | _] = String.split(old, "/")
+    parts = String.split(spec, ".")
+    {mod, fun} = {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
+
+    with {:ok, ast} <- Menard.Source.parse(source) do
+      own = own_lines(ast, source, mod)
+      at = fn %{line: l, column: c, text: text} -> {l, c + name_offset(text, fun)} end
+      remote = Enum.map(Menard.Find.calls(source, spec), at)
+      local = for hit <- Menard.Find.calls(source, fun), hit.line in own, do: at.(hit)
+
+      patches =
+        for {l, c} <- Enum.uniq(Menard.Find.def_sites(source, mod, fun) ++ remote ++ local),
+            do: %{
+              range: %{start: [line: l, column: c], end: [line: l, column: c + String.length(fun)]},
+              change: new
+            }
+
+      Menard.Source.patch(source, patches)
+    end
+  end
+
+  # where the name is in a hit's text: `Channels.general(ws.id)`, `&general/1`, `general(1)`
+  defp name_offset(text, fun) do
+    case Regex.run(~r/(?<![\w])#{Regex.escape(fun)}(?![\w?!])/, text, return: :index) do
+      [{at, _}] -> at
+      nil -> 0
+    end
+  end
+
+  # the lines of module `mod`, its nested modules' left out
+  defp own_lines(ast, source, mod) do
+    modules = Menard.Tree.modules(ast)
+
+    span = fn node ->
+      %{start: [{:line, a} | _], end: [{:line, b} | _]} = Menard.Source.range(node, source)
+      MapSet.new(a..b//1)
+    end
+
+    case List.keyfind(modules, mod, 0) do
+      nil ->
+        MapSet.new()
+
+      {_mod, node} ->
+        nested = for {name, n} <- modules, String.starts_with?(name, mod <> "."), do: span.(n)
+        Enum.reduce(nested, span.(node), &MapSet.difference(&2, &1))
+    end
+  end
+
+  defp by_name(source, old, new, opts) do
     with {:ok, ast} <- Menard.Source.parse(source) do
       Menard.Source.patch(
         source,
