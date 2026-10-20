@@ -26,7 +26,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       do: answer(frame, verbs.run(params |> params() |> Map.put(:timeout, ms - 20_000)))
 
     def call(Verbs.Hook = verbs, params, frame, _ms) do
-      case verbs.run(params) do
+      # this server outlives the call: what can wait (credo) answers with the session's next one
+      case verbs.run(Map.put(params, :async, true)) do
         {:ok, %{context: text, event: event}} -> ok(frame, Menard.Hook.context(text, event))
         {:ok, %{problem: text}} -> ok(frame, %{decision: "block", reason: text})
         {:ok, %{deny: text}} -> ok(frame, Menard.Hook.denial(text))
