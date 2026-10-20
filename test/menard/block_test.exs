@@ -104,6 +104,30 @@ defmodule Menard.BlockTest do
 
   test "an --in parent that isn't there is refused, not guessed at" do
     assert {:error, message} = Block.add(@src, "test", "x", "assert true", in: "nope")
+
+    # several modules, none named: the one holding the `in` block (Fable's review, 2026-10-01)
+    two = """
+    defmodule ATest do
+      describe "a" do
+        test "one", do: assert(1)
+      end
+    end
+
+    defmodule BTest do
+      describe "b" do
+        test "one", do: assert(1)
+      end
+    end
+    """
+
+    out = Block.add(two, "test", "two", "assert 2", in: "b")
+    assert is_binary(out)
+
+    assert out =~
+             ~r/describe "b" do\n    test "one", do: assert\(1\)\n\n    test "two" do\n      assert 2\n    end\n  end\nend/
+
+    assert {:error, several} = Block.add(two, "test", "two", "assert 2")
+    assert several =~ "several modules here"
     assert message =~ "no block or module"
   end
 

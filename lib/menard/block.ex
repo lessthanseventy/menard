@@ -84,7 +84,7 @@ defmodule Menard.Block do
         with {:ok, label, body, opts} <- unwrapped(name, add_label(name, label, body), body, opts),
              :ok <- body_only(name, body),
              {:ok, ast} <- parse(source),
-             {:ok, module} <- Tree.module_scope(ast, opts[:module]),
+             {:ok, module, opts} <- scope(ast, source, opts),
              {:ok, all} <- blocks(source, opts),
              {:ok, where, anchor} <- placement(all, ast, module, name, opts[:in]) do
           # `tag:` — `":tmp_dir"`, `"timeout: 5_000"` — each an `@tag` line right above the new block
@@ -558,4 +558,31 @@ defmodule Menard.Block do
   # A name is matched as text: String.to_atom on every name asked for made an atom per call, and the
   # VM never collects one
   defp same?(call, name), do: is_atom(call) and Atom.to_string(call) == to_string(name)
+
+  # several modules and none named: the one holding the `in` block, where one does ("several
+  # modules here — name one", three times in one session, with `--in` naming a describe each time)
+  defp scope(ast, source, opts) do
+    case Tree.module_scope(ast, opts[:module]) do
+      {:ok, module} -> {:ok, module, opts}
+      {:error, _} = error -> holder(ast, source, opts, error)
+    end
+  end
+
+  # the module whose blocks hold the `in` one, named from here on
+  defp holder(ast, source, opts, error) do
+    holders =
+      for {name, _node} <- Tree.modules(ast),
+          opts[:module] == nil and is_binary(opts[:in]),
+          listed = list(source, module: name),
+          is_list(listed),
+          Enum.any?(listed, fn {_name, label, _line} -> label == opts[:in] end),
+          do: name
+
+    with [name] <- holders,
+         {:ok, module} <- Tree.module_scope(ast, name) do
+      {:ok, module, Keyword.put(opts, :module, name)}
+    else
+      _ -> error
+    end
+  end
 end
