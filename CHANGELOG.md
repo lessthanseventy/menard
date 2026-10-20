@@ -4,7 +4,10 @@
 
 - Compiles without a warning under Elixir 1.20: three branches its type inference proves dead
   (`scripts.ex`, `run.ex`, `clause.ex`) are gone. A host on 1.20 with `--warnings-as-errors`
-  could not build 0.6.0 as a dep.
+  could not build 0.6.0 as a dep. The gate compiles under 1.20 too now.
+- A session's first refusal carries the start-of-session text (no scripts in another language,
+  replies read whole): a session that started before the plugin was enabled under it, or was
+  resumed from before, had learned the rules one refusal at a time.
 
 ## 0.6.0
 
