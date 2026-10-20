@@ -45,7 +45,7 @@ defmodule Menard.Hook do
   @spec run(map(), keyword()) :: answer()
   def run(payload, opts \\ []) do
     hook = Map.merge(call(payload), settings(opts))
-    tool(hook)
+    hook |> tool() |> with_pending(hook)
   end
 
   @doc "What goes back to the agent beside the tool's result, as the harness reads it from a hook."
@@ -96,6 +96,8 @@ defmodule Menard.Hook do
     %{
       state: opts[:state_dir] || System.tmp_dir!(),
       run: opts[:run] || (&Menard.Run.result/3),
+      # under the hooks server, whose process outlives the call: credo off the call's path
+      async: opts[:async] == true,
       compile: Keyword.get(opts, :compile, System.get_env("MENARD_HOOK_COMPILE") not in [nil, ""])
     }
   end
@@ -367,8 +369,46 @@ defmodule Menard.Hook do
           do: "#{rel.(f)} was reformatted:\n#{diff}"
 
     rels = Enum.map(formatted, rel)
-    %{problems: problems, changes: changes, notes: credo(hook, dir, rels) ++ compiler(hook, dir, files)}
+    %{problems: problems, changes: changes, notes: lint(hook, dir, rels) ++ compiler(hook, dir, files)}
   end
+
+  # credo off the call's path: 2 s of CPU and up to 10 s of wall under load, paid at every write
+  # (Fable's review, 2026-10-01). Under the hooks server its notes come with the session's next
+  # PostToolUse answer (`with_pending/2`); at the CLI door, where no process outlives the call, now
+  defp lint(%{async: true} = hook, dir, rels) do
+    Task.start(fn ->
+      case credo(hook, dir, rels) do
+        [] -> :ok
+        notes -> File.write!(pending_path(hook), Enum.join(notes, "\n"))
+      end
+    end)
+
+    []
+  end
+
+  defp lint(hook, dir, rels), do: credo(hook, dir, rels)
+
+  defp pending_path(hook), do: Path.join(hook.state, "menard-pending-#{hook.session}-#{hook.call}")
+
+  # what an earlier call's lint found, with this answer (this call's own waits for the next)
+  defp with_pending(answer, %{event: "PostToolUse"} = hook) do
+    files =
+      hook.state
+      |> Path.join("menard-pending-#{hook.session}-*")
+      |> Path.wildcard()
+      |> Enum.reject(&String.ends_with?(&1, "-#{hook.call}"))
+
+    notes = Enum.map(files, &File.read!/1)
+    Enum.each(files, &File.rm/1)
+
+    case {notes, answer} do
+      {[], _} -> answer
+      {_, :quiet} -> {:context, Enum.join(notes, "\n")}
+      {_, {kind, text}} -> {kind, Enum.join(notes, "\n") <> "\n" <> text}
+    end
+  end
+
+  defp with_pending(answer, _hook), do: answer
 
   # credo on what this session changed in the files, when the project lints with it: found at write
   # time it is one edit; found in CI it is a round trip. Its default level; --strict is the project's.

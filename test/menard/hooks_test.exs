@@ -349,6 +349,59 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  @tag :tmp_dir
+  test "under the hooks server credo is off the call's path: its notes come with the session's next answer",
+       %{tmp_dir: dir} do
+    # 2 s of CPU and up to 10 s of wall under load, paid at every write (Fable's review, 2026-10-01)
+    host(dir)
+    File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
+
+    linting = fn _dir, verb, _args ->
+      case verb do
+        "format" -> %{ok: true, failures: [], changed: []}
+        "credo" -> %{ok: false, failures: [%{kind: "credo", at: "lib/m1.ex:1", message: "a nit"}]}
+      end
+    end
+
+    session = "a#{System.unique_integer([:positive])}"
+
+    payload = fn event, tool, input ->
+      %{
+        "hook_event_name" => event,
+        "tool_name" => tool,
+        "session_id" => session,
+        "tool_use_id" => "t#{System.unique_integer([:positive])}",
+        "cwd" => dir,
+        "tool_input" => input
+      }
+    end
+
+    file = Path.join(dir, "lib/m1.ex")
+    File.write!(file, "defmodule M1 do\nend\n")
+    edit = payload.("PostToolUse", "Write", %{"file_path" => file})
+    answer = Menard.Hook.run(edit, state_dir: dir, run: linting, async: true)
+    refute is_tuple(answer) and elem(answer, 1) =~ "a nit"
+
+    # the next answer of the session carries it, once
+    read = payload.("PostToolUse", "Read", %{"file_path" => Path.join(dir, "mix.exs")})
+
+    later =
+      Enum.find_value(1..40, fn _ ->
+        case Menard.Hook.run(read, state_dir: dir, run: linting, async: true) do
+          {:context, text} -> text
+          :quiet -> Process.sleep(50) && nil
+        end
+      end)
+
+    assert later =~ "credo, on lines you changed:\n  lib/m1.ex:1 a nit"
+    assert Menard.Hook.run(read, state_dir: dir, run: linting, async: true) == :quiet
+
+    # at the CLI door (no `async`), with the call, as before
+    assert {:context, text} = Menard.Hook.run(edit, state_dir: dir, run: linting)
+    assert text =~ "a nit"
+  end
+
+  @tag :tmp_dir
   test "format-report runs credo once over the files a call formatted, in a project that lints", %{
     tmp_dir: dir
   } do

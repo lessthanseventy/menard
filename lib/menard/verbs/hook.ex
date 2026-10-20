@@ -30,10 +30,12 @@ defmodule Menard.Verbs.Hook do
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
-  def run(%{payload: %{} = payload}), do: {:ok, reply(Menard.Hook.run(payload), payload["hook_event_name"])}
+  def run(%{payload: %{} = payload} = p),
+    do: {:ok, reply(Menard.Hook.run(payload, async: p[:async] == true), payload["hook_event_name"])}
 
   def run(p) do
     run(%{
+      async: p[:async],
       payload: %{
         "hook_event_name" => p[:event],
         "tool_name" => p[:tool],
