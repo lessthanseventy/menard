@@ -710,6 +710,42 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a session's first refusal carries what is so in it; one told at its start is not told again",
+       %{tmp_dir: dir} do
+    # ficciones, 2026-10-20, five hours into a session that started before the plugin was enabled
+    # under it: "another new menard 0.6.0 rule", one refusal at a time. The start-of-session text
+    # never reached it, and a resumed session is taken to have it from its start
+    payload = fn session, event, input ->
+      %{
+        "hook_event_name" => event,
+        "tool_name" => "Bash",
+        "session_id" => session,
+        "tool_use_id" => "t#{System.unique_integer([:positive])}",
+        "cwd" => dir,
+        "source" => "startup",
+        "tool_input" => input
+      }
+    end
+
+    bash = fn session, command ->
+      Menard.Hook.run(payload.(session, "PreToolUse", %{"command" => command}), state_dir: dir)
+    end
+
+    assert {:deny, first} = bash.("s1", "python3 -c 'print(1)'")
+    assert first =~ "python3 does not run here"
+    assert first =~ "There is no python, perl, ruby or node in this session"
+    assert first =~ "read whole"
+
+    assert {:deny, second} = bash.("s1", "bin/menard outline lib/a.ex | head -3")
+    assert second =~ "read whole"
+    refute second =~ "There is no python"
+
+    assert {:context, _} = Menard.Hook.run(payload.("s2", "SessionStart", %{}), state_dir: dir)
+    assert {:deny, told} = bash.("s2", "python3 -c 'print(1)'")
+    refute told =~ "There is no python, perl, ruby or node in this session"
+  end
+
+  @tag :tmp_dir
   test "a module read again is answered with what changed since the last read, not read whole", %{
     tmp_dir: dir
   } do

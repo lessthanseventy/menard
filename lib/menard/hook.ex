@@ -128,8 +128,9 @@ defmodule Menard.Hook do
       do: Enum.each(Path.wildcard(Path.join(hook.state, "menard-read-*-#{hook.session}")), &File.rm/1)
 
     sweep(hook.state)
+    File.write!(told_path(hook), "")
 
-    {:context, Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())}
+    {:context, upfront()}
   end
 
   # A module read whole again unchanged (desk5: tickets.ex six times, 11 rereads in a session): answered
@@ -168,7 +169,7 @@ defmodule Menard.Hook do
 
     case Scripts.refused(command, menard(), hook.root) do
       nil -> hook |> marked() |> piped(hook)
-      why -> {:deny, why}
+      why -> {:deny, told(hook, why)}
     end
   end
 
@@ -191,6 +192,23 @@ defmodule Menard.Hook do
     in_a_run(answer, hook)
   end
 
+  # A session's first refusal carries what is so in it. A session that started before the plugin
+  # was enabled under it never heard the start-of-session text, and a resumed one is taken to have
+  # it from its start: ficciones, 2026-10-20, learned the rules one refusal at a time
+  defp told(hook, why) do
+    path = told_path(hook)
+
+    if File.exists?(path) do
+      why
+    else
+      File.write!(path, "")
+      why <> "\n\nWhat is so in this session, said once: " <> upfront()
+    end
+  end
+
+  defp told_path(hook), do: Path.join(hook.state, "menard-told-#{hook.session}")
+
+  defp upfront, do: Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())
   # a test run and its pipe, run through `menard run` in their place: the call goes on, as that
   defp piped(:quiet, hook) do
     case Piped.rewritten(hook.input["command"] || "", menard()) do
