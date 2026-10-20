@@ -73,7 +73,12 @@ Each from the transcripts, a failing test first, its own commit.
 - The MCP door: 167 calls in September (opus 5.5), 13 in October (sonnet 5). The CLI is the door
   used.
 
-## 4. Open
+## 4. Found on the way, fixed
 
-- `TODO.md`: a failed `--then compile` left `_build` without the task that failed, and
-  `--frozen edit` then said the task could not be found.
+- A failed `--then compile` left `_build` without the module that failed, and `--frozen edit`
+  then said the task could not be found: bin/menard keeps the last good build of its own
+  modules now, last on `--frozen`'s code path.
+- mise 2026.10.3 runs an untrusted config, `[env]` applied: the gate's test of mise's refusal
+  moved to a config mise cannot parse, and the formatter's reply keeps mise's reason line.
+- The plugin is enabled at user scope as of this review (`claude plugin install menard@menard
+  --scope user`): every project on this machine has the hooks now.
