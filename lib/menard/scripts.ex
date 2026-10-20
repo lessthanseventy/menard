@@ -19,6 +19,13 @@ defmodule Menard.Scripts do
 
   @wrappers ~w(nohup env exec time command)
 
+  @filtered Regex.compile!(
+              ~S"(?:^|[;&|(]\s*|\b(?:do|then|else)\s+|\bxargs(?:\s+-\S+)*\s+)" <>
+                @wrapped <>
+                ~S"(?:\S*\/)?menard\s[^|;&\n>]*(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b|>\s*\/dev\/null)",
+              "m"
+            )
+
   @doc """
   Why `command` is refused, or nil when it runs. `menard` is this menard's path; `root` is the
   directory the command runs in, where a program the project tracks is looked up. Reads (grep, sed)
@@ -138,12 +145,10 @@ defmodule Menard.Scripts do
       # a quoted string is an argument, not a command: `mix run -e '… "bin/menard x | head" …'`
       |> String.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"/, "''")
 
-    # menard where a command starts (after a separator, or a loop's `do`, `then`, `xargs`), its
-    # reply piped into a filter or thrown away
-    Regex.match?(
-      ~r/(?:^|[;&|(]\s*|\b(?:do|then|else)\s+|\bxargs(?:\s+-\S+)*\s+)(?:\S*\/)?menard\s[^|;&\n>]*(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b|>\s*\/dev\/null)/m,
-      line
-    )
+    # menard where a command starts (after a separator, or a loop's `do`, `then`, `xargs`, under
+    # `timeout`, `time` or a wrapper, as the script ban reads them), its reply piped into a filter
+    # or thrown away
+    Regex.match?(@filtered, line)
   end
 
   defp filtered_why,

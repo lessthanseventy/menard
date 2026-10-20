@@ -138,7 +138,11 @@ defmodule Menard.ScriptsTest do
           "/p/bin/menard block add t.exs test --label x 'assert 1' >/dev/null",
           "/p/bin/menard outline lib/a.ex > /dev/null 2>&1",
           "if true; then bin/menard outline lib/a.ex | head; fi",
-          "ls lib/*.ex | xargs -n1 /p/bin/menard outline | grep defp"
+          "ls lib/*.ex | xargs -n1 /p/bin/menard outline | grep defp",
+          # wrapped, as the script ban reads them: ran unrefused 2026-10-07 and 10-08
+          "timeout 180 bin/menard run test test/menard/bin_test.exs:301 2>&1 | tail -60",
+          "( time bin/menard --frozen run credo --changed lib/menard/diff.ex ) 2>&1 | tail -3",
+          "cd /x && MIX_ENV=test nohup bin/menard run check | tail -5"
         ] do
       assert (Scripts.refused(command, @menard) || "") =~ "whole", command
     end
