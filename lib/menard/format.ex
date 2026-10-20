@@ -133,6 +133,8 @@ defmodule Menard.Format do
   defp said(out) do
     lines =
       out
+      # uncoloured: under the gate mise coloured its `×` line, and nothing matched it
+      |> String.replace(~r/\e\[[0-9;]*m/, "")
       |> String.split("\n")
       |> Enum.reject(&(String.trim(&1) == "" or &1 =~ ~r/^mise ERROR (Version:|Run with --verbose)/))
 
