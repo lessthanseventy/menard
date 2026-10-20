@@ -73,6 +73,27 @@ Each from the transcripts, a failing test first, its own commit.
 - The MCP door: 167 calls in September (opus 5.5), 13 in October (sonnet 5). The CLI is the door
   used.
 
+## 6. Tokens per landed commit: the tool, and the baseline
+
+`eval/pile/report.sh` joins every transcript on this machine (per-turn token usage, every tool
+call) to the commits on main that carry its `Claude-Session:` trailer, one row per session id,
+and prints the arms: `hooked` (the menard repo from 10-01, every repo from 10-20, when the plugin
+went to user scope) and `bare` (tlon and ficciones from 09-29 to 10-19). Run on 2026-10-20 over
+1,413 transcripts and 3,485 trailer commits in 14 repos; the bare arm, which is the baseline the
+next two weeks are measured against (tlon from 10-20 is the same models in the same repo):
+
+| model, bare | sessions | commits | Mtok per commit, mean | median per session | python per 100 shell calls | replies piped |
+|---|---|---|---|---|---|---|
+| opus 5.5 | 27 | 958 | 15.0 | 10.5 | 12.0 | 1,055 |
+| sonnet 5.5 | 586 | 275 | 6.1 | 2.0 | 11.6 | 411 |
+| sonnet 5 | 86 | 88 | 14.2 | 5.9 | 0.0 | 85 |
+| fable 5.1 | 86 | 24 | 23.0 | 3.8 | 2.8 | 21 |
+
+The hooked arm is not readable yet: outside this repo it is hours old (61 sessions, 4 commits),
+and this repo's sessions are the ones that built menard. Rerun `eval/pile/report.sh` around
+2026-11-03 and read tlon's hooked rows against these. What it will not say: whether the AST verbs
+earn their place; they are called too rarely for a count.
+
 ## 5. The suite, asked why it is slow
 
 1,086 tests: 407 s with the box quiet, 940 s beside three other gates and an eval (load 30 on
