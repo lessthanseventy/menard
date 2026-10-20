@@ -23,7 +23,7 @@ defmodule Menard.BinCopyTest do
       # a tracked symlink is a link in the copy too (eval's desk-tdd links desk's dirs: cp! refuses one)
       case File.read_link(src) do
         {:ok, target} -> File.ln_s!(target, Path.join(copy, f))
-        {:error, _} -> File.cp!(src, Path.join(copy, f))
+        {:error, _} -> copy_tracked!(src, Path.join(copy, f), f)
       end
     end
 
@@ -31,6 +31,21 @@ defmodule Menard.BinCopyTest do
     File.mkdir_p!(Path.join(copy, "_build"))
     File.cp_r!(Path.join(@root, "_build/dev"), Path.join(copy, "_build/dev"))
     copy
+  end
+
+  # a tracked file not there: a rebase or checkout in flight in this checkout (a second session's:
+  # 2026-10-01, bin/menard itself, once in a full gate) rewrites files one by one. Named, not a
+  # bare :enoent at the copy's first verb
+  defp copy_tracked!(src, dest, f) do
+    case File.cp(src, dest) do
+      :ok ->
+        :ok
+
+      {:error, why} ->
+        flunk(
+          "#{f} is tracked and could not be copied (#{why}): a git operation rewriting this checkout while the suite runs?"
+        )
+    end
   end
 
   # no deadline of its own: a server that never answers is the test's timeout
