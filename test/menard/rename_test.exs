@@ -21,6 +21,44 @@ defmodule Menard.RenameTest do
   end
   """
 
+  test "old as Mod.fun renames that module's function alone: its heads, and the calls that resolve to it" do
+    # Fable's review 2026-10-01: `rename total grand_total lib/**` renamed every module's `total`
+    src = """
+    defmodule Shop.Cart do
+      def total(c), do: sum(c)
+      def total(c, r), do: total(c) * r
+      def go, do: __MODULE__.total([]) + &total/1
+
+      defmodule Inner do
+        def total(x), do: x
+      end
+    end
+
+    defmodule Shop.Report do
+      alias Shop.Cart
+      import Shop.Cart, only: [total: 1]
+      def a(c), do: Cart.total(c) + Shop.Cart.total(c, 1) + total(c)
+      def b, do: Enum.map([], &Cart.total/1)
+      def c, do: Shop.Cart.Inner.total(1)
+    end
+
+    defmodule Other do
+      def total(z), do: z
+      def d, do: total(1)
+    end
+    """
+
+    out = Rename.run(src, "Shop.Cart.total", "grand_total")
+    assert out =~ "def grand_total(c), do: sum(c)"
+    assert out =~ "def grand_total(c, r), do: grand_total(c) * r"
+    assert out =~ "def go, do: __MODULE__.grand_total([]) + &grand_total/1"
+    assert out =~ "defmodule Inner do\n    def total(x), do: x"
+    assert out =~ "def a(c), do: Cart.grand_total(c) + Shop.Cart.grand_total(c, 1) + grand_total(c)"
+    assert out =~ "&Cart.grand_total/1"
+    assert out =~ "Shop.Cart.Inner.total(1)"
+    assert out =~ "def total(z), do: z\n  def d, do: total(1)"
+  end
+
   test "renames def heads, calls and captures; leaves strings and comments" do
     out = Rename.run(@src, "author_workspaces", "live_workspaces")
     assert out =~ "def live_workspaces(state), do: Map.get(state, :author_workspaces, [])"

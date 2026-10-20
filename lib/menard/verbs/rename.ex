@@ -16,7 +16,9 @@ defmodule Menard.Verbs.Rename do
       name: "rename",
       doc: """
       Rename an identifier across files, AST-aware: every def head, call (local or remote), capture and
-      variable named `old` becomes `new`; strings stay, except the docs: in `@doc`/`@moduledoc` a mention
+      variable named `old` becomes `new`. `old` as `Mod.fun` renames that module's function alone: its
+      heads in `Mod`, and the calls that resolve to it (aliased, imported, `__MODULE__.fun`, bare
+      inside `Mod`), code only. By name: strings stay, except the docs: in `@doc`/`@moduledoc` a mention
       that reads as code (`old/1`, `A.old(x)` in a doctest, `` `old` ``) is renamed too, unless `docs`
       is false. `only` narrows it to `functions` or `variables`;
       `atoms` also renames `:old`/`old:`, `comments` the whole-word mentions in `#` comments. Only the
