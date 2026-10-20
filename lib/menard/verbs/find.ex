@@ -3,6 +3,7 @@ defmodule Menard.Verbs.Find do
 
   import Menard.Verbs
   alias Menard.Find
+  alias Menard.Verbs.Outline
 
   @kinds ~w(calls defs aliases)
 
@@ -76,11 +77,18 @@ defmodule Menard.Verbs.Find do
 
   defp hits_in(file, needle, finder) do
     with {:ok, text} <- File.read(file), true <- String.contains?(text, needle) do
-      text |> finder.() |> Enum.map(&Map.put(&1, :file, file))
+      for hit <- finder.(text), do: placed(hit, file, text)
     else
       _ -> []
     end
   end
+
+  # `in`: the function a call sits in, as `where` names it: without it a `where` or a Read of the
+  # file followed every hit (Fable's review, 2026-10-01). A def is its own
+  defp placed(%{kind: :call} = hit, file, text),
+    do: Map.merge(hit, %{file: file, in: Outline.enclosing(text, hit.line)})
+
+  defp placed(hit, file, _text), do: Map.put(hit, :file, file)
 
   # the name a hit has in it: `Mod.fun/2`'s `fun`, a module's last part
   defp needle(target), do: target |> String.split("/") |> hd() |> String.split(".") |> List.last()

@@ -93,6 +93,15 @@ defmodule Menard.Verbs.Outline do
 
   def run(p), do: run(Map.put(p, :verb, "file"))
 
+  @doc "The function (`Mod.fun/2`), test or module `line` of `content` sits in, or nil."
+  @spec enclosing(String.t(), pos_integer()) :: String.t() | nil
+  def enclosing(content, line) do
+    case Outline.run(content) do
+      {:ok, modules} -> in_(modules, line)
+      _ -> nil
+    end
+  end
+
   @doc "A file's outline as its lines, what both doors answer by default (`Menard.Outline.text/1`)."
   @spec text(map()) :: String.t()
   def text(reply), do: Menard.Outline.text(reply)
