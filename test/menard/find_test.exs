@@ -97,7 +97,8 @@ defmodule Menard.FindTest do
     send(task.pid, :go)
     assert [_, _] = Task.await(task)
     ref = :erlang.trace_delivered(task.pid)
-    assert_receive {:trace_delivered, _, ^ref}
+    # a delivery guarantee, not a measure: the default 100 ms was missed once at load 30 (2026-10-20)
+    assert_receive {:trace_delivered, _, ^ref}, 5_000
     :erlang.trace_pattern({Sourceror, :parse_string, 1}, false, [])
 
     parses =
