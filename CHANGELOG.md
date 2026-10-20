@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- Compiles without a warning under Elixir 1.20: three branches its type inference proves dead
+  (`scripts.ex`, `run.ex`, `clause.ex`) are gone. A host on 1.20 with `--warnings-as-errors`
+  could not build 0.6.0 as a dep.
+
 ## 0.6.0
 
 **From the transcripts** (`docs/review/2026-10-19-transcripts.md`: every session 09-25 to 10-20)
