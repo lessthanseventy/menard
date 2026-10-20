@@ -40,6 +40,37 @@ defmodule Menard.FindTest do
     assert [%{line: 7}] = Find.calls(@src, "general")
   end
 
+  test "calls: a bare call in a module that imports the target's module" do
+    # 2026-10-01: `find calls Menard.Verbs.edit lib` found nothing, while every writing verb calls
+    # it as `edit(…)` under `import Menard.Verbs`
+    src = """
+    defmodule A do
+      import Menard.Verbs
+      def go(p), do: edit(p)
+    end
+
+    defmodule B do
+      import Menard.Verbs, only: [other: 1]
+      def go(p), do: edit(p)
+    end
+
+    defmodule C do
+      import Menard.Verbs, except: [edit: 1]
+      def edit(p), do: p
+      def go(p), do: edit(p)
+    end
+
+    defmodule D do
+      alias Menard.Verbs
+      import Verbs, only: [edit: 1]
+      def go(p), do: edit(p) + Verbs.edit(p)
+    end
+    """
+
+    assert [%{line: 3}, %{line: 20, column: 18}, %{line: 20, column: 28}] =
+             Find.calls(src, "Menard.Verbs.edit")
+  end
+
   test "calls: `__MODULE__.fun()` is a call to the module it is written in" do
     src = """
     defmodule A do

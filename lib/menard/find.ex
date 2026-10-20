@@ -25,6 +25,7 @@ defmodule Menard.Find do
     |> Enum.reject(&MapSet.member?(heads, {&1.line, &1.column}))
     |> Kernel.++(heex_calls(source, mod, fun))
     |> Kernel.++(self_calls(source, mod, fun))
+    |> Kernel.++(imported_calls(source, mod, fun))
     |> Enum.sort_by(&{&1.line, &1.column})
   end
 
@@ -200,6 +201,57 @@ defmodule Menard.Find do
 
   # `__MODULE__.fun()` names the module it is written in, which the file-wide alias map cannot say:
   # each module's own calls, a nested module's left to it
+  # a bare call in a module that imports the target's module: `edit(…)` under `import Menard.Verbs`
+  # is a call of Menard.Verbs.edit (found nothing, 2026-10-01)
+  defp imported_calls(_source, nil, _fun), do: []
+
+  defp imported_calls(source, mod, fun) do
+    case importing(source, mod, fun) do
+      [] -> []
+      ranges -> for hit <- calls(source, fun), Enum.any?(ranges, &(hit.line in &1)), do: hit
+    end
+  end
+
+  # the lines of each module in `source` that imports `fun` from `mod`
+  defp importing(source, mod, fun) do
+    case Menard.Source.parse(source) do
+      {:ok, ast} ->
+        aliases = collect_aliases(ast)
+
+        for {_name, module} <- Menard.Tree.modules(ast),
+            imports?(module, aliases, mod, fun),
+            do: lines(module)
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp imports?(module, aliases, mod, fun) do
+    Enum.any?(own_nodes(module), fn
+      {:import, _, [{:__aliases__, _, parts} | opts]} ->
+        named?(expand(parts, aliases), mod) and imported?(opts, fun)
+
+      _ ->
+        false
+    end)
+  end
+
+  # bare, or `only:` naming it (or every function), or `except:` not naming it
+  defp imported?([], _fun), do: true
+
+  defp imported?([opts], fun) do
+    text = Sourceror.to_string(opts)
+    named = Regex.match?(~r/\b#{Regex.escape(fun)}:/, text)
+
+    cond do
+      text =~ ~r/\bonly:\s*:(functions|macros|sigils)\b/ -> true
+      text =~ ~r/\bonly:/ -> named
+      text =~ ~r/\bexcept:/ -> not named
+      true -> true
+    end
+  end
+
   defp self_calls(_source, nil, _fun), do: []
 
   defp self_calls(source, mod, fun) do
