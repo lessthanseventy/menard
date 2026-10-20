@@ -743,6 +743,20 @@ defmodule Menard.HooksTest do
     assert {:context, _} = Menard.Hook.run(payload.("s2", "SessionStart", %{}), state_dir: dir)
     assert {:deny, told} = bash.("s2", "python3 -c 'print(1)'")
     refute told =~ "There is no python, perl, ruby or node in this session"
+
+    # a refusal of any kind is the one that tells: a subagent sent for a function's callers
+    agent =
+      payload.("s3", "PreToolUse", %{
+        "subagent_type" => "Explore",
+        "prompt" => "Find every reference to A.go/1 in lib/ and test/, as file:line."
+      })
+      |> Map.put("tool_name", "Agent")
+
+    assert {:deny, first} = Menard.Hook.run(agent, state_dir: dir)
+    assert first =~ "find calls A.go lib test"
+    assert first =~ "There is no python, perl, ruby or node in this session"
+    assert {:deny, second} = bash.("s3", "python3 -c 'print(1)'")
+    refute second =~ "There is no python, perl, ruby or node in this session"
   end
 
   @tag :tmp_dir
