@@ -409,4 +409,34 @@ defmodule Menard.BinTest do
     assert out =~ ~s("run":{"ok":true)
     assert out =~ ~s("tests":1)
   end
+
+  @tag :tmp_dir
+  test "a flag the usage lists fills the argument of that name: write FILE --code CODE", %{tmp_dir: dir} do
+    # 2026-10-19: `write FILE --code "$(cat FILE)"` and `write FILE --file FILE`, each refused with
+    # the usage line that lists --file and --code among the flags
+    Host.mix_project(dir, :flagfill)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\nend\n")
+    env = [{"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}]
+
+    {out, 0} =
+      System.cmd(@bin, ["write", "lib/t.ex", "--code", "defmodule T do\n  def go, do: 2\nend\n"],
+        cd: dir,
+        env: env,
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("did":"write t.ex")
+    assert File.read!(Path.join(dir, "lib/t.ex")) =~ "do: 2"
+
+    {out, 0} =
+      System.cmd(@bin, ["write", "--file", "lib/t.ex", "--code", "defmodule T do\n  def go, do: 3\nend\n"],
+        cd: dir,
+        env: env,
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("did":"write t.ex")
+    assert File.read!(Path.join(dir, "lib/t.ex")) =~ "do: 3"
+  end
 end

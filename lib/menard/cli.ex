@@ -54,13 +54,14 @@ defmodule Menard.CLI do
     noun = Noun.of(verbs)
     flags = Noun.flags(noun)
     {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
+    named = flagged(given, flags)
 
-    case shaped(noun.cli.shapes, args) do
+    case shaped(noun.cli.shapes, args, Map.keys(named)) do
       nil ->
         usage(Noun.usage(noun))
 
       params ->
-        answer(Menard.Verbs.call(verbs, given |> flagged(flags) |> Map.merge(from_stdin(params, noun))), json)
+        answer(Menard.Verbs.call(verbs, from_stdin(Map.merge(named, params), noun)), json)
     end
   end
 
@@ -121,11 +122,16 @@ defmodule Menard.CLI do
     |> Map.reject(fn {_field, value} -> is_nil(value) end)
   end
 
-  # the first shape of the verb that takes the arguments, as the params they fill
-  defp shaped(shapes, args) do
+  # the first shape of the verb that takes the arguments, as the params they fill. A field given as
+  # a flag (`write FILE --code CODE`: the usage lists every field among the flags) is not waited
+  # for among the arguments
+  defp shaped(shapes, args, named) do
     Enum.find_value(shapes, fn
-      {nil, fields} -> fill(fields, args, %{})
-      {verb, fields} -> if verb == verb(List.first(args) || ""), do: fill(fields, tl(args), %{verb: verb})
+      {nil, fields} ->
+        fill(fields -- named, args, %{})
+
+      {verb, fields} ->
+        if verb == verb(List.first(args) || ""), do: fill(fields -- named, tl(args), %{verb: verb})
     end)
   end
 
