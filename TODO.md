@@ -12,3 +12,8 @@ commit lands.
 - `find calls Menard.Verbs.edit lib` found nothing, while every writing verb calls it as `edit(…)`
   under `import Menard.Verbs` (2026-10-01). A local call in a module that imports the target's
   module is a call of it.
+
+- The gate compiles under 1.19.4 only: 0.6.0 built as a dep of tlon/server (Elixir 1.20.4,
+  OTP 29) warned three times on branches 1.20's type inference proves dead, and the gate had said
+  nothing (2026-10-20, fixed in 0.6.1). A `compile --warnings-as-errors` under the newest Elixir
+  mise has installed, as one more step of `run check`, would have caught it before hex did.
