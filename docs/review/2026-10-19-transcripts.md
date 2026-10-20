@@ -99,3 +99,7 @@ edits run in parallel. The mix runs stay: they are the thing under test.
   time: the first refusal of a session carries the start-of-session text now.
 - `find calls` through an import, and the one-time `:enoent` at a checkout copy: the two entries
   TODO.md held, both done; TODO.md is empty.
+- The review of 2026-10-01, checked item by item on 2026-10-20: everything it proposed that was
+  still open is done in 0.6.3 (the changelog lists the ten), bar one kept on evidence: the
+  `note` on every write reply, without which an eval's agent re-read files 2.6 times as often.
+  `docs/tui.md` stays a brief; its question is the operator's.
