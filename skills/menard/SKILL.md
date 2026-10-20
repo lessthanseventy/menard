@@ -1,6 +1,6 @@
 ---
 name: menard
-description: menard's AST-aware Elixir tools — which fits which change, and the traps no error message explains. Use for a rename across files, finding who calls a function, reading one function of a big module, and whenever an Edit on a .ex/.exs file is blocked (pi's guard).
+description: menard's AST-aware Elixir tools — which fits which change, and the traps no error message explains. Use for a rename across files, finding who calls a function, reading one function of a big module, or moving one between modules with what it needs.
 ---
 
 # Editing Elixir with menard
