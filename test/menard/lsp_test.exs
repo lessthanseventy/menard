@@ -65,7 +65,8 @@ defmodule Menard.LspTest do
       )
 
     reply = JSON.decode!(out)
-    assert [%{"line" => 4, "kind" => "call"}] = reply["hits"]
+    # the named call and, through the import, the bare one: the AST's
+    assert [%{"line" => 4, "kind" => "call"}, %{"line" => 5, "kind" => "call"}] = reply["hits"]
     assert reply["lsp"] =~ "the AST's alone"
   end
 
@@ -94,11 +95,11 @@ defmodule Menard.LspTest do
 
     found = for hit <- reply.hits, do: {Path.basename(hit.file), hit.line, hit.kind}
 
-    # the named call is the AST's; the import, the apply and the delegate only the server sees; the
-    # @spec names the function without calling it
+    # the named call and the one through the import are the AST's; the apply and the delegate only
+    # the server sees; the @spec names the function without calling it
     assert Enum.sort(found) == [
              {"callers.ex", 4, :call},
-             {"callers.ex", 5, :reference},
+             {"callers.ex", 5, :call},
              {"callers.ex", 6, :reference},
              {"deleg.ex", 2, :reference}
            ]
