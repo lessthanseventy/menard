@@ -1,19 +1,25 @@
 # Changelog
 
-## 0.6.1
+## 0.6.2
 
-- Compiles without a warning under Elixir 1.20: three branches its type inference proves dead
-  (`scripts.ex`, `run.ex`, `clause.ex`) are gone. A host on 1.20 with `--warnings-as-errors`
-  could not build 0.6.0 as a dep. The gate compiles under 1.20 too now.
-- A session's first refusal, of any kind, carries the start-of-session text (no scripts in
-  another language, replies read whole): a session that started before the plugin was enabled
-  under it, or was resumed from before, had learned the rules one refusal at a time.
+- A refusal of any kind (a shell command, a subagent sent for a function's callers, a module
+  Read again unchanged) is the one that carries the start-of-session text; 0.6.1 told it on a
+  shell command's refusal alone.
 - `find calls Mod.fun` finds a bare `fun(…)` in a module that imports `Mod` (bare, or with an
   `only:`/`except:` that takes it); it found nothing for `Menard.Verbs.edit` under
   `import Menard.Verbs`.
 - The suite: the ten bin/menard tests on a checkout copy or a host project run async in modules
   of their own (220 s of the serial half); the identity oracle makes its edits in parallel; the
   leak check gives a warm host VM its watchdog's three polls.
+
+## 0.6.1
+
+- Compiles without a warning under Elixir 1.20: three branches its type inference proves dead
+  (`scripts.ex`, `run.ex`, `clause.ex`) are gone. A host on 1.20 with `--warnings-as-errors`
+  could not build 0.6.0 as a dep. The gate compiles under 1.20 too now.
+- A session's first refused shell command carries the start-of-session text (no scripts in
+  another language, replies read whole): a session that started before the plugin was enabled
+  under it, or was resumed from before, had learned the rules one refusal at a time.
 
 ## 0.6.0
 
