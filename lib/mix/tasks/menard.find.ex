@@ -46,8 +46,9 @@ defmodule Mix.Tasks.Menard.Find do
   defp print({:error, reason}, false, _asked), do: Mix.raise(reason)
 
   # A def's text is its head, which already starts with its kind: `def go(x)`, not `def def go(x)`.
-  defp line(%{file: file, line: l, column: c, kind: kind, text: text}) do
+  defp line(%{file: file, line: l, column: c, kind: kind, text: text} = hit) do
     text = if String.starts_with?(text, "#{kind} "), do: text, else: "#{kind} #{text}"
+    text = if hit[:in], do: "#{text}  in #{hit.in}", else: text
     "#{file}:#{l}:#{c} #{text}"
   end
 end

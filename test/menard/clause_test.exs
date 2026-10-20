@@ -967,6 +967,23 @@ defmodule Menard.ClauseTest do
              Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "two"})
 
     assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "delete", file: file, name_arity: "two"})
+    # Fable's review 2026-10-01: `visibility … private` answered no `left`, where `delete` does, and a
+    # remote caller was found at the next compile
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/b.ex"), "defmodule B do\n  def use_two, do: L.two(1)\nend\n")
+
+    assert {:ok, %{left: left}} =
+             Menard.Verbs.Clause.run(%{
+               verb: "visibility",
+               file: file,
+               name_arity: "two/1",
+               visibility: "private",
+               root: dir
+             })
+
+    assert [one] = left
+    assert one =~ "lib/b.ex:2"
+    assert one =~ "L.two(1)"
     assert why =~ "two/1, two/2"
   end
 

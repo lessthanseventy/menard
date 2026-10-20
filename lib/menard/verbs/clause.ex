@@ -185,7 +185,9 @@ defmodule Menard.Verbs.Clause do
       # no head is a function's only clause, as `head: ""` is; among several, that is refused with theirs
       head = p[:head] || ""
       did = &"#{verb} #{p.name_arity}#{if head != "", do: " `#{head}`"} in #{&1}"
-      edit(p, did, &change(verb, &1, p.name_arity, head, p[:code] || "", want, nth(p)))
+
+      with {:ok, reply} <- edit(p, did, &change(verb, &1, p.name_arity, head, p[:code] || "", want, nth(p))),
+           do: {:ok, callers_left(reply, p, want)}
     end
   end
 
@@ -199,6 +201,18 @@ defmodule Menard.Verbs.Clause do
       do: run(Map.put(p, :verb, "get"))
 
   def run(_params), do: {:error, "clause needs verb: one of #{Enum.join(@verbs, ", ")}"}
+
+  # private now: a call from another file is found at the next compile. Named here, as `delete`
+  # names what it leaves (Fable's review, 2026-10-01)
+  defp callers_left(reply, %{name_arity: na} = p, :private) do
+    root = p[:root] || Menard.caller_dir()
+    {:ok, file} = resolve(p.file, p)
+    own = Path.relative_to(file, root) <> ":"
+    left = root |> Menard.Find.left(file, File.read!(file), na) |> Enum.reject(&String.starts_with?(&1, own))
+    Map.put(reply, :left, left)
+  end
+
+  defp callers_left(reply, _p, _want), do: reply
 
   defp change("replace", source, na, head, code, _want, opts),
     do: Clause.replace_body(source, na, head, code, opts)

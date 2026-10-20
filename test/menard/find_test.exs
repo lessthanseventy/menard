@@ -219,6 +219,33 @@ defmodule Menard.FindTest do
     refute Map.has_key?(reply, :mentions)
   end
 
+  @tag :tmp_dir
+  test "a hit names the function it sits in, so no `where` or Read follows it", %{tmp_dir: dir} do
+    # Fable's review 2026-10-01, 1.3: hits carried no enclosing function
+    file = Path.join(dir, "d.ex")
+
+    File.write!(file, """
+    defmodule Demo do
+      alias Server.Channels
+      def home(ws), do: Channels.general(ws.id)
+
+      defmodule Inner do
+        def go, do: Server.Channels.general(1)
+      end
+    end
+    """)
+
+    assert {:ok, %{hits: hits}} =
+             Menard.Verbs.Find.run(%{
+               kind: "calls",
+               target: "Server.Channels.general",
+               files: [file],
+               root: dir
+             })
+
+    assert [%{line: 3, in: "Demo.home/1"}, %{line: 6, in: "Demo.Inner.go/0"}] = hits
+  end
+
   test "a capture is a call: &fun/1 and &Mod.fun/1" do
     # Fable 2026-10-01: `find calls line_total lib` found nothing with `Enum.map(&line_total/1)` in the
     # file, and `clause delete … line_total/1` answered `left: []` over a module that then did not build
