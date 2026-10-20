@@ -1,5 +1,9 @@
 defmodule Menard.Source do
-  @moduledoc false
+  @moduledoc """
+  The bytes of a file and the ranges in them: `parse/1`, `range/2` (Sourceror's columns,
+  corrected), `patch/3`. `Menard.Tree` owns the walks of the AST those ranges come from. Public
+  because Tree's docs name it: hidden, every mention was a docs warning on `hex.publish`.
+  """
 
   @doc """
   The dotted name an `{:__aliases__, _, parts}` spells. `__MODULE__` is an AST node, not an atom,
