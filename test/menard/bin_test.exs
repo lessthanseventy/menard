@@ -379,4 +379,34 @@ defmodule Menard.BinTest do
     assert out =~ ~s("did":"edit t.ex: 1 replacement, then run compile")
     assert out =~ ~s("run":{"ok":true)
   end
+
+  @tag :tmp_dir
+  test "edit --then test FILE… at the CLI runs those tests, as the MCP door's `then: \"test FILE…\"` does",
+       %{tmp_dir: dir} do
+    # Transcripts 2026-10-08 to 10-13: `edit --then test test/x_test.exs -` seven times, each
+    # refused with the bare usage line, and the edit sent again without its `--then` at all
+    Host.mix_project(dir, :thenfiles)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\nend\n")
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/other_test.exs"),
+      "defmodule OtherTest do\n  use ExUnit.Case\n  test \"go\", do: assert(T.go() == 2)\nend\n"
+    )
+
+    blocks = "lib/t.ex\n<<<<<<< SEARCH\ndef go, do: 1\n=======\ndef go, do: 2\n>>>>>>> REPLACE\n"
+
+    {out, 0} =
+      System.cmd(@bin, ["edit", "--then", "test", "test/other_test.exs", blocks],
+        cd: dir,
+        env: [{"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("did":"edit t.ex: 1 replacement, then run test")
+    assert out =~ ~s("run":{"ok":true)
+    assert out =~ ~s("tests":1)
+  end
 end

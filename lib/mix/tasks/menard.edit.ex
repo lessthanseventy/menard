@@ -29,14 +29,32 @@ defmodule Mix.Tasks.Menard.Edit do
 
   import Menard.CLI
 
-  @usage "mix menard.edit [--then test|check|compile] [--all] BLOCKS   (BLOCKS of `-` reads stdin)\n" <>
+  @usage "mix menard.edit [--then test [FILE…]|check|compile] [--all] BLOCKS   (BLOCKS of `-` reads stdin)\n" <>
            "       a block: FILE, `<<<<<<< SEARCH`, the text to find, `=======`, the text to put there, `>>>>>>> REPLACE`"
 
   @impl true
   def run(argv) do
+    # `--then test FILE… BLOCKS`: the files before the blocks are the then's, as the MCP door's
+    # `then: "test FILE…"` names them. Written so seven times in a week, refused with the bare usage
+    # line each time, and the edit sent again without its `--then` at all
     case options(argv, then: :string, all: :boolean) do
-      {flags, [blocks]} -> edit(stdin(blocks, "menard.edit"), flags)
-      _ -> usage(@usage)
+      {flags, [blocks]} ->
+        edit(stdin(blocks, "menard.edit"), flags)
+
+      {flags, [_, _ | _] = args} ->
+        case flags[:then] do
+          nil ->
+            usage(@usage)
+
+          then ->
+            edit(
+              stdin(List.last(args), "menard.edit"),
+              Keyword.put(flags, :then, Enum.join([then | Enum.drop(args, -1)], " "))
+            )
+        end
+
+      _ ->
+        usage(@usage)
     end
   end
 
