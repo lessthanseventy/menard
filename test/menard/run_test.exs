@@ -1033,21 +1033,39 @@ defmodule Menard.RunTest do
     # no precommit alias: every step ran, so a check whose only failures were flakes is green
     assert %{ok: true, flaky: [%{name: "once"}]} = Run.lean(Run.result(dir, "check", []))
 
-    # an alias stops at its failing step: what came after did not run, and the check says so
+    # an alias stops at its failing step: the steps after it are run here, each its own mix, and
+    # the check is green (it said "run check again", a second whole gate: Fable's review, 2026-10-01)
     File.rm!(Path.join(dir, "test/ran"))
 
     File.write!(Path.join(dir, "mix.exs"), """
     defmodule Flakes.MixProject do
       use Mix.Project
-      def project, do: [app: :flakes, version: "0.1.0", aliases: [precommit: ["test", "compile"]]]
+      def project, do: [app: :flakes, version: "0.1.0", aliases: [precommit: ["test", "compile", "cmd true"]]]
       def cli, do: [preferred_envs: [precommit: :test]]
     end
     """)
 
-    assert %{ok: false, flaky: [%{name: "once"}], failures: [], note: note} =
+    assert %{ok: true, flaky: [%{name: "once"}], failures: [], note: note} =
              Run.lean(Run.result(dir, "check", []))
 
-    assert note =~ "run check again"
+    assert note =~ "the precommit steps after the tests ran, and passed"
+
+    # a step after the tests that is red: that step, named
+    File.rm!(Path.join(dir, "test/ran"))
+
+    File.write!(Path.join(dir, "mix.exs"), """
+    defmodule Flakes.MixProject do
+      use Mix.Project
+      def project, do: [app: :flakes, version: "0.1.0", aliases: [precommit: ["test", "cmd sh -c 'echo nope; exit 3'"]]]
+      def cli, do: [preferred_envs: [precommit: :test]]
+    end
+    """)
+
+    assert %{ok: false, flaky: [%{name: "once"}], failures: [%{kind: "step", message: message}]} =
+             Run.lean(Run.result(dir, "check", []))
+
+    assert message =~ "mix cmd sh -c echo nope; exit 3 failed:"
+    assert message =~ "nope"
   end
 
   @tag :tmp_dir

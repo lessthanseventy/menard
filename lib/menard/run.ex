@@ -474,7 +474,7 @@ defmodule Menard.Run do
 
     # its failed tests once more, as `run test` does: a flake is not the change's (up4 Oban 01: check
     # red twice on the notifier's, and the agent stashed its work for a baseline)
-    reply = check_flakes(run, reply)
+    reply = check_flakes(run, reply, failed_step)
     if reply.ok, do: warm_stale(run)
 
     if formatted == [], do: reply, else: Map.put(reply, :formatted, formatted)
@@ -783,26 +783,95 @@ defmodule Menard.Run do
   # A check's failures that pass again are flakes. Its own steps (no precommit alias) all ran, credo
   # after the tests too, so none left is green; an alias stops at the task that failed, and what came
   # after it never ran: red still, and the reply says why
-  defp check_flakes(run, reply) do
+  defp check_flakes(run, reply, failed_step) do
     if rerun?(reply, [], run.dir) do
       again = flakes(reply, tested(run, ["--failed"], run.log <> ".rerun.exunit"))
 
       cond do
-        not Map.has_key?(again, :flaky) or again.flaky == nil ->
-          reply
-
-        reply[:ran] != nil or not again.ok ->
-          again
-
-        true ->
-          %{again | ok: false}
-          |> Map.put(
-            :note,
-            "every test failure passed when run again (flaky), and the precommit steps after the tests did not run: run check again"
-          )
+        not Map.has_key?(again, :flaky) or again.flaky == nil -> reply
+        reply[:ran] != nil or not again.ok -> again
+        true -> after_flakes(run, again, failed_step)
       end
     else
       reply
+    end
+  end
+
+  # Every failure a flake, under an alias. A failing `mix test` ends as finished and the alias goes
+  # on, so the steps after it ran: one that failed is left open in the trace, and is the failure;
+  # none open, every step passed. A test task that exits on failure (this repo's test_no_leaks)
+  # stops the alias: its steps after it run here, each its own mix. Before, the reply said "run
+  # check again", a second whole gate (Fable's review, 2026-10-01)
+  defp after_flakes(_run, again, nil),
+    do:
+      Map.put(
+        again,
+        :note,
+        "every test failure passed when run again (flaky); the precommit steps after the tests ran, and passed"
+      )
+
+  defp after_flakes(run, again, {task, _printed} = failed_step) do
+    if String.starts_with?(task, "test") do
+      steps = alias_steps(run)
+      at = Enum.find_index(steps, &(hd(String.split(&1)) == hd(String.split(task))))
+
+      if at == nil or "<fn>" in steps,
+        do:
+          Map.put(
+            %{again | ok: false},
+            :note,
+            "every test failure passed when run again (flaky), and the precommit steps after the tests did not run: run check again"
+          ),
+        else: run_rest(run, again, Enum.drop(steps, at + 1))
+    else
+      step_named(
+        Map.put(
+          %{again | ok: false, failures: []},
+          :note,
+          "every test failure passed when run again (flaky); mix #{task} failed"
+        ),
+        failed_step
+      )
+    end
+  end
+
+  defp run_rest(run, again, rest) do
+    green =
+      Map.put(
+        %{again | ok: true},
+        :note,
+        "every test failure passed when run again (flaky); the precommit steps after the tests ran green: #{Enum.join(rest, ", ")}"
+      )
+
+    Enum.reduce_while(rest, green, fn step, acc ->
+      case mix(run, OptionParser.split(step), []) do
+        {_out, 0} ->
+          {:cont, acc}
+
+        {out, _status} ->
+          red =
+            Map.put(
+              %{again | ok: false, failures: []},
+              :note,
+              "every test failure passed when run again (flaky); then mix #{step} failed"
+            )
+
+          {:halt, step_named(red, {step, out})}
+      end
+    end)
+  end
+
+  # the precommit alias's steps, as strings; a step that is a function is `<fn>`
+  defp alias_steps(run) do
+    code =
+      ~s|for s <- List.wrap(Mix.Project.config()[:aliases][:precommit]), do: IO.puts(if(is_binary(s), do: s, else: "<fn>"))|
+
+    case mix(run, ["run", "--no-start", "--no-compile", "--no-deps-check", "-e", code], []) do
+      {out, 0} ->
+        out |> String.split("\n", trim: true) |> Enum.reject(&(&1 =~ ~r/^(Compiling|Generated|==>|warning:)/))
+
+      _ ->
+        []
     end
   end
 
