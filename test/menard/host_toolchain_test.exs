@@ -43,17 +43,19 @@ defmodule Menard.HostToolchainTest do
   end
 
   @tag skip: !System.find_executable("mise") && "needs mise"
-  test "a host whose mise config is not trusted: the reply carries mise's own reason", %{dir: dir} do
+  test "a host whose mise refuses to run: the reply carries mise's own reason", %{dir: dir} do
     # the eval bench's Tlön copy: the host's mise refused to run, and the reply ended in mise's
-    # "Version: …" and "Run with --verbose" lines, not the one that said why
-    # [env] is what mise refuses to read from an untrusted file; [tools] alone it reads
-    File.write!(Path.join(dir, "mise.toml"), "[tools]\nerlang = \"27\"\n\n[env]\nMENARD_TRUST = \"1\"\n")
+    # "Version: …" and "Run with --verbose" lines, not the one that said why. An untrusted config
+    # was the refusal until mise 2026.10, which runs it (and reads its [env]) with an error printed;
+    # a config it cannot parse it still refuses, the reason in a `×` line above a drawing of the file
+    File.write!(Path.join(dir, "mise.toml"), "[tools\nerlang = \"27\"\n")
     File.write!(Path.join(dir, "mix.exs"), "defmodule T.MixProject do\n  use Mix.Project\nend\n")
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")
     file = Path.join(dir, "t.ex")
     File.write!(file, "defmodule T do\nend\n")
 
     assert {:error, message} = Menard.format(file, cache: Path.join(dir, "cache"))
-    assert message =~ "are not trusted"
+    assert message =~ "Invalid TOML in config file"
+    refute message =~ "╰"
   end
 end
