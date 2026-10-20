@@ -129,8 +129,9 @@ defmodule Menard.Hook do
 
     sweep(hook.state)
     File.write!(told_path(hook), "")
+    on_path(hook)
 
-    {:context, upfront()}
+    {:context, upfront(hook)}
   end
 
   # A module read whole again unchanged (desk5: tickets.ex six times, 11 rereads in a session): answered
@@ -158,7 +159,7 @@ defmodule Menard.Hook do
   end
 
   defp tool(%{tool: tool, event: "PreToolUse"} = hook) when tool in ["Agent", "Task"] do
-    case Scripts.delegated(hook.input["prompt"] || "", menard()) do
+    case Scripts.delegated(hook.input["prompt"] || "", menard(hook)) do
       nil -> :quiet
       why -> {:deny, told(hook, why)}
     end
@@ -167,7 +168,7 @@ defmodule Menard.Hook do
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
     command = hook.input["command"] || ""
 
-    case Scripts.refused(command, menard(), hook.root) do
+    case Scripts.refused(command, menard(hook), hook.root) do
       nil -> hook |> marked() |> piped(hook)
       why -> {:deny, told(hook, why)}
     end
@@ -192,6 +193,17 @@ defmodule Menard.Hook do
     in_a_run(answer, hook)
   end
 
+  # menard's bin/ on the session's PATH, through the env file the harness gives a SessionStart hook:
+  # named by its absolute path, the agent typed that path on every call, ~100 a session (Fable's
+  # review, 2026-10-01). Put there, every text names it `menard`
+  defp on_path(hook) do
+    with env when is_binary(env) <- System.get_env("CLAUDE_ENV_FILE"),
+         :ok <- File.write(env, ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n), [:append]) do
+      File.write!(path_mark(hook), "")
+    end
+  end
+
+  defp path_mark(hook), do: Path.join(hook.state, "menard-path-#{hook.session}")
   # A session's first refusal carries what is so in it. A session that started before the plugin
   # was enabled under it never heard the start-of-session text, and a resumed one is taken to have
   # it from its start: ficciones, 2026-10-20, learned the rules one refusal at a time
@@ -202,16 +214,16 @@ defmodule Menard.Hook do
       why
     else
       File.write!(path, "")
-      why <> "\n\nWhat is so in this session, said once: " <> upfront()
+      why <> "\n\nWhat is so in this session, said once: " <> upfront(hook)
     end
   end
 
   defp told_path(hook), do: Path.join(hook.state, "menard-told-#{hook.session}")
 
-  defp upfront, do: Scripts.upfront(menard()) <> "\n\n" <> Piped.upfront(menard())
+  defp upfront(hook), do: Scripts.upfront(menard(hook)) <> "\n\n" <> Piped.upfront(menard(hook))
   # a test run and its pipe, run through `menard run` in their place: the call goes on, as that
   defp piped(:quiet, hook) do
-    case Piped.rewritten(hook.input["command"] || "", menard()) do
+    case Piped.rewritten(hook.input["command"] || "", menard(hook)) do
       command when is_binary(command) -> {:rewrite, Map.put(hook.input, "command", command)}
       nil -> :quiet
     end
@@ -233,7 +245,7 @@ defmodule Menard.Hook do
 
     if File.stat!(count).size == @run and not File.exists?(noted) do
       File.write!(noted, "")
-      note(answer, run_note())
+      note(answer, run_note(hook))
     else
       answer
     end
@@ -241,11 +253,11 @@ defmodule Menard.Hook do
 
   defp in_a_run(answer, _hook), do: answer
 
-  defp run_note do
+  defp run_note(hook) do
     """
     That is #{@run} Edits in a row, a call each. menard's `edit` makes several replacements in one \\
     call, in one file or many, all written or none, and `--then test` runs the tests of what it changed after:
-      #{menard()} edit --then test - <<'EOF'
+      #{menard(hook)} edit --then test - <<'EOF'
       lib/a.ex
       <<<<<<< SEARCH
       the text to find
@@ -273,7 +285,8 @@ defmodule Menard.Hook do
     )
   end
 
-  defp menard, do: Menard.bin()
+  # by its path, or `menard` where this session's PATH has it (`on_path/1`)
+  defp menard(hook), do: if(File.exists?(path_mark(hook)), do: "menard", else: Menard.bin())
 
   # What a week-old session left: its marks and reads, and a project's run logs (/tmp held 7,022
   # menard files and 378 log directories, and nothing swept them; Fable's review, 2026-10-01)
@@ -305,7 +318,7 @@ defmodule Menard.Hook do
            hook,
            "This is the Read's answer, not an error: #{rel} is unchanged since you read it, so what you " <>
              "read is what it holds, and a Read again answers the same. One function of it: " <>
-             "#{menard()} clause get #{rel} NAME; every function's lines: #{menard()} outline #{rel}."
+             "#{menard(hook)} clause get #{rel} NAME; every function's lines: #{menard(hook)} outline #{rel}."
          )},
       else: :quiet
   end

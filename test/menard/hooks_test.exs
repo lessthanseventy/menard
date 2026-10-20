@@ -710,6 +710,45 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a session's start puts menard on its PATH, and every text then names it `menard`", %{tmp_dir: dir} do
+    # the agent typed menard's absolute path on every call, ~100 a session (Fable's review, 2026-10-01)
+    env = Path.join(dir, "env")
+    System.put_env("CLAUDE_ENV_FILE", env)
+    on_exit(fn -> System.delete_env("CLAUDE_ENV_FILE") end)
+
+    payload = fn event, tool, input ->
+      %{
+        "hook_event_name" => event,
+        "tool_name" => tool,
+        "session_id" => "p1",
+        "tool_use_id" => "t#{System.unique_integer([:positive])}",
+        "cwd" => dir,
+        "source" => "startup",
+        "tool_input" => input
+      }
+    end
+
+    assert {:context, text} = Menard.Hook.run(payload.("SessionStart", "", %{}), state_dir: dir)
+    assert File.read!(env) == ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n)
+    assert text =~ "\n  menard edit --then compile - <<'EOF'"
+    refute text =~ Menard.bin()
+
+    assert {:deny, why} =
+             Menard.Hook.run(payload.("PreToolUse", "Bash", %{"command" => "python3 -c 'print(1)'"}),
+               state_dir: dir
+             )
+
+    assert why =~ "with menard's edit"
+    refute why =~ Menard.bin()
+
+    # no env file (another harness): the path, as before
+    System.delete_env("CLAUDE_ENV_FILE")
+    start = payload.("SessionStart", "", %{}) |> Map.put("session_id", "p2")
+    assert {:context, text} = Menard.Hook.run(start, state_dir: dir)
+    assert text =~ Menard.bin()
+  end
+
+  @tag :tmp_dir
   test "a session's first refusal carries what is so in it; one told at its start is not told again",
        %{tmp_dir: dir} do
     # ficciones, 2026-10-20, five hours into a session that started before the plugin was enabled
