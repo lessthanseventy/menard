@@ -128,14 +128,18 @@ defmodule Menard.Format do
 
   defp all(pairs, result), do: Map.new(pairs, fn {file, _content} -> {file, result} end)
 
-  # the last lines that say why: mise ends every refusal (an untrusted config) with its version
-  # and a pointer to --verbose, which were all the reply kept
+  # the lines that say why: mise ends every refusal with its version and a pointer to --verbose,
+  # which were all the reply kept, and draws the file under a parse error's `×` line
   defp said(out) do
-    out
-    |> String.split("\n")
-    |> Enum.reject(&(String.trim(&1) == "" or &1 =~ ~r/^mise ERROR (Version:|Run with --verbose)/))
-    |> Enum.take(-3)
-    |> Enum.join(" ")
+    lines =
+      out
+      |> String.split("\n")
+      |> Enum.reject(&(String.trim(&1) == "" or &1 =~ ~r/^mise ERROR (Version:|Run with --verbose)/))
+
+    case Enum.filter(lines, &(&1 =~ ~r/^\s*(×|mise ERROR)/)) do
+      [] -> lines |> Enum.take(-3) |> Enum.join(" ")
+      why -> Enum.map_join(why, " ", &String.trim/1)
+    end
   end
 
   defp cache_dir(project),
