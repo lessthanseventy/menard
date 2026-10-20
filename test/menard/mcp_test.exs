@@ -653,6 +653,32 @@ defmodule Menard.MCPTest do
     assert text =~ "replace"
   end
 
+  test "a call the schema refuses says what the tool takes and what was given" do
+    # Transcripts: find called with `name` and `dirs` for `target` and `files`, twice (2026-10-01), and
+    # edit with `search`/`replace` for `old`/`new` (10-08), answered "edit: edits: ; edits: " — the
+    # schema's word for a wrong key inside a list is nothing at all
+    request = fn name, args ->
+      %{"method" => "tools/call", "params" => %{"name" => name, "arguments" => args}}
+    end
+
+    edits = [%{"file" => "lib/a.ex", "search" => "x", "replace" => "y"}]
+
+    assert {:reply, %{"isError" => true, "content" => [%{"text" => text}]}, _} =
+             Menard.MCP.handle_request(request.("edit", %{"edits" => edits, "then" => "test"}), Frame.new())
+
+    assert text =~ "edit takes: edits [{all, file, new, old}], then"
+    assert text =~ "given: edits [{file, replace, search}], then"
+
+    assert {:reply, %{"isError" => true, "content" => [%{"text" => text}]}, _} =
+             Menard.MCP.handle_request(
+               request.("find", %{"verb" => "calls", "name" => "File.cd", "dirs" => "[\"lib\"]"}),
+               Frame.new()
+             )
+
+    assert text =~ "find takes: files, kind, target, verb"
+    assert text =~ "given: dirs, name, verb"
+  end
+
   test "clause get answers with the function as written and the file's version, and writes nothing", %{
     root: root
   } do
