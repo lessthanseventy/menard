@@ -119,6 +119,7 @@ built_at="$build/.menard-built-at"
 # what the build held: a dep's build gone (a `deps.clean`, another process rebuilding _build beside
 # this verb) is a compile the verb would otherwise do itself, with its log on stdout
 built_libs="$build/.menard-built-libs"
+good_ebin="$build/.menard-good-ebin"
 stale() {
   [[ -f "$manifest" ]] || return 0
   [[ "$(cat "$built_at" 2>/dev/null)" == "$PWD" ]] || return 0
@@ -145,6 +146,10 @@ if ((!frozen)) && stale; then
     exit 1
   fi
   rm -rf "$good"
+  # the last good build of menard's own modules, kept for `--frozen`: a compile that fails inside a
+  # verb (`run compile`, `edit --then compile`, on this checkout) also deletes the beams it was
+  # remaking, and nothing above puts those back
+  rm -rf "$good_ebin" && cp -a "$ebin" "$good_ebin"
   # mix recompiles by content, this check goes by mtime: a file touched but unchanged leaves the
   # manifest old, and without this every later call would pay a compile it does not need
   touch "$manifest"
@@ -162,6 +167,9 @@ for ebin in "$build"/lib/*/ebin; do
   if [[ -d "$ebin" ]]; then pa+=(-pa "$PWD/$ebin"); fi
 done
 [[ ${#pa[@]} -gt 0 ]] || { echo "menard: nothing built yet — run a plain verb once, without --frozen" >&2; exit 2; }
+# last on the path: a module the build has loads from the build, one a failed compile deleted
+# from the last good build
+if ((frozen)) && [[ -d "$good_ebin" ]]; then pa+=(-pz "$PWD/$good_ebin"); fi
 # Mix.raise is how every task reports a miss ("no clause go/1 with head … — have: …"), and only
 # the `mix` CLI turns that into a message; raised here it would print as a bare stack trace and
 # lose the one line that tells you what to fix. The logger level is config/config.exs's, which
