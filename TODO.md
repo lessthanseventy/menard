@@ -12,10 +12,3 @@ commit lands.
 - `find calls Menard.Verbs.edit lib` found nothing, while every writing verb calls it as `edit(…)`
   under `import Menard.Verbs` (2026-10-01). A local call in a module that imports the target's
   module is a call of it.
-
-
-- `bin/menard --frozen edit --then compile` on an edit that broke `lib/mix/tasks/menard.edit.ex`
-  (a remote call in a guard, 2026-10-20) left `_build` without that task: the next
-  `--frozen edit` said "The task menard.edit could not be found". The compile that failed had
-  already removed the beam of the module it could not build, so the last good build was gone for
-  that one module. `elixir -e` with `String.replace` got the file back; `--frozen` is meant to.
