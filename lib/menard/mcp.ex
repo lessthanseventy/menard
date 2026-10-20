@@ -11,6 +11,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     alias Anubis.MCP.Error
     alias Anubis.Server.Handlers
+    alias Menard.Verbs.Noun
 
     use Anubis.Server,
       name: "menard",
@@ -53,9 +54,13 @@ if Code.ensure_loaded?(Anubis.Server) do
       case Handlers.handle(request, __MODULE__, frame) do
         {:error, %Error{reason: :invalid_params, data: %{message: why}}, frame} ->
           tool = get_in(request, ["params", "name"])
+          # what the tool takes beside what came: the schema's word for a wrong key inside a list
+          # (`edits: [{file, search, replace}]`) is nothing at all, and for a wrong key at the top
+          # (`name` for `target`) only the field it left empty
+          given = get_in(request, ["params", "arguments"]) || %{}
+          text = "#{tool}: #{why}\n#{tool} takes: #{takes(tool)}; given: #{keys(given)}"
 
-          {:reply, %{"content" => [%{"type" => "text", "text" => "#{tool}: #{why}"}], "isError" => true},
-           frame}
+          {:reply, %{"content" => [%{"type" => "text", "text" => text}], "isError" => true}, frame}
 
         other ->
           other
@@ -72,6 +77,24 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     @doc "Every path resolved, globs expanded, or the first refusal — no partial edits."
     def resolve_all(paths), do: Menard.Verbs.resolve_all(paths, %{root: root()})
+
+    defp takes(tool) do
+      case Enum.find(Noun.modules(), &(Noun.of(&1).name == tool)) do
+        nil -> "?"
+        verbs -> keys(Map.new(Noun.of(verbs).fields, fn {name, type, _} -> {name, type} end))
+      end
+    end
+
+    # the keys of `map`, in order, a list of maps among its values as the keys of its first
+    defp keys(map) do
+      map
+      |> Enum.sort_by(fn {key, _} -> to_string(key) end)
+      |> Enum.map_join(", ", fn
+        {key, {:list, %{} = of}} -> "#{key} [{#{keys(of)}}]"
+        {key, [%{} = of | _]} -> "#{key} [{#{keys(of)}}]"
+        {key, _} -> to_string(key)
+      end)
+    end
   end
 
   defmodule Menard.MCP.Hooks do
