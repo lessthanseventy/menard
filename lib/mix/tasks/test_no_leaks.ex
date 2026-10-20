@@ -24,7 +24,10 @@ defmodule Mix.Tasks.TestNoLeaks do
         env: [{"MIX_ENV", "test"}]
       )
 
-    leaked = leaked_vms()
+    # a kept-warm host VM notices its owner gone on a 2s poll (priv/format.exs): three of those
+    # before one counts as a leak. On a loaded box (a second gate beside this one, 2026-10-20),
+    # 20 were counted the instant `mix test` exited, every one on its way out
+    leaked = leaked_vms(6_000)
 
     if leaked != [] do
       Mix.shell().error("leaked host VM(s), cwd under tmp/: #{Enum.join(leaked, ", ")}")
@@ -32,6 +35,14 @@ defmodule Mix.Tasks.TestNoLeaks do
     end
 
     if status != 0 or leaked != [], do: exit({:shutdown, 1})
+  end
+
+  defp leaked_vms(wait) do
+    case leaked_vms() do
+      [] -> []
+      left when wait <= 0 -> left
+      _ -> Process.sleep(500) && leaked_vms(wait - 500)
+    end
   end
 
   defp leaked_vms do
