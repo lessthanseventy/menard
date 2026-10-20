@@ -204,6 +204,57 @@ defmodule Menard.EditTest do
     assert why =~ "a second `=======`"
   end
 
+  test "a block with no path line is the file of the block before it" do
+    # Transcripts, 2026-10-02 to 10-10: six edits refused with "expected a file's path … got:
+    # <<<<<<< SEARCH", each a second block for the same file written without its path again, and
+    # the whole batch sent again for it (opus 5.5 and sonnet 5 alike)
+    blocks = """
+    lib/a.ex
+    <<<<<<< SEARCH
+    one
+    =======
+    uno
+    >>>>>>> REPLACE
+    <<<<<<< SEARCH
+    two
+    =======
+    dos
+    >>>>>>> REPLACE
+
+    <<<<<<< SEARCH
+    three
+    =======
+    tres
+    >>>>>>> REPLACE
+    lib/b.ex
+    <<<<<<< SEARCH
+    four
+    =======
+    cuatro
+    >>>>>>> REPLACE
+    """
+
+    assert {:ok, edits} = Menard.Edit.blocks(blocks)
+
+    assert Enum.map(edits, &{&1.file, &1.old}) == [
+             {"lib/a.ex", "one"},
+             {"lib/a.ex", "two"},
+             {"lib/a.ex", "three"},
+             {"lib/b.ex", "four"}
+           ]
+
+    # a `=======` closing a block, with a bare block after it
+    short =
+      "lib/a.ex\n<<<<<<< SEARCH\none\n=======\nuno\n=======\n<<<<<<< SEARCH\ntwo\n=======\ndos\n>>>>>>> REPLACE\n"
+
+    assert {:ok, [%{old: "one", new: "uno"}, %{file: "lib/a.ex", old: "two", new: "dos"}]} =
+             Menard.Edit.blocks(short)
+
+    # the first block has no file to inherit: still what was expected, and what came
+    assert {:error, why} = Menard.Edit.blocks("<<<<<<< SEARCH\none\n=======\nuno\n>>>>>>> REPLACE\n")
+    assert why =~ "expected a file's path"
+  end
+
   test "an edit that would put a function between the clauses of another is refused: it parses, and does not build",
        %{tmp_dir: dir} do
     # Found 2026-09-29, twice in an hour, by the one who wrote edit: a helper written under the clause
