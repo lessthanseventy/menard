@@ -73,6 +73,17 @@ Each from the transcripts, a failing test first, its own commit.
 - The MCP door: 167 calls in September (opus 5.5), 13 in October (sonnet 5). The CLI is the door
   used.
 
+## 5. The suite, asked why it is slow
+
+1,086 tests: 407 s with the box quiet, 940 s beside three other gates and an eval (load 30 on
+20 cores, 42 BEAMs). Half of the loaded run was serial. `run test --slowest 30` (the hook
+rewrote a piped `mix test --slowest`, and the reply carried `slowest`): the thirty cost 573 s
+between them, in three kinds: bin_test's checkout copies (a build of menard per test, 10-62 s),
+run_test's real mix runs (9-32 s), and the identity oracle's statement checks (573 edits of
+clause.ex, 44 s under load). Done: the ten bin tests that never touch this checkout's builds run
+async in `Menard.BinCopyTest` and `Menard.BinHostTest`, moved with `block move`; the oracle's
+edits run in parallel. The mix runs stay: they are the thing under test.
+
 ## 4. Found on the way, fixed
 
 - A failed `--then compile` left `_build` without the module that failed, and `--frozen edit`
@@ -82,3 +93,9 @@ Each from the transcripts, a failing test first, its own commit.
   moved to a config mise cannot parse, and the formatter's reply keeps mise's reason line.
 - The plugin is enabled at user scope as of this review (`claude plugin install menard@menard
   --scope user`): every project on this machine has the hooks now.
+- 0.6.0 as a dep of tlon/server (Elixir 1.20) warned three times where the gate's 1.19 said
+  nothing: the branches are gone, and the gate compiles under 1.20 too.
+- A session that started before the plugin was enabled under it met the rules one refusal at a
+  time: the first refusal of a session carries the start-of-session text now.
+- `find calls` through an import, and the one-time `:enoent` at a checkout copy: the two entries
+  TODO.md held, both done; TODO.md is empty.
