@@ -55,7 +55,7 @@ defmodule Menard.MixProject do
           # not on the publish's screen (0.6.2, six of them)
           ~s(cmd sh -c "MIX_ENV=docs mix docs --warnings-as-errors >/dev/null"),
           # through sh: mix cmd runs no shell, so a glob would reach shellcheck unexpanded
-          ~s(cmd sh -c "shellcheck -x -P SCRIPTDIR -s bash hooks/*.sh bin/menard"),
+          ~s(cmd sh -c "shellcheck -x -P SCRIPTDIR -s bash hooks/*.sh bin/menard eval/pile/report.sh"),
           # not bare "test": a kept-warm host VM (Menard.Format.Worker) a test leaves running on
           # purpose looks like a leak from inside the very suite that started it — this runs
           # `mix test` as its own process so it can tell "still warm" from "leaked" once that
