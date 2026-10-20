@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.6.0
+
+**From the transcripts** (`docs/review/2026-10-19-transcripts.md`: every session 09-25 to 10-20)
+- `edit`: a second search/replace block for the same file needs no path line of its own; at
+  the CLI `--then test FILE… -` runs those tests, as the MCP door's `then: "test FILE…"` did.
+- A flag the usage lists fills the argument of that name: `write FILE --code CODE`.
+- An MCP call the schema refuses says what the tool takes and what was given, where it said
+  `edit: edits: ; edits:` for `search`/`replace` in place of `old`/`new`.
+- menard's reply through a filter is refused under `timeout`, `time` and the other wrappers.
+- `--frozen` runs a module a compile that failed inside a verb (`run compile`,
+  `--then compile`) had deleted: the last good build of menard's own modules is kept.
+- mise 2026.10 runs an untrusted config: the formatter's reply keeps mise's own reason line
+  for the refusal it still makes (a config it cannot parse); the gate's leak check gives a
+  warm host VM its watchdog's three polls before counting it.
 
 **One menard, no settings**
 - `MENARD_SCRIPTS` and `MENARD_RUNS` are gone: what `full` and `rewrite` did is what menard does.
