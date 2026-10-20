@@ -55,7 +55,13 @@ defmodule Menard.Edit do
 
       {:ok, Map.merge(%{changed: changed, replacements: length(edits)}, notes)}
     else
-      # a file as the caller named it: under `root:`, where there is one
+      # a file as the caller named it: under `root:`, where there is one; and which edit of the
+      # batch, so the CLI can keep the rest for a retry of that one (`mix menard.edit --retry`)
+      {:error, {file, why, n}} ->
+        rel = Path.relative_to(file, opts[:root] || File.cwd!())
+        {:error, "edit #{n} of #{length(edits)}, #{rel}: #{why}\nnothing was written"}
+
+      # a file that does not parse with the edits, or could not be written: no one edit's
       {:error, {file, why}} ->
         {:error, "#{Path.relative_to(file, opts[:root] || File.cwd!())}: #{why}\nnothing was written"}
     end
@@ -131,7 +137,9 @@ defmodule Menard.Edit do
   end
 
   defp replaced(edits, before) do
-    Enum.reduce_while(edits, {:ok, before, []}, fn edit, {:ok, contents, moved} ->
+    edits
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, before, []}, fn {edit, n}, {:ok, contents, moved} ->
       case replace(contents[edit.file], edit) do
         {:ok, text} ->
           {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved}}
@@ -140,13 +148,15 @@ defmodule Menard.Edit do
           {:cont, {:ok, Map.put(contents, edit.file, {:ok, text}), moved ++ notes(edit.file, what)}}
 
         {:error, why} ->
-          {:halt, {:error, refusal(edit.file, why)}}
+          {:halt, {:error, {edit.file, why, n}}}
       end
     end)
   end
 
   # a replacement's notes, one or several (found deeper, and a function moved there)
   defp notes(file, what), do: for(note <- List.wrap(what), do: {file, note})
+
+  defp refusal(file, why), do: {file, why}
 
   defp replace({:error, :enoent}, %{old: "", new: new}), do: {:ok, new}
   defp replace({:error, :enoent}, _edit), do: {:error, "the file is not there (an empty `old` makes it)"}
@@ -415,6 +425,4 @@ defmodule Menard.Edit do
       end
     end
   end
-
-  defp refusal(file, why), do: {file, why}
 end

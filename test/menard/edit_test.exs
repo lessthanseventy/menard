@@ -204,6 +204,47 @@ defmodule Menard.EditTest do
     assert why =~ "a second `=======`"
   end
 
+  @tag :tmp_dir
+  test "a refused batch is kept, and --retry N takes that edit again with the rest as they were", %{
+    tmp_dir: dir
+  } do
+    # Fable's review 2026-10-01: a refusal resent the whole batch, 22 of ~270 edits, 45 KB
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def one, do: 1\n  def two, do: 2\nend\n")
+    System.put_env("MENARD_CWD", dir)
+    on_exit(fn -> System.delete_env("MENARD_CWD") end)
+
+    batch = """
+    lib/a.ex
+    <<<<<<< SEARCH
+      def one, do: 1
+    =======
+      def uno, do: 1
+    >>>>>>> REPLACE
+    <<<<<<< SEARCH
+      def two, do: 22
+    =======
+      def dos, do: 2
+    >>>>>>> REPLACE
+    """
+
+    error = assert_raise(Mix.Error, fn -> Mix.Tasks.Menard.Edit.run([batch]) end)
+    assert error.message =~ "edit 2 of 2, lib/a.ex: this text is not there"
+    assert error.message =~ "The other 1 are kept: send edit 2 corrected, alone"
+    assert error.message =~ "--retry 2 -"
+    assert File.read!(Path.join(dir, "lib/a.ex")) =~ "def one, do: 1"
+
+    retry = "lib/a.ex\n<<<<<<< SEARCH\n  def two, do: 2\n=======\n  def dos, do: 2\n>>>>>>> REPLACE\n"
+    out = ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Menard.Edit.run(["--retry", "2", retry]) end)
+    assert out =~ ~s("replacements":2)
+
+    assert File.read!(Path.join(dir, "lib/a.ex")) ==
+             "defmodule A do\n  def uno, do: 1\n  def dos, do: 2\nend\n"
+
+    error = assert_raise(Mix.Error, fn -> Mix.Tasks.Menard.Edit.run(["--retry", "5", retry]) end)
+    assert error.message =~ "nothing kept to retry as edit 5"
+  end
+
   test "a block with no path line is the file of the block before it" do
     # Transcripts, 2026-10-02 to 10-10: six edits refused with "expected a file's path … got:
     # <<<<<<< SEARCH", each a second block for the same file written without its path again, and
