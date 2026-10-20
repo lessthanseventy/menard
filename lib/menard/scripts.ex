@@ -182,7 +182,7 @@ defmodule Menard.Scripts do
       |> Enum.map_reduce(root, fn segment, base ->
         case unwrapped(words(segment)) do
           ["cd", dir | _] -> {nil, Path.expand(dir, base)}
-          [first | args] = words -> {if(interpreter?(first), do: {base, args}), base} |> then(&(words && &1))
+          [first | args] -> {if(interpreter?(first), do: {base, args}), base}
           [] -> {nil, base}
         end
       end)

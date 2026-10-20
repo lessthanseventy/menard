@@ -1072,8 +1072,6 @@ defmodule Menard.Clause do
     end
   end
 
-  defp heads([]), do: "none"
-
   defp heads(clauses) do
     Enum.map_join(clauses, " · ", fn
       %{head_text: ""} -> "`` (zero-arity — pass an empty head, or the name)"

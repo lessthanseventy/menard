@@ -903,9 +903,15 @@ defmodule Menard.Run do
 
       {:error, :eexist} ->
         cond do
-          not held?(lock) -> unstale(lock) && take(lock, deadline, waited)
-          deadline && System.monotonic_time(:millisecond) > deadline -> waited
-          true -> Process.sleep(1_000) && take(lock, deadline, waited + 1)
+          not held?(lock) ->
+            unstale(lock)
+            take(lock, deadline, waited)
+
+          deadline && System.monotonic_time(:millisecond) > deadline ->
+            waited
+
+          true ->
+            Process.sleep(1_000) && take(lock, deadline, waited + 1)
         end
     end
   end
