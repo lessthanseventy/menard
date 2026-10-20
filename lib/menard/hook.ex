@@ -160,7 +160,7 @@ defmodule Menard.Hook do
   defp tool(%{tool: tool, event: "PreToolUse"} = hook) when tool in ["Agent", "Task"] do
     case Scripts.delegated(hook.input["prompt"] || "", menard()) do
       nil -> :quiet
-      why -> {:deny, why}
+      why -> {:deny, told(hook, why)}
     end
   end
 
@@ -301,9 +301,12 @@ defmodule Menard.Hook do
     if seen == now,
       do:
         {:deny,
-         "This is the Read's answer, not an error: #{rel} is unchanged since you read it, so what you " <>
-           "read is what it holds, and a Read again answers the same. One function of it: " <>
-           "#{menard()} clause get #{rel} NAME; every function's lines: #{menard()} outline #{rel}."},
+         told(
+           hook,
+           "This is the Read's answer, not an error: #{rel} is unchanged since you read it, so what you " <>
+             "read is what it holds, and a Read again answers the same. One function of it: " <>
+             "#{menard()} clause get #{rel} NAME; every function's lines: #{menard()} outline #{rel}."
+         )},
       else: :quiet
   end
 
