@@ -29,7 +29,7 @@ defmodule Mix.Tasks.Menard.Edit do
 
   import Menard.CLI
 
-  @usage "mix menard.edit [--then test [FILE…]|check|compile] [--all] BLOCKS   (BLOCKS of `-` reads stdin)\n" <>
+  @usage "mix menard.edit [--then test [FILE…]|check|compile] [--all] [--retry N] BLOCKS   (BLOCKS of `-` reads stdin)\n" <>
            "       a block: FILE, `<<<<<<< SEARCH`, the text to find, `=======`, the text to put there, `>>>>>>> REPLACE`"
 
   @impl true
@@ -37,7 +37,7 @@ defmodule Mix.Tasks.Menard.Edit do
     # `--then test FILE… BLOCKS`: the files before the blocks are the then's, as the MCP door's
     # `then: "test FILE…"` names them. Written so seven times in a week, refused with the bare usage
     # line each time, and the edit sent again without its `--then` at all
-    case options(argv, then: :string, all: :boolean) do
+    case options(argv, then: :string, all: :boolean, retry: :integer) do
       {flags, [blocks]} ->
         edit(stdin(blocks, "menard.edit"), flags)
 
@@ -59,13 +59,55 @@ defmodule Mix.Tasks.Menard.Edit do
   end
 
   defp edit(blocks, flags) do
-    case Menard.Edit.blocks(blocks) do
-      {:ok, edits} ->
-        edits = Enum.map(edits, &Map.put(&1, :all, flags[:all] == true))
-        finish(Verbs.call(Verbs.Edit, %{edits: edits, then: flags[:then]}))
+    with {:ok, edits} <- Menard.Edit.blocks(blocks),
+         {:ok, edits} <- retried(edits, flags[:retry]) do
+      edits = Enum.map(edits, &Map.put(&1, :all, flags[:all] == true))
 
-      {:error, why} ->
-        usage(why <> "\n       " <> @usage)
+      case Verbs.call(Verbs.Edit, %{edits: edits, then: flags[:then]}) do
+        {:error, why} -> finish({:error, kept(edits, why)})
+        reply -> finish(reply)
+      end
+    else
+      {:error, why} -> usage(why <> "\n       " <> @usage)
     end
   end
+
+  # A refusal names one edit of the batch; the batch is kept, and `--retry N` takes that one again,
+  # corrected, with the rest as they were. Before, the whole batch was sent again: 22 of ~270
+  # edits in one session, 45 KB (Fable's review, 2026-10-01)
+  defp kept(edits, why) do
+    with [_, n, total] <- Regex.run(~r/^edit (\d+) of (\d+),/, why),
+         true <- total != "1" do
+      File.write!(kept_path(), :erlang.term_to_binary(edits))
+
+      why <>
+        "\nThe other #{String.to_integer(total) - 1} are kept: send edit #{n} corrected, alone, as\n" <>
+        "  #{Menard.command("edit")} --retry #{n} - <<'EOF'\n  FILE\n  <<<<<<< SEARCH\n  …\n  EOF"
+    else
+      _ -> why
+    end
+  end
+
+  defp retried(edits, nil), do: {:ok, edits}
+
+  defp retried(sent, n) do
+    case File.read(kept_path()) do
+      {:ok, kept} ->
+        kept = :erlang.binary_to_term(kept)
+
+        if n in 1..length(kept)//1,
+          do: {:ok, List.flatten(List.replace_at(kept, n - 1, sent))},
+          else: {:error, "nothing kept to retry as edit #{n}: the last refused batch had #{length(kept)}"}
+
+      {:error, _} ->
+        {:error, "nothing kept to retry: no edit of this project's was refused with its edits kept"}
+    end
+  end
+
+  defp kept_path,
+    do:
+      Path.join(
+        System.tmp_dir!(),
+        "menard-edit-kept-" <> Base.url_encode64(Menard.caller_dir(), padding: false)
+      )
 end
