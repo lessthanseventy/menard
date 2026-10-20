@@ -78,6 +78,11 @@ defmodule Menard.Edit do
   defp blocks([], edits), do: {:ok, Enum.reverse(edits)}
   defp blocks(["" | lines], edits), do: blocks(lines, edits)
 
+  # a block with no path line is one more for the file before it: written so six times in nine days,
+  # and the batch sent again each time
+  defp blocks(["<<<<<<< SEARCH" | _] = lines, [%{file: file} | _] = edits),
+    do: blocks([file | lines], edits)
+
   defp blocks([file, "<<<<<<< SEARCH" | lines], edits) do
     with {:ok, old, lines} <- upto(lines, "=======", file),
          {:ok, new, lines} <- replacement(lines, file) do
@@ -104,6 +109,7 @@ defmodule Menard.Edit do
     case {rest, Enum.drop_while(Enum.drop(rest, 1), &(&1 == ""))} do
       {["=======" | _], []} -> unmarked(text, [], file)
       {["=======" | _], [_file, "<<<<<<< SEARCH" | _] = next} -> unmarked(text, next, file)
+      {["=======" | _], ["<<<<<<< SEARCH" | _] = next} -> unmarked(text, next, file)
       _ -> upto(lines, ">>>>>>> REPLACE", file)
     end
   end
