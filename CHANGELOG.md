@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.6.3
+
+Every proposal still open from the review of 2026-10-01 (`docs/review/2026-10-01-fable.md`):
+
+- Under the hooks server credo runs off the call's path; its notes come with the session's next
+  answer. At the CLI door, with the call, as before.
+- A refused `edit` names which edit of the batch; the batch is kept, and `menard edit --retry N -`
+  takes that one again, corrected, with the rest as they were.
+- `run check`: every failure a flake under a precommit alias, the alias's outcome is read from
+  mix's trace (its steps after the tests ran; one that failed is named), and a test task that
+  stops the alias has its steps after it run here. No "run check again".
+- `rename Mod.fun new FILES` renames that module's function alone: its heads in `Mod`, and the
+  calls that resolve to it (aliased, imported, `__MODULE__.fun`, bare inside `Mod`).
+- A `find calls` hit names the function it sits in (`in`), on the CLI line too.
+- `clause visibility … private` names the callers in other files it leaves, as `delete` does.
+- A session's start puts menard's bin on its PATH (through `CLAUDE_ENV_FILE`), and every text
+  then names it `menard`, not its absolute path.
+- `block add` in a file of several modules, none named: the one holding the `in` block.
+- `map` leaves the root's own `tmp/` out: this repo's bin tests left 241 MB of checkout copies
+  there, and map walked them all.
+- The skill's description no longer sends an agent to it for a guard that is gone.
+
 ## 0.6.2
 
 - A refusal of any kind (a shell command, a subagent sent for a function's callers, a module
