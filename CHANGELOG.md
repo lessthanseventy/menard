@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.4
+
+- A session's end removes its marks from `TMPDIR` (a SessionEnd hook); a resumed session writes
+  them back. Headless sessions, ~100 an hour, had left two files each for the week's sweep.
+- `format`: mise's reason line is read uncoloured; under the gate the reply kept the file's
+  drawing instead.
+
 ## 0.6.3
 
 Every proposal still open from the review of 2026-10-01 (`docs/review/2026-10-01-fable.md`):
