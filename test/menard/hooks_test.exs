@@ -1068,6 +1068,29 @@ defmodule Menard.HooksTest do
     refute File.exists?(logs)
   end
 
+  @tag :tmp_dir
+  test "a session's end takes its marks with it, and a resume puts back what it was told", %{tmp_dir: dir} do
+    # ficciones, 2026-10-21: 8,156 menard-* files in /tmp two days after the week's sweep, near all a
+    # told and a path mark, ~100 headless sessions an hour each leaving two
+    hook = fn event, session, extra ->
+      Menard.Hook.run(Map.merge(%{"hook_event_name" => event, "session_id" => session, "cwd" => dir}, extra),
+        state_dir: dir
+      )
+    end
+
+    hook.("SessionStart", "gone", %{"source" => "startup"})
+    hook.("SessionStart", "other", %{"source" => "startup"})
+    assert Path.wildcard(Path.join(dir, "menard-*-gone")) != []
+
+    assert hook.("SessionEnd", "gone", %{"reason" => "other"}) == :quiet
+    assert Path.wildcard(Path.join(dir, "menard-*gone*")) == []
+    assert File.exists?(Path.join(dir, "menard-told-other"))
+
+    # resumed after its end: it was told at its start, and is not told again on a refusal
+    assert hook.("SessionStart", "gone", %{"source" => "resume"}) == :quiet
+    assert File.exists?(Path.join(dir, "menard-told-gone"))
+  end
+
   # the real run verbs, each call sent to the test as `{:ran, verb, args}`
   defp counting do
     test = self()

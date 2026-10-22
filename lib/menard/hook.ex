@@ -122,7 +122,19 @@ defmodule Menard.Hook do
   # written, and they went unformatted.
   # what is so in this session, said before its first call (`Menard.Scripts`); a resumed session has
   # it from its start (49 of 57 fires were resumes), a compacted one may have lost it
-  defp tool(%{event: "SessionStart", source: "resume"}), do: :quiet
+  # its marks gone with its end (see SessionEnd), a resumed session is still one told at its start
+  defp tool(%{event: "SessionStart", source: "resume"} = hook) do
+    File.write!(told_path(hook), "")
+    on_path(hook)
+    :quiet
+  end
+
+  # A session's marks go with it: ~100 headless sessions an hour left two each, 8,156 files in /tmp
+  # inside the week's sweep (ficciones, 2026-10-21). The sweep is for a session that never ended
+  defp tool(%{event: "SessionEnd"} = hook) do
+    Enum.each(Path.wildcard(Path.join(hook.state, "menard-*#{hook.session}*")), &File.rm/1)
+    :quiet
+  end
 
   defp tool(%{event: "SessionStart"} = hook) do
     # compacted, what was read is out of the context: a Read of it is no reread
