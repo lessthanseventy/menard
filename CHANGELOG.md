@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.5
+
+- The session-start note on piped test runs now says `menard …` itself runs bare: its reply piped
+  into a filter is refused, not rewritten. Agents had piped menard and met the refusal.
+
 ## 0.6.4
 
 - A session's end removes its marks from `TMPDIR` (a SessionEnd hook); a resumed session writes
