@@ -82,6 +82,10 @@ defmodule Menard.PipedTest do
              "sed -i 's/a;b/c/' lib/a.ex && #{@menard} run test"
   end
 
+  test "the upfront note says menard's own reply is never piped, as the refusal does" do
+    assert Piped.upfront("/p/bin/menard") =~ "`/p/bin/menard …` itself runs bare"
+  end
+
   test "a piped credo is menard's run credo" do
     # the agent's own `mix credo --strict … | grep -v "^Checking"`: a lint cut down to read, where
     # `run credo` is the issues as one line

@@ -46,7 +46,8 @@ defmodule Menard.Piped do
       "as `#{menard} run test …` in its place, and `mix precommit | …` as `#{menard} run check`: " <>
       "the answer is one JSON line, `ok`, the counts, and every failure with its file, line and " <>
       "message, a failed assertion with its left and right. Nothing is cut, so no run is made " <>
-      "again to read the rest."
+      "again to read the rest. `#{menard} …` itself runs bare: its reply piped into a filter is " <>
+      "refused, not rewritten."
   end
 
   defp verb("precommit", _args), do: "check"
