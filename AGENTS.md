@@ -16,6 +16,9 @@ with the plugin as a skill, and it is the one copy of that reference.
   silent unless the build fails. A reply piped through `jq`/`head`/`grep` is refused by the hook:
   it is read whole, and one too big or too noisy to read whole is a menard bug to fix.
 - Found a bug and can't fix it now? It goes in `TODO.md`, not a chat message.
+- A release: write CHANGELOG.md's `## VERSION` section, then `bin/release VERSION "SUMMARY"`
+  bumps, gates, commits, tags, pushes and updates the installed plugin. The plugin follows main,
+  and `claude plugin update` goes by the version, so nothing ships until this runs.
 
 **This repo is where menard is dogfooded.** You work under the same hooks every user does: no
 python/perl/ruby/node, and menard's replies read whole. Its reading aids (`outline`, `clause get`,
