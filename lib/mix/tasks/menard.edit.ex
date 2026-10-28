@@ -104,10 +104,13 @@ defmodule Mix.Tasks.Menard.Edit do
     end
   end
 
+  # by a hash of the project's path, not the path itself: encoded whole, a deep one went past a
+  # file name's 255 bytes and the refusal was "file name too long"
   defp kept_path,
     do:
       Path.join(
         System.tmp_dir!(),
-        "menard-edit-kept-" <> Base.url_encode64(Menard.caller_dir(), padding: false)
+        "menard-edit-kept-" <>
+          Base.url_encode64(:crypto.hash(:sha256, Menard.caller_dir()), padding: false)
       )
 end
