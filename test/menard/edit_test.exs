@@ -245,6 +245,34 @@ defmodule Menard.EditTest do
     assert error.message =~ "nothing kept to retry as edit 5"
   end
 
+  @tag :tmp_dir
+  test "a refused batch is kept for a project however deep its path", %{tmp_dir: dir} do
+    # 2026-10-27, the gate in a scratch clone: the kept file was named by the whole path, encoded,
+    # and past 255 bytes the refusal was File.Error's "file name too long"
+    deep = Path.join(dir, String.duplicate("d", 200))
+    File.mkdir_p!(Path.join(deep, "lib"))
+    File.write!(Path.join(deep, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
+    System.put_env("MENARD_CWD", deep)
+    on_exit(fn -> System.delete_env("MENARD_CWD") end)
+
+    batch = """
+    lib/a.ex
+    <<<<<<< SEARCH
+      def one, do: 1
+    =======
+      def uno, do: 1
+    >>>>>>> REPLACE
+    <<<<<<< SEARCH
+      def two, do: 2
+    =======
+      def dos, do: 2
+    >>>>>>> REPLACE
+    """
+
+    error = assert_raise(Mix.Error, fn -> Mix.Tasks.Menard.Edit.run([batch]) end)
+    assert error.message =~ "The other 1 are kept"
+  end
+
   test "a block with no path line is the file of the block before it" do
     # Transcripts, 2026-10-02 to 10-10: six edits refused with "expected a file's path … got:
     # <<<<<<< SEARCH", each a second block for the same file written without its path again, and
