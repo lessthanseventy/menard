@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.6
+
+- `edit`: a refused batch is kept for `--retry` however deep the project's path. The kept file was
+  named by the whole path, encoded, and past a file name's 255 bytes the refusal was "file name
+  too long".
+- `bin/release VERSION "SUMMARY"` makes a release in one command. The installed plugin follows
+  main, and `claude plugin update` goes by the version, so a release is what ships.
+
 ## 0.6.5
 
 - The session-start note on piped test runs now says `menard …` itself runs bare: its reply piped
