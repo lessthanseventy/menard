@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# `bin/release VERSION "SUMMARY"`: bump, gate, commit, tag, push, and update the installed plugin.
+# The CHANGELOG's `## VERSION` section is written first, by hand: it is the one step that needs
+# judgment. The plugin follows main unpinned, and `claude plugin update` goes by the version field,
+# not the commit, so this bump is what puts a change in front of every session.
+set -euo pipefail
+{
+
+new="${1:-}"
+summary="${2:-}"
+[[ "$new" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && -n "$summary" ]] || { echo "usage: bin/release VERSION \"SUMMARY\"" >&2; exit 2; }
+cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.."
+
+old=$(sed -n 's/^  @version "\(.*\)"$/\1/p' mix.exs)
+[[ "$(git branch --show-current)" == main ]] || { echo "release: not on main" >&2; exit 1; }
+git diff --quiet HEAD -- . ':!CHANGELOG.md' || { echo "release: uncommitted changes besides CHANGELOG.md" >&2; exit 1; }
+git fetch -q origin main
+[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || { echo "release: main is not origin/main" >&2; exit 1; }
+grep -qx "## $new" CHANGELOG.md || { echo "release: CHANGELOG.md has no '## $new' section — write it first" >&2; exit 1; }
+[[ "$new" != "$old" ]] || { echo "release: already $old" >&2; exit 1; }
+
+# before the bump, which cannot turn it red: a red gate leaves nothing to undo before the next try
+result=$(bin/menard run check) || { echo "release: the gate is red: $result" >&2; exit 1; }
+
+sed -i "s/^  @version \"$old\"$/  @version \"$new\"/" mix.exs
+sed -i "s/^  \"version\": \"$old\",$/  \"version\": \"$new\",/" .claude-plugin/plugin.json
+sed -i "s/^    \"version\": \"$old\"$/    \"version\": \"$new\"/" .claude-plugin/marketplace.json
+for f in mix.exs .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+  grep -q "\"$new\"" "$f" || { echo "release: $f did not take $new" >&2; exit 1; }
+done
+
+git add mix.exs .claude-plugin/plugin.json .claude-plugin/marketplace.json CHANGELOG.md
+git commit -q -m "Release $new: $summary"
+git tag -a "v$new" -m "menard $new: $summary"
+git push -q origin main "v$new"
+
+claude plugin marketplace update menard
+claude plugin update menard@menard --scope user
+# this checkout's own install, where there is one
+claude plugin update menard@menard --scope local 2>/dev/null || true
+echo "released $new; restart Claude Code to load it"
+exit
+}
