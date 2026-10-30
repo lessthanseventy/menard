@@ -75,7 +75,11 @@ fi
 # Only this env's: ex_doc and its lexers are the docs env's, and cost a first start seconds.
 # `--frozen` runs the last build as it is, so it fetches nothing either.
 fetched=deps/.menard-mix-lock
-if ((!frozen)) && ! cmp -s mix.lock "$fetched"; then
+# A build this process cannot write (a sandboxed seat) can be neither fetched for nor compiled
+# into; the failure of either says nothing of menard's source, so it is not reported as such.
+readonly_build=0
+[[ -d "_build/${MIX_ENV:-dev}" && ! -w "_build/${MIX_ENV:-dev}" ]] && readonly_build=1
+if ((!frozen && !readonly_build)) && ! cmp -s mix.lock "$fetched"; then
   quietly "${run[@]}" mix deps.get --only "${MIX_ENV:-dev}"
   cp mix.lock "$fetched"
 fi
@@ -132,7 +136,11 @@ stale() {
   done <"$built_libs"
   return 1
 }
-if ((!frozen)) && stale; then
+if ((!frozen && readonly_build)) && stale; then
+  # source newer than a build that cannot be rebuilt here: run the build there is
+  echo "menard: $build is read-only here, so menard's changed source is not compiled — running the last build ($self --frozen)" >&2
+  frozen=1
+elif ((!frozen)) && stale; then
   # A failed compile has already deleted the beams of the modules it was recompiling, and
   # `--frozen` runs off exactly those: put the last good ones back, or the retry it is told to make
   # dies on "module Menard.Source is not available"
