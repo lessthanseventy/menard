@@ -1091,6 +1091,31 @@ defmodule Menard.HooksTest do
     assert File.exists?(Path.join(dir, "menard-told-gone"))
   end
 
+  @tag :tmp_dir
+  test "the session-end hook removes the session's marks without starting menard", %{tmp_dir: dir} do
+    # SessionEnd is cut short in a headless session, and menard's own start is ~2 s: marks leaked
+    # (7,664 menard-path/told files in /tmp, 2026-10-30). A root whose bin/menard would hang proves
+    # the hook needs none
+    root = Path.join(dir, "plugin")
+    File.mkdir_p!(Path.join(root, "bin"))
+    File.write!(Path.join(root, "bin/menard"), "#!/usr/bin/env bash\nsleep 30\n")
+    File.chmod!(Path.join(root, "bin/menard"), 0o755)
+
+    for name <- ~w(told-gone path-gone read-x-gone format-gone-call told-other),
+        do: File.write!(Path.join(dir, "menard-" <> name), "")
+
+    payload = Path.join(dir, "payload.json")
+    File.write!(payload, ~s({"hook_event_name":"SessionEnd","session_id":"gone","reason":"other"}))
+
+    {_, 0} =
+      System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/session-end.sh"), payload],
+        env: [{"TMPDIR", dir}, {"CLAUDE_PLUGIN_ROOT", root}]
+      )
+
+    assert Path.wildcard(Path.join(dir, "menard-*gone*")) == []
+    assert File.exists?(Path.join(dir, "menard-told-other"))
+  end
+
   # the real run verbs, each call sent to the test as `{:ran, verb, args}`
   defp counting do
     test = self()
