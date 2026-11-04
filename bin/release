@@ -15,7 +15,7 @@ old=$(sed -n 's/^  @version "\(.*\)"$/\1/p' mix.exs)
 [[ "$(git branch --show-current)" == main ]] || { echo "release: not on main" >&2; exit 1; }
 git diff --quiet HEAD -- . ':!CHANGELOG.md' || { echo "release: uncommitted changes besides CHANGELOG.md" >&2; exit 1; }
 git fetch -q origin main
-[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || { echo "release: main is not origin/main" >&2; exit 1; }
+[[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/main)" ]] || { echo "release: main is not origin/main: push it, or pull, first" >&2; exit 1; }
 grep -qx "## $new" CHANGELOG.md || { echo "release: CHANGELOG.md has no '## $new' section — write it first" >&2; exit 1; }
 [[ "$new" != "$old" ]] || { echo "release: already $old" >&2; exit 1; }
 
