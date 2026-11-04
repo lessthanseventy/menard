@@ -197,6 +197,10 @@ defmodule Menard.Verbs.Outline do
   defp compact(other), do: other
 
   defp outline(name, source) do
-    with {:error, reason} <- Outline.run(source), do: {:error, "#{name}: #{reason}"}
+    with {:error, reason} <- Outline.run(source) do
+      if Path.extname(name) in [".ex", ".exs"],
+        do: {:error, "#{name}: #{reason}"},
+        else: {:error, "#{name}: outline reads Elixir (.ex, .exs); grep or Read this one"}
+    end
   end
 end

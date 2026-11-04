@@ -3,6 +3,15 @@ defmodule Menard.OutlineTest do
   # the spec/doc it carries, and the lines it spans — as data, from the source alone.
   use ExUnit.Case, async: true
 
+  @tag :tmp_dir
+  test "a file that is not Elixir is told so, not that it is broken", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "t.nix"), "{ a = 1; }\n")
+
+    assert {:error, why} = Menard.Verbs.Outline.run(%{file: "t.nix", root: dir})
+    assert why =~ "t.nix: outline reads Elixir"
+    refute why =~ "not parseable"
+  end
+
   alias Menard.Outline
 
   @src """
