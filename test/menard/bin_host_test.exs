@@ -69,6 +69,28 @@ defmodule Menard.BinHostTest do
   end
 
   @tag :tmp_dir
+  test "edit --then at the CLI exits non-zero when the then is red, as `run` does", %{tmp_dir: dir} do
+    # `menard edit --then check … && git commit` committed on a red gate: the reply said `ok: false`,
+    # and the exit said 0
+    Host.mix_project(dir, :thenred)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def a, do: 1\nend\n")
+
+    blocks = "lib/t.ex\n<<<<<<< SEARCH\n  def a, do: 1\n=======\n  def a, do: nope()\n>>>>>>> REPLACE\n"
+
+    {out, status} =
+      System.cmd(@bin, ["edit", "--then", "compile", blocks],
+        cd: dir,
+        env: [{"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("ok":false)
+    assert out =~ ~s("did":"edit t.ex: 1 replacement, then run compile")
+    assert status == 1
+  end
+
+  @tag :tmp_dir
   test "edit --then at the CLI runs the then, as the MCP door does", %{tmp_dir: dir} do
     # 2026-10-01 19:15: `then` moved to Verbs.call, the edit task still called Verbs.Edit.run, and
     # `--then test` was dropped without a word at the CLI. Held at the door the agent types
