@@ -3,6 +3,16 @@ defmodule Menard.SourceTest do
 
   alias Menard.Source
 
+  describe "parse" do
+    # Sourceror hangs a last comment on the block's last argument, and a literal's block has for
+    # its argument the literal itself: it raises, on Elixir that compiles
+    for code <- ["[]\n# c", "1\n# c", "[a: 1]\n# c", "''\n\n# c", "# a\n:b\n# c\n  # d\n"] do
+      test "a literal and a comment on a line after it: #{inspect(code)}" do
+        assert {:ok, {:__block__, _, [_]}} = Source.parse(unquote(code))
+      end
+    end
+  end
+
   describe "reindent" do
     test "code already indented is not indented twice" do
       # sliced from source: the first line lost its indent, the rest kept theirs

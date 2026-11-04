@@ -681,7 +681,7 @@ defmodule Menard.Clause do
   end
 
   defp defines(code) do
-    case Sourceror.parse_string(code) do
+    case Menard.Source.quoted(code) do
       {:ok, {:__block__, _, [_ | _] = nodes}} -> nodes |> List.last() |> defined()
       {:ok, node} -> defined(node)
       _ -> nil
@@ -720,7 +720,7 @@ defmodule Menard.Clause do
   # The kind the code DEFINES — the last node, so a `@doc`/`@spec` written above the def is not
   # mistaken for the thing being inserted.
   defp kind_of(code) do
-    case Sourceror.parse_string(code) do
+    case Menard.Source.quoted(code) do
       {:ok, {:__block__, _meta, nodes}} -> nodes |> List.last() |> node_kind()
       {:ok, node} -> node_kind(node)
       _ -> nil
@@ -859,7 +859,7 @@ defmodule Menard.Clause do
         {:ok, defn}
 
       nil ->
-        case Sourceror.parse_string(body) do
+        case Menard.Source.quoted(body) do
           {:error, reason} ->
             {:error, "not parseable — #{inspect(reason)}"}
 
@@ -883,7 +883,7 @@ defmodule Menard.Clause do
   defp clause_form(code) do
     {_comments, body} = split_leading_comments(code)
 
-    case Sourceror.parse_string(body) do
+    case Menard.Source.quoted(body) do
       {:ok, {kind, _, _} = defn} when kind in @kinds ->
         {:ok, defn, false}
 

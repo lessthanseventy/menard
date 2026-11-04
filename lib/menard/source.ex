@@ -103,7 +103,7 @@ defmodule Menard.Source do
 
       _ ->
         result =
-          case Sourceror.parse_string(source) do
+          case quoted(source) do
             {:ok, ast} -> {:ok, ast}
             {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
           end
@@ -111,6 +111,19 @@ defmodule Menard.Source do
         Process.put(__MODULE__, {source, result})
         result
     end
+  end
+
+  @doc """
+  `Sourceror.parse_string/1`, on all of Elixir. Sourceror raises on a literal with a comment on a
+  line after it (`[a: 1]\\n# c`, a whole `.formatter.exs`): it hangs the comment on the block's last
+  argument, and a literal's block has the literal for it. Such comments are left out of the AST;
+  every position before them holds, and a patch keeps them, being of the source's bytes.
+  """
+  @spec quoted(String.t()) :: {:ok, Macro.t()} | {:error, term()}
+  def quoted(code) do
+    Sourceror.parse_string(code)
+  rescue
+    FunctionClauseError -> Sourceror.parse_string(String.replace(code, ~r/(\s*\n[ \t]*#[^\n]*)+\s*\z/, ""))
   end
 
   @doc """
@@ -283,8 +296,8 @@ defmodule Menard.Source do
   # has none found, and moves whole.
   defp literal_lines(code) do
     parsed =
-      with {:error, _} <- Sourceror.parse_string(code),
-           do: Sourceror.parse_string("fn " <> code <> "\nend")
+      with {:error, _} <- quoted(code),
+           do: quoted("fn " <> code <> "\nend")
 
     case parsed do
       {:ok, ast} -> ast |> Macro.prewalker() |> Enum.flat_map(&inner_lines/1) |> MapSet.new()

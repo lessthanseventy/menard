@@ -356,7 +356,7 @@ defmodule Menard.Move do
   defp scan(code) do
     empty = %{aliases: MapSet.new(), attributes: MapSet.new(), calls: [], modules: [], types: []}
 
-    case Sourceror.parse_string(code) do
+    case Menard.Source.quoted(code) do
       {:ok, ast} ->
         {:ok, ast |> Macro.prewalk(&Deps.as_call/1) |> Macro.prewalk(empty, &scan_node/2) |> elem(1)}
 
