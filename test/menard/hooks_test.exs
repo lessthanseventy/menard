@@ -17,6 +17,46 @@ defmodule Menard.HooksTest do
     Menard.Hook.run(payload, state_dir: dir)
   end
 
+  # a Bash call as the hook sees it, around `run` writing what it writes
+  defp shell_command(dir, command, run) do
+    # its own repo: this one ignores tmp/, and the hook skips what git ignores
+    {_, 0} = System.cmd("git", ["init", "-q"], cd: dir)
+    File.write!(Path.join(dir, "mix.exs"), "")
+
+    payload = fn event ->
+      %{
+        "hook_event_name" => event,
+        "tool_name" => "Bash",
+        "session_id" => "s#{:erlang.phash2(dir)}",
+        "tool_use_id" => "c",
+        "cwd" => dir,
+        "tool_input" => %{"command" => command},
+        "tool_response" => %{}
+      }
+    end
+
+    Menard.Hook.run(payload.("PreToolUse"), state_dir: dir)
+    # past the mark's own second, or `find -newer` says nothing was written after it
+    Process.sleep(1_100)
+    run.()
+    Menard.Hook.run(payload.("PostToolUse"), state_dir: dir)
+  end
+
+  @tag :tmp_dir
+  test "a shell script a shell command wrote is checked as a write tool's is", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.sh")
+
+    assert {:problem, text} = shell_command(dir, "cat > a.sh", fn -> File.write!(file, "if true; then\n") end)
+    assert text =~ "a.sh was written but not parseable"
+  end
+
+  @tag :tmp_dir
+  test "menard's own command is not linted over: its reply said it", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.sh")
+
+    assert :quiet = shell_command(dir, "menard edit -", fn -> File.write!(file, "if true; then\n") end)
+  end
+
   @tag :tmp_dir
   test "a shell script a write tool wrote that does not parse is named", %{tmp_dir: dir} do
     file = Path.join(dir, "a.sh")
@@ -37,8 +77,8 @@ defmodule Menard.HooksTest do
 
     assert {:context, text} = written_by_a_tool(file, dir)
     assert text =~ "a.sh was reformatted"
-    assert text =~ "shellcheck, on lines you changed"
-    assert text =~ "a.sh:3 SC2086"
+    assert text =~ "lint, on lines you changed"
+    assert text =~ "a.sh:3 shellcheck: SC2086"
     assert File.read!(file) == "#!/bin/bash\nif true; then\n\techo $1\nfi\n"
   end
 

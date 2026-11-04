@@ -1,7 +1,8 @@
 defmodule Menard.Lang do
   @moduledoc """
-  What a write does for a language that is not Elixir, one row per extension: a parse check that
-  refuses, a formatter, a linter on the lines changed. A tool that is not installed is skipped.
+  What a write does for a language that is not Elixir, one row per extension, or per shebang where a
+  script has none: a parse check that refuses, a formatter, linters on the lines changed. A tool
+  that is not installed is skipped, and `missing/2` says which.
 
   The formatter leaves alone a file not in its style at HEAD: one line's edit must not rewrite a
   whole file of someone else's style (ficciones holds no `nixfmt`-style Nix).
@@ -10,27 +11,46 @@ defmodule Menard.Lang do
   @shell %{
     parse: ~w(bash -n),
     format: ~w(shfmt --filename FILE),
-    lint: ~w(shellcheck -f json -)
+    lint: [~w(shellcheck -f json -)]
   }
 
   @tools %{
     ".nix" => %{
       parse: ~w(nix-instantiate --parse -),
       format: ~w(nixfmt -),
-      lint: ~w(statix check -s -o json)
+      lint: [~w(statix check -s -o json), ~w(nil diagnostics -- -)]
     },
+    ".lua" => %{parse: ~w(luac -p -), format: ~w(stylua -), lint: []},
     ".sh" => @shell,
     ".bash" => @shell
   }
 
-  @doc "Whether `file` has a row."
-  @spec known?(String.t()) :: boolean()
-  def known?(file), do: is_map_key(@tools, Path.extname(file))
+  @doc "The extensions with a row."
+  @spec extensions() :: [String.t()]
+  def extensions, do: Map.keys(@tools)
+
+  @doc """
+  Whether `file` has a row, going by `code` where its name does not say, or by what is on disk.
+  """
+  @spec known?(String.t(), String.t() | nil) :: boolean()
+  def known?(file, code \\ nil), do: row(file, code) != nil
+
+  @doc "`file`'s tools that are not installed, each skipped."
+  @spec missing(String.t(), String.t() | nil) :: [String.t()]
+  def missing(file, code \\ nil) do
+    case row(file, code) do
+      nil ->
+        []
+
+      row ->
+        for [exe | _] <- [row.parse, row.format | row.lint], !System.find_executable(exe), uniq: true, do: exe
+    end
+  end
 
   @doc "`:ok`, or why `code` is not written to `file`: it does not parse."
   @spec parse(String.t(), String.t()) :: :ok | {:error, String.t()}
   def parse(file, code) do
-    with %{parse: argv} <- @tools[Path.extname(file)],
+    with %{parse: argv} <- row(file, code),
          {out, status} when status != 0 <- tool(argv, file, code, ~s(2>&1 >/dev/null)) do
       {:error, "not parseable: #{String.trim(out)}"}
     else
@@ -41,7 +61,8 @@ defmodule Menard.Lang do
   @doc "`code` through `file`'s formatter, or as it is: the file is not in its style at HEAD."
   @spec format(String.t(), String.t()) :: String.t()
   def format(file, code) do
-    with %{format: argv} <- @tools[Path.extname(file)],
+    with %{format: [exe | _] = argv} <- row(file, code),
+         true <- System.find_executable(exe) != nil,
          true <- in_style?(argv, file),
          {out, 0} <- tool(argv, file, code) do
       out
@@ -51,18 +72,55 @@ defmodule Menard.Lang do
   end
 
   @doc """
-  What `file`'s linter finds on it as it is on disk, on the lines changed since the last commit:
+  What `file`'s linters find on it as it is on disk, on the lines changed since the last commit:
   `kind`, `message`, `at`, as a run verb's failures.
   """
   @spec lint(String.t()) :: [map()]
   def lint(file) do
-    with %{lint: [exe | _] = argv} <- @tools[Path.extname(file)],
-         {out, _status} <- tool(argv, file, File.read!(file)),
-         [_ | _] = issues <- issues(exe, out, Path.basename(file)) do
+    code = File.read!(file)
+    base = Path.basename(file)
+
+    issues =
+      for [exe | _] = argv <- (row(file, code) || %{lint: []}).lint,
+          {out, _status} <- List.wrap(tool(argv, file, code)),
+          issue <- issues(exe, out, base),
+          do: issue
+
+    if issues == [] do
+      []
+    else
       dir = Path.dirname(file)
       for i <- Menard.Run.only_changed(issues, dir), do: %{i | at: Path.join(dir, i.at)}
+    end
+  end
+
+  # a script says what it is in its first line: a `.sh` of zsh's does not parse under bash, and is
+  # no row's; one with no extension has a row only by this
+  defp row(file, code) do
+    case {Path.extname(file), shebang(file, code)} do
+      {".sh", other} when other in ~w(zsh fish ksh) -> nil
+      {".bash", other} when other in ~w(zsh fish ksh) -> nil
+      {"", shell} when shell in ~w(bash sh dash) -> @shell
+      {extension, _shell} -> @tools[extension]
+    end
+  end
+
+  # only where the name leaves it open: an Elixir file goes through here on every write
+  defp shebang(file, code) do
+    with true <- Path.extname(file) in ["", ".sh", ".bash"],
+         code when is_binary(code) <- code || read(file),
+         [_, shell] <-
+           Regex.run(~r/\A#!\s*(?:\S*\/)?(?:env\s+(?:-\S+\s+)*)?(bash|dash|zsh|fish|ksh|sh)(?:\s|$)/, code) do
+      shell
     else
-      _ -> []
+      _ -> nil
+    end
+  end
+
+  defp read(file) do
+    case File.read(file) do
+      {:ok, code} -> code
+      _ -> nil
     end
   end
 
@@ -106,8 +164,18 @@ defmodule Menard.Lang do
     end
   end
 
+  # What is unused, which neither the parse check nor statix says: nil's errors are what the parse
+  # check has refused already, and its other warnings statix's. Its output is for humans, with no
+  # other format: a line it no longer matches is a finding unsaid, not a crash.
+  defp issues("nil", out, base) do
+    plain = String.replace(out, ~r/\e\[[0-9;]*m/, "")
+
+    for [_, message, line] <- Regex.scan(~r/warning\[unused_\w+\]: (.+)\n\s*┌─ -:(\d+):/u, plain),
+        do: %{kind: "nil", message: message, at: "#{base}:#{line}"}
+  end
+
   # `code` on the tool's stdin, as the file it will be; nil where the tool is not installed. Beside
-  # the file, for the config it reads from there (.editorconfig, statix.toml).
+  # the file, for the config it reads from there (.editorconfig, statix.toml, stylua.toml).
   defp tool([exe | _] = argv, file, code, redirect \\ "2>/dev/null") do
     if System.find_executable(exe) do
       input =

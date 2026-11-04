@@ -32,14 +32,16 @@ A thin wrapper over one mix task adds surface and nothing else. That's why `insp
 
 `edit` never cared what it edits, and agents use it on Nix and shell. What travels to those files
 is what a write does around the edit, one table per extension (`Menard.Lang`): a parse check that
-refuses, a formatter, a linter on the lines changed. Nix and Bash, because they are what the
-operator's own repos hold. `run` and `then` in a repo with no `mix.exs` run its mise task of that
+refuses, linters on the lines changed. Nix, Bash and Lua, because they are what the operator's own
+repos hold; a script with no extension goes by its shebang. `run` and `then` in a repo with no `mix.exs` run its mise task of that
 name. `rename`, `clause` and the other AST verbs stay Elixir's: they are years of edge cases, and
-a language server covers much of it elsewhere. A language earns a row from a pain already hit.
+a language server covers much of it elsewhere. A language earns a row from a pain already hit;
+Lua's is ahead of that, on the operator's say, with one `luac` error in 2,957 transcripts.
 
 A formatter leaves alone a file not already in its style at HEAD: ficciones holds no `nixfmt`-style
-Nix, and one line's edit must not rewrite a whole file. A tool that is not installed is skipped.
-What a shell command writes is not covered yet: only the write tools' and menard's own.
+Nix, and one line's edit must not rewrite a whole file. A tool that is not installed is skipped,
+and said: `skipped` in a verb's reply, once a session from the hook. A shell command's writes are
+covered by name; a script with no extension that a shell command wrote is not, being no `find` away.
 
 ## Candidates, each from a pain already hit
 

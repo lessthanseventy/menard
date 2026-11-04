@@ -194,7 +194,7 @@ defmodule Menard.Hook do
     if File.exists?(mark) do
       files = newer(hook.root, mark)
       File.rm(mark)
-      files |> not_ignored(hook.root) |> written(hook, &not_held/2)
+      files |> not_ignored(hook.root) |> not_menards(hook) |> written(hook, &not_held/2)
     else
       :quiet
     end
@@ -205,6 +205,14 @@ defmodule Menard.Hook do
     answer = written(List.wrap(file), hook, fn files, _dir -> files end)
     known(hook, List.wrap(file))
     in_a_run(answer, hook)
+  end
+
+  # a command that is menard's own write: its reply said what it found on these files, and the same
+  # lint a second time, beside it, says nothing
+  defp not_menards(files, hook) do
+    if (hook.input["command"] || "") =~ ~r/\A\s*(\S*\/)?menard\s/,
+      do: Enum.reject(files, &Menard.Lang.known?/1),
+      else: files
   end
 
   # menard's bin/ on the session's PATH, through the env file the harness gives a SessionStart hook:
@@ -294,8 +302,10 @@ defmodule Menard.Hook do
 
     reports =
       reports ++
-        for file <- files,
-            is_binary(file) and Menard.Lang.known?(file) and File.regular?(file),
+        for file <-
+              files
+              |> Enum.filter(&(is_binary(&1) and File.regular?(&1) and Menard.Lang.known?(&1)))
+              |> then(&if(&1 == [], do: [], else: keep.(&1, hook.root))),
             do: lang_report(hook, file)
 
     answer(
@@ -404,7 +414,7 @@ defmodule Menard.Hook do
         formatted = Menard.Lang.format(file, code)
         if formatted != code, do: File.write!(file, formatted)
         changes = if formatted != code, do: ["#{rel} was reformatted:\n#{diff(code, formatted)}"], else: []
-        %{problems: [], changes: changes, notes: lang_lint(file, hook.root)}
+        %{problems: [], changes: changes, notes: lang_lint(file, hook.root) ++ lang_missing(hook, file)}
     end
   end
 
@@ -414,9 +424,22 @@ defmodule Menard.Hook do
         []
 
       found ->
-        lines = Enum.map_join(found, "\n", &"  #{Path.relative_to(&1.at, root)} #{&1.message}")
-        ["#{hd(found).kind}, on lines you changed:\n#{lines}"]
+        lines = Enum.map_join(found, "\n", &"  #{Path.relative_to(&1.at, root)} #{&1.kind}: #{&1.message}")
+        ["lint, on lines you changed:\n#{lines}"]
     end
+  end
+
+  # a tool not installed is skipped, and a clean run would read as a clean file: said once a session
+  defp lang_missing(hook, file) do
+    new =
+      for tool <- Menard.Lang.missing(file),
+          mark = session_file(hook, "lang-missing-#{tool}"),
+          !File.exists?(mark) do
+        File.write!(mark, "")
+        tool
+      end
+
+    if new == [], do: [], else: ["not installed, so skipped on this write: #{Enum.join(new, ", ")}"]
   end
 
   # credo off the call's path: 2 s of CPU and up to 10 s of wall under load, paid at every write
@@ -509,11 +532,13 @@ defmodule Menard.Hook do
   defp safe(id), do: String.replace(id, ~r/[^A-Za-z0-9_-]/, "")
   defp nonempty(text), do: if(text not in [nil, ""], do: text)
 
-  # The Elixir files under `dir` newer than the mark, builds, deps and git's own files skipped.
+  # The Elixir files under `dir` newer than the mark, and those of the languages `Menard.Lang` has a
+  # row for by name (a script with no extension is no `find` away), builds, deps and git's own skipped.
   # `find`, for its clock: a stat here is whole seconds, and a command writes within its mark's own.
   defp newer(dir, mark) do
     prune = @prune |> Enum.flat_map(&["-o", "-name", &1]) |> tl()
-    names = ["(", "-name", "*.ex", "-o", "-name", "*.exs", ")"]
+    names = ["(", "-name", "*.ex", "-o", "-name", "*.exs"]
+    names = names ++ Enum.flat_map(Menard.Lang.extensions(), &["-o", "-name", "*" <> &1]) ++ [")"]
     args = [dir, "("] ++ prune ++ [")", "-prune", "-o", "-type", "f"] ++ names ++ ["-newer", mark, "-print0"]
 
     case System.cmd("find", args, stderr_to_stdout: false) do
