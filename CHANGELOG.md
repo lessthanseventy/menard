@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+Nix and shell get what a write does for Elixir (`Menard.Lang`, `docs/scope.md`):
+
+- `.nix`, `.sh` and `.bash` are parse-checked, formatted and linted on the lines changed
+  (`nix-instantiate`, `nixfmt`, `statix`; `bash -n`, `shfmt`, `shellcheck`). `edit` and `write`
+  refuse what does not parse; the write tools' hook names it. A tool not installed is skipped.
+- A formatter leaves alone a file not in its style at HEAD: one line's edit stays one line.
+- `run` and `then`: in a repo with no `mix.exs`, `check`, `test` and `compile` run its mise task of
+  that name, where they answered with mix's own refusal.
+- `outline` on a file that is not Elixir says so, where it read as if the file were broken.
+
 ## 0.6.6
 
 - `edit`: a refused batch is kept for `--retry` however deep the project's path. The kept file was
