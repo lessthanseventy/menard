@@ -411,7 +411,8 @@ defmodule Menard.HooksTest do
     File.write!(file, "defmodule M do\n  def   f(x), do: x\nend\n")
     {_, 0} = System.cmd("git", ["-C", dir, "add", "-A"])
 
-    cmd = "git -C #{dir} checkout -q -b x && sed -i 's/f(x)/g(x)/' #{file}"
+    # a suffix to -i is the one spelling GNU and BSD sed both take
+    cmd = "git -C #{dir} checkout -q -b x && sed -i.orig 's/f(x)/g(x)/' #{file} && rm #{file}.orig"
 
     call = %{
       tool_name: "Bash",
