@@ -85,6 +85,20 @@ defmodule Menard.BinTest do
     assert Enum.sort(String.split(listed, "|")) == Enum.sort(tasks)
   end
 
+  @tag :tmp_dir
+  test "a sandbox that refuses every temp file still gets the answer", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.ex")
+    File.write!(file, "defmodule A do\n  @limit 5_000\nend\n")
+    # macOS mktemp skips an unwritable TMPDIR for the per-user dir, which is what a sandbox denies
+    mktemp = Path.join(dir, "mktemp")
+    File.write!(mktemp, "#!/bin/sh\necho 'mktemp: mkstemp failed: Operation not permitted' >&2\nexit 1\n")
+    File.chmod!(mktemp, 0o755)
+    path = dir <> ":" <> System.get_env("PATH")
+
+    {out, 0} = System.cmd(@bin, ["attr", "get", file, "limit"], env: [{"MIX_ENV", "dev"}, {"PATH", path}])
+    assert out == ~s({"value":"5_000"}\n)
+  end
+
   test "--frozen names its version" do
     # the version came from the app spec, never loaded under --frozen, or mix.exs, not there either
     {out, 0} = System.cmd(@bin, ["--frozen", "version"], env: [{"MIX_ENV", "dev"}])

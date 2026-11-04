@@ -145,7 +145,8 @@ elif ((!frozen)) && stale; then
   # `--frozen` runs off exactly those: put the last good ones back, or the retry it is told to make
   # dies on "module Menard.Source is not available"
   ebin="$build/lib/menard/ebin"
-  good=$(mktemp -d)
+  mkdir -p "$build"
+  good=$(mktemp -d "$build/.menard-last-ebin.XXXXXX")
   [[ -d "$ebin" ]] && cp -a "$ebin/." "$good/"
   if ! quietly "${run[@]}" mix compile; then
     rm -rf "$ebin" && mkdir -p "$ebin" && cp -a "$good/." "$ebin/"
@@ -206,7 +207,8 @@ fi
 # Only STDERR is captured, to read what went wrong: capturing stdout would buffer it until exit,
 # which is fatal to anything that streams. `&& status=0 || status=$?` keeps the call in a
 # condition: under `set -e` a failing verb would abort the script before the lines below.
-err=$(mktemp)
+# a sandbox that denies the temp dir gets the verb's stderr uncaptured, not no answer at all
+err=$(mktemp 2>/dev/null) || exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
 trap 'rm -f "$err"' EXIT
 "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@" 2>"$err" && status=0 || status=$?
 # the reader went away (`| head`): the BEAM's writer crashed on the closed stdout (:epipe) with a
