@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1
+
+- `edit` crashed with a `FunctionClauseError` in `Sourceror.get_line/2`, before writing anything, on
+  valid Elixir that ends in a literal with a comment on a line after it (a `.formatter.exs` with a
+  last comment). Every verb's parse now takes it: the comments stay in the file.
+- `edit` of a file that is not Elixir no longer parses the replacement as Elixir, which is how a
+  `flake.nix` with `'';` and a comment after it hit the same crash.
+
 ## 0.8.0
 
 - `edit --then` at the CLI exits non-zero when the `then` is red: `menard edit --then check … &&
