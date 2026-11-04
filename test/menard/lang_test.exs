@@ -75,6 +75,49 @@ defmodule Menard.LangTest do
     assert %{kind: "shellcheck", at: "a.sh:3", message: "SC2086: " <> _} = found
   end
 
+  test "a script with no extension has a row by its shebang, and a .sh of zsh's has none", %{tmp_dir: dir} do
+    assert {:error, "not parseable" <> _} =
+             Lang.parse(Path.join(dir, "run"), "#!/usr/bin/env bash\nif true; then\n")
+
+    assert Lang.known?("bin/x", "#!/bin/sh\n")
+    assert :ok = Lang.parse(Path.join(dir, "notes"), "if true; then\n")
+    refute Lang.known?("bin/y", "#!/usr/local/sh/python\n")
+
+    # zsh's own syntax, which bash -n refuses
+    zsh = "#!/bin/zsh\nfor i ({1..3}) echo $i\n"
+    refute Lang.known?("a.sh", zsh)
+    assert :ok = Lang.parse(Path.join(dir, "a.sh"), zsh)
+    refute Lang.known?("bin/z", "#!/usr/bin/env zsh\n")
+  end
+
+  test "Lua that does not parse is refused", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> _} = Lang.parse(Path.join(dir, "a.lua"), "x = (\n")
+    assert :ok = Lang.parse(Path.join(dir, "a.lua"), "x = 1\n")
+  end
+
+  test "stylua formats a Lua file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.lua", "local x = 1\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.lua", old: "local x = 1", new: "local x=2"}])
+    assert File.read!(Path.join(dir, "a.lua")) == "local x = 2\n"
+  end
+
+  test "an undefined name in Nix is refused, by the parse check", %{tmp_dir: dir} do
+    repo(dir, [{"a.nix", "{ pkgs }: { a = pkgs.hello; }\n"}])
+
+    assert {:error, why} = edit(dir, [%{file: "a.nix", old: "pkgs.hello", new: "pkgz.hello"}])
+    assert why =~ "undefined variable 'pkgz'"
+  end
+
+  test "nil names an unused binding on a line changed, which the parse check and statix do not", %{
+    tmp_dir: dir
+  } do
+    repo(dir, [{"a.nix", "{ pkgs }: { a = pkgs.hello; }\n"}])
+
+    # line 4, once nixfmt has laid the `let` out
+    assert {:ok, %{changed: [%{lint: [%{kind: "nil", at: "a.nix:4", message: "Unused binding"}]}]}} =
+             edit(dir, [%{file: "a.nix", old: "a = pkgs.hello", new: "a = let x = 1; in pkgs.hello"}])
+  end
+
   test "a file with no row is written as it is", %{tmp_dir: dir} do
     refute Lang.known?("a.json")
     assert {:ok, _} = edit(dir, [%{file: "a.json", old: "", new: "{ not json"}])

@@ -133,13 +133,7 @@ defmodule Menard do
           do: reply,
           else: Map.put(reply, :moved, moved)
 
-      reply =
-        case Menard.Lang.lint(file) do
-          [] -> reply
-          found -> Map.put(reply, :lint, found)
-        end
-
-      {:ok, unformatted(reply, format_error)}
+      {:ok, reply |> lang_said(file) |> unformatted(format_error)}
     end
   end
 
@@ -315,6 +309,14 @@ defmodule Menard do
   defp version_path(version) do
     hex = version |> String.replace_prefix("sha256:", "") |> Path.basename()
     Path.join([cache_dir(), "versions", hex])
+  end
+
+  defp lang_said(reply, file) do
+    said = [lint: Menard.Lang.lint(file), skipped: Menard.Lang.missing(file)]
+
+    Enum.reduce(said, reply, fn {key, found}, reply ->
+      if found == [], do: reply, else: Map.put(reply, key, found)
+    end)
   end
 
   # Written but not formatted is an answer the agent has to see: on stderr alone, the reply looked
