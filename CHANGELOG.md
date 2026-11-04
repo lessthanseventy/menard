@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2
+
+- `bin/menard` under a sandbox that denies the temp dir, as Claude Code's does on macOS, exited before
+  the verb ran: `edit` wrote nothing. The verb now runs with its stderr uncaptured when no temp file
+  can be made, and the self-rebuild's backup of the last good beams lives in `_build`.
+- `mix precommit` hung on an install with no Hex, at "Shall I install Hex? [Yn]": the Elixir 1.20
+  compile now fails at once, and its message names `mix local.hex --force`.
+- The suite passes on macOS: a hooks test used GNU's spelling of `sed -i`.
+
 ## 0.8.1
 
 - `edit` crashed with a `FunctionClauseError` in `Sourceror.get_line/2`, before writing anything, on
