@@ -160,6 +160,60 @@ defmodule Menard.RunTest do
     assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
   end
 
+  describe "a repo with no mix.exs" do
+    # outside menard's own repo: mise walks up, and menard has a `check` task of its own
+    setup do
+      dir = Path.join(System.tmp_dir!(), "menard-task-#{System.pid()}-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(dir, ".mise/tasks"))
+      File.write!(Path.join(dir, "a.nix"), "{ a = 1; }\n")
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    defp mise_task(dir, name, body) do
+      path = Path.join(dir, ".mise/tasks/#{name}")
+      File.write!(path, "#!/bin/sh\n#{body}\n")
+      File.chmod!(path, 0o755)
+    end
+
+    test "check runs its mise task, and red is its tail", %{dir: dir} do
+      mise_task(dir, "check", "echo gate-said-no; exit 3")
+
+      assert %{ok: false, exit: 3, ran: "mise run check", failures: [], tail: tail} =
+               Menard.Run.result(dir, "check", [])
+
+      assert tail =~ "gate-said-no"
+    end
+
+    test "no such task is said in menard's words, not mix's", %{dir: dir} do
+      assert %{ok: false, failures: [], tail: tail} = Menard.Run.result(dir, "compile", [])
+      assert tail =~ "no mix.exs in #{dir}, and no mise task compile"
+      refute tail =~ "Mix.Project"
+    end
+
+    test "a config mise will not read is mise's answer, not a missing task", %{dir: dir} do
+      # tasks alone need no trust; an env does
+      File.write!(Path.join(dir, "mise.toml"), "[env]\nA = \"1\"\n\n[tasks.check]\nrun = \"true\"\n")
+
+      assert %{ok: false, failures: [], tail: tail} = Menard.Run.result(dir, "check", [])
+      assert tail =~ "not trusted"
+      refute tail =~ "no mise task"
+    end
+
+    test "edit's then runs the task, and hands it no mix test flags", %{dir: dir} do
+      mise_task(dir, "test", ~s(echo "ran with [$*]"))
+
+      assert {:ok, %{run: %{ok: true, ran: "mise run test", tail: tail}}} =
+               Menard.Verbs.call(Menard.Verbs.Edit, %{
+                 root: dir,
+                 then: "test",
+                 edits: [%{file: "a.nix", old: "a = 1", new: "a = 2"}]
+               })
+
+      assert tail =~ "ran with []"
+    end
+  end
+
   test "format works on a host whose mix.exs does not parse, and says what changed", %{tmp_dir: dir} do
     File.write!(Path.join(dir, "mix.exs"), "defmodule Broken do\n  this does not parse (\n")
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")

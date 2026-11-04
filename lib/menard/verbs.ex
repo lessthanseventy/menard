@@ -189,7 +189,10 @@ defmodule Menard.Verbs do
 
     runs =
       for {dir, files} <- by_project(written(reply), root) do
-        args = if verb == "test", do: tests_of(files, dir), else: []
+        # the mirror of a file's tests is mix's layout: a repo's own task takes what it takes
+        args =
+          if verb == "test" and File.regular?(Path.join(dir, "mix.exs")), do: tests_of(files, dir), else: []
+
         {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
         if dir == root, do: run, else: Map.put(run, :dir, Path.relative_to(dir, root))
       end

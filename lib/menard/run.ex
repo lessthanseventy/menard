@@ -7,6 +7,8 @@ defmodule Menard.Run do
   """
 
   @keep 40
+  # what a repo with no mix.exs answers through its mise task of that name
+  @tasks ~w(check test compile)
 
   @doc """
   `result/3` under a deadline: `timeout:` in ms for the whole verb, however many mix calls it
@@ -25,7 +27,11 @@ defmodule Menard.Run do
     }
 
     reply =
-      if verb == "check", do: one_at_a_time(run, fn -> verb(run, verb, args) end), else: verb(run, verb, args)
+      cond do
+        verb in @tasks and not File.regular?(Path.join(dir, "mix.exs")) -> task(run, verb, args)
+        verb == "check" -> one_at_a_time(run, fn -> verb(run, verb, args) end)
+        true -> verb(run, verb, args)
+      end
 
     if File.exists?(run.log), do: Map.put(reply, :log, run.log), else: reply
   end
@@ -1043,6 +1049,29 @@ defmodule Menard.Run do
     # uncoloured, once, for every parser: `config :elixir, :ansi_enabled, true` colours ExUnit's
     # report even into this pipe, and `mix format --check-formatted` colours its list anyway
     {String.replace(out, ~r/\e\[[0-9;]*m/, ""), status}
+  end
+
+  # A repo with no mix.exs, whose gate is its own: nothing to parse, so what it printed is the answer
+  defp task(%{dir: dir} = run, verb, args) do
+    none = "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
+
+    with mise when is_binary(mise) <- System.find_executable("mise"),
+         {_info, 0} <- System.cmd(mise, ["tasks", "info", verb, "--json"], cd: dir, stderr_to_stdout: true) do
+      left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
+
+      {out, status} =
+        Menard.host_cmd(dir, [mise, "run", verb | args], timeout: left, label: "mise run #{verb}")
+
+      File.write!(run.log, "$ mise run #{Enum.join([verb | args], " ")}\n#{out}\n", [:append])
+      out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
+      %{ok: status == 0, exit: status, failures: [], ran: "mise run #{verb}", tail: tail(out)}
+    else
+      nil ->
+        %{ok: false, failures: [], tail: none}
+
+      {out, _status} ->
+        %{ok: false, failures: [], tail: if(out =~ "Task not found", do: none, else: tail(out))}
+    end
   end
 
   # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
