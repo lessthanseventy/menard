@@ -50,8 +50,12 @@ defmodule Menard.Format do
   @spec staged(String.t(), String.t(), keyword()) ::
           {:ok, String.t(), {String.t(), [String.t()]} | nil} | {:error, String.t()}
   def staged(file, content, opts \\ []) do
-    %{^file => result} = run([{file, content}], opts)
-    result
+    if Menard.Lang.known?(file) do
+      {:ok, Menard.Lang.format(file, content), nil}
+    else
+      %{^file => result} = run([{file, content}], opts)
+      result
+    end
   end
 
   @doc """

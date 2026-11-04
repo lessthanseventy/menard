@@ -413,7 +413,7 @@ defmodule Menard.Edit do
     after_it = for %{stage: stage, hunks: [_ | _]} = s <- reply.stages, stage != :patch, do: s
 
     reply
-    |> Map.take([:file, :version, :unformatted, :moved])
+    |> Map.take([:file, :version, :unformatted, :moved, :lint])
     |> Map.merge(if(after_it == [], do: %{}, else: %{stages: after_it}))
   end
 

@@ -20,7 +20,8 @@ defmodule Menard.Verbs.Edit do
       that is not there, or is there twice, refuses the whole call and says which: nothing is
       written unless all of it is. Elixir is parse-checked, and every file formatted with its
       project's formatter: the reply says what the formatter changed, and nothing of what you
-      wrote. `then` runs `test` (the tests of what it changed, or `test FILE…` those files), `check`
+      wrote. Nix and shell are parse-checked too, formatted if already in their formatter's style,
+      and linted on the lines changed (`lint` in the reply). `then` runs `test` (the tests of what it changed, or `test FILE…` those files), `check`
       or `compile` after, its answer in `run`.
       """,
       deadline: 600_000,

@@ -147,3 +147,7 @@ its line would drift in: go by name, `args: [FILE, "--only", "test:test NAME"]` 
 NAME is the describe's name, a space, then the test's) or `args: [FILE, "--only", "describe:NAME"]`;
 a name that matches nothing answers `ok: false` with no test run. A parse-checked write is a floor, not a proof: finish on
 a green check.
+
+Outside Elixir, `edit` and `write` work on any file. Nix and shell (`.nix`, `.sh`, `.bash`) are also parse-checked,
+formatted if already in their formatter's style at HEAD, and linted on the lines changed (`lint` in the reply). In a
+repo with no `mix.exs`, `run` and `then` take `check`, `test` and `compile` to its mise task of that name.
