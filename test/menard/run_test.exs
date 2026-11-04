@@ -885,6 +885,34 @@ defmodule Menard.RunTest do
            }
   end
 
+  test "run test FILE:LINE names the test the line ran, green as red", %{tmp_dir: dir} do
+    # ExUnit's line rule runs the closest test at or before the line: a line that has drifted runs
+    # another test, and a green of counts alone says nothing of which
+    Host.mix_project(dir, :ranline)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/l_test.exs"), """
+    defmodule LTest do
+      use ExUnit.Case
+
+      test "first" do
+        assert true
+      end
+
+      test "second" do
+        assert true
+      end
+    end
+    """)
+
+    assert %{ok: true, tests: 1, ran: [%{name: "first", at: "test/l_test.exs:4"}]} =
+             Run.lean(Run.result(dir, "test", ["test/l_test.exs:7"]))
+
+    assert %{ok: true, tests: 2} = reply = Run.lean(Run.result(dir, "test", ["test/l_test.exs"]))
+    refute Map.has_key?(reply, :ran)
+  end
+
   test "run test --slowest N answers with the N slowest tests, not only the counts", %{tmp_dir: dir} do
     Host.mix_project(dir, :slowest)
 
@@ -924,7 +952,8 @@ defmodule Menard.RunTest do
              ok: true,
              failures: [],
              tests: 1,
-             failed: 0
+             failed: 0,
+             ran: [%{name: "one", at: "test/two_test.exs:4"}]
            }
   end
 

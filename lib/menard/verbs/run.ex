@@ -27,7 +27,8 @@ defmodule Menard.Verbs.Run do
       alone. `check` once, when the change is done: it is the whole suite and more (a session that
       ran it after every edit spent twice the suite runs of one that did not).
 
-      Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
+      A `test` of FILE:LINE names what the line ran in `ran`: ExUnit takes the closest test at or
+      before it. Every verb answers `failures` in one shape: `{kind, message, at}` — `kind` is `test`, `error`,
       `warning`, `format` or `credo`, `message` says why, `at` is `file:line`. A test failure adds `name`,
       `module`, `source` (the test as written) and, for an assertion, `code`, `left`, `right`; past
       the third, a failure is `{kind, name, at, message}` and the `log` has the rest. A failed test
