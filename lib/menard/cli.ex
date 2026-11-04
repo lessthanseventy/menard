@@ -30,6 +30,8 @@ defmodule Menard.CLI do
   def answer({:ok, reply}, _json) do
     Mix.shell().info(Menard.encode(reply))
     if reason = reply[:unformatted], do: Mix.shell().error("menard: " <> reason)
+    # a write's `then` that is red: `menard edit --then check … && git commit` committed on it
+    if Enum.any?(List.wrap(reply[:run]), &(&1[:ok] == false)), do: exit({:shutdown, 1})
     reply
   end
 
