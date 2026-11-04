@@ -200,7 +200,7 @@ defmodule Menard.Attr do
   # the attributes a value (as written) reads; a value that doesn't parse reads none, and the write's
   # own parse check says so
   defp reads_in(value) do
-    case Sourceror.parse_string(value) do
+    case Menard.Source.quoted(value) do
       {:ok, ast} ->
         for {:@, _, [{n, _, ctx}]} <- ast |> Macro.prewalker() |> Enum.to_list(),
             ctx in [nil, []],

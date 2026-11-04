@@ -33,6 +33,13 @@ defmodule Menard.EditTest do
     assert read(dir, "notes.md") == new <> "\n"
   end
 
+  test "an Elixir file that is a literal and a comment after it is edited", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "settings.exs"), "[a: 1]\n# the last word\n")
+
+    assert {:ok, _} = edit(dir, [%{file: "settings.exs", old: "a: 1", new: "a: 2"}])
+    assert read(dir, "settings.exs") == "[a: 2]\n# the last word\n"
+  end
+
   test "every replacement is made, in every file, and each file answers with what changed", %{
     tmp_dir: dir
   } do

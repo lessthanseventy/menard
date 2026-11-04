@@ -74,7 +74,7 @@ defmodule Menard.Module do
   end
 
   defp module_name(code) do
-    case Sourceror.parse_string(code) do
+    case Menard.Source.quoted(code) do
       {:ok, {:defmodule, _meta, [{:__aliases__, _alias_meta, parts} | _rest]}} ->
         {:ok, Menard.Source.alias_name(parts)}
 

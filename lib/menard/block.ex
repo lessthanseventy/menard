@@ -231,7 +231,7 @@ defmodule Menard.Block do
   # A whole `name "label", ARGS do … end` where its body was asked for — the eval's agents wrote it
   # that way more often than not. `{:whole, label, args, body}` with the texts as written, or `:body`.
   defp unwrap(name, code) do
-    with {:ok, {call, meta, [_ | _] = args} = node} <- Sourceror.parse_string(code),
+    with {:ok, {call, meta, [_ | _] = args} = node} <- Menard.Source.quoted(code),
          true <- same?(call, name),
          %{} = range <- body_range(node) do
       ctx =
@@ -302,7 +302,7 @@ defmodule Menard.Block do
   # Several whole blocks of the macro named, the first labelled as asked (or no label asked): each is
   # added in turn, as its own whole block. The texts as written, or nil.
   defp several(name, label, code) do
-    with {:ok, {:__block__, _, [_, _ | _] = nodes}} <- Sourceror.parse_string(code),
+    with {:ok, {:__block__, _, [_, _ | _] = nodes}} <- Menard.Source.quoted(code),
          true <- Enum.all?(nodes, &match?({call, _, [_ | _]} when is_atom(call), &1)),
          true <- Enum.all?(nodes, &same?(elem(&1, 0), name)),
          true <- label in [nil, label(hd(nodes))] do
@@ -415,7 +415,7 @@ defmodule Menard.Block do
   # No name given and a whole block as the code: the block says which macro (long2
   # cart-refactor.B.haiku was refused as "a whole `` block")
   defp named(name, code) when name in [nil, ""] do
-    case Sourceror.parse_string(code || "") do
+    case Menard.Source.quoted(code || "") do
       # a do-block is the last argument, a keyword list: anything else is a body, not a whole block
       {:ok, {call, _, [_ | _] = args} = node} when is_atom(call) and call != :__block__ ->
         if is_list(List.last(args)) and body_range(node), do: to_string(call), else: name
