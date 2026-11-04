@@ -533,6 +533,16 @@ defmodule Menard.Run do
       else: %{ok: true, failures: [], skipped: "no credo in this project"}
   end
 
+  # A FILE:LINE runs the closest test at or before the line: which one, as a line that has drifted
+  # runs another, and a green of counts alone says nothing of it. A describe's line runs them all.
+  defp ran(args, %{times: times}) do
+    if Enum.any?(args, &(&1 =~ ~r/:\d+$/)) do
+      times |> Enum.reverse() |> Enum.take(10) |> Enum.map(&Map.take(&1, [:name, :at]))
+    end
+  end
+
+  defp ran(_args, _held), do: nil
+
   # `--slowest N`: mix prints them, and a reply of the counts alone dropped them
   defp slowest(args, %{times: times}) do
     with [_, n | _] <- Enum.drop_while(args, &(&1 != "--slowest")),
@@ -764,6 +774,7 @@ defmodule Menard.Run do
     |> parse_test(status, held)
     |> with_sources(run.dir)
     |> Map.put(:fetched, fetched)
+    |> Map.put(:ran, ran(args, held))
     |> Map.put(:slowest, slowest(args, held))
     |> Map.put(:slowest_modules, slowest_modules(args, held))
   end
