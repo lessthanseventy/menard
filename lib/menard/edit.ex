@@ -186,8 +186,8 @@ defmodule Menard.Edit do
     plain = String.replace(text, old, new)
     start = anchor_end - byte_size(old)
 
-    with {head, added} <- trailing_defs(new),
-         {:error, _} <- Menard.Write.together(edit.file, text, plain),
+    with {:error, _} <- Menard.Write.together(edit.file, text, plain),
+         {head, added} <- trailing_defs(new),
          kept =
            binary_part(text, 0, start) <> head <> binary_part(text, anchor_end, byte_size(text) - anchor_end),
          {:ok, at, {name, arity}} <- after_run(kept, start + byte_size(head), String.ends_with?(head, "\n")),

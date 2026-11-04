@@ -24,6 +24,15 @@ defmodule Menard.EditTest do
   defp edit(dir, edits, more \\ %{}), do: Verbs.call(Verbs.Edit, Map.merge(%{root: dir, edits: edits}, more))
   defp read(dir, file), do: File.read!(Path.join(dir, file))
 
+  # the Nix that crashed it: `'';` is Elixir's empty charlist, and a comment after it what Sourceror
+  # raises on; the text of a file that is no Elixir should not reach a parser of Elixir at all
+  test "the text of a file that is not Elixir is not parsed as Elixir", %{tmp_dir: dir} do
+    new = "uno\n'';\n\n# the shell's rc"
+
+    assert {:ok, _} = edit(dir, [%{file: "notes.md", old: "one", new: new}])
+    assert read(dir, "notes.md") == new <> "\n"
+  end
+
   test "every replacement is made, in every file, and each file answers with what changed", %{
     tmp_dir: dir
   } do
