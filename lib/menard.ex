@@ -133,6 +133,12 @@ defmodule Menard do
           do: reply,
           else: Map.put(reply, :moved, moved)
 
+      reply =
+        case Menard.Lang.lint(file) do
+          [] -> reply
+          found -> Map.put(reply, :lint, found)
+        end
+
       {:ok, unformatted(reply, format_error)}
     end
   end

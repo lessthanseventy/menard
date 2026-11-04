@@ -292,6 +292,12 @@ defmodule Menard.Hook do
           files != [],
           do: report(hook, dir, files)
 
+    reports =
+      reports ++
+        for file <- files,
+            is_binary(file) and Menard.Lang.known?(file) and File.regular?(file),
+            do: lang_report(hook, file)
+
     answer(
       Enum.flat_map(reports, & &1.problems),
       Enum.flat_map(reports, & &1.changes),
@@ -382,6 +388,35 @@ defmodule Menard.Hook do
 
     rels = Enum.map(formatted, rel)
     %{problems: problems, changes: changes, notes: lint(hook, dir, rels) ++ compiler(hook, dir, files)}
+  end
+
+  # what a write tool wrote in a language `Menard.Lang` has a row for: the write is done, so a file
+  # that does not parse is named, not refused
+  defp lang_report(hook, file) do
+    code = File.read!(file)
+    rel = Path.relative_to(file, hook.root)
+
+    case Menard.Lang.parse(file, code) do
+      {:error, why} ->
+        %{problems: ["#{rel} was written but #{why}"], changes: [], notes: []}
+
+      :ok ->
+        formatted = Menard.Lang.format(file, code)
+        if formatted != code, do: File.write!(file, formatted)
+        changes = if formatted != code, do: ["#{rel} was reformatted:\n#{diff(code, formatted)}"], else: []
+        %{problems: [], changes: changes, notes: lang_lint(file, hook.root)}
+    end
+  end
+
+  defp lang_lint(file, root) do
+    case Menard.Lang.lint(file) do
+      [] ->
+        []
+
+      found ->
+        lines = Enum.map_join(found, "\n", &"  #{Path.relative_to(&1.at, root)} #{&1.message}")
+        ["#{hd(found).kind}, on lines you changed:\n#{lines}"]
+    end
   end
 
   # credo off the call's path: 2 s of CPU and up to 10 s of wall under load, paid at every write

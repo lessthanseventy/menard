@@ -1,14 +1,15 @@
 defmodule Menard.Write do
   @moduledoc """
-  The parse check every write goes through (`Menard.write/3`): bytes that do not parse as Elixir
-  are refused before they reach disk, instead of at the next compile.
+  The parse check every write goes through (`Menard.write/3`): bytes that do not parse as Elixir,
+  or as the language `Menard.Lang` has a row for, are refused before they reach disk, instead of
+  at the next compile.
   """
 
   @doc """
   `code` as the content of `path` would be written: `{:ok, content}` with exactly one trailing
-  newline, or `{:error, message}` when a `.ex`/`.exs` does not parse. Only those are parsed —
-  menard writes Elixir, but a fixture next to it may be anything, and refusing a `.json` because
-  it is not Elixir would be nonsense.
+  newline, or `{:error, message}` when a `.ex`/`.exs`, or a file `Menard.Lang` knows, does not
+  parse. Only those are parsed: a fixture next to them may be anything, and refusing a `.json`
+  because it is not Elixir would be nonsense.
   """
   @spec checked(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def checked(path, code) do
@@ -29,7 +30,7 @@ defmodule Menard.Write do
           {:error, "not parseable — #{inspect(reason)}"}
       end
     else
-      {:ok, content}
+      with :ok <- Menard.Lang.parse(path, content), do: {:ok, content}
     end
   end
 

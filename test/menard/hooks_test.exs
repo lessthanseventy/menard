@@ -3,6 +3,45 @@ defmodule Menard.HooksTest do
 
   @root Path.expand("../..", __DIR__)
 
+  defp written_by_a_tool(file, dir) do
+    payload = %{
+      "hook_event_name" => "PostToolUse",
+      "tool_name" => "Edit",
+      "session_id" => "s#{System.unique_integer([:positive])}",
+      "tool_use_id" => "c",
+      "cwd" => dir,
+      "tool_input" => %{"file_path" => file},
+      "tool_response" => %{"filePath" => file}
+    }
+
+    Menard.Hook.run(payload, state_dir: dir)
+  end
+
+  @tag :tmp_dir
+  test "a shell script a write tool wrote that does not parse is named", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.sh")
+    File.write!(file, "if true; then\n")
+
+    assert {:problem, text} = written_by_a_tool(file, dir)
+    assert text =~ "a.sh was written but not parseable"
+  end
+
+  @tag :tmp_dir
+  test "a shell script a write tool wrote is formatted, and linted on the lines changed", %{tmp_dir: dir} do
+    file = Path.join(dir, "a.sh")
+
+    for args <- [~w(init -q), ~w(-c user.name=t -c user.email=t@t commit -q --allow-empty -m one)],
+        do: {_, 0} = System.cmd("git", ["-C", dir | args], stderr_to_stdout: true)
+
+    File.write!(file, "#!/bin/bash\nif true; then\n      echo $1\nfi\n")
+
+    assert {:context, text} = written_by_a_tool(file, dir)
+    assert text =~ "a.sh was reformatted"
+    assert text =~ "shellcheck, on lines you changed"
+    assert text =~ "a.sh:3 SC2086"
+    assert File.read!(file) == "#!/bin/bash\nif true; then\n\techo $1\nfi\n"
+  end
+
   # `sh` is dash on Debian/Ubuntu, and a bash script parsed by dash dies with exit 2 — which a
   # PreToolUse hook reads as "block", so every Edit/Write on every file was refused there.
   test "every hook command runs its script with the interpreter its shebang names" do
