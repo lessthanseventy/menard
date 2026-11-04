@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+- `edit --then` at the CLI exits non-zero when the `then` is red: `menard edit --then check … &&
+  git commit` committed on a red gate, the reply saying `ok: false` and the exit 0.
+- `run test FILE:LINE` names what the line ran in `ran`, green as red: ExUnit takes the closest test
+  at or before the line, and a line that has drifted runs another.
+- `Menard.Lang`: a Lua row (`luac`, `stylua`). A script with no extension goes by its shebang, and a
+  `.sh` of zsh's or fish's is left alone, where `bash -n` refused its syntax.
+- Nix: `nil diagnostics` lints what is unused (a binding, a `with`), which neither the parse check
+  nor `statix` says.
+- A file of these languages written by a shell command gets the same check as a write tool's, by
+  name: a script with no extension that a shell command wrote is not covered.
+- A tool not installed is named: `skipped` in a verb's reply, once a session from the hook.
+
 ## 0.7.0
 
 Nix and shell get what a write does for Elixir (`Menard.Lang`, `docs/scope.md`):
