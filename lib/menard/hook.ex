@@ -10,7 +10,8 @@ defmodule Menard.Hook do
   `run/2` takes the harness's hook payload (Claude Code's, string keys) and answers `:quiet`,
   `{:context, text}` (for the agent, beside the tool's result), `{:problem, text}` (a file that
   could not be formatted), `{:deny, text}` (a command this session does not run,
-  `Menard.Scripts`) or `{:rewrite, input}` (the tool's input, as it is to run: `Menard.Piped`).
+  `Menard.Scripts`) or `{:rewrite, input}` (the tool's input, as it is to run: `Menard.Piped`),
+  `{:rewrite, input, note}` with what the agent is told of it (`Menard.Scripts.unfiltered/1`).
   Both doors call it: the MCP tool `hook`, which a `mcp_tool` hook reaches
   in the server already running, and `menard hook`, for a harness that can only run a command.
 
@@ -31,6 +32,7 @@ defmodule Menard.Hook do
           | {:problem, String.t()}
           | {:deny, String.t()}
           | {:rewrite, map()}
+          | {:rewrite, map(), String.t()}
 
   # Edits one after another, a model call each: desk3's sonnet made 83 of them in a session and
   # called `edit` in none, its description loaded or not. Said at the third of a run, when it is
@@ -65,16 +67,14 @@ defmodule Menard.Hook do
     }
   end
 
-  @doc "A call's input as it is to run in place of what was given, as the harness reads it."
-  @spec rewrite(map()) :: map()
-  def rewrite(input) do
-    %{
-      hookSpecificOutput: %{
-        hookEventName: "PreToolUse",
-        permissionDecision: "allow",
-        updatedInput: input
-      }
-    }
+  @doc """
+  A call's input as it is to run in place of what was given, as the harness reads it; `note`, what
+  the agent is told of it (Claude Code 2.1.293 shows a PreToolUse's `additionalContext` beside it).
+  """
+  @spec rewrite(map(), String.t() | nil) :: map()
+  def rewrite(input, note \\ nil) do
+    output = %{hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: input}
+    %{hookSpecificOutput: if(note, do: Map.put(output, :additionalContext, note), else: output)}
   end
 
   # what the harness said of the call
@@ -181,10 +181,18 @@ defmodule Menard.Hook do
 
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
     command = hook.input["command"] || ""
+    bare = Scripts.unfiltered(command)
 
-    case Scripts.refused(command, menard(hook), hook.root) do
-      nil -> hook |> marked() |> piped(hook)
-      why -> {:deny, told(hook, why)}
+    case Scripts.refused(bare || command, menard(hook), hook.root) do
+      nil when is_binary(bare) ->
+        marked(hook)
+        {:rewrite, Map.put(hook.input, "command", bare), Scripts.unfiltered_note(command, bare)}
+
+      nil ->
+        hook |> marked() |> piped(hook)
+
+      why ->
+        {:deny, told(hook, why)}
     end
   end
 

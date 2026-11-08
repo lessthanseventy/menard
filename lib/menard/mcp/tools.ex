@@ -31,7 +31,7 @@ if Code.ensure_loaded?(Anubis.Server) do
         {:ok, %{context: text, event: event}} -> ok(frame, Menard.Hook.context(text, event))
         {:ok, %{problem: text}} -> ok(frame, %{decision: "block", reason: text})
         {:ok, %{deny: text}} -> ok(frame, Menard.Hook.denial(text))
-        {:ok, %{rewrite: input}} -> ok(frame, Menard.Hook.rewrite(input))
+        {:ok, %{rewrite: input} = reply} -> ok(frame, Menard.Hook.rewrite(input, reply[:note]))
         {:ok, %{}} -> ok(frame, %{})
       end
     end

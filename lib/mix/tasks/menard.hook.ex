@@ -25,7 +25,9 @@ defmodule Mix.Tasks.Menard.Hook do
   defp say({:ok, %{context: text, event: event}}), do: IO.puts(JSON.encode!(Menard.Hook.context(text, event)))
 
   defp say({:ok, %{deny: text}}), do: IO.puts(JSON.encode!(Menard.Hook.denial(text)))
-  defp say({:ok, %{rewrite: input}}), do: IO.puts(JSON.encode!(Menard.Hook.rewrite(input)))
+
+  defp say({:ok, %{rewrite: input} = reply}),
+    do: IO.puts(JSON.encode!(Menard.Hook.rewrite(input, reply[:note])))
 
   defp say({:ok, %{problem: text}}) do
     IO.write(:stderr, text)

@@ -26,6 +26,13 @@ defmodule Menard.Scripts do
               "m"
             )
 
+  # the same, the filters ending the command line, one line: what runs bare in their place
+  @unfiltered Regex.compile!(
+                ~S"\A(?<bare>(?:.*(?:[;&|(]\s*|\b(?:do|then|else)\s+|\bxargs(?:\s+-\S+)*\s+))?" <>
+                  @wrapped <>
+                  ~S"(?:\S*\/)?menard\s[^|;&\n>]*?)(?:\s*\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b[^|;&()<>\n]*)+\s*\z"
+              )
+
   @doc """
   Why `command` is refused, or nil when it runs. `menard` is this menard's path; `root` is the
   directory the command runs in, where a program the project tracks is looked up. Reads (grep, sed)
@@ -47,6 +54,33 @@ defmodule Menard.Scripts do
       true ->
         nil
     end
+  end
+
+  @doc """
+  `command` without the filters its menard reply is piped into, where they end the line, or nil.
+  tlon, 2026-11: ~200 of 271 refusals in 14 days were `menard … | head -c N`, a call lost each, for
+  a filter whose dropping changes nothing but what is read. Where it would change what runs (a
+  command after the filter, a heredoc, a loop) it is refused, as before.
+  """
+  @spec unfiltered(String.t()) :: String.t() | nil
+  def unfiltered(command) do
+    # a quoted string, or `2>&1`, is no separator: masked to as many bytes, so the match's length is
+    # the original's
+    masked = Regex.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"|2>&1/, command, &String.duplicate("_", byte_size(&1)))
+
+    case Regex.run(@unfiltered, masked, capture: ["bare"], return: :index) do
+      [{0, length}] -> command |> binary_part(0, length) |> String.trim_trailing()
+      nil -> nil
+    end
+  end
+
+  @doc "What the agent is told of `command` run as `bare`, in one line."
+  @spec unfiltered_note(String.t(), String.t()) :: String.t()
+  def unfiltered_note(command, bare) do
+    filters = command |> binary_part(byte_size(bare), byte_size(command) - byte_size(bare)) |> String.trim()
+
+    "Run as `#{bare}`: `#{filters}` was dropped, menard's reply is read whole. A reply too big or " <>
+      "too noisy to read whole is menard's to fix, not to cut."
   end
 
   @doc "What is so in every session, said at its start."

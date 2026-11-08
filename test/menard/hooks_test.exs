@@ -882,6 +882,29 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "menard's reply piped into a filter that ends the line runs bare, and the agent is told",
+       %{tmp_dir: dir} do
+    command = "timeout 580 bin/menard run check --in server 2>&1 | tail -c 1500"
+
+    payload = %{
+      "hook_event_name" => "PreToolUse",
+      "tool_name" => "Bash",
+      "session_id" => "u1",
+      "tool_use_id" => "t1",
+      "cwd" => dir,
+      "tool_input" => %{"command" => command, "timeout" => 600_000}
+    }
+
+    assert {:rewrite, input, note} = Menard.Hook.run(payload, state_dir: dir)
+    assert input == %{"command" => "timeout 580 bin/menard run check --in server 2>&1", "timeout" => 600_000}
+    assert note =~ "`| tail -c 1500` was dropped"
+    refute note =~ "\n"
+
+    assert %{hookSpecificOutput: %{updatedInput: ^input, additionalContext: ^note}} =
+             Menard.Hook.rewrite(input, note)
+  end
+
+  @tag :tmp_dir
   test "a session's first refusal carries what is so in it; one told at its start is not told again",
        %{tmp_dir: dir} do
     # ficciones, 2026-10-20, five hours into a session that started before the plugin was enabled
@@ -908,7 +931,7 @@ defmodule Menard.HooksTest do
     assert first =~ "There is no python, perl, ruby or node in this session"
     assert first =~ "read whole"
 
-    assert {:deny, second} = bash.("s1", "bin/menard outline lib/a.ex | head -3")
+    assert {:deny, second} = bash.("s1", "bin/menard outline lib/a.ex | head -3; echo done")
     assert second =~ "read whole"
     refute second =~ "There is no python"
 

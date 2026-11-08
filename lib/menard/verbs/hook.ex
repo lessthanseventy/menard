@@ -53,6 +53,7 @@ defmodule Menard.Verbs.Hook do
   defp reply({:problem, text}, _event), do: %{problem: text}
   defp reply({:deny, text}, _event), do: %{deny: text}
   defp reply({:rewrite, input}, _event), do: %{rewrite: input}
+  defp reply({:rewrite, input, note}, _event), do: %{rewrite: input, note: note}
 
   # a placeholder the harness could not fill (no `tool_response` before the tool ran) is no object
   defp object(text) when is_binary(text) do

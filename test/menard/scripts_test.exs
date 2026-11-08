@@ -124,26 +124,58 @@ defmodule Menard.ScriptsTest do
 
   @tag :tmp_dir
 
-  test "menard's reply piped through a filter is refused: it is read whole" do
+  # tlon, 2026-11: ~200 of 271 refusals in 14 days were this rule, nearly all `menard … | head -c N`
+  # ending the line. What was asked is run, the filter dropped: no call lost to the refusal
+  test "menard's reply piped through a filter that ends the line runs bare, the filter dropped" do
+    for {command, bare} <- [
+          {"/p/bin/menard run test test/a_test.exs | jq -c '.failures[]'",
+           "/p/bin/menard run test test/a_test.exs"},
+          {"cd /x && bin/menard --frozen clause get lib/a.ex go/1 | jq -r .code",
+           "cd /x && bin/menard --frozen clause get lib/a.ex go/1"},
+          {"/p/bin/menard outline lib/a.ex 2>&1 | head -40", "/p/bin/menard outline lib/a.ex 2>&1"},
+          {"menard find calls A.go lib | grep b.ex", "menard find calls A.go lib"},
+          {"test -f x && /p/bin/menard outline x | head", "test -f x && /p/bin/menard outline x"},
+          {"ls lib/*.ex | xargs -n1 /p/bin/menard outline | grep defp | head -3",
+           "ls lib/*.ex | xargs -n1 /p/bin/menard outline"},
+          {"timeout 580 ~/p/bin/menard run check --in server 2>&1 | tail -c 1500",
+           "timeout 580 ~/p/bin/menard run check --in server 2>&1"},
+          {"( time bin/menard --frozen run credo --changed lib/a.ex ) 2>&1 | tail -3",
+           "( time bin/menard --frozen run credo --changed lib/a.ex ) 2>&1"},
+          {"cd /x && MIX_ENV=test nohup bin/menard run check | tail -5",
+           "cd /x && MIX_ENV=test nohup bin/menard run check"},
+          {"bin/menard find calls 'A.go|B.go' lib | grep 'x | y'", "bin/menard find calls 'A.go|B.go' lib"}
+        ] do
+      assert Scripts.unfiltered(command) == bare, command
+      refute refused?(bare), bare
+    end
+
+    for command <- [
+          "/p/bin/menard outline lib/a.ex",
+          "/p/bin/menard outline lib/a.ex | wc -l",
+          "/p/bin/menard outline lib/a.ex | head; echo done",
+          "git log | head -5",
+          "/p/bin/menard run test && git diff | head",
+          "echo menard | grep m"
+        ] do
+      assert Scripts.unfiltered(command) == nil, command
+    end
+  end
+
+  test "menard's reply piped through a filter is refused where dropping it changes what runs" do
     # a filter over the reply drops what the caller did not think to ask for (the formatter's changes
     # in an edit's `stages`, a failure past the first): what it holds is the answer, whole
     for command <- [
           "/p/bin/menard edit - <<'EOF' | jq -c .did\nlib/a.ex\n<<<<<<< SEARCH\na\n=======\nb\n>>>>>>> REPLACE\nEOF",
-          "/p/bin/menard run test test/a_test.exs | jq -c '.failures[]'",
-          "cd /x && bin/menard --frozen clause get lib/a.ex go/1 | jq -r .code",
-          "/p/bin/menard outline lib/a.ex 2>&1 | head -40",
-          "menard find calls A.go lib | grep b.ex",
           "for f in lib/a.ex lib/b.ex; do bin/menard module layout $f | jq -c .did; done",
-          "test -f x && /p/bin/menard outline x | head",
+          "/p/bin/menard outline lib/a.ex | head; echo done",
           "/p/bin/menard block add t.exs test --label x 'assert 1' >/dev/null",
           "/p/bin/menard outline lib/a.ex > /dev/null 2>&1",
           "if true; then bin/menard outline lib/a.ex | head; fi",
-          "ls lib/*.ex | xargs -n1 /p/bin/menard outline | grep defp",
           # wrapped, as the script ban reads them: ran unrefused 2026-10-07 and 10-08
-          "timeout 180 bin/menard run test test/menard/bin_test.exs:301 2>&1 | tail -60",
-          "( time bin/menard --frozen run credo --changed lib/menard/diff.ex ) 2>&1 | tail -3",
-          "cd /x && MIX_ENV=test nohup bin/menard run check | tail -5"
+          "timeout 180 bin/menard run test test/menard/bin_test.exs:301 2>&1 | tail -60 && echo ok",
+          "cd /x && MIX_ENV=test nohup bin/menard run check | tail -5 | wc -l"
         ] do
+      assert Scripts.unfiltered(command) == nil, command
       assert (Scripts.refused(command, @menard) || "") =~ "whole", command
     end
 
