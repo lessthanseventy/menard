@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PostToolUse hook on Read: a whole-file Read of a large module spends thousands of tokens that
 # `outline` (every clause's name, head and lines) and a ranged Read answer with a fraction of.
-# Nothing else steered agents there: in the eval they read a 1,016-line module whole.
+# Nothing else steers agents there.
 #
 # Advisory, never blocking: the Read has already happened.
 set -uo pipefail

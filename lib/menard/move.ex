@@ -1160,8 +1160,8 @@ defmodule Menard.Move do
   defp setups(blocks, true), do: for({key, {kind, _, _}} <- blocks, kind in @setups, do: key)
 
   # the source's `use` and `@moduletag` lines, as written, into the module the move creates: the
-  # moved tests ran under both (the suite's split, 2026-11-08: ten modules made with no
-  # `@moduletag :tmp_dir`, and every test in them failed on its context)
+  # moved tests run under both (a module made with no `@moduletag :tmp_dir` fails every test on its
+  # context)
   defp with_uses(dest_source, _body, _source, false), do: dest_source
 
   defp with_uses(dest_source, body, source, true) do
@@ -1221,12 +1221,12 @@ defmodule Menard.Move do
   end
 
   # `public: true`: each moved function a `def` in its new module, as helpers moved into test/support
-  # must be (2026-11-08: one `clause visibility … public` per function after the move, three times)
+  # must be
   defp published(dest_out, moved, true), do: reduce(moved, dest_out, &Clause.visibility(&2, &1, :public))
   defp published(dest_out, _moved, _public), do: {:ok, dest_out}
 
-  # five call sites per file, then how many more: three helpers out of host_format_test.exs answered
-  # sixty lines, for callers an `import` of the new module keeps working (2026-11-08)
+  # five call sites per file, then how many more: callers an `import` of the new module keeps
+  # working would otherwise answer sixty lines
   defp folded(lines) do
     counts = Enum.frequencies_by(lines, &file_of/1)
 

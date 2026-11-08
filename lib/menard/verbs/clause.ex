@@ -111,8 +111,7 @@ defmodule Menard.Verbs.Clause do
   end
 
   # `file` as `FILE:LINE` with no `name_arity`: the function around that line, the shape a stack
-  # trace or a failing test hands over (2026-11-08: a read by name needed an outline first, so the
-  # read was `sed -n` instead)
+  # trace or a failing test hands over
   def run(%{verb: "get", file: file} = p) when not is_map_key(p, :name_arity) or p.name_arity in [nil, ""] do
     case Regex.run(~r/^(.+):(\d+)$/, file || "") do
       [_, path, line] ->
@@ -228,7 +227,7 @@ defmodule Menard.Verbs.Clause do
   def run(_params), do: {:error, "clause needs verb: one of #{Enum.join(@verbs, ", ")}"}
 
   # private now: a call from another file is found at the next compile. Named here, as `delete`
-  # names what it leaves (Fable's review, 2026-10-01)
+  # names what it leaves
   defp callers_left(reply, %{name_arity: na} = p, :private) do
     root = p[:root] || Menard.caller_dir()
     {:ok, file} = resolve(p.file, p)

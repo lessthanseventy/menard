@@ -3,9 +3,8 @@ defmodule Menard.Door do
   The launcher's way into the session's running hooks server, so a CLI verb boots no VM.
 
   Every `bin/menard VERB` started a VM of its own: mise and mix, menard's compile check, then the
-  host formatter's VM. Idle that is 1.4 s; under the seats' load it was 24 s at the median for an
-  `edit`, where the MCP door's `edit`, warm, took 1 s (docs/review/2026-11-08-transcripts.md). The
-  hooks server (`mcp --hooks`) runs for the whole session with the formatters warm, so it listens on
+  host formatter's VM. Idle that is 1.4 s, and far more under load, where the MCP door's `edit`,
+  warm, takes 1 s. The hooks server (`mcp --hooks`) runs for the whole session with the formatters warm, so it listens on
   a port of localhost's and leaves the port in `$TMPDIR/menard-door-KEY`, KEY the session's id
   (`CLAUDE_CODE_SESSION_ID`, which the harness gives its servers and its shells alike) or, without
   one, its parent's PID (the harness). `bin/menard` looks for the session's file, then walks up its

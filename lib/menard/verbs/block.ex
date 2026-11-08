@@ -123,7 +123,7 @@ defmodule Menard.Verbs.Block do
 
   def run(_params), do: {:error, "block needs verb: one of #{Enum.join(@verbs, ", ")}"}
 
-  # no label among several: every one, not a refusal to pick (bench3 new-component.B.haiku)
+  # no label among several: every one, not a refusal to pick
   defp get(source, p) do
     all = if p[:label], do: [], else: Block.get_all(source, p.name, where(p))
 

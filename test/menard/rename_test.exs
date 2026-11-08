@@ -1,8 +1,7 @@
 defmodule Menard.RenameTest do
   # AST-aware renames (Sourceror): the identifier changes wherever it is an identifier — def/defp
   # heads, calls, captures, variables — and, on request, the atom and keyword key too; a string or
-  # a comment mentioning the name is left alone. Comments and layout survive (2026-09-08: text
-  # edits kept dying to a `mix format` reflow).
+  # a comment mentioning the name is left alone. Comments and layout survive.
   use ExUnit.Case, async: true
 
   alias Menard.Rename
@@ -22,7 +21,7 @@ defmodule Menard.RenameTest do
   """
 
   test "old as Mod.fun renames that module's function alone: its heads, and the calls that resolve to it" do
-    # Fable's review 2026-10-01: `rename total grand_total lib/**` renamed every module's `total`
+    # `rename total grand_total lib/**` by name alone would rename every module's `total`
     src = """
     defmodule Shop.Cart do
       def total(c), do: sum(c)
@@ -238,8 +237,7 @@ defmodule Menard.RenameTest do
   end
 
   test "a rename reaches the docs: a mention and a doctest in @moduledoc and @doc, not other strings" do
-    # long1 cart-refactor.B.haiku renamed price_with_tax and left it in the @moduledoc; a doctest
-    # left behind calls a function that is no longer there
+    # a doctest left behind would call a function that is no longer there
     src = ~S"""
     defmodule A do
       @moduledoc "Prices go through `old/1`."

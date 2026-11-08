@@ -8,10 +8,8 @@
 # and its modules in parallel, and as one module of 509 CPU-bound tests this was the suite's floor,
 # 206 s on its own (move.ex's stmt check alone 30 s) after every other module had finished. Not one
 # module per file: 127 CPU-bound modules filled the 40 cases ExUnit runs at once and starved the
-# formatter VMs the other tests boot, four of which hit their 60 s (the three timeouts a split at
-# load 40 gave in 2026-10 were the same). Eight hold eight cores; the rest stay with the tests that
-# wait on a process. The gate at load 10 on 20 cores: 554 s as one module, 444 s as 127 with the
-# four timeouts, 420 s as eight with none.
+# formatter VMs the other tests boot, which then hit their 60 s. Eight hold eight cores; the rest
+# stay with the tests that wait on a process.
 root = Path.expand("../..", __DIR__)
 files = Path.wildcard(Path.join(root, "{lib,test}/**/*.{ex,exs}"))
 

@@ -218,8 +218,8 @@ defmodule Menard.DoorsTest do
   end
 
   test "a flag a verb cannot read is refused, not dropped", %{tmp_dir: dir} do
-    # Found 2026-09-26: `block add … --label "--frozen still runs…"` read the label as another flag,
-    # dropped both, and wrote `test %{tmp_dir: dir} do`: a nameless test, answered as a success
+    # `block add … --label "--frozen two"` must not read the label as another flag, drop both, and
+    # write a nameless test answered as a success
     for {task, argv} <- [
           {Mix.Tasks.Menard.Block, ["add", "lib/a_test.exs", "test", "assert 1", "--label", "--frozen two"]},
           {Mix.Tasks.Menard.Clause, ["get", "lib/a.ex", "two/1", "--modul", "A"]},
@@ -276,8 +276,8 @@ defmodule Menard.DoorsTest do
   end
 
   test "the hooks call their own server, PreToolUse fails open fast, and every writing tool is matched" do
-    # Fable 2026-10-01: an MCP edit never reached the hook (its matcher, written 09-28, left out `edit`,
-    # added 09-29), and every hook queued behind the verbs' server: 38 PreToolUse cancelled at 120 s
+    # an MCP edit must reach the hook (its matcher names `edit`), and no hook queues behind the
+    # verbs' server
     hooks = "hooks/hooks.json" |> File.read!() |> JSON.decode!()
 
     calls =
@@ -302,9 +302,8 @@ defmodule Menard.DoorsTest do
 
   @tag :tmp_dir
   test "a code read at the CLI is the code, under a line naming where; --json is the map", %{tmp_dir: dir} do
-    # Fable 2026-10-01: clause get and block get printed their code JSON-escaped, and 39 calls ran it
-    # through `jq -r .code` before the pipe was refused. Code is printed as code, under one line naming
-    # where it is; `--json` is the map
+    # Code is printed as code, not JSON-escaped, under one line naming where it is; `--json` is the
+    # map
     file = Path.join(dir, "g.ex")
     File.write!(file, "defmodule G do\n  def go(x) do\n    x + 1\n  end\nend\n")
 
