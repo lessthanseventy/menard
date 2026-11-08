@@ -181,6 +181,10 @@ defmodule Menard.ScriptsTest do
 
     refute refused?("for f in a b; do echo $f | grep a; done")
     refute refused?("/p/bin/menard run check > gate.json")
+    # only stderr thrown away, the reply kept (tlon, 13 refusals in three weeks of 2026-10/11)
+    refute refused?("/p/bin/menard clause get lib/a.ex go/0 2>/dev/null || sed -n 1,40p lib/a.ex")
+    # both thrown away is the reply thrown away
+    assert refused?("/p/bin/menard outline lib/a.ex &>/dev/null")
     refute refused?(~s[mix run -e 'IO.inspect(Scripts.refused("bin/menard outline x | head", "m"))'])
 
     for command <- [

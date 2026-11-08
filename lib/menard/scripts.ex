@@ -22,7 +22,7 @@ defmodule Menard.Scripts do
   @filtered Regex.compile!(
               ~S"(?:^|[;&|(]\s*|\b(?:do|then|else)\s+|\bxargs(?:\s+-\S+)*\s+)" <>
                 @wrapped <>
-                ~S"(?:\S*\/)?menard\s[^|;&\n>]*(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b|>\s*\/dev\/null)",
+                ~S"(?:\S*\/)?menard\s[^|;&\n>]*(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b|(?:(?<!2)>|&>)\s*\/dev\/null)",
               "m"
             )
 
