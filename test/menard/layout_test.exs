@@ -87,6 +87,16 @@ defmodule Menard.LayoutTest do
              "defmodule O do\n  defmodule I do\n    def a, do: h()\n\n    defp h, do: 2\n  end\n\n  def o, do: 0\nend\n"
   end
 
+  test "a module the file defines twice is left as written" do
+    was =
+      "if x() do\n  defmodule T do\n    def a, do: 1\n  end\nelse\n  defmodule T do\n    def a, do: 2\n  end\nend\n"
+
+    now =
+      "if x() do\n  defmodule T do\n    def a, do: 1\n  end\nelse\n  defmodule T do\n    defp h, do: 3\n    def a, do: h()\n  end\nend\n"
+
+    assert Layout.private_last(was, now) == {now, []}
+  end
+
   test "code that does not parse is left to the parse check" do
     assert Layout.private_last(@before, "defmodule T do\n") == {"defmodule T do\n", []}
   end

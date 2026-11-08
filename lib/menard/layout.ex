@@ -213,8 +213,9 @@ defmodule Menard.Layout do
          {{_kind, na}, _i} <-
            Enum.find(Enum.with_index(defs), fn {{kind, na}, i} ->
              kind in @private and na not in old and i < last
-           end) do
-      {:ok, spans} = Menard.Clause.spans(content, "#{mod}.#{na}")
+           end),
+         # a module the file defines twice cannot be addressed by name: its layout stays as written
+         {:ok, spans} <- Menard.Clause.spans(content, "#{mod}.#{na}") do
       {_first, end_line} = Tree.line_span(node)
       # after the line before the module's `end` (1-based `end_line`)
       {"#{na} to the module's end, below its public functions", place(content, spans, {:after, end_line - 2})}
