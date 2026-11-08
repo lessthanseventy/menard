@@ -51,6 +51,17 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a script with no extension a shell command wrote is checked by its shebang", %{tmp_dir: dir} do
+    # `newer/2` went by name alone, so `cat > bin/tool` with a bash shebang went unchecked
+    File.mkdir_p!(Path.join(dir, "bin"))
+    file = Path.join(dir, "bin/tool")
+    run = fn -> File.write!(file, "#!/usr/bin/env bash\nif true; then\n") end
+
+    assert {:problem, text} = shell_command(dir, "cat > bin/tool", run)
+    assert text =~ "bin/tool was written but not parseable"
+  end
+
+  @tag :tmp_dir
   test "menard's own command is not linted over: its reply said it", %{tmp_dir: dir} do
     file = Path.join(dir, "a.sh")
 
