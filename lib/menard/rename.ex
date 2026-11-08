@@ -17,8 +17,56 @@ defmodule Menard.Rename do
   def run(source, old, new, opts \\ [])
 
   def run(source, old, new, opts) when is_binary(source) and is_binary(old) and old != "" do
-    if String.contains?(old, "."), do: qualified(source, old, new), else: by_name(source, old, new, opts)
+    cond do
+      old =~ ~r/^[A-Z][A-Za-z0-9_]*(\.[A-Z][A-Za-z0-9_]*)*$/ -> module(source, old, new)
+      String.contains?(old, ".") -> qualified(source, old, new)
+      true -> by_name(source, old, new, opts)
+    end
   end
+
+  # `old` as a module: every alias that spells it whole — its defmodule, `alias Old`, `Old.fun`
+  # calls and captures. A bare `Last` after `alias Old` still reaches it unless the last segment
+  # changed, when those take the new last segment. Code only: strings, docs and comments stay
+  defp module(source, old, new) do
+    with {:ok, ast} <- Menard.Source.parse(source),
+         do: Menard.Source.patch(source, module_patches(ast, source, old, new))
+  end
+
+  defp module_patches(ast, source, old, new) do
+    {last_old, last_new} =
+      {old |> String.split(".") |> List.last(), new |> String.split(".") |> List.last()}
+
+    aliased? =
+      ast
+      |> Macro.prewalker()
+      |> Enum.any?(fn
+        {:alias, _meta, [target | _]} -> spelled(target) == old
+        _node -> false
+      end)
+
+    short? = last_old != last_new and aliased?
+
+    ast
+    |> Zipper.zip()
+    |> Zipper.traverse([], fn z, acc ->
+      {z, List.wrap(module_patch(Zipper.node(z), source, {old, new}, {last_old, last_new, short?})) ++ acc}
+    end)
+    |> elem(1)
+  end
+
+  defp module_patch(node, source, {old, new}, {last_old, last_new, short?}) do
+    case spelled(node) do
+      ^old -> %{range: Menard.Source.range(node, source), change: new}
+      ^last_old when short? -> %{range: Menard.Source.range(node, source), change: last_new}
+      _ -> nil
+    end
+  end
+
+  defp spelled({:__aliases__, _meta, parts}) when is_list(parts) do
+    if Enum.all?(parts, &is_atom/1), do: Enum.map_join(parts, ".", &Atom.to_string/1)
+  end
+
+  defp spelled(_node), do: nil
 
   # `old` as `Mod.fun`: that module's function alone, by what `find calls` resolves to it: its def
   # heads in `Mod` (a nested module's are its own), calls through an alias or an import,
