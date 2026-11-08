@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5
+
+- A verb whose stderr is a pipe with its reader gone (`menard … 2>&1 >out | true`) exits with the
+  verb's own status, not 141 from the shell's SIGPIPE on passing that stderr on.
+- The language server `bin/lsp` starts (Claude Code's `lspServers` start it, not `bin/menard`)
+  dumps a crash to `$TMPDIR/menard-erl_crash.dump` too, not into the project.
+
 ## 0.8.4
 
 - A VM menard starts that crashes no longer leaves `erl_crash.dump` in the caller's project: it goes
