@@ -24,6 +24,21 @@ defmodule Menard.BinTest do
 
   defp fresh_build!, do: File.rm_rf!(Path.join(@root, "_build/bintest/lib/menard"))
 
+  test "a refusal with stderr unwritable is the status, not a crash dump on stdout" do
+    # Kernel.CLI prints an exception to stderr; with stderr closed that print raised, its handler's
+    # print raised again, and the VM died at boot with an Erlang term on stdout (elixir#16079).
+    # Seen where the verb inherits the caller's stderr: `mcp`, a sandbox denying the temp dir.
+    for stderr <- ["2>&-", "2>/dev/full"] do
+      {out, status} =
+        System.cmd("sh", ["-c", "TMPDIR=/nonexistent #{@bin} --frozen outline missing.ex #{stderr}"],
+          cd: @root,
+          env: [{"MIX_ENV", "dev"}]
+        )
+
+      assert {out, status} == {"", 1}, stderr
+    end
+  end
+
   @tag :tmp_dir
   test "a verb run right after menard's own source changed answers without the compile log", %{tmp_dir: dir} do
     file = Path.join(dir, "a.ex")

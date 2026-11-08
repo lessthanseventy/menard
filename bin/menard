@@ -233,15 +233,29 @@ if ((frozen)) && [[ -d "$good_ebin" ]]; then pa+=(-pz "$PWD/$good_ebin"); fi
 # the `mix` CLI turns that into a message; raised here it would print as a bare stack trace and
 # lose the one line that tells you what to fix. The logger level is config/config.exs's, which
 # only a mix project loads.
+# Every exception ends here, printed guarded: a stderr nobody can write (`2>&-`, a sandbox that
+# denies the temp dir the launcher captures it to) made the print itself raise, Kernel.CLI printed
+# THAT to the same stderr, and the VM died at boot with an Erlang term for its stdout. Elixir's bug
+# (elixir-lang/elixir#16079); the status, 1, is the answer here.
 script='
   Mix.start()
   Logger.configure(level: :warning)
   [v | rest] = System.argv()
+  say = fn text ->
+    try do
+      IO.puts(:stderr, text)
+    rescue
+      _ -> :ok
+    end
+  end
   try do
     Mix.Task.run("menard." <> v, rest)
   rescue
     e in Mix.Error ->
-      IO.puts(:stderr, "** (Mix) " <> Exception.message(e))
+      say.("** (Mix) " <> Exception.message(e))
+      System.halt(1)
+    e ->
+      say.(Exception.format(:error, e, __STACKTRACE__))
       System.halt(1)
   end'
 
