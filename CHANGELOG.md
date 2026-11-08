@@ -38,6 +38,11 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
 - menard renders code with no `.formatter.exs` read of the cwd's: Sourceror read it on every call
   through the VM's file server, and under load that stalled three `clause move` tests to their
   60 s. The checkout copies the tests make go through `cp`, not that server.
+- `clause get FILE:LINE` reads the function around that line, the shape a stack trace or a
+  failing test hands over; a line no function spans says what ends before it and starts after.
+  Before, a read by name needed an outline first, and the read was `sed -n` instead.
+- A call no shape takes says what it was given, under the usage lines: the verb, how many
+  arguments, and the last of them (the one too many, as a rule).
 - `bin/release` refuses a main behind origin/main, not one ahead of it: ahead is where every
   release starts, since it pushes.
 - menard's own gate: 554 s to under 420 s at load 10, the identity corpus in eight modules and the

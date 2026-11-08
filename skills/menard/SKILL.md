@@ -31,8 +31,10 @@ Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.f
 
 A big file: `outline {file}` instead of reading it — every module, and every clause's
 `name_arity`, `head`, lines and doc, in far fewer tokens — then `clause {verb: "get", file,
-name_arity}` for the one function you need. A file you have already Read needs no outline: its
-heads are in what you read. A test file's outline lists its tests and describes with their lines, and `where
+name_arity}` for the one function you need; with a `file:line` from a failure or a stack trace,
+`clause {verb: "get", file: "lib/a.ex:142"}` is the function around that line, no outline first. A
+file you have already Read needs no outline: its heads are in what you read. A test file's outline
+lists its tests and describes with their lines, and `where
 FILE:LINE` names the test a line (a failure's, a grep hit's) sits in. Then match the SHAPE of the change, not its size:
 
 | changing | call |
