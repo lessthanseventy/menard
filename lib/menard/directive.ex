@@ -146,7 +146,9 @@ defmodule Menard.Directive do
   end
 
   defp after_line(source, node, line, gap \\ "") do
-    %{start: [line: _, column: col], end: [line: last, column: last_col]} = Sourceror.get_range(node)
+    # Sourceror ends a heredoc a column past its line: a patch there eats the newline, and the
+    # directive runs into the line below (Menard.Source.range/2 clamps it)
+    %{start: [line: _, column: col], end: [line: last, column: last_col]} = Menard.Source.range(node, source)
     at = %{start: [line: last, column: last_col], end: [line: last, column: last_col]}
     patch(source, at, gap <> "\n" <> String.duplicate(" ", col - 1) <> line)
   end
