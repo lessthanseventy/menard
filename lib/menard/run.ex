@@ -120,7 +120,7 @@ defmodule Menard.Run do
   `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
   run had it; output menard does not run itself (a precommit alias) is read from its prose.
   """
-  def parse_test(out, status, held \\ nil) do
+  def parse_test(out, status, held \\ nil, dir \\ nil) do
     # `--repeat-until-failure N` prints one run after another, and only the LAST run says anything:
     # the one that failed, or the Nth that passed. Its counts, failures and tail are the answer; the
     # seed is how to reproduce it, and the run count is how long it hid.
@@ -130,7 +130,7 @@ defmodule Menard.Run do
     {tests, failed, skipped, excluded, excluded_by, failures} = read_run(held, last)
     # the compile before the first run: its warnings, which a green run went on to hide, or a test
     # file's errors, which 1.19 on prints after the seed line, in the first run
-    compile = runs |> Enum.take(2) |> Enum.join() |> diagnostics()
+    compile = runs |> Enum.take(2) |> Enum.join() |> diagnostics(dir)
     failures = failures ++ compile
     # every test filtered out is no green, whatever mix's exit: `ok, tests: 0` read as "it passes"
     # (up3-oban 03: a new test under a tag the test_helper excludes, and ~30 calls to find out why)
@@ -352,14 +352,25 @@ defmodule Menard.Run do
     |> Enum.join("\n")
   end
 
-  # Compiler warnings and errors, each the same shape as a test failure: kind, message, at
-  defp diagnostics(out) do
+  # Compiler warnings and errors, each the same shape as a test failure: kind, message, at. A
+  # dependency's print relative to its own root (`lib/styler/…`, under `==> styler`): no file of
+  # the project's, and not its failures (tlon's green runs carried styler's and doctest_formatter's
+  # warnings under Elixir 1.20, `ok: true` over a non-empty list).
+  defp diagnostics(out, dir) do
     ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
     |> Regex.scan(out)
     |> Enum.map(fn [_, kind, message, file, line] ->
       %{kind: kind, message: message, at: "#{file}:#{line}"}
     end)
+    |> Enum.reject(&foreign?(&1, dir))
     |> Kernel.++(raised(out))
+  end
+
+  defp foreign?(_diagnostic, nil), do: false
+
+  defp foreign?(%{at: at}, dir) do
+    [file | _] = String.split(at, ":")
+    not File.exists?(Path.expand(file, dir))
   end
 
   # A compile error raised as an exception (`cannot set attribute @doc inside function/macro`) comes
@@ -524,7 +535,7 @@ defmodule Menard.Run do
     # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
     {out, status, fetched} = mix_fetching(run, ["compile", "--warnings-as-errors"])
 
-    %{ok: status == 0, exit: status, failures: diagnostics(out), tail: tail(out), fetched: fetched}
+    %{ok: status == 0, exit: status, failures: diagnostics(out, run.dir), tail: tail(out), fetched: fetched}
   end
 
   defp verb(run, "credo", args) do
@@ -734,7 +745,7 @@ defmodule Menard.Run do
 
   # Everything `check` can fail on, one shape: the files not formatted, the compiler's warnings and
   # errors, the failing tests
-  defp problems(out, dir), do: unformatted(out, dir) ++ diagnostics(out) ++ failures(out)
+  defp problems(out, dir), do: unformatted(out, dir) ++ diagnostics(out, dir) ++ failures(out)
 
   # `check`'s reply, whichever way it ran: `test`'s counts and summary, and every kind of failure
   defp gate(out, status, fetched, dir) do
@@ -771,7 +782,7 @@ defmodule Menard.Run do
     held = read_held(held)
 
     out
-    |> parse_test(status, held)
+    |> parse_test(status, held, run.dir)
     |> with_sources(run.dir)
     |> Map.put(:fetched, fetched)
     |> Map.put(:ran, ran(args, held))

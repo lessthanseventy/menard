@@ -568,6 +568,43 @@ defmodule Menard.RunTest do
     assert r.failures == [%{kind: "warning", message: "unused alias Money", at: "lib/shop/cart.ex:5"}]
   end
 
+  @tag :tmp_dir
+  test "a dependency's warnings are not the project's failures", %{tmp_dir: dir} do
+    # tlon's deps (styler, doctest_formatter) warn under Elixir 1.20; 33 green `run test` replies in
+    # three weeks carried them as the project's `failures`, with `ok: true` over a non-empty list
+    File.mkdir_p!(Path.join(dir, "lib/shop"))
+    File.write!(Path.join(dir, "lib/shop/cart.ex"), "defmodule Shop.Cart do\nend\n")
+
+    out = """
+    ==> doctest_formatter
+    Compiling 3 files (.ex)
+        warning: the following conditional expression:
+        │
+     44 │       if x, do: 1
+        │
+        └─ lib/doctest_formatter/parser.ex:44:7
+
+    ==> shop
+    Compiling 1 file (.ex)
+        warning: unused alias Money
+        │
+      5 │   alias Shop.Money
+        │   ~
+        │
+        └─ lib/shop/cart.ex:5:3
+
+    Running ExUnit with seed: 1, max_cases: 8
+
+    ....
+    Finished in 0.1 seconds (0.1s async, 0.0s sync)
+    4 tests, 0 failures
+    """
+
+    r = Run.parse_test(out, 0, nil, dir)
+    assert r.ok
+    assert r.failures == [%{kind: "warning", message: "unused alias Money", at: "lib/shop/cart.ex:5"}]
+  end
+
   test "mix refusing its arguments answers with why, not the tail of its usage" do
     # the eval's agent passed `--doctest` and got back the last lines of the option list
     options = Enum.map_join(1..30, "\n", &"  --option-#{&1}, --no-option-#{&1}")
