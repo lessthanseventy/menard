@@ -138,6 +138,27 @@ defmodule Menard.RenameTest do
              |> String.replace("def old", "def fresh")
   end
 
+  test "old as a module renames its defmodule, its alias and the calls that spell it, code only" do
+    src = """
+    defmodule Shop.Cart do
+      @moduledoc "Shop.Cart.Item in a string stays"
+      alias Shop.Cart.Item
+      def total(c), do: Shop.Cart.Item.sum(c) + Item.sum(c) + Enum.sum(c)
+    end
+
+    defmodule Shop.Cart.Item do
+      def sum(_), do: 1
+    end
+    """
+
+    out = Rename.run(src, "Shop.Cart.Item", "Shop.Line")
+    assert out =~ "defmodule Shop.Cart do"
+    assert out =~ "alias Shop.Line\n"
+    assert out =~ "Shop.Line.sum(c) + Line.sum(c) + Enum.sum(c)"
+    assert out =~ "defmodule Shop.Line do"
+    assert out =~ ~s(@moduledoc "Shop.Cart.Item in a string stays")
+  end
+
   test "renames a remote call and a remote capture, not a field access" do
     src = """
     defmodule A do
