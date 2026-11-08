@@ -96,6 +96,31 @@ defmodule Menard.BinHostTest do
   end
 
   @tag :tmp_dir
+  test "a stderr whose reader is gone gets the verb's exit, not SIGPIPE's", %{tmp_dir: dir} do
+    # 2026-11: a refusal printed to a dead stderr pipe exited 141, the shell's own SIGPIPE on the
+    # `cat` that passes the verb's stderr on, and the verb's 1 was lost
+    File.write!(Path.join(dir, "a.ex"), "defmodule A do\nend\n")
+    File.write!(Path.join(dir, "bad.edit"), "a.ex\n<<<<<<< SEARCH\nnope\n=======\nx\n>>>>>>> REPLACE\n")
+
+    # the VM ignores SIGPIPE, and so would the bash it starts: a terminal's shell does not
+    {_out, status} =
+      System.cmd(
+        "env",
+        [
+          "--default-signal=PIPE",
+          "bash",
+          "-c",
+          ~S'"$0" edit - < bad.edit 2>&1 1>out.txt | true; exit ${PIPESTATUS[0]}',
+          @bin
+        ],
+        cd: dir,
+        env: [{"MENARD_CWD", dir}]
+      )
+
+    assert status == 1
+  end
+
+  @tag :tmp_dir
   test "edit --then at the CLI exits non-zero when the then is red, as `run` does", %{tmp_dir: dir} do
     # `menard edit --then check … && git commit` committed on a red gate: the reply said `ok: false`,
     # and the exit said 0

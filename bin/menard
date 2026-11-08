@@ -220,6 +220,7 @@ trap 'rm -f "$err"' EXIT
 if ((status != 0)) && grep -q "Writer crashed (:epipe)" "$err"; then
   exit 0
 fi
-cat "$err" >&2
+# a stderr whose reader is gone (`2>&1 >out | true`) kills this cat (141): the verb's status stands
+cat "$err" >&2 || true
 exit "$status"
 }
