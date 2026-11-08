@@ -1,8 +1,9 @@
-# shfmt reads this: the hooks and bin/menard are indented with two spaces, and a new script
-# the hook formats follows them, not shfmt's tabs
+# shfmt reads this: the hooks and bin/menard are indented with two spaces, and a new script the
+# hook formats follows them, not shfmt's tabs. By path, not [*.sh]: the tests' scratch scripts
+# under tmp/ assert shfmt's own defaults
 root = true
 
-[*.sh]
+[{hooks,eval/pile}/*.sh]
 indent_style = space
 indent_size = 2
 
