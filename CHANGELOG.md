@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.6
+
+- menard runs on Elixir 1.20.4 / OTP 29.0.6 (`.tool-versions`), from 1.19.4 / 27.3.4.2. A host's
+  own formatter and tests still run on the host's toolchain.
+- `mix menard.mcp` under `MENARD_LOG_LEVEL` logs to stderr again on OTP 29, which gives a handler
+  named `:default` filters that drop every Elixir log.
+- The gate's second compile under 1.20 is gone: 1.20 is the pin.
+
 ## 0.8.5
 
 - A host whose `mise.toml` / `.tool-versions` pins erlang or elixir that mise does not load
