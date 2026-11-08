@@ -38,6 +38,8 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
 - menard renders code with no `.formatter.exs` read of the cwd's: Sourceror read it on every call
   through the VM's file server, and under load that stalled three `clause move` tests to their
   60 s. The checkout copies the tests make go through `cp`, not that server.
+- `bin/release` refuses a main behind origin/main, not one ahead of it: ahead is where every
+  release starts, since it pushes.
 - menard's own gate: 554 s to under 420 s at load 10, the identity corpus in eight modules and the
   long test files split into modules that run beside each other (with `clause move` and
   `block move`, which is what found the three fixes above).
