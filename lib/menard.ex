@@ -165,14 +165,16 @@ defmodule Menard do
   @doc """
   `[exe | args]` as the host's toolchain runs it in `dir`, and a note for the caller when that is
   not the toolchain the host pins: `mise exec` where the host pins one that is installed, else the
-  one on PATH.
+  one on PATH. `{:refused, why}` where the host's config pins one that mise does not load: there
+  is a right toolchain, and a run on PATH's rebuilt the host's _build on the wrong one.
   """
-  @spec host_argv(String.t(), [String.t()]) :: {[String.t()], String.t()}
+  @spec host_argv(String.t(), [String.t()]) :: {[String.t()], String.t()} | {:refused, String.t()}
   def host_argv(dir, argv) do
     case host_toolchain(dir) do
       {:mise, mise} -> {[mise, "exec", "-C", dir, "--" | argv], ""}
       {:path, nil} -> {argv, ""}
       {:path, why} -> {argv, "menard: #{why}\n"}
+      {:refused, why} -> {:refused, why}
     end
   end
 
@@ -186,14 +188,11 @@ defmodule Menard do
     {timeout, opts} = Keyword.pop(opts, :timeout)
     {label, opts} = Keyword.pop(opts, :label, exe)
     opts = Keyword.merge([cd: dir, stderr_to_stdout: true], opts)
-    {[exe | argv], note} = host_argv(dir, [exe | args])
 
-    # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
-    # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;
-    # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
-    argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
-    {out, status} = bounded_cmd("sh", argv, opts, timeout, label)
-    {note <> out, status}
+    case host_argv(dir, [exe | args]) do
+      {:refused, why} -> {"menard: #{why}\n", 1}
+      {argv, note} -> run_host(argv, opts, timeout, label, note)
+    end
   end
 
   @doc """
@@ -369,9 +368,9 @@ defmodule Menard do
   end
 
   # A config in `dir` or above it that pins erlang or elixir, which mise did not load (ignored,
-  # untrusted, another HOME's settings): said, where the mix on PATH ran in silence on menard's own
-  # (tlon, 2026-11-04: server/ on OTP 27 under a mise.toml pinning 29, its _build rebuilt)
-  defp unloaded(dir) do
+  # untrusted, another HOME's settings): refused, where the mix on PATH ran in silence on menard's
+  # own (tlon, 2026-11-04: server/ on OTP 27 under a mise.toml pinning 29, its _build rebuilt)
+  defp unpinned(dir) do
     dir
     |> Path.expand()
     |> Stream.iterate(&Path.dirname/1)
@@ -382,11 +381,13 @@ defmodule Menard do
     |> Enum.find(&(File.regular?(&1) and File.read!(&1) =~ ~r/^\s*(erlang|elixir)\b/m))
     |> case do
       nil ->
-        nil
+        {:path, nil}
 
       config ->
-        "#{config} pins erlang or elixir, but mise does not load it (`mise trust #{config}` if it " <>
-          "is untrusted), so this ran the mix on PATH"
+        {:refused,
+         "#{config} pins erlang or elixir, but mise does not load it, so nothing ran: menard's own " <>
+           "toolchain would rebuild the host's _build on the wrong one. `mise trust #{config}` if " <>
+           "it is untrusted, then run it again"}
     end
   end
 
@@ -406,7 +407,7 @@ defmodule Menard do
 
       cond do
         pinned == [] ->
-          {:path, unloaded(dir)}
+          unpinned(dir)
 
         missing == [] ->
           {:mise, mise}
@@ -441,5 +442,14 @@ defmodule Menard do
       i = Enum.find_index(@last, &(&1 == key)) -> {2, i, ""}
       true -> {1, 0, key}
     end
+  end
+
+  defp run_host([exe | argv], opts, timeout, label, note) do
+    # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
+    # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;
+    # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
+    argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
+    {out, status} = bounded_cmd("sh", argv, opts, timeout, label)
+    {note <> out, status}
   end
 end

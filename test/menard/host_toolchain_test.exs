@@ -43,9 +43,10 @@ defmodule Menard.HostToolchainTest do
   end
 
   @tag skip: !System.find_executable("mise") && "needs mise"
-  test "a host config mise does not load is said, not a silent run on menard's toolchain", %{dir: dir} do
+  test "a host config mise does not load is refused, not a run on menard's toolchain", %{dir: dir} do
     # tlon, 2026-11-04: server/'s mix ran on menard's OTP 27 under tlon's mise.toml pinning 29,
-    # recompiling server/_build, and its crash dump said so; mise had listed no pin for it
+    # recompiling server/_build, and its crash dump said so; mise had listed no pin for it. There is a
+    # right toolchain, a `mise trust` away: a run on the wrong one is never the one wanted
     config = Path.join(dir, "mise.toml")
     File.write!(config, "[tools]\nerlang = \"29.0.6\"\nelixir = \"1.20.4-otp-29\"\n")
     server = Path.join(dir, "server")
@@ -53,10 +54,14 @@ defmodule Menard.HostToolchainTest do
     System.put_env("MISE_IGNORED_CONFIG_PATHS", config)
 
     try do
-      assert {["mix", "test"], note} = Menard.host_argv(server, ["mix", "test"])
-      assert note =~ config
-      assert note =~ "the mix on PATH"
-      assert note =~ "mise trust #{config}"
+      assert {:refused, why} = Menard.host_argv(server, ["mix", "test"])
+      assert why =~ config
+      assert why =~ "mise trust #{config}"
+
+      # nothing runs: no mix printed its version
+      assert {out, 1} = Menard.host_mix(server, ["--version"])
+      assert out =~ "mise trust #{config}"
+      refute out =~ "Mix "
     after
       System.delete_env("MISE_IGNORED_CONFIG_PATHS")
     end
