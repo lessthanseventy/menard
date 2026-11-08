@@ -117,6 +117,23 @@ defmodule Menard.DirectiveTest do
     assert out =~ "def go, do: :ok"
   end
 
+  test "under a heredoc @moduledoc it takes its own line, and the line below keeps its own" do
+    src = """
+    defmodule A do
+      @moduledoc \"\"\"
+      docs
+      \"\"\"
+      @behaviour B
+
+      def go, do: :ok
+    end
+    """
+
+    out = Directive.add(src, :alias, "App.Cat")
+    assert out =~ ~s(  """\n\n  alias App.Cat\n  @behaviour B\n)
+    assert {:ok, _} = Code.string_to_quoted(out)
+  end
+
   test "with no moduledoc either it becomes the module's first line" do
     out = Directive.add("defmodule A do\n  def go, do: :ok\nend\n", :alias, "App.Cat")
     assert out =~ "defmodule A do\n  alias App.Cat"
