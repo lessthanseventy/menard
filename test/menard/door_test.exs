@@ -26,17 +26,9 @@ defmodule Menard.DoorTest do
     Host.mix_project(dir, :doored)
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
     File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
-    # this VM was started by bin/menard under mise, in a Claude Code session: its MENARD_CWD and
-    # MISE_ORIGINAL_CWD name menard's own root, which the launcher would take for the caller's
-    # directory, and the session's id would name a door of the session's, not this test's
-    env = [
-      {"TMPDIR", tmp},
-      {"MIX_ENV", "dev"},
-      {"MENARD_CWD", nil},
-      {"MISE_ORIGINAL_CWD", nil},
-      {"PWD", nil},
-      {"CLAUDE_CODE_SESSION_ID", nil}
-    ]
+    # this VM was started by bin/menard under mise: its MENARD_CWD and MISE_ORIGINAL_CWD name
+    # menard's own root, which the launcher would take for the caller's directory
+    env = [{"TMPDIR", tmp}, {"MIX_ENV", "dev"}, {"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}, {"PWD", nil}]
 
     {:ok, dir: dir, tmp: tmp, env: env}
   end
