@@ -383,10 +383,16 @@ defmodule Menard.Move do
   defp scan_node({:__MODULE__, meta, ctx} = node, acc) when is_atom(ctx),
     do: {node, %{acc | modules: [meta | acc.modules]}}
 
+  # a bitstring segment's type (`binary-size(2)`, `unit(8)`) is no call: its value is what is read
+  defp scan_node({:<<>>, meta, parts}, acc), do: {{:<<>>, meta, Enum.map(parts, &segment_value/1)}, acc}
+
   defp scan_node({fun, meta, args} = node, acc) when is_atom(fun) and is_list(args),
     do: {node, %{acc | calls: [{{fun, length(args)}, meta} | acc.calls]}}
 
   defp scan_node(node, acc), do: {node, acc}
+
+  defp segment_value({:"::", _, [value, _type]}), do: value
+  defp segment_value(part), do: part
 
   # What a spec's types are read from: its head's arguments, its return and its guard, not the head's
   # name, which is the function's own.
@@ -419,7 +425,13 @@ defmodule Menard.Move do
          scan: scan,
          values: values,
          aliases: MapSet.union(scan.aliases, from_values.aliases),
-         answered: answering(src.source, src.mod, unresolved(scan.calls ++ from_values.calls, src.graph))
+         answered:
+           answering(
+             src.source,
+             src.mod,
+             unresolved(scan.calls ++ from_values.calls, src.graph),
+             src[:uses_copied]
+           )
        }}
     end
   end
@@ -817,7 +829,7 @@ defmodule Menard.Move do
             {node, acc}
         end)
 
-      kept = answering(out, src.mod, unresolved(calls, Deps.graph(module))).imports
+      kept = answering(out, src.mod, unresolved(calls, Deps.graph(module)), nil).imports
 
       out
       |> directives(src.mod)
@@ -863,8 +875,9 @@ defmodule Menard.Move do
   # Which imports answer `calls`, the calls neither the module nor Kernel does. An `only:` import
   # answers its list, exactly. What an import without one brings, or a `use`, the AST cannot say:
   # such an import is taken to answer the rest only when it is the one directive that could, and
-  # otherwise none is, and the rest is `open`, with the directives it may come from.
-  defp answering(source, mod, calls) do
+  # otherwise none is, and the rest is `open`, with the directives it may come from. A created test
+  # module gets the source's `use` lines copied (`uses_copied`), so they are not what is missing.
+  defp answering(source, mod, calls, uses_copied) do
     {bare, listed} =
       source
       |> directives(mod)
@@ -874,7 +887,7 @@ defmodule Menard.Move do
     answers? = fn {:import, _, args}, call -> call in only(args) end
     by_list = Enum.filter(listed, fn import -> Enum.any?(calls, &answers?.(import, &1)) end)
     open = Enum.reject(calls, fn call -> Enum.any?(listed, &answers?.(&1, call)) end)
-    uses = uses(source, mod)
+    uses = if uses_copied, do: [], else: uses(source, mod)
 
     case {open, bare, uses} do
       {[], _, _} -> %{imports: by_list, open: [], from: []}
@@ -1060,7 +1073,8 @@ defmodule Menard.Move do
            graph: graph,
            named: named,
            taking: taking,
-           spans: spans
+           spans: spans,
+           uses_copied: created?
          },
          {:ok, plan} <- move(src, %{code: code, dest: dest_source, module: dest_module}, []) do
       {:ok, %{plan | report: block_report(plan.report, named, taking, graph)}}
@@ -1137,20 +1151,23 @@ defmodule Menard.Move do
   defp setups(_blocks, false), do: []
   defp setups(blocks, true), do: for({key, {kind, _, _}} <- blocks, kind in @setups, do: key)
 
-  # the source's `use` lines, as written, into the module the move creates
+  # the source's `use` and `@moduletag` lines, as written, into the module the move creates: the
+  # moved tests ran under both (the suite's split, 2026-11-08: ten modules made with no
+  # `@moduletag :tmp_dir`, and every test in them failed on its context)
   defp with_uses(dest_source, _body, _source, false), do: dest_source
 
   defp with_uses(dest_source, body, source, true) do
     lines = String.split(source, "\n")
 
-    uses =
-      for {:use, _, _} = node <- body do
-        {a, b} = Tree.line_span(node)
-        lines |> Enum.slice((a - 1)..(b - 1)) |> Enum.join("\n")
-      end
+    text = fn node ->
+      {a, b} = Tree.line_span(node)
+      lines |> Enum.slice((a - 1)..(b - 1)) |> Enum.join("\n")
+    end
 
+    uses = for {:use, _, _} = node <- body, do: text.(node)
+    tags = for {:@, _, [{:moduletag, _, [_ | _]}]} = node <- body, do: text.(node)
     [first, rest] = String.split(dest_source, "\n", parts: 2)
-    Enum.join([first | uses], "\n") <> "\n" <> rest
+    Enum.join([first | uses] ++ tags, "\n") <> "\n" <> rest
   end
 
   # a block with the `@tag` and comment lines above it; a helper as `clause move` takes it
