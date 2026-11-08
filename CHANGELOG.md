@@ -2,6 +2,10 @@
 
 ## 0.8.5
 
+- A host whose `mise.toml` / `.tool-versions` pins erlang or elixir that mise does not load
+  (untrusted, ignored) is refused, not run on menard's own toolchain: that run rebuilt the host's
+  `_build` on the wrong OTP (tlon's `server/` on 27 under a pin of 29). The reply names the config
+  and `mise trust` for it; formatting there fails with the same reason.
 - A verb whose stderr is a pipe with its reader gone (`menard … 2>&1 >out | true`) exits with the
   verb's own status, not 141 from the shell's SIGPIPE on passing that stderr on.
 - The language server `bin/lsp` starts (Claude Code's `lspServers` start it, not `bin/menard`)
