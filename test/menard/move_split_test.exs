@@ -614,4 +614,17 @@ defmodule Menard.MoveSplitTest do
     assert split.a(1) == "1 by system"
     assert split.b(2) == "2 by b22"
   end
+
+  test "the calls left are five per file, then how many more", %{tmp_dir: dir} do
+    # three helpers out of host_format_test.exs answered sixty lines of `left` (2026-11-08)
+    file = Path.join(dir, "many.ex")
+    callers = Enum.map_join(1..7, "", &"  def b#{&1}(x), do: a(x)\n")
+    File.write!(file, "defmodule Many do\n  def a(x), do: x\n" <> callers <> "end\n")
+
+    assert {:ok, reply} = Menard.Move.run(file, Path.join(dir, "many/a.ex"), ["a/1"], as: "Many.A", root: dir)
+    assert length(reply.left) == 6
+    # lines of the source as written, `a/1` gone
+    assert hd(reply.left) == "many.ex:2: a(x)"
+    assert List.last(reply.left) == "many.ex: 2 more calls"
+  end
 end

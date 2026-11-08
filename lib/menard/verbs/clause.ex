@@ -31,7 +31,8 @@ defmodule Menard.Verbs.Clause do
       - `spec`: `code` is the `@spec` signature; none deletes it.
       - `move`: functions to the file `to`, several at once (`name_arity` a list, or "a/1,b/2"). What
         they need comes along: private helpers, attributes, alias/import/require lines. `delegate: true`
-        leaves a `defdelegate` for each public one, so callers keep working. A missing file is created
+        leaves a `defdelegate` for each public one, so callers keep working; `public: true` makes each
+        moved function public in its new module (helpers into test/support). A missing file is created
         (`as` names its module, `moduledoc` its doc). The reply says what moved, what came along and
         what is left to fix.
       - `split`: a module into several in ONE call. `plan` is a list, one `{to, functions, as?,
@@ -70,6 +71,7 @@ defmodule Menard.Verbs.Clause do
         {:as, :string, []},
         {:moduledoc, :string, []},
         {:delegate, :boolean, []},
+        {:public, :boolean, []},
         {:plan,
          {:list,
           %{
@@ -132,6 +134,7 @@ defmodule Menard.Verbs.Clause do
              module: p[:module],
              moduledoc: p[:moduledoc],
              delegate: p[:delegate] == true,
+             public: p[:public] == true,
              root: p[:root]
            ) do
       {:ok, Map.put(moved, :did, "move #{Enum.join(names, ", ")} to #{Path.basename(dest)}")}
