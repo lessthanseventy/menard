@@ -122,4 +122,49 @@ defmodule Menard.BlockMoveTest do
     assert why =~ ~s(no test or describe "nope")
     assert why =~ ~s("stays")
   end
+
+  @tag :tmp_dir
+  test "a created file gets the source's @moduletag lines, and the one import a moved test calls through", %{
+    tmp_dir: dir
+  } do
+    # the suite's split of 2026-11-08: ten files created with no `@moduletag :tmp_dir` (every test
+    # would fail on its context), without `import Menard.Test.Checkout` (its one bare import, listed
+    # as unresolved beside `use ExUnit.Case`), and `binary-size(2)` in a bitstring read as size/1
+    Host.mix_project(dir, :shop)
+    File.mkdir_p!(Path.join(dir, "test/shop"))
+    file = Path.join(dir, "test/shop/pack_test.exs")
+
+    File.write!(file, """
+    defmodule Shop.PackTest do
+      use ExUnit.Case, async: true
+
+      import Shop.Packing
+
+      @moduletag :tmp_dir
+      @moduletag timeout: 5_000
+
+      test "stays", %{tmp_dir: dir} do
+        assert is_binary(dir)
+      end
+
+      test "goes", %{tmp_dir: dir} do
+        <<head::binary-size(2), _::binary>> = packed(dir)
+        assert head == "ab"
+      end
+    end
+    """)
+
+    dest = Path.join(dir, "test/shop/pack_goes_test.exs")
+
+    assert {:ok, reply} = Menard.Move.blocks(file, dest, ["goes"])
+    assert reply.directives == ["import Shop.Packing"]
+    assert reply.unresolved == []
+
+    moved = File.read!(dest)
+    assert moved =~ "use ExUnit.Case, async: true\n"
+    assert moved =~ "@moduletag :tmp_dir\n  @moduletag timeout: 5_000\n"
+    assert moved =~ "import Shop.Packing"
+    # the staying test runs under them still
+    assert File.read!(file) =~ "@moduletag :tmp_dir\n  @moduletag timeout: 5_000\n"
+  end
 end
