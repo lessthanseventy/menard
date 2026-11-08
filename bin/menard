@@ -41,6 +41,10 @@ frozen=0
 # mix, its formatter, the suite a gate runs and the VMs it starts) has them off; the caller's own
 # ERL_FLAGS come after, and win.
 export ERL_FLAGS="+sbwt none +sbwtdcpu none +sbwtdio none${ERL_FLAGS:+ $ERL_FLAGS}"
+# A VM that crashes writes erl_crash.dump into its cwd, and a host's VM runs in the caller's project:
+# tlon's server/ got one (2026-11), ~/projects 30. Exported as ERL_FLAGS is, to the temp dir; the
+# caller's own wins.
+export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-${TMPDIR:-/tmp}/menard-erl_crash.dump}"
 
 # `mcp`'s own fast path: a fresh install's deps.get + compile, below, can run well past a client's
 # connect timeout (Claude Code's: 30s) before the real server ever reads the client's `initialize`.

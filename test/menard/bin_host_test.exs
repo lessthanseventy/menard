@@ -69,6 +69,33 @@ defmodule Menard.BinHostTest do
   end
 
   @tag :tmp_dir
+  test "a VM menard starts that crashes dumps in the temp dir, not the caller's project", %{tmp_dir: dir} do
+    # tlon, 2026-11: a host VM menard started crashed on boot and left erl_crash.dump in server/,
+    # the caller's cwd; ~/projects held 30 of them
+    Host.mix_project(dir, :dumps)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.mkdir_p!(Path.join(dir, "tmp"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(Path.join(dir, "test/dumps_test.exs"), """
+    defmodule DumpsTest do
+      use ExUnit.Case
+      test "crashes", do: :erlang.halt(~c"boom")
+    end
+    """)
+
+    {_out, _} =
+      System.cmd(@bin, ["run", "test", "--in", dir],
+        # the suite's own bin/menard set one: unset, it is this one's to choose
+        env: [{"TMPDIR", Path.join(dir, "tmp")}, {"ERL_CRASH_DUMP", nil}],
+        stderr_to_stdout: true
+      )
+
+    refute File.exists?(Path.join(dir, "erl_crash.dump"))
+    assert File.read!(Path.join(dir, "tmp/menard-erl_crash.dump")) =~ "Slogan: boom"
+  end
+
+  @tag :tmp_dir
   test "edit --then at the CLI exits non-zero when the then is red, as `run` does", %{tmp_dir: dir} do
     # `menard edit --then check … && git commit` committed on a red gate: the reply said `ok: false`,
     # and the exit said 0
