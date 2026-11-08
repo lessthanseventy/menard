@@ -571,7 +571,7 @@ defmodule Menard.HooksTest do
   test "format-report asks each file's own repo what git ignores, not the session's directory" do
     # a session whose cwd is no repo ran menard's suite: every fixture it wrote was named, and the
     # server kept a formatter warm for each
-    outer = Path.join(System.tmp_dir!(), "menard-hook-#{System.unique_integer([:positive])}")
+    outer = Path.join(System.tmp_dir!(), "menard-hook-#{System.pid()}-#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf(outer) end)
     repo = Path.join(outer, "repo")
     host(repo)
