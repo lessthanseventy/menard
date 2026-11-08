@@ -201,7 +201,7 @@ defmodule Menard.Hook do
     if File.exists?(mark) do
       files = newer(hook.root, mark)
       File.rm(mark)
-      files |> not_ignored(hook.root) |> not_menards(hook) |> written(hook, &not_held/2)
+      files |> not_ignored() |> not_menards(hook) |> written(hook, &not_held/2)
     else
       :quiet
     end
@@ -587,14 +587,23 @@ defmodule Menard.Hook do
   defp up(dir), do: if(File.regular?(Path.join(dir, "mix.exs")), do: dir, else: up(Path.dirname(dir)))
 
   # what git ignores is no one's edit: menard's own test run writes fixtures under tmp/, broken on
-  # purpose, and each was named as a file the agent wrote and could not format
-  defp not_ignored([], _root), do: []
+  # purpose, and each was named as a file the agent wrote and could not format. Asked of each file's
+  # own project, not the session's cwd: a suite run from another directory writes into its own repo
+  defp not_ignored(files) do
+    ignored =
+      files
+      |> Enum.group_by(&(project(&1) || Path.dirname(&1)))
+      |> Enum.flat_map(fn {dir, group} -> ignored_in(dir, group) end)
+      |> MapSet.new()
 
-  defp not_ignored(files, root) do
+    Enum.reject(files, &MapSet.member?(ignored, &1))
+  end
+
+  defp ignored_in(dir, files) do
     # -z: without it git prints a path with a non-ASCII byte quoted and escaped, which matches nothing
-    case git(root, ["check-ignore", "-z", "--stdin"], Enum.join(files, <<0>>)) do
-      {out, status} when status in [0, 1] -> files -- String.split(out, <<0>>, trim: true)
-      _no_repo -> files
+    case git(dir, ["check-ignore", "-z", "--stdin"], Enum.join(files, <<0>>)) do
+      {out, status} when status in [0, 1] -> String.split(out, <<0>>, trim: true)
+      _no_repo -> []
     end
   end
 
