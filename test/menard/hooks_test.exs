@@ -1230,6 +1230,44 @@ defmodule Menard.HooksTest do
     assert File.exists?(Path.join(dir, "menard-told-other"))
   end
 
+  @tag :tmp_dir
+  test "a session whose hooks server is not running is told so, once, after its first prompt", %{tmp_dir: dir} do
+    # three sessions in a month ran with the server's connection timed out, no hooks, and no word
+    # of it. The door (Menard.Door) is the server's sign of life: a port that answers
+    prompt = fn session ->
+      payload = Path.join(dir, "payload.json")
+      File.write!(payload, ~s({"hook_event_name":"UserPromptSubmit","session_id":"#{session}"}))
+
+      {out, 0} =
+        System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/server-up.sh"), payload],
+          env: [{"TMPDIR", dir}]
+        )
+
+      out
+    end
+
+    aged = fn session ->
+      File.touch!(Path.join(dir, "menard-first-prompt-#{session}"), System.os_time(:second) - 120)
+    end
+
+    # the first prompt is before the servers connect; the second, 90 s on, finds no door
+    assert prompt.("down") == ""
+    assert prompt.("down") == ""
+    aged.("down")
+    assert prompt.("down") =~ "hooks server is not running"
+    assert prompt.("down") == ""
+
+    # a door that answers is a server up; a door whose port refuses is a server killed
+    {:ok, listen} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, port} = :inet.port(listen)
+    File.write!(Path.join(dir, "menard-door-up"), "#{port}\n")
+    prompt.("up")
+    aged.("up")
+    assert prompt.("up") == ""
+    :gen_tcp.close(listen)
+    assert prompt.("up") =~ "hooks server is not running"
+  end
+
   # the real run verbs, each call sent to the test as `{:ran, verb, args}`
   defp counting do
     test = self()
