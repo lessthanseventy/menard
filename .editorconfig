@@ -1,0 +1,11 @@
+# shfmt reads this: the hooks and bin/menard are indented with two spaces, and a new script
+# the hook formats follows them, not shfmt's tabs
+root = true
+
+[*.sh]
+indent_style = space
+indent_size = 2
+
+[bin/menard]
+indent_style = space
+indent_size = 2
