@@ -2,6 +2,10 @@
 
 ## 0.8.7
 
+- The skill's opening says what the machine-wide rule says: every Elixir change goes through
+  menard, `edit` for a text replacement and the AST tools for the rest; Claude Code's `Edit` is for
+  what menard does not cover. It said `Edit` works on Elixir and menard was for the hard cases.
+
 From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md`):
 
 - `menard … 2>/dev/null || fallback` is not refused: only stderr went to /dev/null, the reply was
