@@ -338,7 +338,7 @@ defmodule Menard.RunTest do
     result = Menard.Run.result(dir, "check", [])
     assert result.ok, result.tail
     assert result.ran =~ "no precommit alias"
-    assert result.tail =~ "1 test, 0 failures"
+    assert result.tail =~ "Result: 1 passed"
 
     # its test step's failures are the formatter's, as `run test`'s are: from the prose, a `left:`
     # past one line came back as its first line (Fable's review, 2026-10-01)
@@ -1168,7 +1168,8 @@ defmodule Menard.RunTest do
 
     File.write!(
       Path.join(dir, "test/cart_test.exs"),
-      "defmodule CartTest do\n  use ExUnit.Case\n  test \"total\", do: Cart.total(%{})\nend\n"
+      # a cart from config, not `%{}`: 1.20's type checker warns of that one at compile time
+      "defmodule CartTest do\n  use ExUnit.Case\n  test \"total\", do: Cart.total(Application.get_env(:raises, :cart, %{}))\nend\n"
     )
 
     assert %{failures: [%{message: message, stack: stack}]} = Run.lean(Run.result(dir, "test", []))

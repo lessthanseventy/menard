@@ -157,7 +157,7 @@ defmodule Menard.HostFormatTest do
     :code.delete(MenardUnreadablePlug)
     {at, _} = :binary.match(beam, "AtU8")
     # past the chunk id, its size, the atom count and the first atom's length byte: its first byte
-    <<head::binary-size(at + 4 + 4 + 4 + 1), _e, rest::binary>> = beam
+    <<head::binary-size(^at + 4 + 4 + 4 + 1), _e, rest::binary>> = beam
     File.write!(Path.join(ebin, "Elixir.MenardUnreadablePlug.beam"), <<head::binary, 0xFF, rest::binary>>)
     host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [MenardUnreadablePlug]]")
     file = write(dir, "u.ex", "defmodule U do\n  def   u, do: 1\nend\n")
@@ -326,7 +326,7 @@ defmodule Menard.HostFormatTest do
   test "every file of one call is formatted by one host process", %{tmp_dir: dir} do
     # an OS process per file is a VM start per file: `run format` over a project's inputs would
     # pay it a hundred times
-    plugin = plug(dir, "Pid", ~S|File.write!(opts[:pids], System.pid() <> "\n", [:append]) && contents|)
+    plugin = plug(dir, "Pid", ~S|File.write!(opts[:pids], System.pid() <> "\n", [:append]); contents|)
 
     host(
       dir,
