@@ -110,9 +110,8 @@ defmodule Menard.Stmt do
   end
 
   # The module when no clause or test is named. Something named that is not there reaches only the
-  # module's own statements: reaching into a function or a test from there put a test inside a test
-  # (bench4 bug-receipt-total.B.haiku, which named the function under test). Nothing named at all
-  # ("" or "-") searches the whole file for the one statement written (bench5 move-function.B.haiku).
+  # module's own statements: reaching into a function or a test from there would put a test inside
+  # a test. Nothing named at all ("" or "-") searches the whole file for the one statement written.
   defp module_scope(source, miss, anywhere?) do
     case Menard.Source.parse(source) do
       {:ok, ast} when anywhere? ->

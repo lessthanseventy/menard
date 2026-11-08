@@ -11,8 +11,7 @@ status=$?
 
 # Run under Claude Code (it sets CLAUDE_PLUGIN_ROOT for a plugin's command hooks), this script is
 # wiring that hooks.json no longer has: the process started before it changed, and keeps it until
-# it restarts (2026-09-30: a session started 09-26 had no MCP tools and no Read hook for days, and
-# nothing said so). Said once a session, beside the hook's own answer.
+# it restarts, with nothing saying so. Said once a session, beside the hook's own answer.
 if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
   session=$(jq -r '.session_id // "none"' <<<"$payload")
   mark="${TMPDIR:-/tmp}/menard-stale-wiring-${session//[^A-Za-z0-9_-]/}"

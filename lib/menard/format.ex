@@ -19,7 +19,7 @@ defmodule Menard.Format do
   """
 
   alias Menard.Format.Worker
-  # Under load a host's own toolchain through mise took past 30s; 60s still leaves the MCP door's
+  # Under load a host's own toolchain through mise takes past 30s; 60s still leaves the MCP door's
   # 90s deadline room
   @timeout 60_000
 

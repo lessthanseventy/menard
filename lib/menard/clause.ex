@@ -799,7 +799,7 @@ defmodule Menard.Clause do
         "no function #{name}/#{arity}: `#{name}` is a macro, and its blocks are reached with `block` — " <>
           "`block {verb: \"get\", file, name: \"#{name}\"}` answers with every one, `label` picks one"
 
-      # clause t/0 for `@type t ::` (bench3 and bench4 not-compiling.B.haiku)
+      # clause t/0 for `@type t ::`
       source =~ ~r/@(type|typep|opaque)\s+#{name}\b/ ->
         "no function #{name}/#{arity}: `@type #{name}` is a type, a statement of the module — stmt reaches it " <>
           "with no clause named: `stmt {verb: \"replace\", file, name_arity: \"-\", match: \"@type #{name} ::\", code}`"
@@ -889,8 +889,8 @@ defmodule Menard.Clause do
   end
 
   # What a whole clause looks like as an agent writes it: a def, maybe under @doc/@spec/@impl lines,
-  # maybe followed by more of the module (a new function beside it, rewritten in the same call:
-  # long1 cart-refactor.B.sonnet). `{:ok, def, carries_attrs?}`, or nil.
+  # maybe followed by more of the module (a new function beside it, rewritten in the same call).
+  # `{:ok, def, carries_attrs?}`, or nil.
   defp clause_form(code) do
     {_comments, body} = split_leading_comments(code)
 
@@ -910,7 +910,7 @@ defmodule Menard.Clause do
   end
 
   # `@doc`/`@spec`/`@impl` lines and then a def, as a whole clause is written with what it carries: the
-  # def, when that is the shape (long1 cart-refactor.B.haiku nested one such in the old body)
+  # def, when that is the shape
   defp leading_attrs(code) do
     case clause_form(code) do
       {:ok, defn, true} -> {:ok, defn}
@@ -919,7 +919,7 @@ defmodule Menard.Clause do
   end
 
   defp clause_attr?({:@, _, [{name, _, _}]}), do: name in [:doc, :spec, :impl, :deprecated]
-  # a component written whole starts with its `attr`/`slot` declarations (long2 cart-refactor.B.haiku)
+  # a component written whole starts with its `attr`/`slot` declarations
   defp clause_attr?({macro, _, [{:__block__, _, [name]} | _]}) when macro in [:attr, :slot] and is_atom(name),
     do: true
 
@@ -1139,8 +1139,8 @@ defmodule Menard.Clause do
 
   defp attached_attr?({:@, _meta, [{name, _inner, _args}]}) when is_atom(name), do: name in @attached
   # A Phoenix component's `attr`/`slot` declarations belong to the def below as its @doc does: a
-  # clause inserted before one landed between them and it (bench4 new-component.B.haiku), and a
-  # component deleted or moved left them behind
+  # clause inserted before one would land between them and it, and a component deleted or moved
+  # would leave them behind
   defp attached_attr?({macro, _meta, [{:__block__, _, [name]} | _]})
        when macro in [:attr, :slot] and is_atom(name),
        do: true

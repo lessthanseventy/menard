@@ -102,8 +102,8 @@ defmodule Menard.Find do
 
   # Walk every node with the aliases seen so far (a flat, file-wide map — good enough for a
   # module's worth of `alias` lines); `match.(node, aliases)` answers `{kind, node_to_report}`.
-  # A directory's Elixir files, the project's own: `find calls X .` walked deps/ and _build/, 3,876
-  # files and 2 min here (Fable's review, 1.3). What the hooks prune (Menard.Hook), pruned.
+  # A directory's Elixir files, the project's own, not deps/ and _build/. What the hooks prune
+  # (Menard.Hook), pruned.
   defp own_files(dir) do
     for file <- Path.wildcard(Path.join(dir, "**/*.{ex,exs}"), match_dot: false),
         not Enum.any?(Path.split(Path.relative_to(file, dir)), &(&1 in ~w(deps _build node_modules))),
@@ -203,7 +203,7 @@ defmodule Menard.Find do
   # `__MODULE__.fun()` names the module it is written in, which the file-wide alias map cannot say:
   # each module's own calls, a nested module's left to it
   # a bare call in a module that imports the target's module: `edit(…)` under `import Menard.Verbs`
-  # is a call of Menard.Verbs.edit (found nothing, 2026-10-01)
+  # is a call of Menard.Verbs.edit
   defp imported_calls(_source, nil, _fun), do: []
 
   defp imported_calls(source, mod, fun) do
@@ -287,9 +287,8 @@ defmodule Menard.Find do
 
   defp self_ref(_receiver, _name), do: nil
 
-  # a local capture is a call: `&line_total/1` (Fable 2026-10-01: missed, and `clause delete`'s
-  # `left` answered [] over a module that then did not build). A remote one's callee, `Price.of()`,
-  # is a remote call already.
+  # a local capture is a call: `&line_total/1`, or `clause delete`'s `left` answers [] over a module
+  # that then does not build. A remote one's callee, `Price.of()`, is a remote call already.
   defp call_to({:&, _, [{:/, _, [{name, _, ctx}, _arity]}]} = node, _aliases, nil, fun)
        when is_atom(name) and is_atom(ctx),
        do: if(Atom.to_string(name) == fun, do: {:call, node})
@@ -305,8 +304,7 @@ defmodule Menard.Find do
   defp call_to(_node, _aliases, _mod, _fun), do: nil
 
   # a file without the function's name in it holds no call to it, and is not parsed: as `find`
-  # does, and `left` did not, so a move with no `root:` parsed menard's own 250 files for a name
-  # none has, 60 s under load (two tests' timeouts in every third gate, 2026-11-08)
+  # does, so a move with no `root:` does not parse every file of menard's own for a name none has
   defp left_in(f, root, own?, mod, fun) do
     case File.read(f) do
       {:ok, text} ->

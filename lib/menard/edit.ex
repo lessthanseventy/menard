@@ -107,8 +107,7 @@ defmodule Menard.Edit do
   end
 
   # A replacement ends at `>>>>>>> REPLACE`, or at a second `=======` with the next block or the end
-  # right after it: written so as often, and the batch was sent again for it (Fable's review,
-  # 2026-10-01). A `=======` with more text before a REPLACE is a block written wrong, refused.
+  # right after it. A `=======` with more text before a REPLACE is a block written wrong, refused.
   defp replacement(lines, file) do
     {text, rest} = Enum.split_while(lines, &(&1 not in [">>>>>>> REPLACE", "======="]))
 

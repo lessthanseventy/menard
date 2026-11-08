@@ -121,7 +121,7 @@ defmodule Menard.Hook do
   # per call: per session, a second call in flight moved the first one's mark past the files it had
   # written, and they went unformatted.
   # what is so in this session, said before its first call (`Menard.Scripts`); a resumed session has
-  # it from its start (49 of 57 fires were resumes), a compacted one may have lost it
+  # it from its start, a compacted one may have lost it
   # its marks gone with its end (see SessionEnd), a resumed session is still one told at its start
   defp tool(%{event: "SessionStart", source: "resume"} = hook) do
     File.write!(told_path(hook), "")
@@ -602,9 +602,9 @@ defmodule Menard.Hook do
   end
 
   # What git wrote (a checkout, a reset, a new worktree, a popped stash) is content its repo already
-  # holds: no one's edit, and none to format. Read off the command, `cd D && git …` was taken for an
-  # edit of every file git checked out, and `git … && sed …` hid the sed's. An edit makes new
-  # content; one staged in the same command is left as it was staged.
+  # holds: no one's edit, and none to format. Read off the command, `cd D && git …` is not an
+  # edit of every file git checked out, and `git … && sed …` does not hide the sed's. An edit makes
+  # new content; one staged in the same command is left as it was staged.
   defp not_held(files, dir) do
     with {hashes, 0} <- git(dir, ["hash-object", "--stdin-paths"], Enum.join(files, "\n")),
          {held, 0} <- git(dir, ["cat-file", "--batch-check"], hashes),

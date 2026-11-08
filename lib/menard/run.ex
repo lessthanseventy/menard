@@ -178,8 +178,7 @@ defmodule Menard.Run do
     |> Map.update(:failures, [], &brief/1)
   end
 
-  # The first few failures whole; past them, where and what, the message's first line: 12 with
-  # their sources and an inspected struct each were 13.9k characters (Oban 01), and the log has all
+  # The first few failures whole; past them, where and what, the message's first line: the log has all
 
   @doc """
   Attach each failure's `source`: the test's body as written, from `at`'s file (under `root`)
@@ -190,7 +189,7 @@ defmodule Menard.Run do
     # absolute paths, and the same failure must not look different by which verb found it
     prefix = Path.expand(root) <> "/"
     # a test file changed since HEAD is the agent's own, its test written a call ago: its body said
-    # back was 44% of red replies (Fable's review, 2026-10-01)
+    # back is noise in a red reply
     changed = changed_tests(root)
 
     sourced = fn f ->
@@ -215,7 +214,7 @@ defmodule Menard.Run do
          {start, _} <- Integer.parse(line),
          [head | rest] <- Enum.drop(lines, start - 1),
          # a line that opens no block (`doctest Mod`, a one-line test) is the whole source: read
-         # down to the next `end` at its indent, it was the rest of the module
+         # down to the next `end` at its indent would be the rest of the module
          true <- String.ends_with?(String.trim_trailing(head), " do") || head do
       indent = String.length(head) - String.length(String.trim_leading(head))
 
@@ -469,8 +468,7 @@ defmodule Menard.Run do
 
   defp verb(%{dir: dir} = run, "check", args) do
     # Formatting is mechanical, as an editor does it on save: the project formatted first, so the gate
-    # fails on nothing a formatter fixes (Oban 01: a file unformatted upstream, three calls to find it
-    # was not the change's), and the reply names what it formatted
+    # fails on nothing a formatter fixes, and the reply names what it formatted
     formatted = for file <- verb(run, "format", []).changed, do: Path.relative_to(file, Path.expand(dir))
 
     # mix's task trace on (priv/mix_debug.exs): it names each task it runs and each it finished, so
@@ -489,8 +487,7 @@ defmodule Menard.Run do
           |> credo_named(out, run, "--strict" in args)
           |> step_named(failed_step)
 
-    # its failed tests once more, as `run test` does: a flake is not the change's (up4 Oban 01: check
-    # red twice on the notifier's, and the agent stashed its work for a baseline)
+    # its failed tests once more, as `run test` does: a flake is not the change's
     reply = check_flakes(run, reply, failed_step)
     if reply.ok, do: warm_stale(run)
 
@@ -498,7 +495,7 @@ defmodule Menard.Run do
   end
 
   # Failed, a few test failures run once more (`--failed`): one that passes is the suite's flake,
-  # named, not the change's (Oban 01, 04, Symphony 01: the agent stashed its work for a baseline)
+  # named, not the change's
   defp verb(run, "test", args) do
     first = tested(run, args, run.log <> ".exunit")
     if first.ok and full?(args), do: warm_stale(run)
@@ -828,8 +825,7 @@ defmodule Menard.Run do
   # Every failure a flake, under an alias. A failing `mix test` ends as finished and the alias goes
   # on, so the steps after it ran: one that failed is left open in the trace, and is the failure;
   # none open, every step passed. A test task that exits on failure (this repo's test_no_leaks)
-  # stops the alias: its steps after it run here, each its own mix. Before, the reply said "run
-  # check again", a second whole gate (Fable's review, 2026-10-01)
+  # stops the alias: its steps after it run here, each its own mix.
   defp after_flakes(_run, again, nil),
     do:
       Map.put(
@@ -916,7 +912,7 @@ defmodule Menard.Run do
 
   # red with test failures alone, few enough to run again, and not a run that is itself a rerun
   # and one at least in a test file unchanged since HEAD: a red of the agent's own new test is the
-  # red it wrote, no flake to look for (Fable's review)
+  # red it wrote, no flake to look for
   defp rerun?(%{ok: false, failures: [_ | _] = failures}, args, dir) do
     changed = changed_tests(dir)
 
@@ -972,7 +968,7 @@ defmodule Menard.Run do
   end
 
   # One check at a time in a project: two sessions' gates in one checkout raced in its _build and its
-  # tmp/ (2026-10-01, a test's build deleted under the other's). The next waits for the one running,
+  # tmp/. The next waits for the one running,
   # up to its own deadline, and says how long; a lock whose holder is dead is no wait.
   defp one_at_a_time(%{dir: dir} = run, check) do
     lock = Path.join(dir, "_build/.menard-check.lock")
@@ -1014,8 +1010,8 @@ defmodule Menard.Run do
   end
 
   # A dead holder's lock out of the way. Two waiters that both found it dead each removed "the"
-  # lock, and the second's was the first's new one (Fable's review, 2026-10-01): moved aside by a
-  # rename only one of them wins, and given back when what it moved is a live holder's after all.
+  # lock, and the second's would be the first's new one: moved aside by a rename only one of them
+  # wins, and given back when what it moved is a live holder's after all.
   defp unstale(lock) do
     aside = "#{lock}.#{System.pid()}-#{System.unique_integer([:positive])}"
 

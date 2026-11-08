@@ -228,8 +228,8 @@ defmodule Menard.Block do
     head <> " do\n" <> indented(body, 3) <> "\nend"
   end
 
-  # A whole `name "label", ARGS do … end` where its body was asked for — the eval's agents wrote it
-  # that way more often than not. `{:whole, label, args, body}` with the texts as written, or `:body`.
+  # A whole `name "label", ARGS do … end` where its body was asked for, as agents write it.
+  # `{:whole, label, args, body}` with the texts as written, or `:body`.
   defp unwrap(name, code) do
     with {:ok, {call, meta, [_ | _] = args} = node} <- Menard.Source.quoted(code),
          true <- same?(call, name),
@@ -312,8 +312,7 @@ defmodule Menard.Block do
     end
   end
 
-  # `@tag` lines above a whole block are that block's own (found 2026-09-26: taken for a body, the
-  # tagged test came out nested in the old one). nil when there are none.
+  # `@tag` lines above a whole block are that block's own, not part of a body. nil when there are none.
   defp own_tags(code) do
     {rest, opts} = tagged(code, [])
     {rest, opts[:tag]}
@@ -346,7 +345,7 @@ defmodule Menard.Block do
   end
 
   # A whole `test "x", %{tmp_dir: dir} do … end` given for a test written with other args, or none,
-  # carries its args too: only the body taken, `dir` was an undefined variable in it
+  # carries its args too: only the body taken, `dir` would be an undefined variable in it
   defp with_args(out, _args, nil), do: out
 
   defp with_args(out, [label | rest], ctx) do
@@ -386,8 +385,7 @@ defmodule Menard.Block do
     end)
   end
 
-  # A whole block being added is named by its own label: there is nothing to tell it apart from, and
-  # long1 cart-refactor.B.sonnet was refused over "…no placeholders" against "…leaves no placeholders"
+  # A whole block being added is named by its own label: there is nothing to tell it apart from
   defp add_label(name, label, body) do
     if match?({:whole, _, _, _}, unwrap(name, body)), do: nil, else: label
   end
@@ -412,8 +410,7 @@ defmodule Menard.Block do
     end
   end
 
-  # No name given and a whole block as the code: the block says which macro (long2
-  # cart-refactor.B.haiku was refused as "a whole `` block")
+  # No name given and a whole block as the code: the block says which macro
   defp named(name, code) when name in [nil, ""] do
     case Menard.Source.quoted(code || "") do
       # a do-block is the last argument, a keyword list: anything else is a body, not a whole block
@@ -446,7 +443,7 @@ defmodule Menard.Block do
 
     with {:ok, blocks} <- blocks(source, opts) do
       blocks
-      # no name, a label: the label alone says which (bench3 new-component.B.sonnet)
+      # no name, a label: the label alone says which
       |> Enum.filter(fn node ->
         (name in [nil, ""] or same?(call_name(node), name)) and
           (is_nil(wanted_label) or label(node) == wanted_label)

@@ -17,7 +17,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       name: "menard",
       version: Mix.Project.config()[:version],
       capabilities: [:tools],
-      # an agent reads this before its first call: in the eval, 4 of 6 learned it from the guard instead
+      # an agent reads this before its first call, instead of learning it from the guard
       instructions: """
       Several replacements of text, in one file or many, are ONE call to edit, where you would
       write a script (python, sed): each text is found exactly once or the call is refused and
@@ -46,9 +46,9 @@ if Code.ensure_loaded?(Anubis.Server) do
     component(Menard.MCP.Run, name: "run")
     component(Menard.MCP.Hook, name: "hook")
 
-    # A call the schema refuses was a protocol error, "Invalid params", its why in the error's data,
-    # which Claude Code does not show: the eval's agent asked clause for verb "get" and learned nothing.
-    # The same refusal as a tool error puts the why where the agent reads.
+    # A call the schema refuses is a protocol error, "Invalid params", its why in the error's data,
+    # which Claude Code does not show. The same refusal as a tool error puts the why where the agent
+    # reads.
     @impl Anubis.Server
     def handle_request(%{"method" => "tools/call"} = request, frame) do
       case Handlers.handle(request, __MODULE__, frame) do
@@ -100,8 +100,8 @@ if Code.ensure_loaded?(Anubis.Server) do
   defmodule Menard.MCP.Hooks do
     @moduledoc """
     The hooks' own server (`bin/menard mcp --hooks`), its one tool `hook`. A server takes one call
-    at a time, and with the verbs' it held every hook behind a `run check`: 38 PreToolUse hooks on
-    Bash cancelled at their 120 s timeout in one session (2026-10-01). Apart, a hook waits on no verb.
+    at a time, and with the verbs' it would hold every hook behind a `run check`, to the hooks'
+    timeout. Apart, a hook waits on no verb.
     """
     use Anubis.Server,
       name: "menard-hooks",

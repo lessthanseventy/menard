@@ -20,8 +20,7 @@ defmodule Menard.ExUnitFormatter do
   end
 
   # A run stopped at its deadline is killed with this VM, before its suite ends: what it had so far
-  # is written every second, the tests still running with it (up2 Oban: a run that hung on MySQL
-  # answered nothing of what it had)
+  # is written every second, the tests still running with it
   @impl true
   def handle_info(:snapshot, acc) do
     write(acc)

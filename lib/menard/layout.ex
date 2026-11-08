@@ -42,8 +42,7 @@ defmodule Menard.Layout do
   end
 
   # A function whose clauses were together, apart now by a definition it did not have: that goes
-  # after its last clause. up4 Symphony 01: a `clause rewrite`, a new helper written under the
-  # clause, refused where edit's own writes moved it.
+  # after its last clause, as when a `clause rewrite` writes a new helper under the clause.
   defp next_split({{mod, node}, content}, was) do
     defs = defs(node)
     before = Map.get(was, mod, [])

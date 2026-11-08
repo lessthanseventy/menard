@@ -50,8 +50,8 @@ defmodule Menard.Tree do
       [node] ->
         {:ok, node}
 
-      # named by its last parts (`Tracker` for SymphonyElixir.Config.Schema.Tracker, up4 Symphony
-      # 01): the one whose name ends so, where one does; several are named, not guessed between
+      # named by its last parts (`Tracker` for SymphonyElixir.Config.Schema.Tracker): the one whose
+      # name ends so, where one does; several are named, not guessed between
       [] ->
         by_suffix(ast, module)
 

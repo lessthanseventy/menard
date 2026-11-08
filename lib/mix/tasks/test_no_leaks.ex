@@ -25,8 +25,8 @@ defmodule Mix.Tasks.TestNoLeaks do
       )
 
     # a kept-warm host VM notices its owner gone on a 2s poll (priv/format.exs): three of those
-    # before one counts as a leak. On a loaded box (a second gate beside this one, 2026-10-20),
-    # 20 were counted the instant `mix test` exited, every one on its way out
+    # before one counts as a leak: on a loaded box, VMs on their way out are still counted the
+    # instant `mix test` exits
     leaked = leaked_vms(6_000)
 
     if leaked != [] do
