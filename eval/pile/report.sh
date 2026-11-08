@@ -34,7 +34,7 @@ if [[ "${1:-}" != "--cached" ]]; then
       awk -v repo="$(basename "$r")" -v OFS='\t' '
         /^[0-9a-f]{40}\t/ { if (h) print repo, h, d, s, ins, del; split($0, a, "\t"); h=a[1]; d=a[2]; s=a[3]; ins=0; del=0; next }
         /files? changed/ { ins=0; del=0; if (match($0, /([0-9]+) insertion/, m)) ins=m[1]; if (match($0, /([0-9]+) deletion/, m)) del=m[1] }
-        END { if (h) print repo, h, d, s, ins, del }' >> "$work/commits.tsv"
+        END { if (h) print repo, h, d, s, ins, del }' >> "$work/commits.tsv" || true
   done
 fi
 
