@@ -872,7 +872,7 @@ defmodule Menard.Clause do
       nil ->
         case Menard.Source.quoted(body) do
           {:error, reason} ->
-            {:error, "not parseable — #{inspect(reason)}"}
+            {:error, Menard.Source.unparseable(body, reason)}
 
           _ ->
             {:error, "rewrite needs a whole clause (`def …`), got: #{String.slice(String.trim(body), 0, 40)}"}

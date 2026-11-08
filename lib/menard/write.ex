@@ -17,18 +17,8 @@ defmodule Menard.Write do
 
     if Path.extname(path) in [".ex", ".exs"] do
       case Code.string_to_quoted(content, emit_warnings: false) do
-        {:ok, _ast} ->
-          {:ok, content}
-
-        {:error, {meta, {prefix, suffix}, token}} ->
-          {:error,
-           "not parseable at line #{line(meta)}: #{prefix}#{token}#{suffix}" <> excerpt(content, line(meta))}
-
-        {:error, {meta, message, token}} ->
-          {:error, "not parseable at line #{line(meta)}: #{message}#{token}" <> excerpt(content, line(meta))}
-
-        {:error, reason} ->
-          {:error, "not parseable — #{inspect(reason)}"}
+        {:ok, _ast} -> {:ok, content}
+        {:error, reason} -> {:error, Menard.Source.unparseable(content, reason)}
       end
     else
       with :ok <- Menard.Lang.parse(path, content), do: {:ok, content}
@@ -87,19 +77,4 @@ defmodule Menard.Write do
     |> elem(0)
     |> Enum.reverse()
   end
-
-  defp line(meta) when is_list(meta), do: Keyword.get(meta, :line, "?")
-  defp line(_meta), do: "?"
-
-  # the line the parser stopped at and the one before it, where the slip usually is: the text was
-  # never written, so the caller has nothing else to look at
-  defp excerpt(content, line) when is_integer(line) do
-    lines = String.split(content, "\n")
-
-    for n <- max(line - 1, 1)..line//1, text = Enum.at(lines, n - 1), into: "" do
-      "\n" <> String.pad_leading(Integer.to_string(n), 4) <> " | " <> text
-    end
-  end
-
-  defp excerpt(_content, _line), do: ""
 end

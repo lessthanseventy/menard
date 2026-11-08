@@ -82,7 +82,7 @@ defmodule Menard.Module do
         {:error, "add takes a whole `defmodule …`, got: #{String.slice(String.trim(code), 0, 40)}"}
 
       {:error, reason} ->
-        {:error, "not parseable — #{inspect(reason)}"}
+        {:error, Menard.Source.unparseable(code, reason)}
     end
   end
 end
