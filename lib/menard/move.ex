@@ -179,7 +179,8 @@ defmodule Menard.Move do
         graph: graph,
         named: named,
         taking: taking,
-        spans: spans
+        spans: spans,
+        uses_copied: false
       }
 
       move(src, %{code: code, dest: dest_source, module: dest_module}, opts)
@@ -385,7 +386,7 @@ defmodule Menard.Move do
     do: {node, %{acc | attributes: MapSet.put(acc.attributes, name)}}
 
   defp scan_node({:__aliases__, _, [first | _]} = node, acc) when is_atom(first),
-    do: {node, %{acc | aliases: MapSet.put(acc.aliases, first)}}
+    do: {node, %{acc | aliases: MapSet.put(acc.aliases, Atom.to_string(first))}}
 
   defp scan_node({:__MODULE__, meta, ctx} = node, acc) when is_atom(ctx),
     do: {node, %{acc | modules: [meta | acc.modules]}}
@@ -437,7 +438,7 @@ defmodule Menard.Move do
              src.source,
              src.mod,
              unresolved(scan.calls ++ from_values.calls, src.graph),
-             src[:uses_copied]
+             src.uses_copied
            )
        }}
     end
@@ -566,7 +567,7 @@ defmodule Menard.Move do
       match?([_], parts) -> %{name: mod, alias: nil}
       {short, mod} in there -> %{name: short, alias: nil}
       Enum.any?(there, &(elem(&1, 0) == short)) -> %{name: mod, alias: nil}
-      String.to_atom(short) in needs.aliases -> %{name: mod, alias: nil}
+      short in needs.aliases -> %{name: mod, alias: nil}
       true -> %{name: short, alias: mod}
     end
   end
@@ -601,11 +602,11 @@ defmodule Menard.Move do
   defp used(directives, needs) do
     Enum.filter(directives, fn
       {:alias, target, args} ->
-        short_atom(target, args) in needs.aliases
+        short_of(target, args) in needs.aliases
 
       {:require, target, _} ->
         parts = String.split(target, ".")
-        Enum.any?([hd(parts), List.last(parts)], &(String.to_atom(&1) in needs.aliases))
+        Enum.any?([hd(parts), List.last(parts)], &(&1 in needs.aliases))
 
       {:import, _, _} = import ->
         import in needs.answered.imports
@@ -653,7 +654,7 @@ defmodule Menard.Move do
       match?([_], parts) -> %{name: dest_mod, alias: nil}
       match?({:alias, ^dest_mod, _}, mine) -> %{name: short, alias: nil}
       mine != nil -> %{name: dest_mod, alias: nil}
-      String.to_atom(short) in module_aliases(src.module) -> %{name: dest_mod, alias: nil}
+      short in module_aliases(src.module) -> %{name: dest_mod, alias: nil}
       true -> %{name: short, alias: dest_mod}
     end
   end
@@ -808,7 +809,7 @@ defmodule Menard.Move do
       out
       |> directives(src.mod)
       |> Enum.filter(fn {kind, target, args} ->
-        kind == :alias and short_atom(target, args) in before and short_atom(target, args) not in now
+        kind == :alias and short_of(target, args) in before and short_of(target, args) not in now
       end)
       |> reduce(out, fn {:alias, target, _}, acc -> unalias(acc, target, src.mod) end)
     end
@@ -942,13 +943,11 @@ defmodule Menard.Move do
     |> Enum.reject(&match?({:alias, _, _}, &1))
     |> Macro.prewalker()
     |> Enum.flat_map(fn
-      {:__aliases__, _, [first | _]} when is_atom(first) -> [first]
+      {:__aliases__, _, [first | _]} when is_atom(first) -> [Atom.to_string(first)]
       _ -> []
     end)
     |> Enum.uniq()
   end
-
-  defp short_atom(target, args), do: String.to_atom(short_of(target, args))
 
   defp short_of(target, args) when is_binary(args) do
     case Regex.run(~r/as:\s*([A-Z][\w.]*)/, args) do
