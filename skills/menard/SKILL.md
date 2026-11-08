@@ -5,12 +5,14 @@ description: menard's AST-aware Elixir tools — which fits which change, and th
 
 # Editing Elixir with menard
 
-In Claude Code, `Edit` works on Elixir, and menard's hook formats every file written and reports
-what changed. These tools are for what an edit by hand does badly: a rename across files
-(`rename`), who calls what (`find`), one function of a big module (`clause get`), a function
-moved with its docs (`clause move`). Each parses the file, changes the tree, formats with the
-project's formatter and parse-checks what it writes. Under pi's guard an `Edit` or `Write` on a
-module is **blocked**, and these tools are how a module is edited at all.
+Every Elixir change goes through menard, in Claude Code too: `edit` for a text replacement (one
+file or many, each text found exactly once or nothing written, `then` a compile or the tests),
+and the AST tools for what a text edit does badly: a rename across files (`rename`), who calls
+what (`find`), one function of a big module (`clause get`), a function moved with its docs
+(`clause move`). Each parses the file, changes the tree, formats with the project's formatter and
+parse-checks what it writes. Claude Code's `Edit` and `Write` are for what menard does not cover
+(TypeScript, Lua, Nix, Markdown); menard's hook still formats any Elixir they write and reports
+what changed. Under pi's guard an `Edit` or `Write` on a module is **blocked**.
 
 Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`,
 `mix.lock`, and an `Edit` that only changes text inside a string (a heredoc, a `~H` template).
