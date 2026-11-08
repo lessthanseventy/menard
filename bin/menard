@@ -112,6 +112,52 @@ for a in "$@"; do if [[ "$a" == "--stdin" ]]; then from_stdin=1; else args+=("$a
 ((from_stdin)) && args+=("$(cat)")
 set -- ${args[@]+"${args[@]}"}
 
+# The session's hooks server, warm, answers most verbs with no VM started here (Menard.Door): its
+# port is in menard-door-KEY, KEY the session's id or the harness's PID, an ancestor's. Not `run`, whose
+# minutes of mix would hold the server, and not from inside menard's own checkout, where the server
+# running is the installed plugin's build and `--frozen` means the working tree's. A door that does
+# not answer (a stale file, a server gone) costs one refused connection: the verb runs below.
+door_stdin=
+door_stdin_read=0
+connect() { exec 3<>"/dev/tcp/127.0.0.1/$1"; }
+door() {
+  case "$verb" in run | mcp | hook | guard | version | help | map) return 1 ;; esac
+  [[ "$MENARD_CWD" == "$PWD" || "$MENARD_CWD" == "$PWD/"* ]] && return 1
+  local p=$PPID file='' port a len out err status
+  [[ -n "${CLAUDE_CODE_SESSION_ID:-}" && -r "${TMPDIR:-/tmp}/menard-door-$CLAUDE_CODE_SESSION_ID" ]] &&
+    file="${TMPDIR:-/tmp}/menard-door-$CLAUDE_CODE_SESSION_ID"
+  while [[ -z "$file" && -n "$p" && "$p" -gt 1 ]]; do
+    [[ -r "${TMPDIR:-/tmp}/menard-door-$p" ]] && file="${TMPDIR:-/tmp}/menard-door-$p" && break
+    if [[ -r "/proc/$p/stat" ]]; then
+      p=$(sed 's/^.*) //' "/proc/$p/stat" | awk '{print $2}')
+    else
+      p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+    fi
+  done
+  [[ -n "$file" && -r "$file" ]] || return 1
+  port=$(head -n1 "$file")
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  connect "$port" 2>/dev/null || return 1
+  # `-` is stdin's: read here, kept for the run below should the door not answer
+  for a in "$@"; do [[ "$a" == "-" ]] && door_stdin_read=1; done
+  if ((door_stdin_read)); then
+    door_stdin=$(cat; printf x)
+    door_stdin=${door_stdin%x}
+  fi
+  len=$(LC_ALL=C; printf '%s' "${#door_stdin}")
+  { printf '%s\0' "$MENARD_CWD" "$verb" "$#" "$@" "$len"; printf '%s' "$door_stdin"; } >&3 || return 1
+  IFS= read -r -d '' out <&3 || return 1
+  IFS= read -r -d '' err <&3 || return 1
+  IFS= read -r status <&3 || return 1
+  exec 3<&-
+  [[ "$status" =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "$out"
+  [[ -n "$err" ]] && printf '%s' "$err" >&2
+  exit "$status"
+}
+door "$@" || true
+((door_stdin_read)) && exec < <(printf '%s' "$door_stdin")
+
 build="_build/${MIX_ENV:-dev}"
 # stdout is the verb's ANSWER — one JSON line from `run`, the protocol for `mcp` — and mix prints
 # "Compiling N files" to stdout, glued onto the front of it. So when anything is newer than the last

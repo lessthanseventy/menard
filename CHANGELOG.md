@@ -12,6 +12,15 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
   sentence, `cannot be written: permission denied`, not `File.write!`'s stack trace, and puts back
   the files it wrote before it.
 - A subagent brief that itself says "use `menard find calls …`" is not refused as a call search.
+- A script with no extension that a shell command wrote (`bin/tool` with a bash shebang) is
+  checked by its shebang after the command, as a `.sh` was; its syntax error was never seen.
+- The filter refusal says which it saw: the reply sent to /dev/null, or a filter on it.
+- `bin/menard VERB` boots no VM of its own in a Claude Code session: the session's hooks server
+  listens on a port of localhost's (`Menard.Door`, the port in `$TMPDIR/menard-door-SESSION`) and
+  the launcher sends the verb there over bash's `/dev/tcp`, the formatters already warm. An
+  `edit` from the CLI took 24 s at the median under the seats' load, where the same edit through
+  the MCP door took 1 s. `run` keeps its own VM, as does every verb from inside menard's checkout;
+  a door that does not answer costs one refused connection, and the verb runs as before.
 
 ## 0.8.6
 

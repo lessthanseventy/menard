@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Menard.Mcp do
   use Mix.Task
 
   alias Menard.MCP.Reply
+  alias Mix.Shell
 
   # anubis_mcp is optional: a library host has no Registry, nor the Menard.MCP modules built on it,
   # and never reaches the calls
@@ -32,6 +33,14 @@ defmodule Mix.Tasks.Menard.Mcp do
 
     logs_to_stderr()
     {:ok, _} = Supervisor.start_child(Menard.Supervisor, {server, transport: :stdio})
+
+    # the launcher's verbs, run here with the formatters warm (Menard.Door): a task's prints are
+    # messages to the process that ran it, never this server's stdout, the MCP channel
+    if server == Menard.MCP.Hooks do
+      Mix.shell(Shell.Process)
+      {:ok, _} = Menard.Door.open()
+    end
+
     # what it runs is current now: a call compiles first only once menard's source is newer
     Reply.loaded!()
     # started now, so its index is built by the first `find` that asks it
@@ -42,7 +51,9 @@ defmodule Mix.Tasks.Menard.Mcp do
     ref = Process.monitor(Anubis.Server.Registry.transport_name(server, :stdio))
 
     receive do
-      {:DOWN, ^ref, :process, _pid, _reason} -> System.halt(0)
+      {:DOWN, ^ref, :process, _pid, _reason} ->
+        Menard.Door.close()
+        System.halt(0)
     end
   end
 
