@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.4
+
+- A VM menard starts that crashes no longer leaves `erl_crash.dump` in the caller's project: it goes
+  to `$TMPDIR/menard-erl_crash.dump` (`ERL_CRASH_DUMP`, exported by `bin/menard`; one you set
+  wins). The boot crash behind tlon's dump, a print to a `standard_error` that is gone, is not
+  reproduced yet and is in TODO.md.
+
 ## 0.8.3
 
 - A `menard …` command whose reply is piped into a filter that ends the line (`| head -c 3000`,
