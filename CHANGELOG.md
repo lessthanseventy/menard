@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.7
+
+From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md`):
+
+- `menard … 2>/dev/null || fallback` is not refused: only stderr went to /dev/null, the reply was
+  kept. `&>/dev/null`, which throws the reply away, is refused, where it passed.
+- A dependency's compiler warnings (styler's, doctest_formatter's under Elixir 1.20) are no longer
+  the project's `failures` in a green `run test` or `run check` reply.
+- An `edit` of a file that cannot be written (a sandbox's read-only scratch dir) answers one
+  sentence, `cannot be written: permission denied`, not `File.write!`'s stack trace, and puts back
+  the files it wrote before it.
+- A subagent brief that itself says "use `menard find calls …`" is not refused as a call search.
+
 ## 0.8.6
 
 - menard runs on Elixir 1.20.4 / OTP 29.0.6 (`.tool-versions`), from 1.19.4 / 27.3.4.2. A host's
