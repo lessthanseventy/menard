@@ -105,7 +105,7 @@ defmodule Menard.BlockTest do
   test "an --in parent that isn't there is refused, not guessed at" do
     assert {:error, message} = Block.add(@src, "test", "x", "assert true", in: "nope")
 
-    # several modules, none named: the one holding the `in` block (Fable's review, 2026-10-01)
+    # several modules, none named: the one holding the `in` block
     two = """
     defmodule ATest do
       describe "a" do
@@ -322,12 +322,12 @@ defmodule Menard.BlockTest do
   end
 
   test "add handed a whole block of its macro writes that block, not one nested in another" do
-    # as the eval's agent wrote it: name and label given, and the whole describe as the code
+    # name and label given, and the whole describe as the code
     code =
       "describe \"three\" do\n  @tag :tmp_dir\n  test \"c\", %{tmp_dir: dir} do\n    assert dir\n  end\nend"
 
-    # a label that differs is the agent paraphrasing the block it wrote (long1 cart-refactor.B.sonnet),
-    # never a block to nest it in: a describe does not nest, nor a test in a test
+    # a label that differs is the agent paraphrasing the block it wrote, never a block to nest it
+    # in: a describe does not nest, nor a test in a test
     for label <- ["three", nil, "four"] do
       out = Block.add(@src, "describe", label, code)
       assert out =~ "describe \"three\" do\n    @tag :tmp_dir\n    test \"c\""
@@ -348,8 +348,8 @@ defmodule Menard.BlockTest do
   end
 
   test "add handed several whole tests adds each, and a block that does not parse says so" do
-    # bench1 new-component.B.haiku gave two whole tests in one add and was told to pass a body;
-    # and a whole test with a stray paren was told the same, not that it did not parse
+    # two whole tests in one add; and a whole test with a stray paren is told it does not parse, not
+    # to pass a body
     code = "test \"x\", %{a: a} do\n  assert a\nend\n\ntest \"y\" do\n  assert 2\nend"
 
     for label <- ["x", nil] do
@@ -363,7 +363,7 @@ defmodule Menard.BlockTest do
   end
 
   test "get_all: every block of the name, each with its label, line and body" do
-    # bench3 new-component.B.haiku asked block for the tests with no label and was told to pick one
+    # the tests with no label: every one, not a pick
     src =
       "defmodule ATest do\n  use ExUnit.Case\n\n  test \"a\" do\n    assert 1\n  end\n\n  test \"b\" do\n    assert 2\n  end\nend\n"
 
@@ -372,13 +372,12 @@ defmodule Menard.BlockTest do
   end
 
   test "a label with no name finds its block, whatever the macro" do
-    # bench3 new-component.B.sonnet: replace {label: "…"} with no name was told there was no such block
+    # replace {label: "…"} with no name
     out = Block.replace(@src, nil, "assert 9 == 9", label: "b")
     assert out =~ ~s(test "b" do\n      assert 9 == 9)
   end
 
   test "add handed a whole block names it by the block's own label, whatever label came with it" do
-    # long1 cart-refactor.B.sonnet: label "…and no placeholders", the test "…and leaves no placeholders";
     # a block being added has nothing to be told apart from
     code = "test \"c, as written\" do\n  assert 3 == 3\nend"
     out = Block.add(@src, "test", "c, as asked", code)
@@ -387,8 +386,7 @@ defmodule Menard.BlockTest do
   end
 
   test "no name, a whole block as the code: the block names its macro" do
-    # long2 cart-refactor.B.haiku: block with no name and a whole `test "…" do … end`, refused as
-    # "a whole `` block"
+    # a whole `test "…" do … end` and no name
     code = "test \"c\" do\n  assert 3 == 3\nend"
     assert Block.add(@src, nil, nil, code) =~ ~s(test "c" do\n)
     out = Block.replace(@src, "", "test \"b\" do\n  assert 9 == 9\nend", label: "b")
@@ -470,8 +468,8 @@ defmodule Menard.BlockTest do
   end
 
   test "replace handed a whole test with @tag lines above it takes them as the test's tags" do
-    # Found 2026-09-26: a whole test with an `@tag` above it was taken for a body, and came out as a
-    # test nested in the old one. Its tags are the test's own: they replace the ones above it.
+    # a whole test with an `@tag` above it is not a body to nest in the old one. Its tags are the
+    # test's own: they replace the ones above it.
     src = """
     defmodule T do
       use ExUnit.Case
@@ -540,8 +538,8 @@ defmodule Menard.BlockTest do
   test "CODE as `-` is stdin, as write and module take it; an empty stdin is refused, nothing written", %{
     tmp_dir: dir
   } do
-    # 2026-11-08: `block add FILE test - <<'EOF'` wrote a body of one `-`, and the refusal was
-    # "syntax error before: 'end'" at a line of a file that was never written
+    # `block add FILE test - <<'EOF'` with a body of one `-`: the refusal must not be "syntax error
+    # before: 'end'" at a line of a file that was never written
     file = Path.join(dir, "a_test.exs")
     File.write!(file, "defmodule ATest do\n  use ExUnit.Case\nend\n")
 

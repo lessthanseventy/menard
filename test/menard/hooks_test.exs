@@ -196,8 +196,7 @@ defmodule Menard.HooksTest do
 
   test "the format hook hears a failed shell command too: PostToolUse does not run when the tool fails" do
     # a shell command that edits a module and then runs a failing test (the usual edit-then-test)
-    # fires PostToolUseFailure, not PostToolUse, so a hook on the latter never heard of the edit
-    # (found in the eval: arm H's shell hook, 2026-09-25)
+    # fires PostToolUseFailure, not PostToolUse, so a hook on the latter never hears of the edit
     hooks = @root |> Path.join("hooks/hooks.json") |> File.read!() |> JSON.decode!()
 
     # a matcher is a set of tools, `Bash|Agent|Task`
@@ -223,8 +222,7 @@ defmodule Menard.HooksTest do
   test "format-report formats what an Edit wrote and tells the agent what the formatter changed", %{
     tmp_dir: dir
   } do
-    # the eval: `999999` became `999_999` under an agent, and its next Edit, written against its
-    # own read, missed
+    # `999999` becomes `999_999`, and the next Edit, written against the agent's own read, would miss
     host(dir)
     file = Path.join(dir, "lib/n.ex")
     File.write!(file, "defmodule N do\n  def big, do: 999999\nend\n")
@@ -443,7 +441,7 @@ defmodule Menard.HooksTest do
   @tag :tmp_dir
   test "under the hooks server credo is off the call's path: its notes come with the session's next answer",
        %{tmp_dir: dir} do
-    # 2 s of CPU and up to 10 s of wall under load, paid at every write (Fable's review, 2026-10-01)
+    # 2 s of CPU and up to 10 s of wall under load, paid at every write
     host(dir)
     File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
 
@@ -711,7 +709,7 @@ defmodule Menard.HooksTest do
   test "format-report leaves a file the project's formatter inputs do not take as it was written", %{
     tmp_dir: dir
   } do
-    # 2026-09-30: another project's tests, written under eval/ as fixtures, came out in menard's style;
+    # another project's tests, written under eval/ as fixtures, must not come out in menard's style;
     # the project's own `mix format` never takes them
     host(dir)
 
@@ -739,7 +737,7 @@ defmodule Menard.HooksTest do
   test "the third Edit of a run is told of edit, once a session; a command between two Edits ends the run", %{
     tmp_dir: dir
   } do
-    # desk3: sonnet made 83 Edits in a session, a model call each, and called edit in none
+    # Edits one after another, a model call each, and `edit` called in none
     host(dir)
     file = Path.join(dir, "lib/m.ex")
     File.write!(file, "defmodule M do\n  def f(x), do: x\nend\n")
@@ -855,7 +853,7 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
   test "a session's start puts menard on its PATH, and every text then names it `menard`", %{tmp_dir: dir} do
-    # the agent typed menard's absolute path on every call, ~100 a session (Fable's review, 2026-10-01)
+    # the agent would type menard's absolute path on every call
     env = Path.join(dir, "env")
     System.put_env("CLAUDE_ENV_FILE", env)
     on_exit(fn -> System.delete_env("CLAUDE_ENV_FILE") end)
@@ -918,9 +916,8 @@ defmodule Menard.HooksTest do
   @tag :tmp_dir
   test "a session's first refusal carries what is so in it; one told at its start is not told again",
        %{tmp_dir: dir} do
-    # ficciones, 2026-10-20, five hours into a session that started before the plugin was enabled
-    # under it: "another new menard 0.6.0 rule", one refusal at a time. The start-of-session text
-    # never reached it, and a resumed session is taken to have it from its start
+    # a session that started before the plugin was enabled under it never got the start-of-session
+    # text, and a resumed session is taken to have it from its start
     payload = fn session, event, input ->
       %{
         "hook_event_name" => event,
@@ -969,8 +966,7 @@ defmodule Menard.HooksTest do
   test "a module read again is answered with what changed since the last read, not read whole", %{
     tmp_dir: dir
   } do
-    # desk5's with session read lib/desk/tickets.ex whole six times, 11 rereads in all: each time the
-    # file it had, and the few lines that had changed
+    # a file read whole again is answered with the few lines that changed, not the file it had
     file = Path.join(dir, "lib/a.ex")
     File.mkdir_p!(Path.dirname(file))
     lines = for n <- 1..20, do: "  def f#{n}, do: #{n}\n"
@@ -998,7 +994,7 @@ defmodule Menard.HooksTest do
     assert {:deny, why} = read.("PreToolUse", %{})
     assert why =~ "lib/a.ex is unchanged since you read it"
 
-    # desk7: shown as a "hook error", the answer was taken for a failure and the Read asked again
+    # shown as a "hook error", the answer would be taken for a failure and the Read asked again
     assert why =~ "This is the Read's answer, not an error"
 
     # changed: read, and what it holds then is what was read (answered with a diff, it was read at
@@ -1028,8 +1024,8 @@ defmodule Menard.HooksTest do
   test "a module the agent wrote since its read is no news to it: a read again answers unchanged", %{
     tmp_dir: dir
   } do
-    # desk7: router.ex, read then edited by the agent, was read again and answered with its own edit as
-    # what had changed; what it wrote, and what the formatter did after (reported to it), it knows
+    # a file read then edited by the agent, read again, is not answered with its own edit as what
+    # had changed; what it wrote, and what the formatter did after (reported to it), it knows
     file = Path.join(dir, "lib/r.ex")
     File.mkdir_p!(Path.dirname(file))
     File.write!(file, "defmodule R do\n  def a, do: 1\nend\n")
@@ -1073,9 +1069,8 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
   test "the old command-hook wiring run under Claude Code says once to restart it", %{tmp_dir: dir} do
-    # 2026-09-30: a session started 09-26 ran the 09-26 wiring for days, with no MCP tools and no Read
-    # hook, and nothing said so. Today's wiring calls the MCP server: this script run under Claude Code
-    # (CLAUDE_PLUGIN_ROOT) is the old one, and says once to restart
+    # the wiring calls the MCP server: this script run under Claude Code (CLAUDE_PLUGIN_ROOT) is a
+    # stale one, and says once to restart
     root = Path.expand(".")
 
     hook = fn session ->
@@ -1104,9 +1099,7 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
   test "the session's start says what is so once, not again on a resume", %{tmp_dir: dir} do
-    # Fable 2026-10-01: said again on every resume (49 of 57 fires), and its example's `--then test`
-    # was taken on 28 of 37 edits, the suite red mid-change. Reads are no longer refused, and the
-    # verbs are there when wanted, not the required path
+    # reads are not refused, and the verbs are there when wanted, not the required path
     start = fn source ->
       Menard.Hook.run(
         %{"hook_event_name" => "SessionStart", "source" => source, "session_id" => "s", "cwd" => dir},
@@ -1155,8 +1148,7 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
   test "a session's start sweeps menard's files a week old", %{tmp_dir: dir} do
-    # Fable 2026-10-01: 7,022 menard-* files in /tmp, 5,054 of them per-session marks, and 378 run-log
-    # directories, and nothing swept them. A session's start sweeps what is a week old
+    # A session's start sweeps what is a week old
     old = System.os_time(:second) - 8 * 24 * 3600
     mark = Path.join(dir, "menard-touched-oldsession")
     recent = Path.join(dir, "menard-touched-thissession")
@@ -1184,8 +1176,7 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
   test "a session's end takes its marks with it, and a resume puts back what it was told", %{tmp_dir: dir} do
-    # ficciones, 2026-10-21: 8,156 menard-* files in /tmp two days after the week's sweep, near all a
-    # told and a path mark, ~100 headless sessions an hour each leaving two
+    # headless sessions each leave a told and a path mark
     hook = fn event, session, extra ->
       Menard.Hook.run(Map.merge(%{"hook_event_name" => event, "session_id" => session, "cwd" => dir}, extra),
         state_dir: dir
@@ -1207,9 +1198,8 @@ defmodule Menard.HooksTest do
 
   @tag :tmp_dir
   test "the session-end hook removes the session's marks without starting menard", %{tmp_dir: dir} do
-    # SessionEnd is cut short in a headless session, and menard's own start is ~2 s: marks leaked
-    # (7,664 menard-path/told files in /tmp, 2026-10-30). A root whose bin/menard would hang proves
-    # the hook needs none
+    # SessionEnd is cut short in a headless session, and menard's own start is ~2 s. A root whose
+    # bin/menard would hang proves the hook needs none
     root = Path.join(dir, "plugin")
     File.mkdir_p!(Path.join(root, "bin"))
     File.write!(Path.join(root, "bin/menard"), "#!/usr/bin/env bash\nsleep 30\n")
