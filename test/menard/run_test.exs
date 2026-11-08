@@ -140,14 +140,14 @@ defmodule Menard.RunTest do
     assert message =~ "x"
   end
 
-  @pinned "1.20.4-otp-29"
+  @pinned "1.19.4-otp-27"
   @tag skip:
          !(System.find_executable("mise") &&
              File.dir?(Path.expand("~/.local/share/mise/installs/elixir/#{@pinned}")) &&
-             System.version() != "1.20.4") &&
+             System.version() != "1.19.4") &&
            "needs mise with elixir #{@pinned} installed, menard on another elixir"
   test "the host's mix runs on the host's toolchain, not menard's", %{tmp_dir: dir} do
-    File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{@pinned}\"\nerlang = \"29\"\n")
+    File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{@pinned}\"\nerlang = \"27\"\n")
 
     File.write!(Path.join(dir, "mix.exs"), """
     defmodule Pin.MixProject do
@@ -157,7 +157,7 @@ defmodule Menard.RunTest do
     """)
 
     System.cmd("mise", ["trust", Path.join(dir, "mise.toml")], stderr_to_stdout: true)
-    assert Menard.Run.result(dir, "check", []).tail =~ "1.20.4"
+    assert Menard.Run.result(dir, "check", []).tail =~ "1.19.4"
   end
 
   describe "a repo with no mix.exs" do
