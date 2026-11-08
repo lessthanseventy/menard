@@ -8,10 +8,12 @@ defmodule Menard.Lang do
   whole file of someone else's style (ficciones holds no `nixfmt`-style Nix).
   """
 
+  # shellcheck on the file, not its stdin, so `-x` follows what it sources beside it (lib.sh of the
+  # hooks): the sourced file's variables are assigned, and SC1091 "not following" is not said
   @shell %{
     parse: ~w(bash -n),
     format: ~w(shfmt --filename FILE),
-    lint: [~w(shellcheck -f json -)]
+    lint: [~w(shellcheck -f json -x -P SCRIPTDIR FILE)]
   }
 
   @tools %{
@@ -144,7 +146,9 @@ defmodule Menard.Lang do
   defp issues("shellcheck", out, base) do
     case JSON.decode(out) do
       {:ok, found} when is_list(found) ->
-        for %{"line" => line, "code" => code, "message" => message} <- found,
+        # a followed file's findings are its own, not this file's at the same line numbers
+        for %{"file" => file, "line" => line, "code" => code, "message" => message} <- found,
+            Path.basename(file) == base,
             do: %{kind: "shellcheck", message: "SC#{code}: #{message}", at: "#{base}:#{line}"}
 
       _ ->
