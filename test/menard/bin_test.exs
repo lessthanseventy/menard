@@ -18,8 +18,8 @@ defmodule Menard.BinTest do
   # dev build was deleted and rebuilt beside it)
   @fresh [{"MIX_ENV", "bintest"}]
   @caller [
-    Path.expand("~/.local/share/mise/installs/elixir/1.20.4-otp-29/bin"),
-    Path.expand("~/.local/share/mise/installs/erlang/29.0.6/bin")
+    Path.expand("~/.local/share/mise/installs/elixir/1.19.4-otp-27/bin"),
+    Path.expand("~/.local/share/mise/installs/erlang/27.3.4.2/bin")
   ]
 
   defp fresh_build!, do: File.rm_rf!(Path.join(@root, "_build/bintest/lib/menard"))
@@ -152,10 +152,10 @@ defmodule Menard.BinTest do
 
   @tag skip:
          !(System.find_executable("mise") && Enum.all?(@caller, &File.dir?/1)) &&
-           "needs mise with elixir 1.20.4-otp-29 and erlang 29.0.6 installed"
+           "needs mise with elixir 1.19.4-otp-27 and erlang 27.3.4.2 installed"
   test "runs on menard's own pinned toolchain, whatever the caller's PATH puts first" do
     path = Enum.join(@caller ++ [System.get_env("PATH")], ":")
     {out, 0} = System.cmd(@bin, ["version"], env: [{"PATH", path}, {"MIX_ENV", "dev"}])
-    assert out =~ "on Elixir 1.19.4 / OTP 27"
+    assert out =~ "on Elixir 1.20.4 / OTP 29"
   end
 end
