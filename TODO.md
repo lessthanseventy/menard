@@ -3,9 +3,12 @@
 Found and not yet fixed. Fix it, or write it here, never just "noted". Delete a line when its
 commit lands.
 
-- A VM crashing at boot on a stderr gone: the dumps in ~/projects (OTP 27 and 29, 2026-09 to 10)
-  say `io:put_chars(standard_error, "** (EXIT from #PID<0.95.0>) … (ErlangError) Erlang error:
-  :terminated …")` failed with "the device does not exist". Which VM, and how its stderr went, is
-  unknown: `elixir -e 'raise …'` under `2>&-` or a stderr pipe whose reader is gone exits 1, no dump.
-  Reproduce it first; 0.8.4 only moved where the dump goes (`ERL_CRASH_DUMP`, bin/menard).
+- A script that raises with stderr unwritable crashes the VM at boot (Elixir's bug: Kernel.CLI
+  prints the exception to stderr, that raises, and its handler's print raises again). Reproduced in
+  the operator's terminal (`elixir boom.exs 2>&-`, or `2>&1 >/dev/null | true`), not in a Claude
+  Code shell: there a closed fd 2 is reused by the next file opened (the `elixir` launcher), and
+  the VM ignores SIGPIPE. The verb's VM writes its stderr to a temp file, so it is exposed only
+  where it inherits the caller's: `mcp`, and a sandbox that denies the temp dir. The dump no longer
+  lands in a project (0.8.4). Left: a guarded print in bin/menard's `script`, once a test is red
+  for it here; and the report upstream.
 - `lang`: a script with no extension that a shell command wrote is not checked: `Menard.Hook`'s `newer/2` finds files by name.
