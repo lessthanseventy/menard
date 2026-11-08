@@ -34,13 +34,13 @@ defmodule Menard.Deps do
          {:ok, module} <- Tree.module_scope(ast, opts[:module]) do
       defs = definitions(module)
 
-      case Enum.filter(defs, &(key(&1) == want)) do
+      case Enum.filter(defs, &wanted?(&1, want)) do
         [] ->
           {:error,
            "no #{name(want)} in this module — have: #{Enum.map_join(Enum.uniq(Enum.map(defs, &name(key(&1)))), ", ", & &1)}"}
 
-        mine ->
-          report(mine, defs, want)
+        [first | _] = mine ->
+          report(mine, defs, key(first))
       end
     end
   end
@@ -137,12 +137,16 @@ defmodule Menard.Deps do
   end
 
   defp key({key, _node}), do: key
+
+  defp wanted?({{fun, arity}, _node}, {want_fun, want_arity}),
+    do: Atom.to_string(fun) == want_fun and arity == want_arity
+
   defp name({fun, arity}), do: "#{fun}/#{arity}"
 
   defp split(name_arity) do
     with [fun, arity] <- String.split(name_arity, "/"),
          {arity, ""} <- Integer.parse(arity) do
-      {:ok, {String.to_atom(fun), arity}}
+      {:ok, {fun, arity}}
     else
       _ -> {:error, "expected name/arity, got #{inspect(name_arity)}"}
     end

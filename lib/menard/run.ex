@@ -1003,7 +1003,8 @@ defmodule Menard.Run do
             waited
 
           true ->
-            Process.sleep(1_000) && take(lock, deadline, waited + 1)
+            Process.sleep(1_000)
+            take(lock, deadline, waited + 1)
         end
     end
   end
