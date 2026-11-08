@@ -288,15 +288,15 @@ defmodule Menard.AttrTest do
     lines = String.split(out, "\n")
     at = fn text -> Enum.find_index(lines, &String.contains?(&1, text)) end
 
-    # above @statuses it would read nil, which the eval's agents then spent a dozen turns undoing
+    # above @statuses it would read nil
     assert at.("@open @statuses") > at.("@statuses [")
     assert at.("@open @statuses") < at.("@transitions")
     assert at.("@open @statuses") < at.("def open?")
   end
 
   test "set handed the whole attribute, @name and all, takes the value from it" do
-    # bench3 bug-receipt-total.B.haiku passed `@receipt """…"""` as the value and got
-    # `@receipt @receipt """…`: it parsed, so nothing refused it
+    # `@receipt """…"""` as the value must not give `@receipt @receipt """…`: it parses, so nothing
+    # would refuse it
     src = "defmodule A do\n  @receipt \"\"\"\n  Total: {{totl}}\n  \"\"\"\n\n  def r, do: @receipt\nend\n"
     out = Attr.set(src, "receipt", "  @receipt \"\"\"\n  Total: {{total}}\n  \"\"\"")
     refute out =~ "@receipt @receipt"

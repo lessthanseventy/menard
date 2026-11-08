@@ -18,8 +18,8 @@ defmodule Menard.HostToolchainTest do
              File.dir?(Path.expand("~/.local/share/mise/installs/elixir/#{elem(@other, 0)}"))) &&
            "needs mise with elixir #{elem(@other, 0)} installed"
   test "a host that pins nothing runs the mix on PATH, not mise's global default", %{dir: dir} do
-    # bench1: the agent's own `mix` was PATH's (1.19), menard's was mise's global (1.20), and each
-    # rebuilt every dep the other had built, until a `run check` took ten minutes
+    # the agent's own `mix` is PATH's and menard's would be mise's global: each would rebuild every
+    # dep the other had built
     {other, erlang} = @other
 
     # beside the host, not above it: a config above it is the host's own pin
@@ -44,9 +44,9 @@ defmodule Menard.HostToolchainTest do
 
   @tag skip: !System.find_executable("mise") && "needs mise"
   test "a host config mise does not load is refused, not a run on menard's toolchain", %{dir: dir} do
-    # tlon, 2026-11-04: server/'s mix ran on menard's OTP 27 under tlon's mise.toml pinning 29,
-    # recompiling server/_build, and its crash dump said so; mise had listed no pin for it. There is a
-    # right toolchain, a `mise trust` away: a run on the wrong one is never the one wanted
+    # a mix run on menard's OTP under a mise.toml pinning another would recompile the project's
+    # _build; mise lists no pin for it. There is a right toolchain, a `mise trust` away: a run on the
+    # wrong one is never the one wanted
     config = Path.join(dir, "mise.toml")
     File.write!(config, "[tools]\nerlang = \"29.0.6\"\nelixir = \"1.20.4-otp-29\"\n")
     server = Path.join(dir, "server")
@@ -69,10 +69,9 @@ defmodule Menard.HostToolchainTest do
 
   @tag skip: !System.find_executable("mise") && "needs mise"
   test "a host whose mise refuses to run: the reply carries mise's own reason", %{dir: dir} do
-    # the eval bench's Tlön copy: the host's mise refused to run, and the reply ended in mise's
-    # "Version: …" and "Run with --verbose" lines, not the one that said why. An untrusted config
-    # was the refusal until mise 2026.10, which runs it (and reads its [env]) with an error printed;
-    # a config it cannot parse it still refuses, the reason in a `×` line above a drawing of the file
+    # the reply must not end in mise's "Version: …" and "Run with --verbose" lines, but in the one
+    # that says why. A config mise cannot parse it refuses, the reason in a `×` line above a drawing
+    # of the file
     File.write!(Path.join(dir, "mise.toml"), "[tools\nerlang = \"27\"\n")
     File.write!(Path.join(dir, "mix.exs"), "defmodule T.MixProject do\n  use Mix.Project\nend\n")
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"*.ex\"]]")

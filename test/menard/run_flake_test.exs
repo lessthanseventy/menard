@@ -52,8 +52,8 @@ defmodule Menard.RunFlakeTest do
   test "a test that fails once and passes on its rerun is named a flake, not the change's failure", %{
     tmp_dir: dir
   } do
-    # Oban 01, 04, Symphony 01: a failure that was the suite's own flake read as the change's, and the
-    # agent stashed its work to run a baseline. Failed once, it runs again; passed, it is named a flake
+    # a failure that is the suite's own flake must not read as the change's. Failed once, it runs
+    # again; passed, it is named a flake
     Host.mix_project(dir, :flakes)
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
@@ -91,8 +91,7 @@ defmodule Menard.RunFlakeTest do
 
   @tag :tmp_dir
   test "a check's failed tests run once more; one that passes is a flake, not the change's", %{tmp_dir: dir} do
-    # up4 Oban 01: run check red twice on the notifier's flake, no rerun, and the agent stashed its work
-    # for a baseline; run test said `flaky` in the same step. A check reruns its failed tests too
+    # run test says `flaky` in the same step. A check reruns its failed tests too
     flaky = """
     defmodule FlakyTest do
       use ExUnit.Case
@@ -116,7 +115,7 @@ defmodule Menard.RunFlakeTest do
     assert %{ok: true, flaky: [%{name: "once"}]} = Run.lean(Run.result(dir, "check", []))
 
     # an alias stops at its failing step: the steps after it are run here, each its own mix, and
-    # the check is green (it said "run check again", a second whole gate: Fable's review, 2026-10-01)
+    # the check is green (not "run check again", a second whole gate)
     File.rm!(Path.join(dir, "test/ran"))
 
     File.write!(Path.join(dir, "mix.exs"), """
@@ -180,9 +179,7 @@ defmodule Menard.RunFlakeTest do
   @tag :tmp_dir
   test "a failing test the agent is writing carries no source and is not run again; an older one keeps both",
        %{tmp_dir: dir} do
-    # Fable 2026-10-01: a failure's `source` was 44% of red replies, in a TDD loop the test written one
-    # call before; and every expected red was run a second time for flakes. A test file changed since
-    # HEAD is the agent's own: no source, no rerun. One unchanged keeps both
+    # A test file changed since HEAD is the agent's own: no source, no rerun. One unchanged keeps both
     Host.mix_project(dir, :tdd)
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")

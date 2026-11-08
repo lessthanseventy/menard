@@ -155,8 +155,7 @@ defmodule Menard.MoveSplitTest do
 
   test "a private helper that functions staying behind also call is made public and stays, and the moved code calls it there",
        %{tmp_dir: dir} do
-    # riverside2: every split was refused on the shared broadcast helpers, then two `visibility` calls
-    # and the move again. That fix is the move's own now, said in the reply.
+    # a helper shared with what stays is made public by the move itself, said in the reply.
     file = Path.join(dir, "fmt.ex")
 
     File.write!(file, """
@@ -582,9 +581,9 @@ defmodule Menard.MoveSplitTest do
 
   test "a helper called without its default argument is the helper all the same: carried, or made public where it is shared",
        %{tmp_dir: dir} do
-    # Found 2026-09-28, splitting the helpdesk reference: `record(t, kind, from, to, actor \\ :system)`
-    # called as record/4 was no function the move knew, so it neither went nor was made public, and
-    # the new module called a function it did not have. It parsed, and did not compile.
+    # `record(t, kind, from, to, actor \\ :system)` called as record/4 must be a function the move
+    # knows, or it neither goes nor is made public, and the new module calls a function it does not
+    # have. It parses, and does not compile.
     file = Path.join(dir, "log.ex")
 
     File.write!(file, """
@@ -616,7 +615,6 @@ defmodule Menard.MoveSplitTest do
   end
 
   test "the calls left are five per file, then how many more", %{tmp_dir: dir} do
-    # three helpers out of host_format_test.exs answered sixty lines of `left` (2026-11-08)
     file = Path.join(dir, "many.ex")
     callers = Enum.map_join(1..7, "", &"  def b#{&1}(x), do: a(x)\n")
     File.write!(file, "defmodule Many do\n  def a(x), do: x\n" <> callers <> "end\n")

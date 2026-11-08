@@ -40,7 +40,6 @@ defmodule Menard.MoveTest do
   test "public: true makes each moved function public in its new module (helpers into test/support)", %{
     tmp_dir: dir
   } do
-    # the suite's split, 2026-11-08: three `clause visibility … public` after the one move
     from = Path.join(dir, "a.ex")
     File.write!(from, "defmodule A do\n  def go, do: 2\n\n  defp help, do: 1\nend\n")
     dest = Path.join(dir, "b.ex")

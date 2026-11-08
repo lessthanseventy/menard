@@ -13,9 +13,9 @@ defmodule Menard.BinCopyLockTest do
   test "a checkout whose mix.lock gained a dep since its first run fetches it, and says nothing", %{
     tmp_dir: dir
   } do
-    # Found 2026-09-26: a worktree first run at an older commit, then moved to one whose mix.lock
-    # has more deps. deps/ is untracked, so it kept the old ones, and the first-run check (one dep's
-    # directory) passed: the compile died on "dependency not available". The same after any pull that
+    # a worktree first run at an older commit, then moved to one whose mix.lock has more deps.
+    # deps/ is untracked, so it keeps the old ones, and the first-run check (one dep's
+    # directory) passes: the compile dies on "dependency not available". The same after any pull that
     # adds a dep. Here: a copy of this checkout, its deps and dev build, with one dep taken away.
     copy = checkout_copy!(dir)
     File.rm_rf!(Path.join(copy, "deps/jason"))

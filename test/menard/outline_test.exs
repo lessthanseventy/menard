@@ -160,8 +160,7 @@ defmodule Menard.OutlineTest do
   end
 
   test "a function component's attr and slot lines are in its outline, as its head is" do
-    # desk7 step 6 listed core_components.ex with grep "^  def \|^  attr\|^  slot": a component's attrs
-    # and slots are what calling it takes, and the outline left them out
+    # a component's attrs and slots are what calling it takes
     src = ~S'''
     defmodule Web.Components do
       use Phoenix.Component

@@ -58,9 +58,9 @@ defmodule Menard.BinTest do
   test "a build changed under menard between its compile and the verb leaves the answer alone", %{
     tmp_dir: dir
   } do
-    # Found 2026-09-26: another process deleted and rebuilt _build between bin/menard's own compile
-    # and the verb's mix, and the verb's mix compiled again, "Generated menard app" onto stdout
-    # where the answer belongs. Deterministically: a dep's build gone after the last compile is what
+    # another process deleting and rebuilding _build between bin/menard's own compile and the
+    # verb's mix makes the verb's mix compile again, "Generated menard app" onto stdout where the
+    # answer belongs. Deterministically: a dep's build gone after the last compile is what
     # the verb's own mix rebuilt, "==> sourceror … Generated menard app" ahead of the answer.
     file = Path.join(dir, "a.ex")
     File.write!(file, "defmodule A do\n  @limit 5_000\n\n  def go, do: @limit\nend\n")

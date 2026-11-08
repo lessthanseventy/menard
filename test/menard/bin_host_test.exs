@@ -70,8 +70,7 @@ defmodule Menard.BinHostTest do
 
   @tag :tmp_dir
   test "a VM menard starts that crashes dumps in the temp dir, not the caller's project", %{tmp_dir: dir} do
-    # tlon, 2026-11: a host VM menard started crashed on boot and left erl_crash.dump in server/,
-    # the caller's cwd; ~/projects held 30 of them
+    # a host VM menard starts that crashes on boot must not leave erl_crash.dump in the caller's cwd
     Host.mix_project(dir, :dumps)
     File.mkdir_p!(Path.join(dir, "test"))
     File.mkdir_p!(Path.join(dir, "tmp"))
@@ -112,8 +111,8 @@ defmodule Menard.BinHostTest do
 
   @tag :tmp_dir
   test "a stderr whose reader is gone gets the verb's exit, not SIGPIPE's", %{tmp_dir: dir} do
-    # 2026-11: a refusal printed to a dead stderr pipe exited 141, the shell's own SIGPIPE on the
-    # `cat` that passes the verb's stderr on, and the verb's 1 was lost
+    # a refusal printed to a dead stderr pipe must not exit 141, the shell's own SIGPIPE on the
+    # `cat` that passes the verb's stderr on, and lose the verb's 1
     File.write!(Path.join(dir, "a.ex"), "defmodule A do\nend\n")
     File.write!(Path.join(dir, "bad.edit"), "a.ex\n<<<<<<< SEARCH\nnope\n=======\nx\n>>>>>>> REPLACE\n")
 
@@ -159,8 +158,7 @@ defmodule Menard.BinHostTest do
 
   @tag :tmp_dir
   test "edit --then at the CLI runs the then, as the MCP door does", %{tmp_dir: dir} do
-    # 2026-10-01 19:15: `then` moved to Verbs.call, the edit task still called Verbs.Edit.run, and
-    # `--then test` was dropped without a word at the CLI. Held at the door the agent types
+    # `--then test` must not be dropped without a word at the CLI. Held at the door the agent types
     Host.mix_project(dir, :thencli)
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\nend\n")
@@ -183,8 +181,7 @@ defmodule Menard.BinHostTest do
   @tag :tmp_dir
   test "edit --then test FILE… at the CLI runs those tests, as the MCP door's `then: \"test FILE…\"` does",
        %{tmp_dir: dir} do
-    # Transcripts 2026-10-08 to 10-13: `edit --then test test/x_test.exs -` seven times, each
-    # refused with the bare usage line, and the edit sent again without its `--then` at all
+    # `edit --then test test/x_test.exs -` must not be refused with the bare usage line
     Host.mix_project(dir, :thenfiles)
     File.mkdir_p!(Path.join(dir, "lib"))
     File.mkdir_p!(Path.join(dir, "test"))
@@ -212,8 +209,8 @@ defmodule Menard.BinHostTest do
 
   @tag :tmp_dir
   test "a flag the usage lists fills the argument of that name: write FILE --code CODE", %{tmp_dir: dir} do
-    # 2026-10-19: `write FILE --code "$(cat FILE)"` and `write FILE --file FILE`, each refused with
-    # the usage line that lists --file and --code among the flags
+    # `write FILE --code "$(cat FILE)"` and `write FILE --file FILE` must not be refused with the
+    # usage line that lists --file and --code among the flags
     Host.mix_project(dir, :flagfill)
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\nend\n")

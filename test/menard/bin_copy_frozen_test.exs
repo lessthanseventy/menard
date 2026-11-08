@@ -11,9 +11,9 @@ defmodule Menard.BinCopyFrozenTest do
   test "--frozen still runs the last good build after a verb without it failed to compile menard", %{
     tmp_dir: dir
   } do
-    # Found 2026-09-26: one verb run without --frozen mid-edit (menard not compiling) failed its
-    # compile, and the compiler had already removed the beams of the modules it was recompiling;
-    # every --frozen verb after it died on "module Menard.Source is not available".
+    # one verb run without --frozen mid-edit (menard not compiling) fails its compile, and the
+    # compiler has already removed the beams of the modules it was recompiling; every --frozen verb
+    # after it would die on "module Menard.Source is not available".
     copy = checkout_copy!(dir)
     bin = Path.join(copy, "bin/menard")
     env = [{"MIX_ENV", "dev"}]
@@ -44,9 +44,9 @@ defmodule Menard.BinCopyFrozenTest do
   test "--frozen still runs the last good build after a `run compile` of menard itself failed", %{
     tmp_dir: dir
   } do
-    # 2026-10-20: `--frozen edit --then compile` on an edit that broke lib/mix/tasks/menard.edit.ex
-    # compiled through the verb, not through this file's own build step, so nothing put the beams
-    # back; the next `--frozen edit` said the task menard.edit could not be found
+    # `--frozen edit --then compile` on an edit that breaks lib/mix/tasks/menard.edit.ex compiles
+    # through the verb, not through this file's own build step, so nothing puts the beams back; the
+    # next `--frozen edit` would say the task menard.edit could not be found
     copy = checkout_copy!(dir)
     bin = Path.join(copy, "bin/menard")
     env = [{"MIX_ENV", "dev"}]

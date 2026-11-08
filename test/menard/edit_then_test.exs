@@ -37,7 +37,6 @@ defmodule Menard.EditThenTest do
   end
 
   test "then: test runs the tests of what the edit changed, not the whole suite", %{tmp_dir: dir} do
-    # 2026-09-30: a one-line edit's `then: test` ran menard's 1,034 tests, and timed out at 620 s
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
 
@@ -96,8 +95,8 @@ defmodule Menard.EditThenTest do
 
   @tag :tmp_dir
   test "then runs in the mix project of the files it wrote, nested under the root or not", %{tmp_dir: dir} do
-    # Fable 2026-10-01: `then` ran in the root and mapped lib/ to test/ from it, so in a repo whose mix
-    # project is server/ (tlon's) no test was found and --stale ran where there was no mix.exs
+    # `then` run in the root and mapping lib/ to test/ from it would, in a repo whose mix project is
+    # server/, find no test and run --stale where there is no mix.exs
     server = Path.join(dir, "server")
     File.mkdir_p!(server)
     Host.mix_project(server, :nested)

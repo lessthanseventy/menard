@@ -1,7 +1,6 @@
 defmodule Menard.SplitTest do
-  # `clause split`: a module into several in ONE call, the whole plan at once. riverside2: a split
-  # by `clause move` was a call per new module with a refusal and two fix-ups between, twelve calls
-  # where the agents' own script was one, and doubled the step.
+  # `clause split`: a module into several in ONE call, the whole plan at once, not a `clause move`
+  # per new module.
   use ExUnit.Case, async: true
 
   alias Menard.Test.Host

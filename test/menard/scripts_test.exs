@@ -81,7 +81,7 @@ defmodule Menard.ScriptsTest do
     {_, 0} = System.cmd("git", ["-C", dir, "add", "eval/run.py"])
 
     for ok <- [
-          "python3 eval/run.py desk5 --suite eval/helpdesk",
+          "python3 eval/run.py x --suite eval/helpdesk",
           # quoted: a tmp_dir holds the test's name, `;` and all
           "cd '#{dir}' && python3 eval/run.py x > out 2>&1",
           "FOO=1 nohup python3 eval/run.py &"
@@ -102,9 +102,9 @@ defmodule Menard.ScriptsTest do
   @tag :tmp_dir
 
   test "a subagent sent to find a function's callers is answered with find calls" do
-    # desk5 step 08: an Explore subagent, 1,404 characters of prompt, to list the calls of
-    # Desk.Tickets.transition/2 apart from the event name and element ids that share its word: what
-    # find calls does in one call, strings and comments never matched
+    # an Explore subagent to list the calls of Desk.Tickets.transition/2 apart from the event name
+    # and element ids that share its word: what find calls does in one call, strings and comments
+    # never matched
     prompt =
       "search the whole codebase (lib/ and test/) for every reference to `Tickets.transition`, `transition(` " <>
         "(the Desk.Tickets.transition/2 function), and any place that calls it. List findings as file:line."
@@ -121,7 +121,7 @@ defmodule Menard.ScriptsTest do
     assert Scripts.delegated("Find every reference to the word transition in the docs", @menard) == nil
     assert Scripts.delegated("Review Desk.Tickets.transition/2 for bugs", @menard) == nil
 
-    # tlon-57, 2026-11-08: a build brief that TELLS the subagent to use find calls is no search
+    # a build brief that TELLS the subagent to use find calls is no search
     assert Scripts.delegated(
              "Fix the bug in Server.Staffing.explain/1 and add a test. To find its callers use " <>
                "`menard find calls Server.Staffing.explain lib test`, then update each.",
@@ -131,8 +131,8 @@ defmodule Menard.ScriptsTest do
 
   @tag :tmp_dir
 
-  # tlon, 2026-11: ~200 of 271 refusals in 14 days were this rule, nearly all `menard … | head -c N`
-  # ending the line. What was asked is run, the filter dropped: no call lost to the refusal
+  # `menard … | head -c N` ending the line: what was asked is run, the filter dropped, no call lost
+  # to the refusal
   test "menard's reply piped through a filter that ends the line runs bare, the filter dropped" do
     for {command, bare} <- [
           {"/p/bin/menard run test test/a_test.exs | jq -c '.failures[]'",
@@ -178,7 +178,7 @@ defmodule Menard.ScriptsTest do
           "/p/bin/menard block add t.exs test --label x 'assert 1' >/dev/null",
           "/p/bin/menard outline lib/a.ex > /dev/null 2>&1",
           "if true; then bin/menard outline lib/a.ex | head; fi",
-          # wrapped, as the script ban reads them: ran unrefused 2026-10-07 and 10-08
+          # wrapped, as the script ban reads them
           "timeout 180 bin/menard run test test/menard/bin_test.exs:301 2>&1 | tail -60 && echo ok",
           "cd /x && MIX_ENV=test nohup bin/menard run check | tail -5 | wc -l"
         ] do
@@ -188,7 +188,7 @@ defmodule Menard.ScriptsTest do
 
     refute refused?("for f in a b; do echo $f | grep a; done")
     refute refused?("/p/bin/menard run check > gate.json")
-    # only stderr thrown away, the reply kept (tlon, 13 refusals in three weeks of 2026-10/11)
+    # only stderr thrown away, the reply kept
     refute refused?("/p/bin/menard clause get lib/a.ex go/0 2>/dev/null || sed -n 1,40p lib/a.ex")
     # both thrown away is the reply thrown away, and the refusal says that is what it saw
     assert Scripts.refused("/p/bin/menard outline lib/a.ex &>/dev/null", @menard) =~ "/dev/null"
@@ -207,8 +207,7 @@ defmodule Menard.ScriptsTest do
   end
 
   test "an interpreter's version, help or module run is no script, and runs" do
-    # Fable 2026-10-01: `node --version` refused, no tracked program named: a version or help is no
-    # script (a module run is: `python3 -m json.tool` is jq's here)
+    # a version or help is no script (a module run is: `python3 -m json.tool` is jq's here)
     for command <- ["node --version", "python3 -V", "ruby -v", "python3 --help"] do
       refute refused?(command), command
     end
