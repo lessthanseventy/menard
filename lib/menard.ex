@@ -15,7 +15,7 @@ defmodule Menard do
   @last ~w(file version log)
 
   @doc "The directory the caller stood in."
-  def caller_dir, do: System.get_env("MENARD_CWD") || File.cwd!()
+  def caller_dir, do: Process.get(:menard_cwd) || System.get_env("MENARD_CWD") || File.cwd!()
 
   @doc """
   This menard as a shell runs it, by its path. Whatever menard tells an agent to run, it names by
