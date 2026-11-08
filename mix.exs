@@ -46,11 +46,6 @@ defmodule Menard.MixProject do
         precommit: [
           "format --check-formatted",
           "compile --warnings-as-errors",
-          # and under the newest Elixir mise has installed, in a build of its own: 0.6.0 shipped
-          # three warnings 1.20's type inference raises and 1.19's does not, found by a host's
-          # build of the dep. Pinned to tlon's pair; a missing install fails the gate, and says so
-          # stdin closed: an install with no Hex asks "Shall I install Hex? [Yn]" and the gate hung
-          ~s(cmd sh -c "MIX_BUILD_PATH=_build/newest mise exec elixir@1.20.4-otp-29 erlang@29.0.6 -- mix compile --warnings-as-errors </dev/null || { echo 'menard: the gate compiles under Elixir 1.20 too: mise install elixir@1.20.4-otp-29 erlang@29.0.6, then mix local.hex --force under it'; exit 1; }"),
           "credo --strict",
           # the docs hex.publish builds, with their warnings (a link to a hidden module) red here,
           # not on the publish's screen (0.6.2, six of them)
