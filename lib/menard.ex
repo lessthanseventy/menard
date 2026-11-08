@@ -368,6 +368,28 @@ defmodule Menard do
     end
   end
 
+  # A config in `dir` or above it that pins erlang or elixir, which mise did not load (ignored,
+  # untrusted, another HOME's settings): said, where the mix on PATH ran in silence on menard's own
+  # (tlon, 2026-11-04: server/ on OTP 27 under a mise.toml pinning 29, its _build rebuilt)
+  defp unloaded(dir) do
+    dir
+    |> Path.expand()
+    |> Stream.iterate(&Path.dirname/1)
+    |> Enum.take_while(&(&1 != Path.dirname(&1)))
+    |> Enum.flat_map(fn d ->
+      Enum.map(~w(mise.toml .mise.toml .config/mise.toml .tool-versions), &Path.join(d, &1))
+    end)
+    |> Enum.find(&(File.regular?(&1) and File.read!(&1) =~ ~r/^\s*(erlang|elixir)\b/m))
+    |> case do
+      nil ->
+        nil
+
+      config ->
+        "#{config} pins erlang or elixir, but mise does not load it (`mise trust #{config}` if it " <>
+          "is untrusted), so this ran the mix on PATH"
+    end
+  end
+
   defp mise_toolchain(mise, dir) do
     with {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
          {:ok, %{} = tools} <- JSON.decode(out) do
@@ -384,7 +406,7 @@ defmodule Menard do
 
       cond do
         pinned == [] ->
-          {:path, nil}
+          {:path, unloaded(dir)}
 
         missing == [] ->
           {:mise, mise}

@@ -43,6 +43,26 @@ defmodule Menard.HostToolchainTest do
   end
 
   @tag skip: !System.find_executable("mise") && "needs mise"
+  test "a host config mise does not load is said, not a silent run on menard's toolchain", %{dir: dir} do
+    # tlon, 2026-11-04: server/'s mix ran on menard's OTP 27 under tlon's mise.toml pinning 29,
+    # recompiling server/_build, and its crash dump said so; mise had listed no pin for it
+    config = Path.join(dir, "mise.toml")
+    File.write!(config, "[tools]\nerlang = \"29.0.6\"\nelixir = \"1.20.4-otp-29\"\n")
+    server = Path.join(dir, "server")
+    File.mkdir_p!(server)
+    System.put_env("MISE_IGNORED_CONFIG_PATHS", config)
+
+    try do
+      assert {["mix", "test"], note} = Menard.host_argv(server, ["mix", "test"])
+      assert note =~ config
+      assert note =~ "the mix on PATH"
+      assert note =~ "mise trust #{config}"
+    after
+      System.delete_env("MISE_IGNORED_CONFIG_PATHS")
+    end
+  end
+
+  @tag skip: !System.find_executable("mise") && "needs mise"
   test "a host whose mise refuses to run: the reply carries mise's own reason", %{dir: dir} do
     # the eval bench's Tlön copy: the host's mise refused to run, and the reply ended in mise's
     # "Version: …" and "Run with --verbose" lines, not the one that said why. An untrusted config
