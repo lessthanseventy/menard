@@ -37,8 +37,6 @@ git push -q origin main "v$new"
 
 claude plugin marketplace update menard
 claude plugin update menard@menard --scope user
-# this checkout's own install, where there is one
-claude plugin update menard@menard --scope local 2>/dev/null || true
 # the installed copy built now: its first boot compiles deps and menard from nothing, longer than
 # the harness's 30 s to connect a server, and the first session of a version ran with no hooks
 installed=~/.claude/plugins/cache/menard/menard/$new
