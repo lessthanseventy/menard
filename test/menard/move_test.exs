@@ -36,4 +36,18 @@ defmodule Menard.MoveTest do
     refute File.exists?(dest)
     assert File.read!(from) == "defmodule A do\n  def go, do: 1\nend\n"
   end
+
+  test "public: true makes each moved function public in its new module (helpers into test/support)", %{
+    tmp_dir: dir
+  } do
+    # the suite's split, 2026-11-08: three `clause visibility … public` after the one move
+    from = Path.join(dir, "a.ex")
+    File.write!(from, "defmodule A do\n  def go, do: 2\n\n  defp help, do: 1\nend\n")
+    dest = Path.join(dir, "b.ex")
+
+    assert {:ok, %{published: ["help/0"]}} =
+             Menard.Move.run(from, dest, "help/0", as: "B", public: true, root: dir)
+
+    assert File.read!(dest) == "defmodule B do\n  def help, do: 1\nend\n"
+  end
 end

@@ -24,6 +24,7 @@ defmodule Menard.Move do
   alias Menard.Clause
   alias Menard.Deps
   alias Menard.Directive
+  alias Menard.Source
   alias Menard.Tree
 
   @private [:defp, :defmacrop, :defguardp]
@@ -53,14 +54,17 @@ defmodule Menard.Move do
   Move `names` (`"name/arity"`: a list, or comma-separated) from `file` to `dest`, absolute paths.
   `module:` picks the destination module in a file with several, `as:` names a created one and
   `moduledoc:` gives it its `@moduledoc`; `delegate: true` leaves a `defdelegate` for each public
-  function moved; `root:` is where the calls left behind are looked for, without `delegate`.
+  function moved; `public: true` makes each moved function public in its new module (helpers into
+  test/support), listed under `published` with the helpers that stayed and were made public;
+  `root:` is where the calls left behind are looked for, without `delegate`.
 
   Returns `{:ok, reply}`: `created` (the new module's name, else nil), `moved`, `carried` (the
   private helpers that came along), `attributes` and `directives` (what the destination gained),
   `unresolved` (each call only a `use` or an import without `only:` may answer, with those: not
   copied, as the AST cannot say which), `qualified` (the calls back to the source, and its types,
-  that now name it), `delegated`, `left` (each call still naming a moved function, without
-  `delegate`), and `to` and `from`, each file's `Menard.write/3` reply, its version and stages.
+  that now name it), `delegated`, `published` (what was made public), `left` (each call
+  still naming a moved function, without `delegate`: five per file, then how many more), and `to`
+  and `from`, each file's `Menard.write/3` reply, its version and stages.
   """
   @spec run(String.t(), String.t(), String.t() | [String.t()], keyword()) ::
           {:ok, map()} | {:error, String.t()}
@@ -72,6 +76,7 @@ defmodule Menard.Move do
          {:ok, dest_source, created} <- dest_source(dest, opts[:as], opts[:moduledoc]),
          {:ok, plan} <- plan(File.read!(file), dest_source, names, opts),
          dest_out = with_moduledoc(plan.dest, opts[:moduledoc]),
+         {:ok, dest_out} <- published(dest_out, plan.report.moved, opts[:public]),
          {:ok, _} <- Menard.Write.checked(dest, dest_out),
          {:ok, _} <- Menard.Write.checked(file, plan.source),
          :ok <- File.mkdir_p!(Path.dirname(dest)),
@@ -80,7 +85,10 @@ defmodule Menard.Move do
       left =
         if opts[:delegate], do: [], else: left(opts[:root] || Menard.caller_dir(), file, plan.report.moved)
 
-      {:ok, Map.merge(plan.report, %{created: created, left: left, to: to, from: from})}
+      published =
+        if opts[:public], do: plan.report.published ++ plan.report.moved, else: plan.report.published
+
+      {:ok, Map.merge(plan.report, %{created: created, left: left, published: published, to: to, from: from})}
     end
   end
 
@@ -677,7 +685,7 @@ defmodule Menard.Move do
       args =
         Enum.map_join(args, ", ", fn
           {var, nil} -> var
-          {var, default} -> "#{var} \\\\ #{Sourceror.to_string(default)}"
+          {var, default} -> "#{var} \\\\ #{Source.render(default)}"
         end)
 
       ["defdelegate #{name}(#{args}), to: #{to}"]
@@ -924,7 +932,7 @@ defmodule Menard.Move do
   defp dest_aliases(module) do
     for {:alias, _, [{:__aliases__, _, parts} | rest]} <- Tree.module_body(module) do
       full = Menard.Source.alias_name(parts)
-      {short_of(full, if(rest != [], do: Sourceror.to_string(hd(rest)))), full}
+      {short_of(full, if(rest != [], do: Source.render(hd(rest)))), full}
     end
   end
 
@@ -996,7 +1004,7 @@ defmodule Menard.Move do
     case scope(source, nil) do
       {:ok, {:defmodule, _, [{:__aliases__, _, parts} | _]}} ->
         mod = Menard.Source.alias_name(parts)
-        Enum.flat_map(moved, &Menard.Find.left(root, file, source, "#{mod}.#{&1}"))
+        moved |> Enum.flat_map(&Menard.Find.left(root, file, source, "#{mod}.#{&1}")) |> folded()
 
       _ ->
         []
@@ -1112,7 +1120,7 @@ defmodule Menard.Move do
   end
 
   defp text({:__block__, _, [label]}) when is_binary(label), do: label
-  defp text(label), do: Sourceror.to_string(label)
+  defp text(label), do: Source.render(label)
 
   defp helpers_unshared(taking, graph) do
     shared =
@@ -1211,4 +1219,26 @@ defmodule Menard.Move do
     }
     |> Map.drop([:delegated, :published, :qualified])
   end
+
+  # `public: true`: each moved function a `def` in its new module, as helpers moved into test/support
+  # must be (2026-11-08: one `clause visibility … public` per function after the move, three times)
+  defp published(dest_out, moved, true), do: reduce(moved, dest_out, &Clause.visibility(&2, &1, :public))
+  defp published(dest_out, _moved, _public), do: {:ok, dest_out}
+
+  # five call sites per file, then how many more: three helpers out of host_format_test.exs answered
+  # sixty lines, for callers an `import` of the new module keeps working (2026-11-08)
+  defp folded(lines) do
+    counts = Enum.frequencies_by(lines, &file_of/1)
+
+    {kept, _seen} =
+      Enum.reduce(lines, {[], %{}}, fn line, {kept, seen} ->
+        n = Map.get(seen, file_of(line), 0)
+        {if(n < 5, do: [line | kept], else: kept), Map.put(seen, file_of(line), n + 1)}
+      end)
+
+    more = for {file, n} <- Enum.sort(counts), n > 5, do: "#{file}: #{n - 5} more calls"
+    Enum.reverse(kept) ++ more
+  end
+
+  defp file_of(line), do: line |> String.split(":") |> hd()
 end

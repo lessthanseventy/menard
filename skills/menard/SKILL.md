@@ -45,7 +45,7 @@ FILE:LINE` names the test a line (a failure's, a grep hit's) sits in. Then match
 | a clause's existence | `clause {verb: "delete" \| "insert_before", …}` |
 | a whole function | `clause {verb: "delete", file, name_arity}`, no `head`: every clause; the reply's `left` is each call still to fix |
 | public or private | `clause {verb: "visibility", file, name_arity, visibility}`: every clause at once |
-| which file a function lives in | `clause {verb: "move", file, name_arity: ["a/1", "b/2", …], to, as?, moduledoc?, delegate: true}` |
+| which file a function lives in | `clause {verb: "move", file, name_arity: ["a/1", "b/2", …], to, as?, moduledoc?, delegate: true}`; private helpers into test/support: `public: true` |
 | one module into several | `clause {verb: "split", file, plan: [{to, functions: ["a/1", …], as?, moduledoc?}, …]}`: the WHOLE split in one call |
 | a function's `@spec` | `clause {verb: "spec", file, name_arity, code: SIGNATURE}`; no `code` removes it |
 | a module attribute | `attr {verb: "get" \| "set" \| "delete", file, name, value}` |
@@ -106,7 +106,8 @@ is none (the CLI keeps none).
   private helpers, the attributes and alias/import/require lines it uses come along, a call back to
   the source is qualified, and a `defdelegate` is left for each public function, so the old module's
   API and callers keep working (`delegate: false` leaves none). A private helper a staying function
-  also calls stays, made public (`published`), and the moved code calls it there. All of it is
+  also calls stays, made public (`published`), and the moved code calls it there; `public: true`
+  makes each moved function public too (helpers into test/support). All of it is
   written or none: a refusal names the entry it stopped at. `clause move` is the same for one
   destination; without `delegate`, `left` is each call to fix.
 - `stmt` reaches a line in a `do` block, a step in a `with`, a `case` arm, by what is WRITTEN: the
