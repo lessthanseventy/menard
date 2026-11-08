@@ -72,11 +72,15 @@ defmodule Menard.Format.Worker do
 
   @impl true
   def handle_call({:format, request, ms}, _from, state) do
-    state = state |> current() |> open()
-    %{port: port} = state
-    Port.command(port, :erlang.term_to_binary(request))
+    case state |> current() |> open() do
+      # the host's toolchain refused (Menard.host_argv/2): the one-off format says why
+      %{port: nil} = state ->
+        {:reply, :unavailable, state, @idle}
 
-    await(state, System.monotonic_time(:millisecond) + ms)
+      %{port: port} = state ->
+        Port.command(port, :erlang.term_to_binary(request))
+        await(state, System.monotonic_time(:millisecond) + ms)
+    end
   end
 
   defp await(%{port: port} = state, deadline) do
@@ -110,22 +114,28 @@ defmodule Menard.Format.Worker do
 
   defp open(%{port: nil, project: project} = state) do
     script = Application.app_dir(:menard, "priv/format.exs")
-    {argv, _note} = Menard.host_argv(project, ["elixir", script, "serve"])
-    name = "menard-format-#{System.pid()}-#{System.unique_integer([:positive])}.log"
-    log = Path.join(System.tmp_dir!(), name)
 
-    port =
-      Port.open({:spawn_executable, System.find_executable("sh")}, [
-        :binary,
-        :nouse_stdio,
-        :exit_status,
-        {:packet, 4},
-        args: ["-c", ~s(log=$1; shift; exec "$@" </dev/null >"$log" 2>&1), "sh", log | argv],
-        cd: project
-      ])
+    case Menard.host_argv(project, ["elixir", script, "serve"]) do
+      {:refused, _why} ->
+        state
 
-    {:os_pid, os_pid} = Port.info(port, :os_pid)
-    %{state | port: port, os_pid: os_pid, print: print(project), log: log}
+      {argv, _note} ->
+        name = "menard-format-#{System.pid()}-#{System.unique_integer([:positive])}.log"
+        log = Path.join(System.tmp_dir!(), name)
+
+        port =
+          Port.open({:spawn_executable, System.find_executable("sh")}, [
+            :binary,
+            :nouse_stdio,
+            :exit_status,
+            {:packet, 4},
+            args: ["-c", ~s(log=$1; shift; exec "$@" </dev/null >"$log" 2>&1), "sh", log | argv],
+            cd: project
+          ])
+
+        {:os_pid, os_pid} = Port.info(port, :os_pid)
+        %{state | port: port, os_pid: os_pid, print: print(project), log: log}
+    end
   end
 
   defp open(state), do: state
