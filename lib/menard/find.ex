@@ -304,10 +304,15 @@ defmodule Menard.Find do
 
   defp call_to(_node, _aliases, _mod, _fun), do: nil
 
+  # a file without the function's name in it holds no call to it, and is not parsed: as `find`
+  # does, and `left` did not, so a move with no `root:` parsed menard's own 250 files for a name
+  # none has, 60 s under load (two tests' timeouts in every third gate, 2026-11-08)
   defp left_in(f, root, own?, mod, fun) do
     case File.read(f) do
       {:ok, text} ->
-        text |> left_hits(own?, mod, fun) |> Enum.map(&left_line(f, root, text, &1))
+        if String.contains?(text, fun),
+          do: text |> left_hits(own?, mod, fun) |> Enum.map(&left_line(f, root, text, &1)),
+          else: []
 
       {:error, reason} ->
         ["#{Path.relative_to(f, root)}: not read (#{:file.format_error(reason)})"]
