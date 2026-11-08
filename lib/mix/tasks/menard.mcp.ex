@@ -10,8 +10,9 @@ defmodule Mix.Tasks.Menard.Mcp do
 
   alias Menard.MCP.Reply
 
-  # anubis_mcp is optional: a library host has no Registry, and never reaches the call
-  @compile {:no_warn_undefined, Anubis.Server.Registry}
+  # anubis_mcp is optional: a library host has no Registry, nor the Menard.MCP modules built on it,
+  # and never reaches the calls
+  @compile {:no_warn_undefined, [Anubis.Server.Registry, Menard.MCP, Menard.MCP.Reply]}
 
   @impl true
   def run(argv) do
