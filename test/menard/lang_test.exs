@@ -75,6 +75,27 @@ defmodule Menard.LangTest do
     assert %{kind: "shellcheck", at: "a.sh:3", message: "SC2086: " <> _} = found
   end
 
+  test "a sibling the script sources is followed, and its own debt is not the script's", %{tmp_dir: dir} do
+    # the hook said "SC1091: Not following: ./lib.sh" of a hook that sources lib.sh as every hook
+    # does, which the gate's own shellcheck (-x -P SCRIPTDIR) follows; followed, lib.sh's lines
+    # are lib.sh's, not line 3 of the script
+    repo(dir, [
+      {"lib.sh", "# shellcheck shell=bash\nx=1\necho $x\n"},
+      {"a.sh", "#!/bin/bash\necho ok\n"}
+    ])
+
+    assert {:ok, %{changed: [%{lint: found}]}} =
+             edit(dir, [
+               %{
+                 file: "a.sh",
+                 old: "echo ok",
+                 new: ~S|source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"| <> "\necho $1 $x"
+               }
+             ])
+
+    assert [%{kind: "shellcheck", at: "a.sh:3", message: "SC2086: " <> _}] = found
+  end
+
   test "a script with no extension has a row by its shebang, and a .sh of zsh's has none", %{tmp_dir: dir} do
     assert {:error, "not parseable" <> _} =
              Lang.parse(Path.join(dir, "run"), "#!/usr/bin/env bash\nif true; then\n")
