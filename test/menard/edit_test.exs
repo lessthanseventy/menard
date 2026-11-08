@@ -130,6 +130,27 @@ defmodule Menard.EditTest do
     assert why =~ "exists"
   end
 
+  test "a file that cannot be written is refused in a sentence, nothing else touched", %{tmp_dir: dir} do
+    # a sandboxed seat with its scratch dir read-only: seven `edit`s in tlon answered a stack trace
+    # from File.write!/3 (2026-10-22 to 11-08)
+    a = Path.join(dir, "lib/a.ex")
+    b = Path.join(dir, "lib/b.ex")
+    File.chmod!(b, 0o444)
+
+    assert {:error, why} =
+             edit(dir, [
+               %{file: "lib/a.ex", old: "def one, do: 1", new: "def one, do: 11"},
+               %{file: "lib/b.ex", old: "A.one()", new: "A.one() + 1"}
+             ])
+
+    assert why =~ "lib/b.ex"
+    assert why =~ "cannot be written"
+    assert why =~ "permission denied"
+    assert read(dir, "lib/a.ex") =~ "def one, do: 1\n"
+    File.chmod!(b, 0o644)
+    File.chmod!(a, 0o644)
+  end
+
   test "a path outside the root is refused", %{tmp_dir: dir} do
     assert {:error, "refused: ../x.ex is outside" <> _} =
              edit(dir, [%{file: "../x.ex", old: "a", new: "b"}])

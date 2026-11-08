@@ -400,7 +400,8 @@ defmodule Menard.Edit do
           {:cont, {:ok, done ++ [lean(reply)]}}
 
         {:error, why} ->
-          restore(Enum.map(done, & &1.file) ++ [file], before)
+          # the ones written so far; a write that failed wrote nothing, and may not be writable
+          restore(Enum.map(done, & &1.file), before)
           {:halt, {:error, refusal(file, why)}}
       end
     end)

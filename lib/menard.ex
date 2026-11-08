@@ -107,14 +107,9 @@ defmodule Menard do
         else: {content, []}
 
     with :ok <- fresh(file, original, opts),
-         {:ok, patched} <- checked(file, content, original) do
-      {formatted, split, format_error} =
-        case format_staged(file, patched) do
-          {:ok, f, split} -> {f, split, nil}
-          {:error, reason} -> {patched, nil, reason}
-        end
-
-      File.write!(file, formatted)
+         {:ok, patched} <- checked(file, content, original),
+         {formatted, split, format_error} = staged(file, patched),
+         :ok <- written(file, formatted) do
       version = remember(formatted)
       # what Claude Code tells an agent after an Edit, and the reason B re-read files A did not
       reply = %{
@@ -451,5 +446,18 @@ defmodule Menard do
     argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
     {out, status} = bounded_cmd("sh", argv, opts, timeout, label)
     {note <> out, status}
+  end
+
+  defp staged(file, patched) do
+    case format_staged(file, patched) do
+      {:ok, f, split} -> {f, split, nil}
+      {:error, reason} -> {patched, nil, reason}
+    end
+  end
+
+  # a sandbox whose scratch dir is read-only: a sentence, where File.write! gave its stack trace
+  defp written(file, text) do
+    with {:error, reason} <- File.write(file, text),
+         do: {:error, "cannot be written: #{:file.format_error(reason)}"}
   end
 end
