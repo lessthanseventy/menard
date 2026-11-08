@@ -7,6 +7,8 @@
 - `mix menard.mcp` under `MENARD_LOG_LEVEL` logs to stderr again on OTP 29, which gives a handler
   named `:default` filters that drop every Elixir log.
 - The gate's second compile under 1.20 is gone: 1.20 is the pin.
+- A host that takes menard without the optional `anubis_mcp` builds it with no warnings: the
+  `mix menard.mcp` task named two modules that only exist with it, a warning each.
 
 ## 0.8.5
 
