@@ -26,6 +26,7 @@ defmodule Menard.Clause do
   import Menard.Tree,
     only: [definitions: 1, module_bodies: 1, module_scope: 2, modules: 1, start_line: 1]
 
+  alias Menard.Source
   alias Sourceror.Zipper
 
   @kinds Menard.Tree.def_kinds()
@@ -1012,10 +1013,10 @@ defmodule Menard.Clause do
   end
 
   # The head as written: `{args_text, guard_text | nil}`.
-  defp split_head({:when, _, [call, guard]}), do: {elem(split_head(call), 0), Sourceror.to_string(guard)}
+  defp split_head({:when, _, [call, guard]}), do: {elem(split_head(call), 0), Source.render(guard)}
 
   defp split_head({_name, _, args}) when is_list(args),
-    do: {Enum.map_join(args, ", ", &Sourceror.to_string/1), nil}
+    do: {Enum.map_join(args, ", ", &Source.render/1), nil}
 
   defp split_head(_head), do: {"", nil}
 
@@ -1023,8 +1024,8 @@ defmodule Menard.Clause do
 
   defp bare_args({_name, _, args}) when is_list(args) do
     Enum.map_join(args, ", ", fn
-      {:\\, _, [arg, _default]} -> Sourceror.to_string(arg)
-      arg -> Sourceror.to_string(arg)
+      {:\\, _, [arg, _default]} -> Source.render(arg)
+      arg -> Source.render(arg)
     end)
   end
 

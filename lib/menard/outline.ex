@@ -6,6 +6,7 @@ defmodule Menard.Outline do
   agent reads before it edits; the outline door is `mix menard.outline FILE`.
   """
 
+  alias Menard.Source
   @kinds Menard.Tree.def_kinds()
 
   # A test file's content: its setups, tests and describes (each describe's tests under it), with
@@ -72,7 +73,7 @@ defmodule Menard.Outline do
 
   defp test_label(kind, _args) when kind in [:setup, :setup_all], do: nil
   defp test_label(_kind, [{:__block__, _, [label]} | _]) when is_binary(label), do: label
-  defp test_label(_kind, [label | _]), do: Sourceror.to_string(label)
+  defp test_label(_kind, [label | _]), do: Source.render(label)
 
   defp block_body(args) do
     case List.last(args) do
@@ -94,11 +95,11 @@ defmodule Menard.Outline do
           {acc, string_first_line(text), spec, attrs}
 
         {:@, _, [{:spec, _, [expr]}]} ->
-          {acc, doc, Sourceror.to_string(expr), attrs}
+          {acc, doc, Source.render(expr), attrs}
 
         {kind, _, [_ | _]} when kind in [:attr, :slot] ->
           # as written: without parens, as Phoenix's formatter plugin keeps them
-          text = Sourceror.to_string(form, locals_without_parens: [attr: :*, slot: :*])
+          text = Source.render(form, locals_without_parens: [attr: :*, slot: :*])
           {acc, doc, spec, attrs ++ [text |> String.split("\n") |> hd()]}
 
         {kind, _, [head | _]} = node when kind in @kinds ->
