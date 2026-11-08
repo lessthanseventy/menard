@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.8.8
+
+- `rename OLD NEW` with a module name renames the module: its `defmodule`, its aliases and every
+  call that spells it, strings and comments left alone. A dotted name was read as `Mod.fun`, and a
+  module rename answered "unchanged" for every file.
+- A module `clause move` or `clause split` creates keeps the prefix its source carries past its
+  own path: `Excessibility.TelemetryCapture` split to `lib/telemetry_capture/writer.ex` is
+  `Excessibility.TelemetryCapture.Writer`, not `TelemetryCapture.Writer`.
+- A directive added under a heredoc `@moduledoc` takes its own line. Sourceror ends a heredoc a
+  column past its line, and the patch there ate the newline, so an alias a move added ran into
+  the line below and left the source unparseable.
+- Every parse failure names its line with an excerpt, from `write`, `edit`, `clause` and
+  `module` alike; three of them answered the raw error tuple. A split that stops names the move
+  it stopped at and says nothing was written.
+- An `edit` of a file that defines the same module twice (one `defmodule` per branch of an `if`)
+  no longer crashes the layout pass with a MatchError after the batch's earlier files were
+  written: such a module is left as written.
+- A crash writing one file of an `edit` batch puts back the files written before it and is
+  raised as it was; the layout crash above left them on disk, and so would any other.
+- `clause move` and `split` compare alias names as strings: no atom is made from a name read
+  out of a file.
+- The formatting hook asks each file's own repository what git ignores, not the session's
+  directory. A suite run while the session sat elsewhere formatted every fixture the suite wrote,
+  a warm host VM per fixture.
+- `mix test_no_leaks` gives a warm host VM twenty seconds to notice its owner gone, not six:
+  beside another suite on the same box, VMs on their way out were counted as leaks and killed.
+- Comments carry only the why: history, incident references and review citations are gone from
+  lib, bin, hooks, priv and the tests. `and`/`or`/`not` on booleans throughout.
+- The README describes the verbs, the plugin and the install paths as they are.
+
 ## 0.8.7
 
 - The skill's opening says what the machine-wide rule says: every Elixir change goes through
