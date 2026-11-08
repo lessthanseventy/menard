@@ -103,8 +103,8 @@ defmodule Menard.Verbs.Clause do
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
-  # a name with no arity, as an agent first writes it (desk7: `clause get … layouts.ex app`, refused
-  # "expected name/arity"): the one function of that name in the file; of several, their arities
+  # a name with no arity, as an agent first writes it: the one function of that name in the file;
+  # of several, their arities
   def run(%{name_arity: na, file: file} = p)
       when is_binary(na) and is_binary(file) and not is_map_key(p, :arity_given) do
     with {:ok, p} <- p |> outline_line() |> arity(), do: run(Map.put(p, :arity_given, true))

@@ -5,7 +5,7 @@ defmodule Menard.Lang do
   that is not installed is skipped, and `missing/2` says which.
 
   The formatter leaves alone a file not in its style at HEAD: one line's edit must not rewrite a
-  whole file of someone else's style (ficciones holds no `nixfmt`-style Nix).
+  whole file of someone else's style.
   """
 
   # shellcheck on the file, not its stdin, so `-x` follows what it sources beside it (lib.sh of the

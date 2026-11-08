@@ -91,9 +91,9 @@ defmodule Menard.Scripts do
   end
 
   @doc """
-  Why a subagent is not sent, or nil: one sent to find the calls of a function (desk5: an Explore
-  agent, 1,404 characters of prompt, for what `find calls` answers in one call). A prompt that asks
-  for the references, usages or callers of a `Mod.fun`, and is no bigger job than that.
+  Why a subagent is not sent, or nil: one sent to find the calls of a function, which `find calls`
+  answers in one call. A prompt that asks for the references, usages or callers of a `Mod.fun`, and
+  is no bigger job than that.
   """
   @spec delegated(String.t(), String.t()) :: String.t() | nil
   def delegated(prompt, menard) when byte_size(prompt) < 2_000 do

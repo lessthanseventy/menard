@@ -147,8 +147,8 @@ defmodule Menard.Hook do
     {:context, upfront(hook)}
   end
 
-  # A module read whole again unchanged (desk5: tickets.ex six times, 11 rereads in a session): answered
-  # that nothing changed since the read. Changed, a part of one, a file that is not Elixir: read.
+  # A module read whole again unchanged: answered that nothing changed since the read. Changed, a
+  # part of one, a file that is not Elixir: read.
   defp tool(%{tool: "Read", event: "PreToolUse"} = hook) do
     file = hook.input["file_path"]
 
@@ -365,8 +365,7 @@ defmodule Menard.Hook do
   defp read_path(hook, file), do: session_file(hook, "read-" <> Base.encode16(:crypto.hash(:md5, file)))
 
   # What the agent wrote, and what the formatter did after it (the write's report told it), it knows:
-  # a module's read snapshot follows its own writes, and a read again is no news (desk7: its own edit
-  # of router.ex came back as what had changed)
+  # a module's read snapshot follows its own writes, and a read again is no news
   defp known(hook, files) do
     for file <- files, is_binary(file), path = Path.expand(file, hook.root), elixir_file?(path) do
       with {:ok, text} <- File.read(path), do: File.write!(read_path(hook, path), text)

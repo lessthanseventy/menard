@@ -1,8 +1,7 @@
 defmodule Menard.EditTest do
   # `edit`: several replacements, across files, in ONE call. What agents write a Python heredoc
-  # for (`s = s.replace(old, new)`, file after file, then the tests): in the eval's traces the most
-  # common way a capable model edits Elixir, and one whose replace says nothing when the text it
-  # looks for is not there.
+  # for (`s = s.replace(old, new)`, file after file, then the tests): one whose replace says
+  # nothing when the text it looks for is not there.
   use ExUnit.Case, async: true
 
   import Menard.Test.Edits
@@ -129,8 +128,7 @@ defmodule Menard.EditTest do
   end
 
   test "a file that cannot be written is refused in a sentence, nothing else touched", %{tmp_dir: dir} do
-    # a sandboxed seat with its scratch dir read-only: seven `edit`s in tlon answered a stack trace
-    # from File.write!/3 (2026-10-22 to 11-08)
+    # a sandboxed seat with its scratch dir read-only must not answer a stack trace from File.write!/3
     a = Path.join(dir, "lib/a.ex")
     b = Path.join(dir, "lib/b.ex")
     File.chmod!(b, 0o444)
@@ -190,7 +188,7 @@ defmodule Menard.EditTest do
     assert {:error, why} = Menard.Edit.blocks("lib/a.ex\n<<<<<<< SEARCH\nx\n")
     assert why =~ "======="
 
-    # Found 2026-09-29, by the one who wrote it: a stray separator went into the file as text
+    # a stray separator must not go into the file as text
     stray = "lib/a.ex\n<<<<<<< SEARCH\nx\n=======\ny\n\n=======\n>>>>>>> REPLACE\n"
     assert {:error, why} = Menard.Edit.blocks(stray)
     assert why =~ "a second `=======`"
@@ -200,7 +198,6 @@ defmodule Menard.EditTest do
   test "a refused batch is kept, and --retry N takes that edit again with the rest as they were", %{
     tmp_dir: dir
   } do
-    # Fable's review 2026-10-01: a refusal resent the whole batch, 22 of ~270 edits, 45 KB
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def one, do: 1\n  def two, do: 2\nend\n")
     System.put_env("MENARD_CWD", dir)
@@ -239,8 +236,8 @@ defmodule Menard.EditTest do
 
   @tag :tmp_dir
   test "a refused batch is kept for a project however deep its path", %{tmp_dir: dir} do
-    # 2026-10-27, the gate in a scratch clone: the kept file was named by the whole path, encoded,
-    # and past 255 bytes the refusal was File.Error's "file name too long"
+    # a kept file named by the whole path, encoded, would pass 255 bytes and the refusal would be
+    # File.Error's "file name too long"
     deep = Path.join(dir, String.duplicate("d", 200))
     File.mkdir_p!(Path.join(deep, "lib"))
     File.write!(Path.join(deep, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
@@ -266,9 +263,8 @@ defmodule Menard.EditTest do
   end
 
   test "a block with no path line is the file of the block before it" do
-    # Transcripts, 2026-10-02 to 10-10: six edits refused with "expected a file's path … got:
-    # <<<<<<< SEARCH", each a second block for the same file written without its path again, and
-    # the whole batch sent again for it (opus 5.5 and sonnet 5 alike)
+    # a second block for the same file written without its path again, not refused with "expected a
+    # file's path … got: <<<<<<< SEARCH"
     blocks = """
     lib/a.ex
     <<<<<<< SEARCH
@@ -318,9 +314,8 @@ defmodule Menard.EditTest do
 
   test "an edit that would put a function between the clauses of another is refused: it parses, and does not build",
        %{tmp_dir: dir} do
-    # Found 2026-09-29, twice in an hour, by the one who wrote edit: a helper written under the clause
-    # that calls it, above that function's next clause. The compiler warns that the clauses are not
-    # grouped, and a build with warnings as errors fails.
+    # a helper written under the clause that calls it, above that function's next clause: the
+    # compiler warns that the clauses are not grouped, and a build with warnings as errors fails.
     File.write!(Path.join(dir, "lib/t.ex"), """
     defmodule T do
       def tool(:a), do: a()
@@ -348,8 +343,8 @@ defmodule Menard.EditTest do
     assert why =~ "nothing was written"
     assert read(dir, "lib/t.ex") == before
 
-    # the clause changed and a new function under it (Oban 04: refused, and a 5k batch sent again):
-    # the clause stays, the function goes after tool's last clause
+    # the clause changed and a new function under it: the clause stays, the function goes after
+    # tool's last clause
     assert {:ok, reply} =
              edit(dir, [
                %{
@@ -499,8 +494,8 @@ defmodule Menard.EditTest do
 
   @tag :tmp_dir
   test "a replacement the same as its text is refused, found or not", %{tmp_dir: dir} do
-    # a block whose text and replacement are the same changes nothing, found or not: written as one
-    # (2026-10-01), it missed, and the miss sent its writer to look for text it never meant to change
+    # a block whose text and replacement are the same changes nothing, found or not, so a miss would
+    # send its writer to look for text it never meant to change
     assert {:error, why} = edit(dir, [%{file: "lib/a.ex", old: "def one, do: 1", new: "def one, do: 1"}])
     assert why =~ "the same"
     assert why =~ "nothing was written"
@@ -508,7 +503,6 @@ defmodule Menard.EditTest do
 
   @tag :tmp_dir
   test "a reply names a file under the root from the root", %{tmp_dir: dir} do
-    # Fable 2026-10-01: an absolute path in every file of every reply, 44% of a CLI find's characters.
     # Under the root, a file is named from it
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/r.ex"), "defmodule R do\n  def go, do: 1\nend\n")
@@ -527,8 +521,7 @@ defmodule Menard.EditTest do
 
   @tag :tmp_dir
   test "edit blocks take the markers' first slips, and a text there twice is shown where", %{tmp_dir: dir} do
-    # Fable 2026-10-01: first guesses refused, the batch sent again (3 of 37 CLI edits in one session,
-    # 7.4k characters): the two markers on one line, and a block ended at its second `=======`
+    # the two markers on one line, and a block ended at its second `=======`
     one_line = "lib/a.ex\n<<<<<<< SEARCH\nold\n=======>>>>>>> REPLACE\n"
     assert {:ok, [%{file: "lib/a.ex", old: "old", new: ""}]} = Menard.Edit.blocks(one_line)
 

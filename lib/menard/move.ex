@@ -134,8 +134,7 @@ defmodule Menard.Move do
   def plan(source, dest_source, names, opts \\ []) do
     case plan_once(source, dest_source, names, opts) do
       # a helper the move takes that what stays calls too: made public where it is, and the move made
-      # again, the moved code now calling it there (riverside2: the refusal and two `visibility`
-      # calls every split made by hand)
+      # again, the moved code now calling it there
       {:publish, keys, mod} ->
         with {:ok, source} <- publish(source, mod, keys),
              {:ok, plan} <- plan(source, dest_source, names, opts) do
