@@ -49,12 +49,16 @@ defmodule Mix.Tasks.Menard.Mcp do
   # and Elixir logs to stdout by default. Set up here, not in config/, which a host that takes menard
   # as a dep never loads. Quiet unless MENARD_LOG_LEVEL (one of Logger's levels) asks: the transport
   # logs every frame at :debug, and an unknown level falls back to :warning rather than crashing.
+  # The filters are said: OTP 29 gives a handler named :default its otp/sasl-only ones, which drop
+  # every Elixir log.
   defp logs_to_stderr do
     _ = :logger.remove_handler(:default)
 
     :ok =
       :logger.add_handler(:default, :logger_std_h, %{
         config: %{type: :standard_error},
+        filters: [],
+        filter_default: :log,
         formatter: Logger.default_formatter()
       })
 
