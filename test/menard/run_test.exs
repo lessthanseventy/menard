@@ -297,8 +297,7 @@ defmodule Menard.RunTest do
   end
 
   test "a green run still answers with the warnings its compile printed" do
-    # the eval's agent finished on `run test`, ok with no failures, over an unused alias the
-    # project's warnings-as-errors gate then failed on
+    # ok with no failures over an unused alias the project's warnings-as-errors gate fails on
     out = """
     Compiling 1 file (.ex)
         warning: unused alias Money
@@ -323,8 +322,7 @@ defmodule Menard.RunTest do
 
   @tag :tmp_dir
   test "a dependency's warnings are not the project's failures", %{tmp_dir: dir} do
-    # tlon's deps (styler, doctest_formatter) warn under Elixir 1.20; 33 green `run test` replies in
-    # three weeks carried them as the project's `failures`, with `ok: true` over a non-empty list
+    # a dep's warnings would be the project's `failures`, with `ok: true` over a non-empty list
     File.mkdir_p!(Path.join(dir, "lib/shop"))
     File.write!(Path.join(dir, "lib/shop/cart.ex"), "defmodule Shop.Cart do\nend\n")
 
@@ -359,7 +357,7 @@ defmodule Menard.RunTest do
   end
 
   test "mix refusing its arguments answers with why, not the tail of its usage" do
-    # the eval's agent passed `--doctest` and got back the last lines of the option list
+    # a refused `--doctest` must not answer the last lines of the option list
     options = Enum.map_join(1..30, "\n", &"  --option-#{&1}, --no-option-#{&1}")
 
     out =
@@ -373,7 +371,7 @@ defmodule Menard.RunTest do
   end
 
   test "a compile error raised as an exception is a failure with its file and line" do
-    # long1 cart-refactor.B.haiku got failures: [] and a raw tail for this, and never found the line
+    # not `failures: []` and a raw tail
     out = """
     Compiling 9 files (.ex)
 
@@ -714,9 +712,8 @@ defmodule Menard.RunTest do
   end
 
   test "past the first few failures, each is where and what: the log has the rest" do
-    # Oban 01: 12 failures, each its test's source and an inspected %Oban.Config{}, came back as 13.9k
-    # characters. The first few whole; past them, where and what, its message's first line: the rest is
-    # the log's
+    # 12 failures, each its test's source and an inspected struct, are a page. The first few whole;
+    # past them, where and what, its message's first line: the rest is the log's
     failure = fn n ->
       %{
         kind: "test",

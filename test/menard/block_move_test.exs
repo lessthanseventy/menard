@@ -127,9 +127,9 @@ defmodule Menard.BlockMoveTest do
   test "a created file gets the source's @moduletag lines, and the one import a moved test calls through", %{
     tmp_dir: dir
   } do
-    # the suite's split of 2026-11-08: ten files created with no `@moduletag :tmp_dir` (every test
-    # would fail on its context), without `import Menard.Test.Checkout` (its one bare import, listed
-    # as unresolved beside `use ExUnit.Case`), and `binary-size(2)` in a bitstring read as size/1
+    # files created with no `@moduletag :tmp_dir` (every test would fail on its context), without
+    # `import Menard.Test.Checkout` (its one bare import, listed as unresolved beside
+    # `use ExUnit.Case`), and `binary-size(2)` in a bitstring read as size/1
     Host.mix_project(dir, :shop)
     File.mkdir_p!(Path.join(dir, "test/shop"))
     file = Path.join(dir, "test/shop/pack_test.exs")

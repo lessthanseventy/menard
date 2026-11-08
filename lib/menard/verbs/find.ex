@@ -30,7 +30,7 @@ defmodule Menard.Verbs.Find do
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
-  # `verb` for `kind`, as every other noun takes it (Fable's review, 2026-10-01)
+  # `verb` for `kind`, as every other noun takes it
   def run(%{verb: verb} = p) when is_binary(verb) and not is_map_key(p, :kind),
     do: p |> Map.delete(:verb) |> Map.put(:kind, verb) |> run()
 
@@ -49,8 +49,8 @@ defmodule Menard.Verbs.Find do
     end
   end
 
-  # Nothing found, where the name is written: `{"hits":[]}` for a config key (Oban 01) sent the
-  # agent back to grep. Its first few lines as text, the name as a word.
+  # Nothing found, where the name is written: `{"hits":[]}` for a config key sends the agent back to
+  # grep. Its first few lines as text, the name as a word.
   defp with_mentions(%{hits: []} = reply, target, files) do
     word = ~r/(?<![\w?!])#{Regex.escape(needle(target))}(?![\w?!])/
 
@@ -84,7 +84,7 @@ defmodule Menard.Verbs.Find do
   end
 
   # `in`: the function a call sits in, as `where` names it: without it a `where` or a Read of the
-  # file followed every hit (Fable's review, 2026-10-01). A def is its own
+  # file follows every hit. A def is its own
   defp placed(%{kind: :call} = hit, file, text),
     do: Map.merge(hit, %{file: file, in: Outline.enclosing(text, hit.line)})
 

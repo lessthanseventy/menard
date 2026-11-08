@@ -319,7 +319,7 @@ defmodule Menard.Edit do
   end
 
   # each place it is, with the lines around it: what to add to tell them apart. Said back, the text
-  # told its writer nothing it had not sent (Fable's review)
+  # would tell its writer nothing it had not sent
   defp several(text, _old, found) do
     all = String.split(text, "\n")
 

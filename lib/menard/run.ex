@@ -353,8 +353,7 @@ defmodule Menard.Run do
 
   # Compiler warnings and errors, each the same shape as a test failure: kind, message, at. A
   # dependency's print relative to its own root (`lib/styler/…`, under `==> styler`): no file of
-  # the project's, and not its failures (tlon's green runs carried styler's and doctest_formatter's
-  # warnings under Elixir 1.20, `ok: true` over a non-empty list).
+  # the project's, and not its failures (`ok: true` over a non-empty list).
   defp diagnostics(out, dir) do
     ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
     |> Regex.scan(out)

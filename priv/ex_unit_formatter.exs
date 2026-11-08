@@ -151,7 +151,7 @@ defmodule Menard.ExUnitFormatter do
   end
 
   # Where a raise came from: up to three frames in the project (lib/, test/). A KeyError raised in
-  # lib/shop/cart.ex:25 answered its banner and the test's line alone (Fable's review, 2026-10-01).
+  # lib/shop/cart.ex:25 would answer its banner and the test's line alone.
   # An assertion's own line is the test's, said by `at`.
   defp frames(%ExUnit.AssertionError{}, _stack), do: nil
 

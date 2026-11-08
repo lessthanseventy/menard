@@ -39,8 +39,8 @@ defmodule Menard.WriteTest do
   end
 
   test "a parse refusal shows the line it points at and the one before, where the slip usually is" do
-    # a body of one `-` (2026-11-08): the error is at the `end` after it, and the line that is wrong
-    # is the one above, in a text the caller never saw written
+    # a body of one `-`: the error is at the `end` after it, and the line that is wrong is the one
+    # above, in a text the caller never saw written
     assert {:error, message} = Write.checked("a.ex", "defmodule A do\n  test \"x\" do\n    -\n  end\nend\n")
     assert message =~ "not parseable at line 4: syntax error before: 'end'\n"
     assert message =~ "3 |     -\n"

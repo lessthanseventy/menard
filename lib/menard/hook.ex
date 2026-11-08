@@ -3,7 +3,7 @@ defmodule Menard.Hook do
   What menard does when the harness says a tool ran: every Elixir file an edit or a shell command
   wrote is formatted with its own project's formatter, plugins included, and what the formatter
   changed goes back to the agent, so its next edit is written against the file as it is (`999999`
-  became `999_999` under an agent in the eval, and its next Edit missed). A file that does not
+  becomes `999_999`, and the next Edit would miss). A file that does not
   parse is named, with the compiler's why. Credo, where the project lints with it, on the lines
   changed.
 
@@ -34,8 +34,8 @@ defmodule Menard.Hook do
           | {:rewrite, map()}
           | {:rewrite, map(), String.t()}
 
-  # Edits one after another, a model call each: desk3's sonnet made 83 of them in a session and
-  # called `edit` in none, its description loaded or not. Said at the third of a run, when it is
+  # Edits one after another, a model call each, with `edit` called in none. Said at the third of a
+  # run, when it is
   # what the agent is doing, and once a session: a note at the start of a session, on what it
   # might do, cost its tokens in every round that tried one and changed nothing.
   @run 3
@@ -129,8 +129,7 @@ defmodule Menard.Hook do
     :quiet
   end
 
-  # A session's marks go with it: ~100 headless sessions an hour left two each, 8,156 files in /tmp
-  # inside the week's sweep (ficciones, 2026-10-21). The sweep is for a session that never ended
+  # A session's marks go with it. The sweep is for a session that never ended
   defp tool(%{event: "SessionEnd"} = hook) do
     Enum.each(Path.wildcard(Path.join(hook.state, "menard-*#{hook.session}*")), &File.rm/1)
     :quiet
@@ -224,8 +223,8 @@ defmodule Menard.Hook do
   end
 
   # menard's bin/ on the session's PATH, through the env file the harness gives a SessionStart hook:
-  # named by its absolute path, the agent typed that path on every call, ~100 a session (Fable's
-  # review, 2026-10-01). Put there, every text names it `menard`
+  # named by its absolute path, the agent types that path on every call. Put there, every text names
+  # it `menard`
   defp on_path(hook) do
     with env when is_binary(env) <- System.get_env("CLAUDE_ENV_FILE"),
          :ok <- File.write(env, ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n), [:append]) do
@@ -236,7 +235,7 @@ defmodule Menard.Hook do
   defp path_mark(hook), do: Path.join(hook.state, "menard-path-#{hook.session}")
   # A session's first refusal carries what is so in it. A session that started before the plugin
   # was enabled under it never heard the start-of-session text, and a resumed one is taken to have
-  # it from its start: ficciones, 2026-10-20, learned the rules one refusal at a time
+  # it from its start
   defp told(hook, why) do
     path = told_path(hook)
 
@@ -326,8 +325,7 @@ defmodule Menard.Hook do
   # by its path, or `menard` where this session's PATH has it (`on_path/1`)
   defp menard(hook), do: if(File.exists?(path_mark(hook)), do: "menard", else: Menard.bin())
 
-  # What a week-old session left: its marks and reads, and a project's run logs (/tmp held 7,022
-  # menard files and 378 log directories, and nothing swept them; Fable's review, 2026-10-01)
+  # What a week-old session left: its marks and reads, and a project's run logs
   defp sweep(state) do
     week_ago = System.os_time(:second) - 7 * 24 * 3600
     old? = fn path -> match?({:ok, %{mtime: m}} when m < week_ago, File.stat(path, time: :posix)) end
@@ -343,9 +341,9 @@ defmodule Menard.Hook do
         do: File.rm_rf(logs)
   end
 
-  # Unchanged since it was read: what was read is what it holds (worked 5 of 5). Changed, it is read:
-  # answered with the diff, 3 of 6 were read at once anyway (`cat`), the diff, the file and a turn all
-  # paid (Fable's review, 2026-10-01)
+  # Unchanged since it was read: what was read is what it holds. Changed, it is read: answered with
+  # the diff, the agent often reads it at once anyway (`cat`), and the diff, the file and a turn are
+  # all paid
   defp reread(hook, file, seen, now) do
     rel = Path.relative_to(file, hook.root)
 
@@ -450,8 +448,8 @@ defmodule Menard.Hook do
     if new == [], do: [], else: ["not installed, so skipped on this write: #{Enum.join(new, ", ")}"]
   end
 
-  # credo off the call's path: 2 s of CPU and up to 10 s of wall under load, paid at every write
-  # (Fable's review, 2026-10-01). Under the hooks server its notes come with the session's next
+  # credo off the call's path: 2 s of CPU and up to 10 s of wall under load, paid at every write.
+  # Under the hooks server its notes come with the session's next
   # PostToolUse answer (`with_pending/2`); at the CLI door, where no process outlives the call, now
   defp lint(%{async: true} = hook, dir, rels) do
     Task.start(fn ->

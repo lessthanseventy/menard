@@ -36,8 +36,8 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    # a file's outline is its text, as the CLI prints it: as JSON it was half again the characters
-    # (Fable's review, 2026-10-01); `json: true` is the map
+    # a file's outline is its text, as the CLI prints it: as JSON it is half again the characters;
+    # `json: true` is the map
     def call(Verbs.Outline = verbs, params, frame, _ms)
         when not is_map_key(params, :json) or :erlang.map_get(:json, params) != true do
       case Verbs.call(verbs, params(params)) do
@@ -53,8 +53,8 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     @doc """
     A call's bound: the tool's own, but an `edit` with no `then` is seconds of work, bounded as
-    any verb. Its 600s are for the tests a `then` runs, and one of three small writes went silent
-    past the client's 120s (2026-10-01).
+    any verb. Its 600s are for the tests a `then` runs, and a small write must not go silent past
+    the client's 120s.
     """
     def deadline(ms, Verbs.Edit, params) when not is_map_key(params, :then) or params.then in [nil, ""],
       do: min(ms, Verbs.Noun.deadline(%{}))

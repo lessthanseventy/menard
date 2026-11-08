@@ -136,8 +136,8 @@ defmodule Menard.LayoutTest do
   end
 
   test "a new function written between another's clauses goes after its last clause" do
-    # up4 Symphony 01: `clause rewrite` of one clause, a new helper written under it, between the
-    # function's clauses: refused, where edit's own writes move it. Every write moves it
+    # `clause rewrite` of one clause, a new helper written under it, between the function's clauses:
+    # every write moves it
     was = """
     defmodule T do
       def a, do: go(1)
