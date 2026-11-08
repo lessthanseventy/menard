@@ -340,6 +340,23 @@ defmodule Menard.MCPTest do
     assert File.read!(Path.join(root, "lib/a_test.exs")) =~ ~s(test "new" do)
   end
 
+  @tag timeout: 300_000
+  test "a host that takes menard without anubis_mcp builds it with no warnings", %{root: root} do
+    # 0.8.6's hex check: the task names Menard.MCP, which only compiles with anubis loaded, and every
+    # host without it was warned twice. Menard's own deps/, so nothing is fetched
+    File.write!(Path.join(root, "mix.exs"), """
+    defmodule Host.MixProject do
+      use Mix.Project
+      def project, do: [app: :host, version: "0.1.0", deps_path: #{inspect(Path.join(@root, "deps"))}, deps: [{:menard, path: #{inspect(@root)}}]]
+    end
+    """)
+
+    File.cp!(Path.join(@root, "mix.lock"), Path.join(root, "mix.lock"))
+    {out, 0} = System.cmd("mix", ["compile"], cd: root, env: [{"MIX_ENV", "dev"}], stderr_to_stdout: true)
+    assert out =~ "Generated menard app"
+    refute out =~ "warning"
+  end
+
   test "stdout carries only the protocol, even with debug logs on", %{root: root} do
     # the task sets this up itself: a host that takes menard as a dep never loads menard's config/
     initialize = %{
