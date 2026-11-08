@@ -28,6 +28,19 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
   VM died at boot with the crash as an Erlang term on stdout.
 - The shell lint follows what a script sources beside it (`shellcheck -x`), so a hook's
   `source lib.sh` is no longer "SC1091: not following" and lib.sh's variables are assigned.
+- `block move` to a new file carries the source's `@moduletag` lines and the one bare `import`
+  the moved tests call through; a bitstring's `binary-size(2)` is no longer read as a call.
+- CODE as `-` reads stdin for `block`, `clause` and `stmt`, as it did for `write` and `module`.
+- A parse refusal shows the line it points at and the one before it.
+- `clause move` takes `public: true` (each moved function public in its new module: private
+  helpers into test/support in one call), and `left` is five call sites per file, then how many
+  more, not sixty lines.
+- menard renders code with no `.formatter.exs` read of the cwd's: Sourceror read it on every call
+  through the VM's file server, and under load that stalled three `clause move` tests to their
+  60 s. The checkout copies the tests make go through `cp`, not that server.
+- menard's own gate: 554 s to under 420 s at load 10, the identity corpus in eight modules and the
+  long test files split into modules that run beside each other (with `clause move` and
+  `block move`, which is what found the three fixes above).
 
 ## 0.8.6
 
