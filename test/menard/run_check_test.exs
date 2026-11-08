@@ -35,7 +35,7 @@ defmodule Menard.RunCheckTest do
     assert result.tail =~ "Result: 1 passed"
 
     # its test step's failures are the formatter's, as `run test`'s are: from the prose, a `left:`
-    # past one line came back as its first line (Fable's review, 2026-10-01)
+    # past one line is not cut to its first line
     File.write!(
       Path.join(dir, "test/plain_test.exs"),
       "defmodule PlainTest do\n  use ExUnit.Case\n  test \"go\", do: assert(Enum.to_list(1..60) == [])\nend\n"
@@ -132,8 +132,7 @@ defmodule Menard.RunCheckTest do
 
   @tag :tmp_dir
   test "check formats the project first, and names what it formatted", %{tmp_dir: dir} do
-    # Oban 01: check failed on test/test_helper.exs, unformatted upstream, and the agent spent three
-    # calls on it. Formatting is mechanical: check formats the project first, and names what it did
+    # Formatting is mechanical: check formats the project first, and names what it did
     File.write!(Path.join(dir, "mix.exs"), """
     defmodule Before.MixProject do
       use Mix.Project
@@ -151,8 +150,8 @@ defmodule Menard.RunCheckTest do
 
   @tag :tmp_dir
   test "one check at a time in a project: the next waits, and says how long", %{tmp_dir: dir} do
-    # two sessions' gates in one checkout raced in its _build and tmp/ (2026-10-01): a check waits for
-    # the one already running, and says so; a lock its holder left behind dead is no wait
+    # two sessions' gates in one checkout race in its _build and tmp/: a check waits for the one
+    # already running, and says so; a lock its holder left behind dead is no wait
     Host.mix_project(dir, :locked)
     lock = Path.join(dir, "_build/.menard-check.lock")
     File.mkdir_p!(Path.dirname(lock))

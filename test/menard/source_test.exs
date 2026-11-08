@@ -122,7 +122,7 @@ defmodule Menard.SourceTest do
 
     test "render is Sourceror's to_string, reading no .formatter.exs of the cwd's" do
       # Sourceror reads the cwd's .formatter.exs through Mix.Tasks.Format on every call, and under
-      # load that stalled clause move tests to their 60 s (2026-11-08)
+      # load that stalls
       assert Source.render(quote(do: a(1))) == "a(1)"
       assert Source.render(quote(do: alias(A.B))) == "alias A.B"
     end

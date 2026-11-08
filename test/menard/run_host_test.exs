@@ -126,8 +126,8 @@ defmodule Menard.RunHostTest do
 
     refute result.ok
     assert result.tail =~ "did not finish in 10s"
-    # up2 Oban: a run stopped at its deadline answered nothing of what it had. The failures so far,
-    # and the test that was still running
+    # a run stopped at its deadline answers what it had: the failures so far, and the test that was
+    # still running
     assert %{name: "fails first"} = Enum.find(result.failures, &(&1.kind == "test"))
     assert %{name: "slow", at: "test/slow_test.exs:5"} = Enum.find(result.failures, &(&1.kind == "timeout"))
 
@@ -138,8 +138,7 @@ defmodule Menard.RunHostTest do
 
   @tag :tmp_dir
   test "a raised error says where it was raised: the frames in the project", %{tmp_dir: dir} do
-    # Fable 2026-10-01: a KeyError raised in lib/shop/cart.ex:25 answered its banner and the test's
-    # line, nothing of where it was raised. The frames in the project say where
+    # a KeyError raised in lib/shop/cart.ex:25: the frames in the project say where
     Host.mix_project(dir, :raises)
     File.mkdir_p!(Path.join(dir, "lib"))
     File.mkdir_p!(Path.join(dir, "test"))

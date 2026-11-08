@@ -30,7 +30,6 @@ defmodule Menard.PipedTest do
              ~s(cd "/tmp/my app" && /p/bin/menard run test)
   end
 
-  # 2026-09-30: `cd X; time (mise exec -- mix test 2>&1 | tail -15)` went through as written
   test "a cd with ;, time, a subshell and mise exec are kept around the run, the parens dropped" do
     for {command, run} <- [
           {"cd /w; mix test | tail", "cd /w; /p/bin/menard run test"},

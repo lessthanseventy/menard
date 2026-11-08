@@ -37,9 +37,8 @@ defmodule Menard.Test.Checkout do
     copy
   end
 
-  # a tracked file not there: a rebase or checkout in flight in this checkout (a second session's:
-  # 2026-10-01, bin/menard itself, once in a full gate) rewrites files one by one. Named, not a
-  # bare :enoent at the copy's first verb
+  # a tracked file not there: a rebase or checkout in flight in this checkout (a second session's)
+  # rewrites files one by one. Named, not a bare :enoent at the copy's first verb
   defp copy_tracked!(src, dest, f) do
     case File.cp(src, dest) do
       :ok ->

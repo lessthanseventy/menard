@@ -1,7 +1,6 @@
 defmodule Menard.DoorTest do
   # bin/menard hands a verb to the session's running hooks server (Menard.Door), so an edit boots
-  # no VM: 24 s at the median under the seats' load against the MCP door's 1 s
-  # (docs/review/2026-11-08-transcripts.md). The door here is this test VM's, under its own OS pid,
+  # no VM: far faster than a VM per verb under load. The door here is this test VM's, under its own OS pid,
   # the parent of every process System.cmd starts; the project edited is outside menard's checkout,
   # as a host's is, since a verb from inside the checkout is never forwarded.
   use ExUnit.Case, async: false
