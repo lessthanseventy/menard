@@ -142,7 +142,8 @@ the time before and formats every Elixir file newer than the mark after, on `Pos
 too, since Claude Code runs `PostToolUse` only when a tool succeeds. Each hook is a `mcp_tool`
 call to the server already running (`Menard.Hook`), and the project's formatter is kept warm
 between writes (`Menard.Format.Worker`): 6-9 ms a write, where a script that started a VM for
-menard and another for the host's formatter took 0.8-1.0 s.
+menard and another for the host's formatter took 0.8-1.0 s. `bin/menard` itself, in a session,
+hands its verb to that server over localhost (`Menard.Door`) and boots no VM of its own.
 
 **The tools** are for what an edit by hand does badly: a rename across files, who calls what, one
 function read out of a big module, a function moved with its docs, a module split in one call.

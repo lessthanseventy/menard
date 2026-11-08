@@ -94,7 +94,10 @@ Each from the transcripts, a failing test first, its own commit.
   has its number now: 24 s against 1 s at the median, 25 hours in three weeks. Either the CLI
   talks to the hooks server already running for the session (a socket, as that review sketched),
   or the session-start text teaches the MCP `edit` and the heredoc stays for shells with no
-  server. The operator's call: the first is the product's shape, the second an afternoon.
+  server. *Done the same day, the first way (`Menard.Door`, 0.8.7): the hooks server listens on
+  localhost and `bin/menard` sends the verb there over bash's `/dev/tcp`; `run` and verbs from
+  inside menard's checkout keep their own VM. The next review should see the CLI `edit` median
+  near the MCP door's.*
 - **The pile is 30 days deep.** `cleanupPeriodDays` in `~/.claude/settings.json` is unset, so the
   default 30 wiped September and the first week of October. The next review reads from 10-09.
   Set it (180 is 14 GB at today's rate) or run `eval/pile/report.sh` monthly and keep its cache.
