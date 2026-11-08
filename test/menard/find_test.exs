@@ -41,8 +41,8 @@ defmodule Menard.FindTest do
   end
 
   test "calls: a bare call in a module that imports the target's module" do
-    # 2026-10-01: `find calls Menard.Verbs.edit lib` found nothing, while every writing verb calls
-    # it as `edit(…)` under `import Menard.Verbs`
+    # `find calls Menard.Verbs.edit lib`, where every writing verb calls it as `edit(…)` under
+    # `import Menard.Verbs`
     src = """
     defmodule A do
       import Menard.Verbs
@@ -97,7 +97,7 @@ defmodule Menard.FindTest do
     send(task.pid, :go)
     assert [_, _] = Task.await(task)
     ref = :erlang.trace_delivered(task.pid)
-    # a delivery guarantee, not a measure: the default 100 ms was missed once at load 30 (2026-10-20)
+    # a delivery guarantee, not a measure: the default 100 ms can be missed under load
     assert_receive {:trace_delivered, _, ^ref}, 5_000
     :erlang.trace_pattern({Sourceror, :parse_string, 1}, false, [])
 
@@ -155,7 +155,7 @@ defmodule Menard.FindTest do
   end
 
   test "calls: a call inside a ~H template, aliased or local, not text around it" do
-    # bench1 explore-callers.B.haiku: find answered two callers of four, the two in templates missing
+    # callers in templates count beside the others
     src = ~S'''
     defmodule Card do
       alias Shop.Catalog
@@ -198,8 +198,8 @@ defmodule Menard.FindTest do
 
   @tag :tmp_dir
   test "nothing found, the reply says where the name is written", %{tmp_dir: dir} do
-    # Oban 01: `find defs insert_trigger` and `find calls` answered `{"hits":[]}`, and the agent fell
-    # back on grep: the name was a config key. Nothing found, the reply says where it is written
+    # the name is a config key: `{"hits":[]}` sends the agent back to grep. Nothing found, the reply
+    # says where it is written
     file = Path.join(dir, "c.ex")
 
     File.write!(
@@ -221,7 +221,6 @@ defmodule Menard.FindTest do
 
   @tag :tmp_dir
   test "a hit names the function it sits in, so no `where` or Read follows it", %{tmp_dir: dir} do
-    # Fable's review 2026-10-01, 1.3: hits carried no enclosing function
     file = Path.join(dir, "d.ex")
 
     File.write!(file, """
@@ -247,8 +246,8 @@ defmodule Menard.FindTest do
   end
 
   test "a capture is a call: &fun/1 and &Mod.fun/1" do
-    # Fable 2026-10-01: `find calls line_total lib` found nothing with `Enum.map(&line_total/1)` in the
-    # file, and `clause delete … line_total/1` answered `left: []` over a module that then did not build
+    # `Enum.map(&line_total/1)` is a call, or `clause delete … line_total/1` answers `left: []` over
+    # a module that then does not build
     source = """
     defmodule Shop.Cart do
       alias Shop.Price
@@ -266,8 +265,7 @@ defmodule Menard.FindTest do
 
   @tag :tmp_dir
   test "a directory is the project's own files, and an empty answer says so", %{tmp_dir: dir} do
-    # Fable 2026-10-01: `find calls X .` walked deps/ and _build/, 3,876 files and 2 min, then raised
-    # on a file gone mid-walk. A directory is the project's own files, as the hooks prune it
+    # A directory is the project's own files, as the hooks prune it
     for dir_in <- ~w(lib deps/x/lib _build/dev/lib .git/hooks node_modules/y) do
       File.mkdir_p!(Path.join(dir, dir_in))
       File.write!(Path.join([dir, dir_in, "a.ex"]), "defmodule A, do: def go, do: B.run()\n")
@@ -287,7 +285,6 @@ defmodule Menard.FindTest do
 
   @tag :tmp_dir
   test "find takes a target with its arity, and verb for kind", %{tmp_dir: dir} do
-    # Fable 2026-10-01: find took `kind` where every other noun takes `verb`, and refused `Mod.fun/2`
     file = Path.join(dir, "f.ex")
     File.write!(file, "defmodule F do\n  def go(x), do: Shop.Cart.total(x)\nend\n")
 

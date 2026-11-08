@@ -577,8 +577,8 @@ defmodule Menard.MCPTest do
     assert File.read!(Path.join(root, "lib/a.ex")) =~ "def fresh"
     assert File.read!(Path.join(root, "lib/sub/b.ex")) =~ "A.fresh()"
 
-    # beside one that matches, an empty glob is no reason to refuse: the eval's agent wrote
-    # `test/**/*.ex` for tests that are .exs, and lost a turn to it
+    # beside one that matches, an empty glob is no reason to refuse (`test/**/*.ex` for tests that
+    # are .exs)
     refute call(Menard.MCP.Rename, %{old: "fresh", new: "fine", files: ["lib/**/*.ex", "test/**/*.ex"]}).isError
 
     assert File.read!(Path.join(root, "lib/a.ex")) =~ "def fine"
@@ -600,8 +600,7 @@ defmodule Menard.MCPTest do
   end
 
   test "the server tells an agent up front what its tools are for, starting from outline" do
-    # the guard is gone (bench5: a formatting hook alone gave the clean output), so the instructions
-    # say where the tools win over a plain Edit, not that Edit is refused
+    # the instructions say where the tools win over a plain Edit, not that Edit is refused
     text = Menard.MCP.server_instructions()
     assert text =~ "rename"
     assert text =~ "outline"
@@ -611,7 +610,7 @@ defmodule Menard.MCPTest do
   test "a clause verb with no head takes a function's only clause, and among several names their heads", %{
     root: root
   } do
-    # the eval's haiku left `head` out of an edit of a one-clause function and got a KeyError back
+    # `head` left out of an edit of a one-clause function is no KeyError
     File.write!(
       Path.join(root, "lib/a.ex"),
       "defmodule A do\n  def one(x), do: x\n\n  def two(1), do: 1\n  def two(n), do: n\nend\n"
@@ -654,8 +653,8 @@ defmodule Menard.MCPTest do
   end
 
   test "a call the schema refuses answers with why, as a tool error the agent can read", %{root: root} do
-    # bench2 bug-receipt-total.B.haiku asked clause for verb "get" (none then) and got "Invalid params": the
-    # detail rides in the error's data, which Claude Code does not show
+    # a protocol error "Invalid params" carries its detail in the error's data, which Claude Code
+    # does not show
     File.write!(Path.join(root, "lib/a.ex"), "defmodule A do\n  def a, do: 1\nend\n")
 
     request = %{
@@ -671,9 +670,8 @@ defmodule Menard.MCPTest do
   end
 
   test "a call the schema refuses says what the tool takes and what was given" do
-    # Transcripts: find called with `name` and `dirs` for `target` and `files`, twice (2026-10-01), and
-    # edit with `search`/`replace` for `old`/`new` (10-08), answered "edit: edits: ; edits: " — the
-    # schema's word for a wrong key inside a list is nothing at all
+    # find called with `name` and `dirs` for `target` and `files`, and edit with `search`/`replace`
+    # for `old`/`new`: the schema's word for a wrong key inside a list is nothing at all
     request = fn name, args ->
       %{"method" => "tools/call", "params" => %{"name" => name, "arguments" => args}}
     end
@@ -748,16 +746,14 @@ defmodule Menard.MCPTest do
   end
 
   test "an edit with no then is bounded as any verb, not by the tests a then would run" do
-    # 2026-10-01 00:50: an edit of three small writes, no `then`, went silent past the client's 120s.
-    # Its 600s are for the tests a `then` runs; without one it is bounded as any verb
+    # its 600s are for the tests a `then` runs; without one it is bounded as any verb
     assert Reply.deadline(600_000, Verbs.Edit, %{edits: []}) == 90_000
     assert Reply.deadline(600_000, Verbs.Edit, %{edits: [], then: "test"}) == 600_000
     assert Reply.deadline(600_000, Verbs.Run, %{verb: "check"}) == 600_000
   end
 
   test "the MCP outline answers the CLI's text, json: true the map", %{root: root} do
-    # Fable 2026-10-01: MCP's outline was JSON, the CLI's text, 26,710 against 18,190 characters for one
-    # 1,950-line file. MCP answers the text; `json: true` is the map
+    # MCP answers the text, as the CLI does; `json: true` is the map
     File.write!(Path.join(root, "lib/o.ex"), "defmodule O do\n  def go(x), do: x\nend\n")
 
     text = call(Menard.MCP.Outline, %{file: "lib/o.ex"}).content |> hd() |> Map.fetch!("text")

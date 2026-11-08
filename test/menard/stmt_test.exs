@@ -298,8 +298,7 @@ defmodule Menard.StmtTest do
   end
 
   test "replace reaches an expression in a ~H template; the other verbs still send it to Edit" do
-    # bench1 and bench2 add-alias.B.haiku, new-component.B.haiku: each first tried stmt replace on
-    # a `{…}` in the template, and was refused
+    # a `{…}` in the template
     src = ~S'''
     defmodule L do
       def render(assigns) do
@@ -332,8 +331,7 @@ defmodule Menard.StmtTest do
   end
 
   test "replace reaches any text of a ~H template, a whole line of markup too" do
-    # bench2 change-signature.B.haiku matched a whole `<p :for=…>{…}</p>` line, two expressions and
-    # the markup around them
+    # a whole `<p :for=…>{…}</p>` line, two expressions and the markup around them
     src = ~S'''
     defmodule L do
       def render(assigns) do
@@ -373,7 +371,7 @@ defmodule Menard.StmtTest do
   end
 
   test "a statement in a test, the test named by its label where the head goes" do
-    # bench2 move-function.B.haiku: stmt {name_arity: "-", head: "formats a line", match: …}
+    # stmt {name_arity: "-", head: "formats a line", match: …}
     src = """
     defmodule ATest do
       use ExUnit.Case
@@ -399,7 +397,7 @@ defmodule Menard.StmtTest do
   end
 
   test "a statement in a test, the label given as the name_arity" do
-    # bench3 move-function.B.haiku: stmt {name_arity: "formats a line/0", head: ""}
+    # stmt {name_arity: "formats a line/0", head: ""}
     src =
       "defmodule ATest do\n  use ExUnit.Case\n\n  test \"formats a line\" do\n    assert f(1) == 1\n  end\nend\n"
 
@@ -408,8 +406,8 @@ defmodule Menard.StmtTest do
   end
 
   test "a replace matched by its start that leaves code which does not parse says what it matched" do
-    # replacing `case x do` with one line took the whole case, and the refusal said only
-    # "missing terminator: end" (found fixing bench3's bugs, twice)
+    # replacing `case x do` with one line takes the whole case, and the refusal must say more than
+    # "missing terminator: end"
     src =
       "defmodule A do\n  def f(x) do\n    case x do\n      1 -> :one\n      _ -> :other\n    end\n  end\nend\n"
 
@@ -419,8 +417,7 @@ defmodule Menard.StmtTest do
   end
 
   test "a statement of the module itself, when no clause or test is named: defstruct, @type" do
-    # bench3 not-compiling.B.haiku: nothing reached `defstruct […]` or `@type t :: …`; it tried
-    # clause t/0, stmt t/0, two Edits, then replaced the whole module
+    # `defstruct […]` and `@type t :: …` are reached
     src = "defmodule P do\n  defstruct [:sku, stock: 0]\n\n  @type t :: %__MODULE__{sku: String.t()}\nend\n"
     out = Stmt.replace(src, "-", "", "defstruct [:sku, stock: 0]", "defstruct [:sku, stock: 0, weight: 0]")
     assert out == String.replace(src, "stock: 0]", "stock: 0, weight: 0]")
@@ -432,8 +429,8 @@ defmodule Menard.StmtTest do
   end
 
   test "the module fallback reaches the module's own statements, never one inside a function or test" do
-    # bench4 bug-receipt-total.B.haiku named subject/1, the function under test, in the TEST file: the
-    # fallback found the assert inside a test and put a new test inside that test
+    # naming subject/1, the function under test, in the TEST file: the fallback must not find the
+    # assert inside a test and put a new test inside that test
     src =
       "defmodule MTest do\n  use ExUnit.Case\n\n  test \"subject quotes the id\" do\n    assert M.subject(1) == 1\n  end\nend\n"
 
@@ -447,7 +444,7 @@ defmodule Menard.StmtTest do
   end
 
   test "naming nothing searches the whole file for the one statement written" do
-    # bench5 move-function.B.haiku: name_arity "" and head "" for a line inside a test
+    # name_arity "" and head "" for a line inside a test
     src = "defmodule CTest do\n  use ExUnit.Case\n\n  test \"formats\" do\n    assert f(1) == 1\n  end\nend\n"
 
     assert Stmt.replace(src, "", "", "assert f(1) == 1", "assert g(1) == 1") ==
