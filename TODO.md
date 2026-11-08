@@ -10,5 +10,5 @@ commit lands.
   the VM ignores SIGPIPE. The verb's VM writes its stderr to a temp file, so it is exposed only
   where it inherits the caller's: `mcp`, and a sandbox that denies the temp dir. The dump no longer
   lands in a project (0.8.4). Left: a guarded print in bin/menard's `script`, once a test is red
-  for it here; and the report upstream.
+  for it here. Upstream: https://github.com/elixir-lang/elixir/issues/16079
 - `lang`: a script with no extension that a shell command wrote is not checked: `Menard.Hook`'s `newer/2` finds files by name.

@@ -4,6 +4,9 @@
 # MENARD_LSP swaps it for both.
 set -euo pipefail
 
+# the server is a VM run in the project: a crash of it dumps where bin/menard's VMs do, not there
+export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-${TMPDIR:-/tmp}/menard-erl_crash.dump}"
+
 case "${MENARD_LSP:-expert}" in
   expert) exec expert --stdio ;;
   elixir-ls) exec elixir-ls ;;

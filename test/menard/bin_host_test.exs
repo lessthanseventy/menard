@@ -96,6 +96,21 @@ defmodule Menard.BinHostTest do
   end
 
   @tag :tmp_dir
+  test "the language server bin/lsp starts dumps in the temp dir too", %{tmp_dir: dir} do
+    # Claude Code's lspServers start bin/lsp, not bin/menard, and its server is a VM in the project
+    server = Path.join(dir, "server")
+    File.write!(server, "#!/bin/sh\necho \"$ERL_CRASH_DUMP\"\n")
+    File.chmod!(server, 0o755)
+
+    {out, 0} =
+      System.cmd(Path.join(@root, "bin/lsp"), [],
+        env: [{"MENARD_LSP", server}, {"TMPDIR", dir}, {"ERL_CRASH_DUMP", nil}]
+      )
+
+    assert out == Path.join(dir, "menard-erl_crash.dump") <> "\n"
+  end
+
+  @tag :tmp_dir
   test "a stderr whose reader is gone gets the verb's exit, not SIGPIPE's", %{tmp_dir: dir} do
     # 2026-11: a refusal printed to a dead stderr pipe exited 141, the shell's own SIGPIPE on the
     # `cat` that passes the verb's stderr on, and the verb's 1 was lost
