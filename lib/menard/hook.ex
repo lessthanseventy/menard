@@ -545,7 +545,8 @@ defmodule Menard.Hook do
   # `find`, for its clock: a stat here is whole seconds, and a command writes within its mark's own.
   defp newer(dir, mark) do
     prune = @prune |> Enum.flat_map(&["-o", "-name", &1]) |> tl()
-    names = ["(", "-name", "*.ex", "-o", "-name", "*.exs"]
+    # and a file with no extension: a script that is a row's by its shebang (Menard.Lang)
+    names = ["(", "-name", "*.ex", "-o", "-name", "*.exs", "-o", "!", "-name", "*.*"]
     names = names ++ Enum.flat_map(Menard.Lang.extensions(), &["-o", "-name", "*" <> &1]) ++ [")"]
     args = [dir, "("] ++ prune ++ [")", "-prune", "-o", "-type", "f"] ++ names ++ ["-newer", mark, "-print0"]
 
