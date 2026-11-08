@@ -1,7 +1,9 @@
 defmodule Menard.BinTest do
   # bin/menard's stdout is the verb's answer and nothing else: tools read it (`attr get` → a value,
-  # `run` → one JSON line). Not async: it deletes and rebuilds a build of menard's, its own env's.
-  use ExUnit.Case, async: false
+  # `run` → one JSON line). The build it deletes and rebuilds is its own env's (`bintest`, below),
+  # which no other module touches, so it runs beside them: its 28 s were a fifth of the suite's
+  # serial tail.
+  use ExUnit.Case, async: true
 
   alias Menard.Verbs.Noun
 
