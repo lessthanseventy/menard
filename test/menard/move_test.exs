@@ -22,6 +22,17 @@ defmodule Menard.MoveTest do
     assert File.read!(from) == "defmodule A do\n  def stays, do: 2\nend\n"
   end
 
+  test "the new module takes the prefix the source carries past its own path", %{tmp_dir: dir} do
+    Host.mix_project(dir, :app)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    from = Path.join(dir, "lib/capture.ex")
+    File.write!(from, "defmodule Acme.Capture do\n  def go, do: 1\n\n  def stays, do: 2\nend\n")
+    dest = Path.join(dir, "lib/capture/writer.ex")
+
+    assert {:ok, %{created: "Acme.Capture.Writer"}} = Menard.Move.run(from, dest, "go/0", root: dir)
+    assert File.read!(dest) =~ "defmodule Acme.Capture.Writer do"
+  end
+
   test "a missing destination outside any mix project is refused, and nothing is written" do
     # off the repo: ExUnit's tmp_dir sits inside menard's own project, whose mix.exs would name it
     dir = Path.join(System.tmp_dir!(), "menard-move-#{System.pid()}-#{System.unique_integer([:positive])}")

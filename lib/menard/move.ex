@@ -73,7 +73,7 @@ defmodule Menard.Move do
     listed = Enum.join(names, ", ")
 
     with :ok <- apart(file, dest),
-         {:ok, dest_source, created} <- dest_source(dest, opts[:as], opts[:moduledoc]),
+         {:ok, dest_source, created} <- dest_source(file, dest, opts[:as], opts[:moduledoc]),
          {:ok, plan} <- plan(File.read!(file), dest_source, names, opts),
          dest_out = with_moduledoc(plan.dest, opts[:moduledoc]),
          {:ok, dest_out} <- published(dest_out, plan.report.moved, opts[:public]),
@@ -108,7 +108,7 @@ defmodule Menard.Move do
     listed = Enum.map_join(labels, ", ", &inspect/1)
 
     with :ok <- apart(file, dest),
-         {:ok, dest_source, created} <- dest_source(dest, opts[:as], nil),
+         {:ok, dest_source, created} <- dest_source(file, dest, opts[:as], nil),
          {:ok, plan} <- plan_blocks(File.read!(file), dest_source, labels, created != nil),
          {:ok, _} <- Menard.Write.checked(dest, plan.dest),
          {:ok, _} <- Menard.Write.checked(file, plan.source),
@@ -1010,7 +1010,7 @@ defmodule Menard.Move do
     end
   end
 
-  defp dest_source(dest, as, moduledoc) do
+  defp dest_source(file, dest, as, moduledoc) do
     cond do
       File.exists?(dest) and moduledoc not in [nil, ""] ->
         {:error,
@@ -1023,7 +1023,7 @@ defmodule Menard.Move do
         {:ok, "defmodule #{as} do\nend\n", as}
 
       true ->
-        case derive_module(dest) do
+        case derive_module(file, dest) do
           {:ok, mod} ->
             {:ok, "defmodule #{mod} do\nend\n", mod}
 
@@ -1034,8 +1034,23 @@ defmodule Menard.Move do
   end
 
   # What a generator would have called it: `lib/my_app/foo/bar.ex` is `MyApp.Foo.Bar`, relative to
-  # the nearest mix.exs, with `lib/` or `test/` dropped.
-  defp derive_module(path) do
+  # the nearest mix.exs, with `lib/` or `test/` dropped. A prefix the source module carries past its
+  # own path (`Excessibility.TelemetryCapture` at `lib/telemetry_capture.ex`) the new module takes too.
+  defp derive_module(file, path) do
+    with {:ok, derived} <- by_path(path), do: {:ok, prefix(file) <> derived}
+  end
+
+  defp prefix(file) do
+    with {:ok, derived} <- by_path(file),
+         [mod | _] <- Menard.Module.list(File.read!(file)),
+         true <- String.ends_with?(mod, "." <> derived) do
+      String.trim_trailing(mod, derived)
+    else
+      _ -> ""
+    end
+  end
+
+  defp by_path(path) do
     with {:ok, root} <- project_root(Path.dirname(path)) do
       path
       |> Path.relative_to(root)
