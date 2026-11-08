@@ -41,6 +41,7 @@ defmodule Menard.Verbs.Block do
         {:as, :string, []}
       ],
       cli: %{
+        stdin: [:code],
         flags: [tag: {:keep, :tag}],
         shapes: [
           {"get", [:file, :name]},

@@ -33,6 +33,7 @@ defmodule Menard.Verbs.Stmt do
         {:nth, :integer, []}
       ],
       cli: %{
+        stdin: [:code],
         shapes: [
           {"list", [:file, :name_arity, :head]},
           {"delete", [:file, :name_arity, :head, :match]},

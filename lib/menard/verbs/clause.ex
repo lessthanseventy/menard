@@ -80,6 +80,7 @@ defmodule Menard.Verbs.Clause do
           }}, []}
       ],
       cli: %{
+        stdin: [:code],
         shapes: [
           {"get", [:file, :name_arity, {:optional, :head}]},
           {"delete", [:file, :name_arity, {:optional, :head}]},
