@@ -120,6 +120,13 @@ defmodule Menard.ScriptsTest do
 
     assert Scripts.delegated("Find every reference to the word transition in the docs", @menard) == nil
     assert Scripts.delegated("Review Desk.Tickets.transition/2 for bugs", @menard) == nil
+
+    # tlon-57, 2026-11-08: a build brief that TELLS the subagent to use find calls is no search
+    assert Scripts.delegated(
+             "Fix the bug in Server.Staffing.explain/1 and add a test. To find its callers use " <>
+               "`menard find calls Server.Staffing.explain lib test`, then update each.",
+             @menard
+           ) == nil
   end
 
   @tag :tmp_dir

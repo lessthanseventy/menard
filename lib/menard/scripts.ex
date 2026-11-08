@@ -109,7 +109,10 @@ defmodule Menard.Scripts do
       |> List.flatten()
       |> Enum.max_by(&String.length/1, fn -> nil end)
 
-    if asks? and target do
+    # a brief that names `find calls` itself already knows the tool: a build with a search in it
+    knows? = String.contains?(prompt, "find calls")
+
+    if asks? and target != nil and not knows? do
       "a subagent to find the calls of #{target}: #{menard} find calls #{target} lib test answers it in one " <>
         "call (the `find` tool, kind calls): every call site, by the AST, strings, comments and names that " <>
         "only share its word left out."
