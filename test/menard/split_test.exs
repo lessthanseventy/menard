@@ -35,7 +35,8 @@ defmodule Menard.SplitTest do
   defp shop(dir) do
     file = Path.join(dir, "lib/shop.ex")
     File.mkdir_p!(Path.dirname(file))
-    # the project a created module is named in: `lib/shop/catalog.ex` is `Shop.Catalog`
+    # the project a created module is named in: `lib/shop/catalog.ex` is `Shop.Catalog`, under the
+    # `Split2.` the source carries past its own path
     Host.mix_project(dir, :split2)
     File.write!(file, @shop)
     file
@@ -166,7 +167,8 @@ defmodule Menard.SplitTest do
     assert ["lib/till.ex:2: " <> _] = left
   end
 
-  test "the CLI's plan is a DEST=a/1,b/2 per new module, each named after its path", %{tmp_dir: dir} do
+  test "the CLI's plan is a DEST=a/1,b/2 per new module, each named after its path and the source's prefix",
+       %{tmp_dir: dir} do
     file = shop(dir)
     catalog = Path.join(dir, "lib/shop/catalog.ex")
     pricing = Path.join(dir, "lib/shop/pricing.ex")
@@ -184,7 +186,7 @@ defmodule Menard.SplitTest do
 
     assert %{
              "did" => "split shop.ex into catalog.ex, pricing.ex",
-             "modules" => [%{"created" => "Shop.Catalog"}, %{"created" => "Shop.Pricing"}]
+             "modules" => [%{"created" => "Split2.Shop.Catalog"}, %{"created" => "Split2.Shop.Pricing"}]
            } = JSON.decode!(out)
 
     # the project's formatter may alias the new module
