@@ -535,4 +535,22 @@ defmodule Menard.BlockTest do
     assert {:error, why} = Block.get(src, "totals with tax")
     assert why =~ ~s(test --label "totals with tax")
   end
+
+  @tag :tmp_dir
+  test "CODE as `-` is stdin, as write and module take it; an empty stdin is refused, nothing written", %{
+    tmp_dir: dir
+  } do
+    # 2026-11-08: `block add FILE test - <<'EOF'` wrote a body of one `-`, and the refusal was
+    # "syntax error before: 'end'" at a line of a file that was never written
+    file = Path.join(dir, "a_test.exs")
+    File.write!(file, "defmodule ATest do\n  use ExUnit.Case\nend\n")
+
+    assert_raise Mix.Error, ~r/stdin was empty/, fn ->
+      ExUnit.CaptureIO.capture_io("", fn ->
+        Mix.Tasks.Menard.Block.run(["add", file, "test", "-", "--label", "x"])
+      end)
+    end
+
+    assert File.read!(file) == "defmodule ATest do\n  use ExUnit.Case\nend\n"
+  end
 end
