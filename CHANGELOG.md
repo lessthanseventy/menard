@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.3
+
+- A `menard …` command whose reply is piped into a filter that ends the line (`| head -c 3000`,
+  `2>&1 | tail -c 1500`, `| jq .failures`) is run bare in its place, and the agent is told in one
+  line that the filter was dropped. It was refused, a turn lost each time: ~200 of tlon's 271 tool
+  denials in 14 days. A filter with a command after it, a heredoc, a loop or `>/dev/null` is still
+  refused.
+
 ## 0.8.2
 
 - `bin/menard` under a sandbox that denies the temp dir, as Claude Code's does on macOS, exited before
