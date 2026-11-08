@@ -21,6 +21,13 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
   `edit` from the CLI took 24 s at the median under the seats' load, where the same edit through
   the MCP door took 1 s. `run` keeps its own VM, as does every verb from inside menard's checkout;
   a door that does not answer costs one refused connection, and the verb runs as before.
+- A session whose hooks server is not running (its connection timed out at startup, or it stopped)
+  is told so once, at the next prompt after the first, with how to reconnect it; before, three
+  sessions in a month ran with no hooks and no word of it.
+- A verb whose stderr nobody can write (`2>&-`, a sandbox denying the temp dir) exits 1, where the
+  VM died at boot with the crash as an Erlang term on stdout.
+- The shell lint follows what a script sources beside it (`shellcheck -x`), so a hook's
+  `source lib.sh` is no longer "SC1091: not following" and lib.sh's variables are assigned.
 
 ## 0.8.6
 
