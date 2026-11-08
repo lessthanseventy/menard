@@ -439,7 +439,7 @@ defmodule Menard.Hook do
     new =
       for tool <- Menard.Lang.missing(file),
           mark = session_file(hook, "lang-missing-#{tool}"),
-          !File.exists?(mark) do
+          not File.exists?(mark) do
         File.write!(mark, "")
         tool
       end

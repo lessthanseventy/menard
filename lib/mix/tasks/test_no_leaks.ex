@@ -39,9 +39,15 @@ defmodule Mix.Tasks.TestNoLeaks do
 
   defp leaked_vms(wait) do
     case leaked_vms() do
-      [] -> []
-      left when wait <= 0 -> left
-      _ -> Process.sleep(500) && leaked_vms(wait - 500)
+      [] ->
+        []
+
+      left when wait <= 0 ->
+        left
+
+      _ ->
+        Process.sleep(500)
+        leaked_vms(wait - 500)
     end
   end
 
