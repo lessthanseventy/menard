@@ -46,7 +46,7 @@ defmodule Menard.Scripts do
 
     cond do
       filtered?(command) ->
-        filtered_why()
+        filtered_why(command)
 
       script && not (programs?(command, root) or harmless?(command)) ->
         "#{script} does not run here. " <> instead(menard)
@@ -174,25 +174,33 @@ defmodule Menard.Scripts do
   # did not think to ask for (an edit's `stages`, the formatter's changes to it), and a rule that
   # said "read it whole" was broken by the agent that wrote it, ten times in a session.
   defp filtered?(command) do
-    # a heredoc's body goes, the rest of its opening line stays: `menard edit - <<'EOF' | jq`
-    line =
-      ~r/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)/s
-      |> Regex.replace(command, "\\3")
-      |> String.replace("2>&1", "")
-      # a quoted string is an argument, not a command: `mix run -e '… "bin/menard x | head" …'`
-      |> String.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"/, "''")
-
     # menard where a command starts (after a separator, or a loop's `do`, `then`, `xargs`, under
     # `timeout`, `time` or a wrapper, as the script ban reads them), its reply piped into a filter
     # or thrown away
-    Regex.match?(@filtered, line)
+    Regex.match?(@filtered, commands_of(command))
   end
 
-  defp filtered_why,
-    do:
-      "menard's reply is read whole, not through a filter: what a filter drops is what you did not " <>
-        "think to ask for (an edit's `stages`, a failure past the first). Run it bare. A reply too " <>
-        "big or too noisy to read whole is menard's to fix, not to cut."
+  # a heredoc's body goes, the rest of its opening line stays: `menard edit - <<'EOF' | jq`
+  defp commands_of(command) do
+    ~r/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n.*?\n\s*\2(?=\n|$)/s
+    |> Regex.replace(command, "\\3")
+    |> String.replace("2>&1", "")
+    # a quoted string is an argument, not a command: `mix run -e '… "bin/menard x | head" …'`
+    |> String.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"/, "''")
+  end
+
+  # which it saw: the reply sent to /dev/null, or through a filter
+  defp filtered_why(command) do
+    seen =
+      if Regex.match?(~r/menard\s[^|;&\n>]*(?:(?<!2)>|&>)\s*\/dev\/null/, commands_of(command)),
+        do: "menard's reply was sent to /dev/null, and the reply is the answer",
+        else: "menard's reply is read whole, not through a filter"
+
+    seen <>
+      ": what a filter drops is what you did not think to ask for (an edit's `stages`, a failure " <>
+      "past the first). Run it bare. A reply too big or too noisy to read whole is menard's to fix, " <>
+      "not to cut."
+  end
 
   # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
   # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file
