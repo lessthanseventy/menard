@@ -229,7 +229,7 @@ defmodule Menard.ClauseTest do
       src =
         ~s|defmodule CartTest do\n  use ExUnit.Case\n\n  test "total includes tax" do\n    assert 1\n  end\nend\n|
 
-      # as the eval's agents guessed it: the label as the name, or as the head
+      # as an agent guesses it: the label as the name, or as the head
       for {name_arity, head} <- [{"total includes tax/0", ""}, {"total/0", ~s|"total includes tax"|}] do
         assert {:error, message} = Clause.replace_body(src, name_arity, head, ":ok")
         assert message =~ ~s|block replace FILE test --label "total includes tax"|
@@ -330,8 +330,8 @@ defmodule Menard.ClauseTest do
     end
 
     test ":top goes above the first definition's @doc, @spec and comment, not between them and it" do
-      # Found 2026-09-28: the new function landed under the first def's @spec, which then described
-      # the new function, and its own was left with none. It parses, so nothing said so.
+      # landing under the first def's @spec would make it describe the new function and leave the
+      # def's own with none. It parses, so nothing would say so.
       source =
         "defmodule A do\n  # how it goes\n  @doc \"Goes.\"\n  @spec go(term()) :: term()\n  def go(x), do: x\nend\n"
 
@@ -758,15 +758,15 @@ defmodule Menard.ClauseTest do
 
   test "replace handed a whole clause is refused toward rewrite, the function's own or another's" do
     src = "defmodule T do\n  def total(cart), do: cart\nend\n"
-    # as the eval's agents wrote it: the def line and all. One name per edit: `rewrite` is that one
+    # as an agent writes it: the def line and all. One name per edit: `rewrite` is that one
     assert {:error, message} =
              Clause.replace_body(src, "total/1", "cart", "def total(cart) do\n  cart * 2\nend")
 
     assert message =~ "rewrite"
     assert {:error, message} = Clause.replace_body(src, "total/1", "cart", "def other(x), do: x")
     assert message =~ "rewrite"
-    # a comment above the def hid that it was a whole clause, and it was nested in the old one:
-    # it parsed, and did not compile (found fixing bench1's bugs)
+    # a comment above the def must not hide that it is a whole clause nested in the old one: it
+    # parses, and does not compile
     assert {:error, message} =
              Clause.replace_body(src, "total/1", "cart", "# why\ndef total(cart) do\n  cart * 2\nend")
 
@@ -795,7 +795,6 @@ defmodule Menard.ClauseTest do
   end
 
   test "get: one clause by its head, or with no head the whole function, as written" do
-    # bench2 bug-receipt-total.B.haiku asked clause for "get": reading one function, not the file
     src = """
     defmodule A do
       def keep, do: 1
@@ -815,7 +814,6 @@ defmodule Menard.ClauseTest do
   end
 
   test "naming a test macro as the function points at block, which reaches the tests" do
-    # bench3 move-function.B.sonnet: stmt list with name_arity "test/2", told only "have: none"
     src = "defmodule ATest do\n  use ExUnit.Case\n\n  test \"a\" do\n    assert 1\n  end\nend\n"
     assert {:error, message} = Clause.replace_body(src, "test/2", "", "x")
     assert message =~ "block"
@@ -823,8 +821,8 @@ defmodule Menard.ClauseTest do
   end
 
   test "a whole clause under its @doc is the rewrite, and takes the old @doc's place" do
-    # long1 cart-refactor.B.haiku: clause replace with `@doc """…"""` + def nested the @doc in the
-    # old body, "cannot set attribute @doc inside function/macro", and the step ended not compiling
+    # `@doc """…"""` + def must not nest the @doc in the old body: "cannot set attribute @doc inside
+    # function/macro"
     src = "defmodule A do\n  @doc \"Old.\"\n  def f(x), do: x\n\n  def g, do: 1\nend\n"
     code = "@doc \"New.\"\n@spec f(integer()) :: integer()\ndef f(x) do\n  x + 1\nend"
 
@@ -835,8 +833,6 @@ defmodule Menard.ClauseTest do
   end
 
   test "rewrite takes the clause and whatever the code adds after it: a new function beside it" do
-    # long1 cart-refactor.B.sonnet rewrote product_card/1 and added availability/1 in one call, and
-    # was told it needed a whole clause
     src = "defmodule A do\n  def card(x), do: x\nend\n"
     code = "def card(x), do: badge(x)\n\n@doc \"The badge.\"\ndef badge(x), do: x"
     out = Clause.rewrite(src, "card/1", "x", code)
@@ -846,8 +842,8 @@ defmodule Menard.ClauseTest do
   end
 
   test "a component's attr and slot lines belong to its def: insert_before goes above them, delete takes them" do
-    # bench4 new-component.B.haiku inserted a new component before product_card/1 and it landed
-    # between product_card's `attr :product` and its def: a duplicate attr, a compile error
+    # inserting before the def must not land between its `attr :product` and the def: a duplicate
+    # attr, a compile error
     src =
       "defmodule C do\n  use Phoenix.Component\n\n  attr :product, :map, required: true\n  slot :inner_block\n\n  def card(assigns) do\n    ~H\"x\"\n  end\nend\n"
 
@@ -870,8 +866,7 @@ defmodule Menard.ClauseTest do
   end
 
   test "a head that is part of exactly one clause's head names that clause" do
-    # bench4 new-module.B.haiku addressed apply_code/2 by "TENOFF", the argument that tells its
-    # clauses apart, and was refused with the three heads
+    # "TENOFF" is the argument that tells apply_code/2's clauses apart
     src =
       "defmodule D do\n  def apply_code(cents, \"TENOFF\"), do: div(cents * 9, 10)\n  def apply_code(cents, \"FIVE\"), do: max(cents - 500, 0)\n  def apply_code(_cents, _code), do: :error\nend\n"
 
@@ -883,7 +878,7 @@ defmodule Menard.ClauseTest do
   end
 
   test "naming a type where a function goes says it is a type, and what reaches it" do
-    # bench3 and bench4 not-compiling.B.haiku: clause t/0 for `@type t ::`, told "have: none"
+    # clause t/0 for `@type t ::`, not told "have: none"
     src = "defmodule P do\n  defstruct [:a]\n  @type t :: %__MODULE__{a: integer()}\nend\n"
     assert {:error, message} = Clause.replace_body(src, "t/0", "", "x")
     assert message =~ "@type t"
@@ -891,8 +886,8 @@ defmodule Menard.ClauseTest do
   end
 
   test "a whole component, its attr lines and @doc above the def, is a rewrite; replace refuses it" do
-    # long2 cart-refactor.B.haiku replaced cart_summary/1 with `attr …` `attr …` `@doc …` then the def:
-    # not seen as a whole clause, nested in the old body, and step 02 ended not compiling again
+    # `attr …` `attr …` `@doc …` then the def must be seen as a whole clause, not nested in the old
+    # body
     src =
       "defmodule C do\n  use Phoenix.Component\n\n  attr :cart, :map, required: true\n\n  @doc \"Old.\"\n  def summary(assigns) do\n    ~H\"old\"\n  end\nend\n"
 
@@ -950,8 +945,7 @@ defmodule Menard.ClauseTest do
   test "a name with no arity is the one function of that name; of several, the arities are named", %{
     tmp_dir: dir
   } do
-    # desk7 (opus): `menard clause get lib/desk_web/components/layouts.ex app` was refused, "expected
-    # [Mod.]name/arity", the file holding one app/1: an agent's first guess is the name alone
+    # an agent's first guess is the name alone, the file holding one app/1
     file = Path.join(dir, "l.ex")
 
     File.write!(
@@ -967,8 +961,8 @@ defmodule Menard.ClauseTest do
              Menard.Verbs.Clause.run(%{verb: "get", file: file, name_arity: "two"})
 
     assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "delete", file: file, name_arity: "two"})
-    # Fable's review 2026-10-01: `visibility … private` answered no `left`, where `delete` does, and a
-    # remote caller was found at the next compile
+    # `visibility … private` answers `left` as `delete` does, not a remote caller found at the next
+    # compile
     File.mkdir_p!(Path.join(dir, "lib"))
     File.write!(Path.join(dir, "lib/b.ex"), "defmodule B do\n  def use_two, do: L.two(1)\nend\n")
 
@@ -1017,7 +1011,7 @@ defmodule Menard.ClauseTest do
   test "a clause rewritten with a new function under it is written, the function after the clauses", %{
     tmp_dir: dir
   } do
-    # up4 Symphony 01, as the agent called it: one clause rewritten with a new helper under it
+    # one clause rewritten with a new helper under it
     file = Path.join(dir, "r.ex")
 
     File.write!(
@@ -1039,8 +1033,7 @@ defmodule Menard.ClauseTest do
   end
 
   test "a module named by its last parts is the one whose name ends so, where only one does" do
-    # up4 Symphony 01: `Tracker` refused, "have: SymphonyElixir.Config.Schema, …Schema.Tracker, …": a
-    # module named by its last parts is the one whose name ends so, where one does
+    # `Tracker` for `…Schema.Tracker`, with `App.Schema` there too
     src = """
     defmodule App.Schema do
       def a, do: 1
@@ -1064,8 +1057,8 @@ defmodule Menard.ClauseTest do
 
   @tag :tmp_dir
   test "clause get takes the outline's line, no verb, and a function several modules define", %{tmp_dir: dir} do
-    # Fable 2026-10-01, first guesses: the outline's own line as the name, no verb at all, and a read of
-    # a function several modules define, refused
+    # first guesses: the outline's own line as the name, no verb at all, and a read of a function
+    # several modules define
     file = Path.join(dir, "h.ex")
 
     File.write!(file, """
@@ -1104,8 +1097,7 @@ defmodule Menard.ClauseTest do
   test "clause get FILE:LINE reads the function around that line, the shape a failure hands over", %{
     tmp_dir: dir
   } do
-    # 2026-11-08: a stack trace or a failing test gives file:line, and a read by name needed an
-    # outline first, so the read was `sed -n` instead
+    # a stack trace or a failing test gives file:line
     file = Path.join(dir, "l.ex")
 
     File.write!(file, """
@@ -1139,8 +1131,8 @@ defmodule Menard.ClauseTest do
 
   @tag :tmp_dir
   test "an argv no shape takes says what it was given, under the usage", %{tmp_dir: dir} do
-    # 2026-11-08: `clause insert_after FILE go/1 HEAD - --then test test/x_test.exs` (then's files are
-    # edit's, not clause's) was the twelve usage lines and no word on the one argument too many
+    # `clause insert_after FILE go/1 HEAD - --then test test/x_test.exs` (then's files are edit's,
+    # not clause's): the usage lines and a word on the one argument too many
     file = Path.join(dir, "u.ex")
     File.write!(file, "defmodule U do\n  def go(a), do: a\nend\n")
 
