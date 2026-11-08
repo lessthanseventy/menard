@@ -92,7 +92,7 @@ defmodule Menard.Source do
   end
 
   @doc """
-  `source` parsed by Sourceror, or `{:error, "not parseable — …"}`. The last result is kept in the
+  `source` parsed by Sourceror, or `{:error, "not parseable …"}`. The last result is kept in the
   process dictionary: one verb finds a clause, then a statement in it, then patches — all over the
   same bytes — and the parse was most of each call's cost.
   """
@@ -105,7 +105,7 @@ defmodule Menard.Source do
         result =
           case quoted(source) do
             {:ok, ast} -> {:ok, ast}
-            {:error, reason} -> {:error, "not parseable — #{inspect(reason)}"}
+            {:error, reason} -> {:error, unparseable(source, reason)}
           end
 
         Process.put(__MODULE__, {source, result})
@@ -125,6 +125,20 @@ defmodule Menard.Source do
   rescue
     FunctionClauseError -> Sourceror.parse_string(String.replace(code, ~r/(\s*\n[ \t]*#[^\n]*)+\s*\z/, ""))
   end
+
+  @doc """
+  Why `content` did not parse, for a reply: the parser's line and message, then that line and the
+  one before it, where the slip usually is. The text was never written, so the caller has nothing
+  else to look at.
+  """
+  @spec unparseable(String.t(), term()) :: String.t()
+  def unparseable(content, {meta, {prefix, suffix}, token}),
+    do: "not parseable at line #{line(meta)}: #{prefix}#{token}#{suffix}" <> excerpt(content, line(meta))
+
+  def unparseable(content, {meta, message, token}),
+    do: "not parseable at line #{line(meta)}: #{message}#{token}" <> excerpt(content, line(meta))
+
+  def unparseable(_content, reason), do: "not parseable — #{inspect(reason)}"
 
   @doc """
   `source` with `range` replaced by `change`, the change's bytes as given: Sourceror's own
@@ -402,4 +416,17 @@ defmodule Menard.Source do
   defp scan_string({"{", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d + 1 | outer], nil}}
   defp scan_string({"}", _, _}, {[d | outer], nil}) when d > 0, do: {:cont, {[d - 1 | outer], nil}}
   defp scan_string(_g, state), do: {:cont, state}
+
+  defp line(meta) when is_list(meta), do: Keyword.get(meta, :line, "?")
+  defp line(_meta), do: "?"
+
+  defp excerpt(content, line) when is_integer(line) do
+    lines = String.split(content, "\n")
+
+    for n <- max(line - 1, 1)..line//1, text = Enum.at(lines, n - 1), into: "" do
+      "\n" <> String.pad_leading(Integer.to_string(n), 4) <> " | " <> text
+    end
+  end
+
+  defp excerpt(_content, _line), do: ""
 end

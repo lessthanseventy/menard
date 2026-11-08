@@ -51,7 +51,9 @@ defmodule Menard.Split do
 
   defp done({:error, entry, reason}, _file, _plan, before) do
     restore(before)
-    {:error, "#{Path.basename(entry.to)}: #{reason}. The split stopped there, and nothing was written"}
+
+    {:error,
+     "moving to #{Path.basename(entry.to)}: #{reason}. The split stopped there, and nothing was written"}
   end
 
   defp did(file, plan),
