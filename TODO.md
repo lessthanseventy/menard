@@ -12,3 +12,6 @@ commit lands.
   lands in a project (0.8.4). Left: a guarded print in bin/menard's `script`, once a test is red
   for it here. Upstream: https://github.com/elixir-lang/elixir/issues/16079
 - `lang`: a script with no extension that a shell command wrote is not checked: `Menard.Hook`'s `newer/2` finds files by name.
+- The filter refusal says "through a filter" when what it saw was `>/dev/null`: name which.
+- A session whose hooks server timed out connecting (30 s under load; three sessions in a month)
+  runs with no hooks and no word of it. The SessionStart command hook could say so, once.
