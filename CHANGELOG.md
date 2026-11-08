@@ -35,6 +35,8 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
 - `clause move` takes `public: true` (each moved function public in its new module: private
   helpers into test/support in one call), and `left` is five call sites per file, then how many
   more, not sixty lines.
+- `clause move`'s `left` scan parses only the files that name the function, as `find` does: a
+  move with no `root:` parsed every file under the cwd for a name none had, 60 s under load.
 - menard renders code with no `.formatter.exs` read of the cwd's: Sourceror read it on every call
   through the VM's file server, and under load that stalled three `clause move` tests to their
   60 s. The checkout copies the tests make go through `cp`, not that server.
