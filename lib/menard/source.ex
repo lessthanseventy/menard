@@ -242,6 +242,18 @@ defmodule Menard.Source do
     indent <> reindent(code, indent)
   end
 
+  @doc """
+  `Sourceror.to_string/2` with no `locals_without_parens` of the cwd's. Left to itself Sourceror
+  reads the cwd's `.formatter.exs` on every call (`Mix.Tasks.Format`, through the VM's file
+  server): in the server that is menard's own, never the host's, and under load it stalled three
+  `clause move` tests to their 60 s (2026-11-08) while four checkout copies went through the same
+  server. The host's formatter restyles every write anyway.
+  """
+  @spec render(Macro.t(), keyword()) :: String.t()
+  def render(node, opts \\ []) do
+    Sourceror.to_string(node, Keyword.put_new(opts, :locals_without_parens, []))
+  end
+
   defp heex_regions([], _state, _start, acc), do: Enum.reverse(acc)
   defp heex_regions([{"<", i}, {"%", _} | rest], :markup, _, acc), do: heex_regions(rest, :eex, i + 2, acc)
   defp heex_regions([{"{", i} | rest], :markup, _, acc), do: heex_regions(rest, {:brace, 1}, i + 1, acc)

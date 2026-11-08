@@ -14,6 +14,8 @@ defmodule Menard.Directive do
   """
 
   import Menard.Source, only: [parse: 1, patch: 3]
+
+  alias Menard.Source
   # in the order they are written; a test module's doctest line comes last, as Quokka places it
   @kinds [:use, :import, :alias, :require, :doctest]
 
@@ -256,5 +258,5 @@ defmodule Menard.Directive do
 
   # with options after it, which say something of every member: the caller's to split
   defp without(_source, {kind, _, _} = multi, target),
-    do: {:error, "#{kind} #{target} is part of `#{Sourceror.to_string(multi)}` — rewrite that line"}
+    do: {:error, "#{kind} #{target} is part of `#{Source.render(multi)}` — rewrite that line"}
 end

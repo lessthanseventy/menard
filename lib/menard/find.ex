@@ -6,6 +6,7 @@ defmodule Menard.Find do
   aliased call (`Channels.general`) is found by its full name (`Server.Channels.general`).
   """
 
+  alias Menard.Source
   alias Sourceror.Zipper
 
   @def_kinds Menard.Tree.def_kinds()
@@ -138,10 +139,10 @@ defmodule Menard.Find do
     end
   end
 
-  defp one_line(node), do: node |> Sourceror.to_string() |> String.split("\n") |> List.first()
+  defp one_line(node), do: node |> Source.render() |> String.split("\n") |> List.first()
 
   # `def name(args)` as text, without the body — the head is what a search shows.
-  defp head_only(kind, head), do: "#{kind} " <> Sourceror.to_string(head)
+  defp head_only(kind, head), do: "#{kind} " <> Source.render(head)
 
   # `alias __MODULE__.X` means the module it is written in, so each module's aliases are read with its name.
   defp collect_aliases(ast) do
@@ -241,7 +242,7 @@ defmodule Menard.Find do
   defp imported?([], _fun), do: true
 
   defp imported?([opts], fun) do
-    text = Sourceror.to_string(opts)
+    text = Source.render(opts)
     named = Regex.match?(~r/\b#{Regex.escape(fun)}:/, text)
 
     cond do
