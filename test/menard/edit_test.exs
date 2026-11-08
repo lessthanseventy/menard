@@ -127,6 +127,22 @@ defmodule Menard.EditTest do
     assert why =~ "exists"
   end
 
+  test "a crash writing one file puts back the files written before it", %{tmp_dir: dir} do
+    ro = Path.join(dir, "ro")
+    File.mkdir_p!(ro)
+    File.chmod!(ro, 0o500)
+    on_exit(fn -> File.chmod!(ro, 0o700) end)
+
+    assert_raise File.Error, fn ->
+      edit(dir, [
+        %{file: "lib/a.ex", old: "def one, do: 1", new: "def one, do: 11"},
+        %{file: "ro/sub/new.ex", old: "", new: "defmodule New do\nend\n"}
+      ])
+    end
+
+    assert read(dir, "lib/a.ex") =~ "def one, do: 1\n"
+  end
+
   test "a file that cannot be written is refused in a sentence, nothing else touched", %{tmp_dir: dir} do
     # a sandboxed seat with its scratch dir read-only must not answer a stack trace from File.write!/3
     a = Path.join(dir, "lib/a.ex")

@@ -391,10 +391,9 @@ defmodule Menard.Edit do
 
   defp written(files, contents, before) do
     Enum.reduce_while(files, {:ok, []}, fn file, {:ok, done} ->
-      File.mkdir_p!(Path.dirname(file))
       {:ok, text} = contents[file]
 
-      case Menard.write(file, text, did: "edit #{Path.basename(file)}") do
+      case write(file, text, done, before) do
         {:ok, reply} ->
           {:cont, {:ok, done ++ [lean(reply)]}}
 
@@ -404,6 +403,16 @@ defmodule Menard.Edit do
           {:halt, {:error, refusal(file, why)}}
       end
     end)
+  end
+
+  # a crash in one file's write puts back the files written before it, then is raised as it was
+  defp write(file, text, done, before) do
+    File.mkdir_p!(Path.dirname(file))
+    Menard.write(file, text, did: "edit #{Path.basename(file)}")
+  rescue
+    e ->
+      restore([file | Enum.map(done, & &1.file)], before)
+      reraise e, __STACKTRACE__
   end
 
   # The patch is what the caller wrote, to the letter: said back, a reply was the call over again.
