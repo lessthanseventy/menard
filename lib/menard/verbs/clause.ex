@@ -16,7 +16,8 @@ defmodule Menard.Verbs.Clause do
       modules define it) and `head`: the clause's CURRENT head as `outline` prints it (args as written;
       guard and parens optional), "" or none for a function's only clause. What it becomes goes in
       `code`. A miss lists the heads that exist; two clauses that share a head are told apart by `nth`.
-      An ExUnit `test` is a macro, not a clause: `block` reaches it.
+      An ExUnit `test` is a macro, not a clause: `block` reaches it. `get` with `file` as `FILE:LINE`
+      and no `name_arity` reads the function around that line.
 
       `verb`:
       - `replace`: the clause's body := `code`.
@@ -84,7 +85,7 @@ defmodule Menard.Verbs.Clause do
       cli: %{
         stdin: [:code],
         shapes: [
-          {"get", [:file, :name_arity, {:optional, :head}]},
+          {"get", [:file, {:optional, :name_arity}, {:optional, :head}]},
           {"delete", [:file, :name_arity, {:optional, :head}]},
           {"replace", [:file, :name_arity, :head, :code]},
           {"rewrite", [:file, :name_arity, :head, :code]},
@@ -107,6 +108,26 @@ defmodule Menard.Verbs.Clause do
   def run(%{name_arity: na, file: file} = p)
       when is_binary(na) and is_binary(file) and not is_map_key(p, :arity_given) do
     with {:ok, p} <- p |> outline_line() |> arity(), do: run(Map.put(p, :arity_given, true))
+  end
+
+  # `file` as `FILE:LINE` with no `name_arity`: the function around that line, the shape a stack
+  # trace or a failing test hands over (2026-11-08: a read by name needed an outline first, so the
+  # read was `sed -n` instead)
+  def run(%{verb: "get", file: file} = p) when not is_map_key(p, :name_arity) or p.name_arity in [nil, ""] do
+    case Regex.run(~r/^(.+):(\d+)$/, file || "") do
+      [_, path, line] ->
+        line = String.to_integer(line)
+
+        with {:ok, path} <- resolve(path, p),
+             {:ok, source} <- read(path),
+             {:ok, name_arity} <- Clause.spanning(source, line, Path.basename(path)),
+             {:ok, got} <- Clause.get(source, name_arity, nil, []) do
+          {:ok, Map.merge(got, %{name_arity: name_arity, file: path, version: Menard.remember(source)})}
+        end
+
+      nil ->
+        need(p, [:file, :name_arity], "clause get")
+    end
   end
 
   def run(%{verb: "get"} = p) do

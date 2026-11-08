@@ -151,6 +151,16 @@ defmodule Menard.Clause do
   end
 
   @doc """
+  The `Mod.name/arity` whose definition spans `line`, for `clause get FILE:LINE`; or why none does,
+  with the nearest thing before and after (a def, a nested module, a test), `base` naming the file.
+  """
+  @spec spanning(String.t(), pos_integer(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def spanning(source, line, base) do
+    with {:ok, modules} <- Menard.Outline.run(source),
+         do: spanning_in(Enum.flat_map(modules, &items/1), line, base)
+  end
+
+  @doc """
   The function's source as written, with the @doc/@spec/comment lines above it: every clause with no
   `head`, else the one `head` names. `%{code, lines: [first, last]}`. A function read without reading
   its file.
@@ -1206,5 +1216,44 @@ defmodule Menard.Clause do
         Enum.to_list(a..b)
       end)
     end)
+  end
+
+  # each def as `{label, lines, "Mod.name/arity"}`, each nested module and test as `{label, lines, nil}`
+  defp items(%{module: mod, defs: defs, tests: tests, modules: nested}) do
+    defs = for d <- defs, do: {"#{d.name}/#{d.arity}", d.lines, "#{mod}.#{d.name}/#{d.arity}"}
+    tests = for t <- tests, do: {"#{t.kind} #{inspect(t.label)}", t.lines, nil}
+    inner = for m <- nested, do: {m.module |> String.split(".") |> List.last(), m.lines, nil}
+    defs ++ tests ++ inner ++ Enum.flat_map(nested, &items/1)
+  end
+
+  # the nearest thing that ends before `line` and the nearest that starts after it
+  defp nearest(items, line) do
+    before =
+      items
+      |> Enum.filter(fn {_, {_, b}, _} -> b < line end)
+      |> Enum.max_by(&elem(elem(&1, 1), 1), fn -> nil end)
+
+    after_ =
+      items
+      |> Enum.filter(fn {_, {a, _}, _} -> a > line end)
+      |> Enum.min_by(&elem(elem(&1, 1), 0), fn -> nil end)
+
+    near =
+      Enum.reject(
+        [
+          before && "#{elem(before, 0)} ends at #{elem(elem(before, 1), 1)}",
+          after_ && "#{elem(after_, 0)} starts at #{elem(elem(after_, 1), 0)}"
+        ],
+        &is_nil/1
+      )
+
+    if near == [], do: "", else: ": " <> Enum.join(near, ", ")
+  end
+
+  defp spanning_in(items, line, base) do
+    case Enum.find(items, fn {_label, {a, b}, name} -> name != nil and a <= line and line <= b end) do
+      {_label, _lines, name} -> {:ok, name}
+      nil -> {:error, "no function spans line #{line} of #{base}" <> nearest(items, line)}
+    end
   end
 end

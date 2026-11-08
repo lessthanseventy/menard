@@ -60,7 +60,7 @@ defmodule Menard.CLI do
 
     case shaped(noun.cli.shapes, args, Map.keys(named)) do
       nil ->
-        usage(Noun.usage(noun))
+        usage(Noun.usage(noun) <> given(args))
 
       params ->
         answer(Menard.Verbs.call(verbs, from_stdin(Map.merge(named, params), noun)), json)
@@ -138,8 +138,12 @@ defmodule Menard.CLI do
   end
 
   defp fill([], [], params), do: params
-  defp fill([{:optional, _field}], [], params), do: params
-  defp fill([{:optional, field}], [arg], params), do: Map.put(params, field, arg)
+  # trailing optionals, each taken by the next argument while there is one (`clause get FILE:LINE`)
+  defp fill([{:optional, _field} | fields], [], params), do: fill(fields, [], params)
+
+  defp fill([{:optional, field} | fields], [arg | args], params),
+    do: fill(fields, args, Map.put(params, field, arg))
+
   defp fill([{:rest, field}], [_ | _] = args, params), do: Map.put(params, field, args)
 
   defp fill([field | fields], [arg | args], params) when is_atom(field),
@@ -157,4 +161,14 @@ defmodule Menard.CLI do
   defp where(%{lines: {a, b}} = reply), do: "#{reply[:file]} L#{a}-#{b}\n"
   defp where(%{file: file}), do: file <> "\n"
   defp where(_reply), do: ""
+
+  # what the call had, under the shapes it did not fit: twelve usage lines said nothing of the one
+  # argument too many (`--then test FILE`, which is edit's, after a clause verb; 2026-11-08)
+  defp given([]), do: "\n  given: no arguments"
+
+  defp given([verb | rest]),
+    do: "\n  given: #{verb}, then #{length(rest)} arguments, the last #{inspect_last(rest)}"
+
+  defp inspect_last([]), do: "none"
+  defp inspect_last(rest), do: List.last(rest)
 end

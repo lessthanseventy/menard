@@ -1099,4 +1099,57 @@ defmodule Menard.ClauseTest do
     assert {:error, why} = Menard.Verbs.Clause.run(%{verb: "delete", file: file, name_arity: "changeset/2"})
     assert why =~ "qualify it"
   end
+
+  @tag :tmp_dir
+  test "clause get FILE:LINE reads the function around that line, the shape a failure hands over", %{
+    tmp_dir: dir
+  } do
+    # 2026-11-08: a stack trace or a failing test gives file:line, and a read by name needed an
+    # outline first, so the read was `sed -n` instead
+    file = Path.join(dir, "l.ex")
+
+    File.write!(file, """
+    defmodule L do
+      def go(a), do: a
+
+      defmodule In do
+        @doc "deeper"
+        def far(x) do
+          x + 1
+        end
+      end
+
+      def go(a, b), do: {a, b}
+    end
+    """)
+
+    assert {:ok, %{name_arity: "L.In.far/1", lines: [5, 8], code: code}} =
+             Menard.Verbs.Clause.run(%{verb: "get", file: "#{file}:7"})
+
+    assert code =~ "def far(x) do"
+    assert {:ok, %{name_arity: "L.go/2"}} = Menard.Verbs.Clause.run(%{verb: "get", file: "#{file}:11"})
+
+    assert {:error, "no function spans line 3 of l.ex: go/1 ends at 2, In starts at 4"} =
+             Menard.Verbs.Clause.run(%{verb: "get", file: "#{file}:3"})
+
+    # and at the CLI, one argument
+    out = ExUnit.CaptureIO.capture_io(fn -> Mix.Tasks.Menard.Clause.run(["get", "#{file}:2"]) end)
+    assert out =~ "def go(a), do: a"
+  end
+
+  @tag :tmp_dir
+  test "an argv no shape takes says what it was given, under the usage", %{tmp_dir: dir} do
+    # 2026-11-08: `clause insert_after FILE go/1 HEAD - --then test test/x_test.exs` (then's files are
+    # edit's, not clause's) was the twelve usage lines and no word on the one argument too many
+    file = Path.join(dir, "u.ex")
+    File.write!(file, "defmodule U do\n  def go(a), do: a\nend\n")
+
+    error =
+      assert_raise Mix.Error, fn ->
+        Mix.Tasks.Menard.Clause.run(["insert_after", file, "go/1", "", "def two, do: 2", "test/x_test.exs"])
+      end
+
+    assert error.message =~ "usage: "
+    assert error.message =~ "given: insert_after, then 5 arguments, the last test/x_test.exs"
+  end
 end
