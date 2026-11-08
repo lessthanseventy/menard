@@ -79,6 +79,22 @@ fi
 # Only this env's: ex_doc and its lexers are the docs env's, and cost a first start seconds.
 # `--frozen` runs the last build as it is, so it fetches nothing either.
 fetched=deps/.menard-mix-lock
+# A fresh install beside a built older version, the plugin cache's layout: start from the newest
+# sibling's deps and build, and fetch and compile only what changed since. From nothing, deps and
+# menard compiled 40 s, past the harness's 30 s to connect a server, and a version's first session
+# ran with no hooks (0.8.7's).
+if ((!frozen)) && [[ ! -d deps && ! -d "_build/${MIX_ENV:-dev}" ]]; then
+  seed=''
+  for lock in ../*/"$fetched"; do
+    [[ -f "$lock" && (-z "$seed" || "$lock" -nt "$seed") ]] && seed=$lock
+  done
+  if [[ -n "$seed" ]]; then
+    seed=${seed%/"$fetched"}
+    cp -a "$seed/deps" deps
+    mkdir -p _build
+    [[ -d "$seed/_build/${MIX_ENV:-dev}" ]] && cp -a "$seed/_build/${MIX_ENV:-dev}" "_build/${MIX_ENV:-dev}"
+  fi
+fi
 # A build this process cannot write (a sandboxed seat) can be neither fetched for nor compiled
 # into; the failure of either says nothing of menard's source, so it is not reported as such.
 readonly_build=0

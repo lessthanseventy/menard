@@ -1,11 +1,5 @@
 # Changelog
 
-## 0.8.8
-
-- `bin/release` builds the installed plugin after updating it. A version's first boot compiled
-  deps and menard from nothing, 40 s, past the harness's 30 s to connect a server: the first
-  session of 0.8.7 ran with neither server until they were reconnected by hand.
-
 ## 0.8.7
 
 From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md`):
@@ -53,6 +47,11 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
   arguments, and the last of them (the one too many, as a rule).
 - `bin/release` refuses a main behind origin/main, not one ahead of it: ahead is where every
   release starts, since it pushes.
+- A fresh install beside a built older version (the plugin cache's layout) starts from that
+  version's deps and build, and fetches and compiles only what changed since: 5 s to the first
+  answer, where compiling from nothing took 40 s, past the harness's 30 s to connect a server,
+  and a version's first session ran with no hooks (0.8.7's did, until reconnected by hand).
+  `bin/release` builds the installed plugin too, right after updating it.
 - menard's own gate: 554 s to under 420 s at load 10, the identity corpus in eight modules and the
   long test files split into modules that run beside each other (with `clause move` and
   `block move`, which is what found the three fixes above).
