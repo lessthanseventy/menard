@@ -3,159 +3,129 @@
 > Pierre Menard, author of the Quixote: rewrite a text word for word and have it come out
 > different.
 
-AST-aware editing for Elixir. Every verb parses the file, changes the tree, and parse-checks what
-it writes — so a half-applied edit is impossible, and only the bytes a verb names move
-(Sourceror patches, not a reformat of the whole file).
+AST-aware edits and structured runs for Elixir, for an agent or a person at a shell. Every verb
+parses the file, changes the tree, parse-checks what it writes and formats it with the project's
+own formatter, plugins included: only the bytes a verb names move, and a half-applied edit is
+impossible. `run` answers a test suite, the gate, a compile or a lint as one JSON line, every
+failure with its file and line.
 
-Parsing is not preservation, though: 0.2.0 fixed edits that parsed and still lost code (a
-`rescue` dropped by `clause replace`). What guards that is the identity corpus: every `do … end`
-clause, attribute, block and statement in this repo and a fixture of odd syntax is replaced with
-itself, and the file must come back unchanged: byte for byte, or at least formatting the same
-(`test/menard/identity_test.exs`). `mise run bench:identity` runs the same edits over 22 pinned
-hex packages and counts each outcome.
+Parsing is not preservation: an edit can parse and still lose code. The identity corpus holds that
+line. Every clause, attribute, block and statement in this repo and in a fixture of odd syntax is
+replaced with itself, and the file must come back unchanged (`test/menard/identity_test.exs`);
+`mise run bench:identity` runs the same edits over 22 pinned hex packages.
 
-It runs as a project of its own, which means `menard` keeps working on a codebase that does not
-currently compile — the case where you most need it.
+menard runs as a project of its own, on its own deps and toolchain (`.tool-versions`, through mise
+where it is installed), so it keeps working on a codebase that does not currently compile, which is
+where you need it most.
 
 ## Install
 
-Two things ship, and they install differently.
-
-**The library** — `Menard.Rename`, `Menard.Outline`, `Menard.Clause` and the rest as plain
-functions, for a tool of your own, plus every verb as `mix menard.*` inside your project:
-
-```elixir
-{:menard, "~> 0.4", only: :dev, runtime: false}
-```
-
-`only: :dev, runtime: false` is for the tasks; a tool that calls the library at runtime drops both.
-The MCP door (`mix menard.mcp`) also needs the optional `{:anubis_mcp, "~> 2.0"}`; without it,
-menard brings only Sourceror.
-
-As a dep, the tasks run inside your project, so they survive less of a broken build:
-
-| your project | `mix menard.*` (hex) | the verbs below |
-|---|---|---|
-| its code does not compile or parse | works | works |
-| a dep does not resolve | fails | works |
-| its `mix.exs` does not parse | fails | works |
-
-**The verbs** — the CLI, the MCP door and the harness adapters — run from *this* project, with
-its own deps, which is what lets them work on a codebase that does not compile:
+**In Claude Code**, as a plugin: the formatting hooks, the tools, the skill and an Elixir language
+server, all from this repo.
 
 ```
 /plugin marketplace add lessthanseventy/menard
 /plugin install menard@menard
 ```
 
-Or clone it and put `bin/menard` on your `PATH`. Either way the first invocation fetches and
-compiles its deps for you.
+Or clone it: `mise run install:claude` from the Elixir repo you work in installs the plugin for
+that repo (`--user` for every project), `mise run install:pi` wires pi, `mise run install:path`
+puts `menard` on your PATH. The first call fetches and compiles menard's deps.
 
-### Wiring a harness
+**As a library**, for a tool of your own: `Menard.Rename`, `Menard.Clause`, `Menard.Outline` and
+the rest as plain functions, plus `mix menard.edit`, `menard.find`, `menard.outline`, `menard.run`,
+`menard.map`, `menard.where` and `menard.deps` inside your project.
 
-menard ships one adapter per harness, all from this repo — no host repo required. `mise run
-install:pi` and `mise run install:claude` write the right config into `~/.pi/agent/` or register
-the Claude Code plugin. The plugin installs per project: run `mise -C ~/path/to/menard run
-install:claude` from the Elixir repo, and its tools load there and nowhere else (`--user` for
-every project). See `docs/adapters.md`.
+```elixir
+{:menard, "~> 0.8", only: :dev, runtime: false}
+```
+
+The MCP door (`mix menard.mcp`) also needs the optional `{:anubis_mcp, "~> 2.0"}`. As a dep the
+tasks run inside your project, so a dep that does not resolve or a `mix.exs` that does not parse
+stops them; the CLI runs on either.
 
 ## Verbs
 
 ```
-outline FILE                                   what is in the file
-find PATTERN FILES                             where a thing is
-deps FILE name/arity                           what a function calls
-deps    add [--in DIR] SPEC|NAME · upgrade [APPS] [--to REQ]   a project dependency, fetched and compiled
-attr    get|set|delete|list  FILE NAME [VALUE]
-clause  replace|rewrite|delete|insert_after|insert_before  FILE name/arity HEAD [CODE] [--nth N]
-clause  insert_at FILE (Mod|-) top|bottom CODE
-clause  move FILE name/arity --to DEST [--as Mod.Name]   with its doc, spec and comment
-clause  spec FILE name/arity [SPEC]                 the function's @spec
-clause  visibility FILE name/arity public|private
-stmt    insert_after|insert_before|replace|delete|list  FILE name/arity HEAD MATCH [CODE]
-block   get|replace|add|delete|relabel|list  FILE NAME [CODE] [--label L] [--args CONTEXT]
-module  add|list FILE [CODE]
-module  replace FILE Mod.Name CODE              one whole module, in a file of several
-directive add|replace|remove|list FILE KIND MOD [OPTS]
-rename  OLD NEW [--only functions|variables] [--atoms] [--comments] FILES
-write   FILE CODE
-run     [--in DIR] check|test|format|compile     one JSON line; test takes mix test's flags, answers with seed and runs
-mcp                                            the same verbs over MCP
-version                                        which menard, on which Elixir and OTP
+edit       replace text, in several places and files, in one call, all written or none
+rename     a name changed everywhere it is used; strings and comments left alone
+find       who calls a function, where a name is defined: grep that knows the code
+outline    a file's modules and functions, with their heads and lines, in place of reading it
+clause     one function or clause: read, replaced, moved with its docs; a module split
+stmt       one statement inside a function, by what is written
+block      a test, a describe, a schema: a macro's do block, by its label
+attr       a module attribute
+directive  an alias, import, require or use, put where it belongs
+module     one whole module of a file that holds several
+write      a whole file, parse-checked and formatted
+deps       what a function uses; a dependency added or upgraded
+run        tests, the gate, compile, format, credo: one JSON line, every failure with its file and line
+map        every module of the project, its file and public functions
+where      the function a file:line is in
+version    which menard, on which Elixir and OTP
 ```
 
-menard complements Igniter, it does not compete with it. Igniter runs the installers and upgraders a
-package ships for its users; menard is the edit an agent makes by hand. They meet at `deps
-upgrade`, which goes through the host's `mix igniter.upgrade` when its lock has Igniter, so each
-package's upgraders run.
+`menard help` prints this with an example of each, `menard VERB --help` what the verb takes with
+an example of every call. A path is relative to the directory you are in; CODE full of quotes goes
+on stdin, `-` in its place.
 
-`run` answers what you look for: green, `{"ok":true,"tests":621,"failed":0,"failures":[]}`; red,
-the failures and the seed that reproduces them. It answers every verb's failures in one shape, `{kind, message, at}`: `kind` is `test`,
-`error`, `warning` or `format`, `message` says why, `at` is `file:line`. A test failure adds its
-`name`, `module`, `source` and, for an assertion, `code`, `left`, `right`. `check` (format,
-warnings-as-errors, tests) reports all three kinds the same way, with `test`'s counts.
+What every verb shares:
 
-stdout is the answer and stderr is only a refusal or an error: menard compiling itself after an
-update is silent unless that build fails.
+- **One reply, read whole.** stdout is the answer, one JSON line; stderr is only a refusal or an
+  error. A writing verb's reply is every change it made, the formatter's hunks included, so there
+  is nothing to read back; a refusal says what to do instead.
+- **Nothing half done.** `edit` writes all of its replacements or none, `clause split` every new
+  module or none; a text found twice, or not at all, refuses the whole call and says which.
+- **`--then`.** Every writing verb takes `--then test` (the tests of what it changed, or
+  `test FILE…`), `--then check` or `--then compile`, and answers with the run's result in `run`.
+- **Versions.** Every writing reply carries the file's `version`; passed back as `--version SHA`,
+  an edit against a file that changed since is refused with the diff (`--force` writes anyway).
+- **`--frozen`** runs the last build straight off `_build`, no compile step: for editing menard
+  with menard, where a half-applied edit would otherwise lock the tool out of finishing its change.
 
-`replace` takes a body, and `rewrite` a whole clause; handed the whole clause (or `block`'s whole
-`test "…" do … end`) of the very thing it names, `replace` takes it as meant rather than refusing.
+While you work, `run test` with the files of what you changed: seconds, and their failures alone.
+`run check` once, when the change is done: the project formatted first, then its `mix precommit`,
+or format, warnings as errors and the tests when it has none. Every failure is `{kind, message, at}`
+with `kind` one of `test`, `error`, `warning`, `format`, `credo`; a test failure adds its `name`,
+`module`, `source` and, for an assertion, `code`, `left` and `right`. A failed test runs once more,
+and one that passes is listed under `flaky`, not `failures`.
 
-Every writing verb answers with the file's `version`; pass it back with `--version SHA` and an
-edit against a file that has changed since is refused, with the diff (`--force` writes anyway).
+menard complements Igniter. Igniter runs the installers and upgraders a package ships for its
+users; menard is the edit an agent makes by hand. They meet at `deps upgrade`, which goes through
+the host's `mix igniter.upgrade` when its lock has Igniter, so each package's upgraders run.
 
-`--stdin` reads a verb's last argument from stdin, for CODE that shell quoting would mangle.
-menard runs on its own toolchain (`.tool-versions`, through mise when it is installed), never
-the caller's.
+## In Claude Code
 
-`--frozen` runs the last build straight off `_build` with no compile step: the escape hatch for
-editing menard *with* menard, where a half-applied edit would otherwise lock the tool out of
-finishing its own change.
+The plugin (`.claude-plugin/plugin.json`, `hooks/hooks.json`, `skills/menard/SKILL.md`) is two MCP
+servers from one binary, the hooks that call them, and a language server.
 
-## pi adapter
+**The hook.** Every `.ex`/`.exs` an `Edit`, a `Write` or a shell command writes is formatted with
+its own project's formatter, plugins included (Styler, the HEEx formatter). What the formatter
+changed goes back to the agent as context, so its next edit is written against the file as it is
+now; a file that does not parse is named with the compiler's why. For a shell command the hook
+marks the time before and formats every Elixir file newer than the mark after, on
+`PostToolUseFailure` too. Each hook is an `mcp_tool` call to the hooks server already running
+(`Menard.Hook`), with each project's formatter kept warm between writes (`Menard.Format.Worker`),
+so a write costs milliseconds and starts no process. `bin/menard` in a session hands its verb to
+that server over localhost (`Menard.Door`) and boots no VM of its own.
 
-`pi/extension.ts` is a pi extension menard ships from its own repo (`bin/menard` and `hooks/`
-self-located from `import.meta.url`: pi loads an extension as a `data:` URL, where
-`import.meta.dir` is not a directory):
+**The tools** are the verbs above, for what an edit by hand does badly: a rename across files, who
+calls what, one function read out of a big module, a function moved with its docs, a module split
+in one call. Claude Code loads their schemas on demand, so a session starts small and pays for a
+tool when it asks for it. `bin/lsp` runs Expert, the Elixir language server, which `find` asks for
+the references the AST cannot see.
 
-- **`tool_call` — the guard.** A raw `edit`/`write` on an `.ex`/`.exs` holding a `defmodule` is
-  blocked — use the verbs instead. `menard guard FILE --edit INPUT` decides, so an edit that only
-  changes text inside a string passes. Fail open: a missing menard never blocks an edit.
-- **`tool_result` — format-on-save.** `menard run format FILE` on what was just written, so the
-  file on disk is always formatter-compliant. Best-effort and invisible.
-- **`tool_result` — advice.** `hooks/shell-edits.sh` and `hooks/read-hint.sh`, the scripts Claude
-  Code runs, fed its payload shape; what they say is appended to the tool's result.
+## In pi
 
-`mise run install:pi` wires the extension, the MCP server, and the skill into `~/.pi/agent/`.
-Idempotent — re-running updates paths without duplicating. No ficciones, no Nix required.
+`pi/extension.ts` is a pi extension menard ships from this repo: format-on-save after every write,
+and a pre-edit guard that turns a raw edit of an Elixir module toward the verbs, failing open when
+menard is not there. `mise run install:pi` wires it, the MCP server and the skill into
+`~/.pi/agent/`.
 
-## The Claude Code plugin
+## Working on menard
 
-One plugin, `menard` (this directory: `.claude-plugin/plugin.json`, `hooks/hooks.json`,
-`skills/menard/SKILL.md`): an MCP server, and hooks that are calls to it.
-
-**The hook.** Every `.ex`/`.exs` an `Edit`/`Write` or a shell command writes is formatted with its
-*own* project's formatter, plugins included (Styler, the HEEx formatter). What the formatter
-changed goes back to the agent as context, so its next `Edit` is written against the file as it is
-now; a file that does not parse is named, with the compiler's why. For a shell command it marks
-the time before and formats every Elixir file newer than the mark after, on `PostToolUseFailure`
-too, since Claude Code runs `PostToolUse` only when a tool succeeds. Each hook is a `mcp_tool`
-call to the server already running (`Menard.Hook`), and the project's formatter is kept warm
-between writes (`Menard.Format.Worker`): 6-9 ms a write, where a script that started a VM for
-menard and another for the host's formatter took 0.8-1.0 s. `bin/menard` itself, in a session,
-hands its verb to that server over localhost (`Menard.Door`) and boots no VM of its own.
-
-**The tools** are for what an edit by hand does badly: a rename across files, who calls what, one
-function read out of a big module, a function moved with its docs, a module split in one call.
-Claude Code loads their schemas on demand (behind its tool search): with the plugin installed a
-session starts ~440 tokens larger, against ~4,700 with every schema loaded up front.
-
-Why this shape: the eval (`eval/STATUS.md`, bench5) measured the tools plus a guard blocking `Edit`
-on modules against the formatting hook alone. The hook gave the same clean output at the cost of
-no menard at all; the tools, their schemas in every turn, cost 46% more for sonnet and paid only
-on renames and big-file reads. So the hook is what every write gets, the tools wait until they are
-asked for, and the guard is gone from Claude Code: its blocks were a turn each and bought nothing
-measurable over the hook. `hooks/format-report.sh` is the same hook for a harness that can only
-run a command (`menard hook`); `hooks/shell-edits.sh` and `read-hint.sh` stay for the pi adapter.
-The stop and commit gates, and the hooks wired nowhere, went with the slim (tag
-`pre-slim-2026-10-01` keeps them).
+`AGENTS.md` is the law here, and menard is dogfooded: its own Elixir is edited with its verbs. The
+gate is `bin/menard run check`: format, warnings as errors, the suite with the identity corpus, and
+a check that no host VM a test started outlives it. Design direction is in `docs/scope.md` (what
+earns a verb), `docs/live.md` (the reply every verb should give) and `docs/adapters.md` (one core,
+a thin adapter per harness).
