@@ -22,8 +22,8 @@ defmodule Menard.Rename do
 
   # `old` as `Mod.fun`: that module's function alone, by what `find calls` resolves to it: its def
   # heads in `Mod` (a nested module's are its own), calls through an alias or an import,
-  # `__MODULE__.fun` and bare calls inside `Mod`, and the captures of each. By name alone, `rename`
-  # took every module's `fun` (Fable's review, 2026-10-01). Code only: docs and comments stay
+  # `__MODULE__.fun` and bare calls inside `Mod`, and the captures of each. Code only: docs and
+  # comments stay
   defp qualified(source, old, new) do
     [spec | _] = String.split(old, "/")
     parts = String.split(spec, ".")
@@ -180,9 +180,9 @@ defmodule Menard.Rename do
   end
 
   # @doc/@moduledoc/@typedoc text is prose ABOUT the code, and a doctest in it is code: a rename that
-  # left `old/1` there (long1 cart-refactor.B.haiku) or `iex> A.old(1)` (a doctest that no longer
-  # runs) is half done. Only mentions that read as code: before `(` or `/arity`, or inside backticks;
-  # "the old way" is a word, not the function.
+  # left `old/1` there or `iex> A.old(1)` (a doctest that no longer runs) is half done. Only
+  # mentions that read as code: before `(` or `/arity`, or inside backticks; "the old way" is a
+  # word, not the function.
   defp doc_patches(_ast, _source, _old, _new, false), do: []
 
   defp doc_patches(ast, source, old, new, true) do

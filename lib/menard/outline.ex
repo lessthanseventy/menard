@@ -23,8 +23,8 @@ defmodule Menard.Outline do
   # the full name Elixir gives it (`Parent.Inner`).
   @doc """
   An outline as the lines a reader reads: the file and its version, each module, each def by its
-  head and lines, each test by its label. What both doors answer by default: as JSON, one
-  1,950-line file's outline was 26,710 characters against 18,190 as these lines (Fable's review).
+  head and lines, each test by its label. What both doors answer by default: as JSON it is half
+  again as large as as these lines.
   """
   @spec text(map()) :: String.t()
   def text(%{file: file, version: version, modules: modules}) do

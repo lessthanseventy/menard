@@ -20,8 +20,8 @@ defmodule Menard do
   @doc """
   This menard as a shell runs it, by its path. Whatever menard tells an agent to run, it names by
   this: a plugin's `bin/` is the LAST place the harness's shell looks, so a bare `menard` is
-  whichever one the PATH holds before it (an older install of the user's; in the eval, a stub that
-  says no such command). `bin/menard` runs every verb from menard's own root, whoever starts it.
+  whichever one the PATH holds before it (an older install of the user's, or a stub that says no
+  such command). `bin/menard` runs every verb from menard's own root, whoever starts it.
   """
   @spec bin() :: String.t()
   def bin, do: Path.join(File.cwd!(), "bin/menard")
@@ -54,8 +54,7 @@ defmodule Menard do
   @doc """
   The version of `content` (`sha256:` + 12 hex), with a copy kept, so a stale edit made against it
   can be answered with the diff since. What every writing verb and `outline` hand out. Twelve: a
-  version is one file's state, and the 64 of the whole hash were a quarter of a reply's characters
-  for none (handed out 277 times in the eval's sessions, passed back 0; Fable's review).
+  version is one file's state, and the whole hash would be a quarter of a reply's characters.
   """
   def remember(content) do
     version = version_of(content)
@@ -117,9 +116,8 @@ defmodule Menard do
         file: file,
         version: version,
         stages: stages(original, patched, formatted, split),
-        # kept on every write: without it, bench1/bench2's B read files back after its last edit
-        # 2.6x as often, and the CLI's caller never sees the MCP instructions; short, as it rides
-        # every reply
+        # kept on every write: without it agents read files back after their last edit, and the
+        # CLI's caller never sees the MCP instructions; short, as it rides every reply
         note: "the stages are every change: no Read needed"
       }
 
@@ -255,8 +253,7 @@ defmodule Menard do
     end
   end
 
-  # the caller's own code, said back: where it went and how many lines, small hunks too (they echoed
-  # every hunk of six lines or fewer, code and all; Fable's review)
+  # the caller's own code, said back: where it went and how many lines, small hunks too
   defp told(:patch, %{removed: removed, added: added} = h),
     do: %{h | removed: length(removed), added: length(added)}
 
@@ -363,8 +360,8 @@ defmodule Menard do
   end
 
   # A config in `dir` or above it that pins erlang or elixir, which mise did not load (ignored,
-  # untrusted, another HOME's settings): refused, where the mix on PATH ran in silence on menard's
-  # own (tlon, 2026-11-04: server/ on OTP 27 under a mise.toml pinning 29, its _build rebuilt)
+  # untrusted, another HOME's settings): refused, where the mix on PATH would run in silence on
+  # menard's own toolchain and rebuild the project's _build
   defp unpinned(dir) do
     dir
     |> Path.expand()

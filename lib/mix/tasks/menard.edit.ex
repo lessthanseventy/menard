@@ -73,8 +73,7 @@ defmodule Mix.Tasks.Menard.Edit do
   end
 
   # A refusal names one edit of the batch; the batch is kept, and `--retry N` takes that one again,
-  # corrected, with the rest as they were. Before, the whole batch was sent again: 22 of ~270
-  # edits in one session, 45 KB (Fable's review, 2026-10-01)
+  # corrected, with the rest as they were.
   defp kept(edits, why) do
     with [_, n, total] <- Regex.run(~r/^edit (\d+) of (\d+),/, why),
          true <- total != "1" do

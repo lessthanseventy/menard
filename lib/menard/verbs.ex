@@ -176,8 +176,8 @@ defmodule Menard.Verbs do
   end
 
   # In the mix project of each file it wrote: the nearest mix.exs above it, the root at most. From the
-  # root, a repo whose project is server/ (tlon's) mapped no test file, and --stale ran where there
-  # was no mix.exs (Fable's review, 2026-10-01). Several projects, a run each, its `dir` named.
+  # root, a repo whose project is a subdirectory would map no test file. Several projects, a run
+  # each, its `dir` named.
   # the files named: those, in the root
   defp then_run(reply, p, "test", [_ | _] = files) do
     {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: "test", args: files}))
@@ -237,8 +237,8 @@ defmodule Menard.Verbs do
   defp test_of("lib/" <> rest), do: "test/" <> Path.rootname(rest) <> "_test.exs"
   defp test_of(_rel), do: nil
 
-  # A file under the root named from it: an absolute path in every reply's every file was 44% of a CLI
-  # find's characters (Fable's review, 2026-10-01). After `then`, which finds each file's project.
+  # A file under the root named from it, not by an absolute path. After `then`, which finds each
+  # file's project.
   defp from_root(reply, params), do: relative(reply, Path.expand(params[:root] || Menard.caller_dir()))
 
   # a value that is a path under the root, wherever it is (a `file`, a list of the unchanged, a line

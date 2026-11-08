@@ -70,8 +70,8 @@ defmodule Menard.Attr do
     with {:error, :missing} <- one(source, name, opts), do: {:error, missing(source, name)}
   end
 
-  # `attr :product, …` in a component is Phoenix's declaration, not a module attribute: bench4
-  # new-component.B.haiku tried to delete one here and was told only that there was no @product
+  # `attr :product, …` in a component is Phoenix's declaration, not a module attribute, so a
+  # delete of one needs more than "there is no @product"
   defp missing(source, name) do
     name = name |> to_string() |> String.trim_leading("@")
 

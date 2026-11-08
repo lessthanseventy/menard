@@ -15,8 +15,8 @@ defmodule Menard.CLI do
   @spec answer(Menard.Verbs.result()) :: map()
   def answer(result, json \\ true)
 
-  # A read of code is the code, under one line naming where it is: printed JSON-escaped, 39 calls
-  # took it through `jq -r .code` (Fable's review, 2026-10-01). `--json` is the map, as for any reply.
+  # A read of code is the code, under one line naming where it is, not JSON-escaped. `--json` is
+  # the map, as for any reply.
   def answer({:ok, %{code: code} = reply}, false) when not is_map_key(reply, :stages) do
     Mix.shell().info(where(reply) <> code)
     reply
@@ -162,8 +162,8 @@ defmodule Menard.CLI do
   defp where(%{file: file}), do: file <> "\n"
   defp where(_reply), do: ""
 
-  # what the call had, under the shapes it did not fit: twelve usage lines said nothing of the one
-  # argument too many (`--then test FILE`, which is edit's, after a clause verb; 2026-11-08)
+  # what the call had, under the shapes it did not fit: usage lines alone say nothing of the one
+  # argument too many (`--then test FILE`, which is edit's, after a clause verb)
   defp given([]), do: "\n  given: no arguments"
 
   defp given([verb | rest]),

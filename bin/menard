@@ -3,8 +3,7 @@
 set -euo pipefail
 
 # All of it in one group, read whole before any of it runs: bash reads a script as it goes, so
-# this file edited while it ran (menard editing its own launcher, 2026-09-29) went on from the
-# changed bytes ("ondition:: command not found"), after its work was done and with a failing exit.
+# this file edited while it ran (menard editing its own launcher) goes on from the changed bytes ("ondition:: command not found"), after its work was done and with a failing exit.
 # `--frozen` is no help there: it runs the last build of the Elixir, through this same file.
 {
 
@@ -42,8 +41,8 @@ frozen=0
 # ERL_FLAGS come after, and win.
 export ERL_FLAGS="+sbwt none +sbwtdcpu none +sbwtdio none${ERL_FLAGS:+ $ERL_FLAGS}"
 # A VM that crashes writes erl_crash.dump into its cwd, and a host's VM runs in the caller's project:
-# tlon's server/ got one (2026-11), ~/projects 30. Exported as ERL_FLAGS is, to the temp dir; the
-# caller's own wins.
+# a project's subdirectory can collect one. Exported as ERL_FLAGS is, to the temp dir; the caller's
+# own wins.
 export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-${TMPDIR:-/tmp}/menard-erl_crash.dump}"
 
 # `mcp`'s own fast path: a fresh install's deps.get + compile, below, can run well past a client's

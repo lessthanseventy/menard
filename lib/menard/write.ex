@@ -92,7 +92,7 @@ defmodule Menard.Write do
   defp line(_meta), do: "?"
 
   # the line the parser stopped at and the one before it, where the slip usually is: the text was
-  # never written, so the caller has nothing else to look at (a body of one `-`, 2026-11-08)
+  # never written, so the caller has nothing else to look at
   defp excerpt(content, line) when is_integer(line) do
     lines = String.split(content, "\n")
 

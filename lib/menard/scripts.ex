@@ -2,7 +2,7 @@ defmodule Menard.Scripts do
   @moduledoc """
   What a shell command may not do where menard is: run a script in another language (python, perl,
   ruby or node), whatever it is for, or read menard's own reply through a filter. Reads of code
-  (grep, sed) run: the rules that refused them toward a verb are in the tag pre-slim-2026-10-01.
+  (grep, sed) run.
 
   It is said twice. Up front, at the start of the session, as what is so here (`upfront/1`): a rule
   the agent meets only in a refusal costs the call that was refused, each time. And in the refusal
@@ -36,9 +36,7 @@ defmodule Menard.Scripts do
   @doc """
   Why `command` is refused, or nil when it runs. `menard` is this menard's path; `root` is the
   directory the command runs in, where a program the project tracks is looked up. Reads (grep, sed)
-  are not refused: agents read as much Elixir with menard as without it, 0 of 7 line-range
-  refusals led to the call they named, and the callers rule misfired on alternations and stdlib
-  names (Fable's review, 2026-10-01). The rules are in the tag pre-slim-2026-10-01.
+  are not refused: agents read as much Elixir with menard as without it.
   """
   @spec refused(String.t(), String.t(), String.t() | nil) :: String.t() | nil
   def refused(command, menard, root \\ nil) do
@@ -58,9 +56,8 @@ defmodule Menard.Scripts do
 
   @doc """
   `command` without the filters its menard reply is piped into, where they end the line, or nil.
-  tlon, 2026-11: ~200 of 271 refusals in 14 days were `menard … | head -c N`, a call lost each, for
-  a filter whose dropping changes nothing but what is read. Where it would change what runs (a
-  command after the filter, a heredoc, a loop) it is refused, as before.
+  A filter's dropping changes nothing but what is read. Where it would change what runs (a
+  command after the filter, a heredoc, a loop) it is refused.
   """
   @spec unfiltered(String.t()) :: String.t() | nil
   def unfiltered(command) do
@@ -205,8 +202,8 @@ defmodule Menard.Scripts do
   # Every interpreter the command runs runs a program git tracks in the project (eval/run.py): that
   # is the project's own tool, not a script. Inline code (-c, -e, -m, a heredoc on stdin) and a file
   # git does not track (one the agent just wrote) are scripts. `cd DIR &&` before one is followed.
-  # every interpreter it runs asked its version or help: no script (Fable's review, 2026-10-01:
-  # `node --version` refused). A module run stays a script: `python3 -m json.tool` is jq's here
+  # every interpreter it runs asked its version or help: no script (`node --version`). A module
+  # run stays a script: `python3 -m json.tool` is jq's here
   defp harmless?(command) do
     runs =
       for segment <- command |> outside_heredocs() |> commands(),

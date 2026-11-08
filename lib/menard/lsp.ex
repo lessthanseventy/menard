@@ -193,7 +193,7 @@ defmodule Menard.Lsp do
   end
 
   # every request the server makes (registerCapability, workDoneProgress/create) is answered
-  # `null`: an error made expert 0.1.10 stop answering for good (expert #904)
+  # `null`: an error makes expert stop answering for good
   defp handle(%{"id" => id, "method" => _}, state), do: reply(state, id)
   defp handle(_notification, state), do: state
 
