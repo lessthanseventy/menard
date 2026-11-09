@@ -152,6 +152,9 @@ door() {
   [[ -n "$file" && -r "$file" ]] || return 1
   port=$(head -n1 "$file")
   [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  # another checkout's server (the installed plugin's, for a dev checkout run from a project) would
+  # answer with its build, not this one's
+  [[ "$(sed -n 2p "$file")" == "$PWD" ]] || return 1
   connect "$port" 2>/dev/null || return 1
   # `-` is stdin's: read here, kept for the run below should the door not answer
   for a in "$@"; do [[ "$a" == "-" ]] && door_stdin_read=1; done
