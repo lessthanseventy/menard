@@ -24,8 +24,9 @@ defmodule Menard.Rename do
     end
   end
 
-  # `old` as a module: every alias that spells it whole — its defmodule, `alias Old`, `Old.fun`
-  # calls and captures. A bare `Last` after `alias Old` still reaches it unless the last segment
+  # `old` as a module: every alias that spells it — its defmodule, `alias Old`, `Old.fun` calls and
+  # captures, and the modules nested under it (`Old.Error`), whose names change with it. A bare
+  # `Last` that an `alias Old` or `alias Base.{Last}` binds still reaches it unless the last segment
   # changed, when those take the new last segment. Code only: strings, docs and comments stay
   defp module(source, old, new) do
     with {:ok, ast} <- Menard.Source.parse(source),
@@ -36,15 +37,7 @@ defmodule Menard.Rename do
     {last_old, last_new} =
       {old |> String.split(".") |> List.last(), new |> String.split(".") |> List.last()}
 
-    aliased? =
-      ast
-      |> Macro.prewalker()
-      |> Enum.any?(fn
-        {:alias, _meta, [target | _]} -> spelled(target) == old
-        _node -> false
-      end)
-
-    short? = last_old != last_new and aliased?
+    short? = last_old != last_new and Enum.any?(Macro.prewalker(ast), &binds?(&1, old))
 
     ast
     |> Zipper.zip()
@@ -55,12 +48,35 @@ defmodule Menard.Rename do
   end
 
   defp module_patch(node, source, {old, new}, {last_old, last_new, short?}) do
-    case spelled(node) do
-      ^old -> %{range: Menard.Source.range(node, source), change: new}
-      ^last_old when short? -> %{range: Menard.Source.range(node, source), change: last_new}
+    name = spelled(node)
+
+    case renamed(name, old, new) || (short? && renamed(name, last_old, last_new)) do
+      change when is_binary(change) -> %{range: Menard.Source.range(node, source), change: change}
       _ -> nil
     end
   end
+
+  defp renamed(nil, _old, _new), do: nil
+  defp renamed(old, old, new), do: new
+
+  defp renamed(name, old, new) do
+    if String.starts_with?(name, old <> "."),
+      do: new <> binary_part(name, byte_size(old), byte_size(name) - byte_size(old))
+  end
+
+  # an alias that makes the module's last segment name it: `alias Old` with no `as:`, or an entry
+  # of `alias Base.{…}`
+  defp binds?({:alias, _meta, [{{:., _, [base, :{}]}, _, entries} | _]}, old) do
+    prefix = spelled(base)
+    is_binary(prefix) and Enum.any?(entries, &(spelled(&1) != nil and prefix <> "." <> spelled(&1) == old))
+  end
+
+  defp binds?({:alias, _meta, [target]}, old), do: spelled(target) == old
+  defp binds?({:alias, _meta, [target, opts]}, old), do: spelled(target) == old and not as?(opts)
+  defp binds?(_node, _old), do: false
+
+  defp as?(opts) when is_list(opts), do: Enum.any?(opts, &match?({{:__block__, _, [:as]}, _}, &1))
+  defp as?(_opts), do: false
 
   defp spelled({:__aliases__, _meta, parts}) when is_list(parts) do
     if Enum.all?(parts, &is_atom/1), do: Enum.map_join(parts, ".", &Atom.to_string/1)
