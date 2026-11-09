@@ -922,7 +922,7 @@ defmodule Menard.HooksTest do
              Menard.Hook.run(payload.("SessionStart", "", %{}), state_dir: dir, env_file: env)
 
     assert File.read!(env) == ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n)
-    assert text =~ "\n  menard edit --then compile - <<'EOF'"
+    assert text =~ "`menard edit --then compile - <<'EOF'`"
     refute text =~ Menard.bin()
 
     assert {:deny, why} =
@@ -930,7 +930,7 @@ defmodule Menard.HooksTest do
                state_dir: dir
              )
 
-    assert why =~ "with menard's edit"
+    assert why =~ "with menard's `edit` tool"
     refute why =~ Menard.bin()
 
     # no env file (another harness): the path, as before

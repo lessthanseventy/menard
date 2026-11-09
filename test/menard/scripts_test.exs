@@ -51,6 +51,9 @@ defmodule Menard.ScriptsTest do
 
   test "a refusal, and what is said up front, name this menard by its path and show an edit" do
     for text <- [Scripts.refused(@edit, @menard), Scripts.upfront(@menard)] do
+      assert text =~ "`mcp__plugin_menard_menard__edit`"
+      assert text =~ ~s({"edits": [{"file": "lib/a.ex")
+      assert text =~ "directory the session started in"
       assert text =~ "/p/bin/menard edit --then compile - <<'EOF'"
       assert text =~ "<<<<<<< SEARCH"
     end
