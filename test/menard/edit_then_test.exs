@@ -36,6 +36,35 @@ defmodule Menard.EditThenTest do
     assert read(dir, "lib/b.ex") =~ "A.nope()"
   end
 
+  test "then: test, for a file with no test of its own, runs the tests that name its module", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "lib/c.ex"), "defmodule C do\n  def three, do: 3\nend\n")
+    File.write!(Path.join(dir, "lib/d.ex"), "defmodule D do\n  def four, do: 4\nend\n")
+
+    File.write!(
+      Path.join(dir, "test/uses_c_test.exs"),
+      "defmodule UsesCTest do\n  use ExUnit.Case\n  test \"c\", do: assert(C.three() == 33)\nend\n"
+    )
+
+    File.write!(
+      Path.join(dir, "test/elsewhere_test.exs"),
+      "defmodule ElsewhereTest do\n  use ExUnit.Case\n  test \"elsewhere\", do: assert(false)\nend\n"
+    )
+
+    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+             edit(dir, [%{file: "lib/c.ex", old: "do: 3", new: "do: 33"}], %{then: "test"})
+
+    # nothing names D: no run of the suite in its place, and the reply says so
+    assert {:ok, %{run: %{skipped: why} = run}} =
+             edit(dir, [%{file: "lib/d.ex", old: "do: 4", new: "do: 44"}], %{then: "test"})
+
+    refute Map.has_key?(run, :tests)
+    assert why =~ "D"
+  end
+
   test "then: test runs the tests of what the edit changed, not the whole suite", %{tmp_dir: dir} do
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
