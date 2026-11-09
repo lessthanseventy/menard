@@ -29,11 +29,10 @@ defmodule Menard.BinCopyTest do
   @tag :tmp_dir
   test "mcp answers initialize fast, from a cold build that would otherwise outrun a client's connect timeout",
        %{tmp_dir: dir} do
-    # a fresh install has no _build at all: deps/ untouched (fetching needs the network), but
-    # every dep's compile gone too, so `mix compile` has to rebuild all of it, the slow part a
-    # cold install pays (bin_test.exs's own note above: 28s at load average 17)
+    # menard's own build gone: a compile stands behind the stub's answer, as a fresh install's does.
+    # The deps' too ran the real server's answer past the test's timeout at a load of 46
     copy = checkout_copy!(dir)
-    File.rm_rf!(Path.join(copy, "_build/dev"))
+    File.rm_rf!(Path.join(copy, "_build/dev/lib/menard"))
 
     root = Path.join(dir, "project")
     File.mkdir_p!(Path.join(root, "lib"))
