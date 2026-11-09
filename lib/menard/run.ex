@@ -10,11 +10,14 @@ defmodule Menard.Run do
   # what a repo with no mix.exs answers through its mise task of that name
   @tasks ~w(check test compile)
 
+  @type issue :: %{kind: String.t(), message: String.t(), at: String.t()}
+
   @doc """
   `result/3` under a deadline: `timeout:` in ms for the whole verb, however many mix calls it
   makes. Past it the host's mix is killed and the reply says so; the MCP door passes one under its
   client's timeout, the CLI none.
   """
+  @spec result(String.t(), String.t(), [String.t()], keyword()) :: map()
   def result(dir, verb, args, opts) do
     # the run's context, handed to every mix it makes: its deadline, and its one log (the MCP server
     # lives across calls, and each call's output is its own)
@@ -42,6 +45,7 @@ defmodule Menard.Run do
   diagnostics) — as one map with `ok`, and `log` when it ran mix. Both doors (`mix menard.run`, the
   MCP `run` tool) call this, and `deps` for its compile after an update.
   """
+  @spec result(String.t(), String.t(), [String.t()]) :: map()
   def result(dir, verb, args), do: result(dir, verb, args, [])
 
   @doc "Whether `dir`'s project gates with `credo --strict`: what a lint of it must match."
@@ -54,6 +58,8 @@ defmodule Menard.Run do
   end
 
   # The project lints with credo when it has it: its lock names it, or its deps hold it
+  @doc "Whether the project at `dir` has credo: its lock names it, or its deps hold it."
+  @spec credo?(String.t()) :: boolean()
   def credo?(dir) do
     File.dir?(Path.join(dir, "deps/credo")) or
       case File.read(Path.join(dir, "mix.lock")) do
@@ -64,6 +70,8 @@ defmodule Menard.Run do
 
   # `--format json` prints the report after whatever compiling said first: the object from a line
   # that opens a brace to the end, however it is laid out
+  @doc "The issues in `credo --format json` output, as failures, or `:error` where it holds no report."
+  @spec credo_issues(String.t()) :: {:ok, [issue()]} | :error
   def credo_issues(out) do
     ~r/^\{/m
     |> Regex.scan(out, return: :index)
@@ -78,6 +86,8 @@ defmodule Menard.Run do
   # Only what an edit brought: issues on the lines changed since the last commit, every line of a file
   # git does not track yet. Old debt in the file is not the edit's to answer for.
   # Two git calls for every file at once, not two per file: which are tracked, and one diff.
+  @doc "The `issues` on lines changed since the last commit in the repo at `dir`, every one of an untracked file."
+  @spec only_changed([issue()], String.t()) :: [issue()]
   def only_changed(issues, dir) do
     files = issues |> Enum.map(&(&1.at |> String.split(":") |> hd())) |> Enum.uniq()
     # paths as the project names them, whatever its place in the repo, and unquoted
@@ -98,6 +108,7 @@ defmodule Menard.Run do
   What `mix format` takes in `dir`: the inputs, and each `subdirectories:` match's own
   .formatter.exs inputs (Phoenix's priv/*/migrations), relative to it.
   """
+  @spec formatter_inputs(String.t()) :: [String.t()]
   def formatter_inputs(dir) do
     dot = Path.join(dir, ".formatter.exs")
     opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
@@ -120,6 +131,7 @@ defmodule Menard.Run do
   `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
   run had it; output menard does not run itself (a precommit alias) is read from its prose.
   """
+  @spec parse_test(String.t(), non_neg_integer(), map() | nil, String.t() | nil) :: map()
   def parse_test(out, status, held \\ nil, dir \\ nil) do
     # `--repeat-until-failure N` prints one run after another, and only the LAST run says anything:
     # the one that failed, or the Nth that passed. Its counts, failures and tail are the answer; the
@@ -157,6 +169,7 @@ defmodule Menard.Run do
   are always there, so every reply is the same shape. A tail stays only where it is the answer: a
   verb with no counts (`check`, `compile`), or a failure nothing parsed.
   """
+  @spec lean(map()) :: map()
   def lean(result) do
     ok = result[:ok]
 
@@ -184,6 +197,7 @@ defmodule Menard.Run do
   Attach each failure's `source`: the test's body as written, from `at`'s file (under `root`)
   starting at its line and ending at the matching `end` (the first line at the test's indent).
   """
+  @spec with_sources(%{required(:failures) => [map()], optional(atom()) => term()}, String.t()) :: map()
   def with_sources(%{failures: failures} = result, root) do
     # `at` relative to the project, however mix printed it: under a precommit alias ExUnit prints
     # absolute paths, and the same failure must not look different by which verb found it

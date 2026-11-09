@@ -36,6 +36,7 @@ defmodule Menard.Find do
   file's own local calls, and every file's remote ones by the module's full name. What a
   whole-function delete answers with, so the agent fixes or deletes those on purpose.
   """
+  @spec left(String.t(), String.t(), String.t(), String.t()) :: [String.t()]
   def left(root, file, source, name_arity) do
     [spec | _] = String.split(name_arity, "/")
 
