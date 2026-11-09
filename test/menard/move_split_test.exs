@@ -332,7 +332,7 @@ defmodule Menard.MoveSplitTest do
     """)
 
     dest = Path.join(dir, "doc/go.ex")
-    assert {:ok, reply} = Menard.Move.run(file, dest, ["go/0"], as: "Split7.Go")
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["go/0"], as: "Split7.Go", root: dir)
 
     # the patch, before any formatter: a dedent had pulled the text to column 1
     assert File.read!(dest) == """
@@ -354,7 +354,7 @@ defmodule Menard.MoveSplitTest do
     File.write!(file, "defmodule Split6 do\n  def go, do: 1\nend\n")
 
     assert {:error, "no nope/1 in Split6 — have: go/0"} =
-             Menard.Move.run(file, Path.join(dir, "o.ex"), ["nope/1"], as: "O")
+             Menard.Move.run(file, Path.join(dir, "o.ex"), ["nope/1"], as: "O", root: dir)
   end
 
   test "a moved @spec naming a type the source defines names the source's; a @typep is refused", %{
@@ -410,7 +410,7 @@ defmodule Menard.MoveSplitTest do
     File.write!(priv, src)
     out = Path.join(dir, "priv/double.ex")
 
-    assert Menard.Move.run(priv, out, ["double/1"], as: "Split9.Double") ==
+    assert Menard.Move.run(priv, out, ["double/1"], as: "Split9.Double", root: dir) ==
              {:error,
               "refused, nothing written: the moved @spec names n/0, a @typep of Split9, which no other " <>
                 "module can name. Make it a @type first (stmt replace of the module's `@typep n`): " <>
@@ -490,7 +490,7 @@ defmodule Menard.MoveSplitTest do
     """)
 
     assert {:ok, reply} =
-             Menard.Move.run(file, Path.join(dir, "bits/mask.ex"), ["mask/1"], as: "Split11.Mask")
+             Menard.Move.run(file, Path.join(dir, "bits/mask.ex"), ["mask/1"], as: "Split11.Mask", root: dir)
 
     assert reply.directives == ["import Bitwise"]
     assert reply.unresolved == []

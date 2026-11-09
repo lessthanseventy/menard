@@ -608,17 +608,19 @@ defmodule Menard.Hook do
          {top, 0} <- git(dir, ["rev-parse", "--show-toplevel"], "") do
       ignored = String.split(out, <<0>>, trim: true)
       parent = top |> String.trim_trailing("\n") |> Path.dirname()
-
-      case files -- ignored do
-        [] -> ignored
-        rest -> if within?(parent, root), do: ignored ++ ignored_in(parent, rest, root), else: ignored
-      end
+      ignored ++ ignored_around(parent, files -- ignored, root)
     else
       _no_repo -> []
     end
   end
 
-  defp within?(dir, root), do: dir == root or String.starts_with?(dir, root <> "/")
+  defp ignored_around(_parent, [], _root), do: []
+
+  defp ignored_around(parent, files, root) do
+    if parent == root or String.starts_with?(parent, root <> "/"),
+      do: ignored_in(parent, files, root),
+      else: []
+  end
 
   # What git wrote (a checkout, a reset, a new worktree, a popped stash) is content its repo already
   # holds: no one's edit, and none to format. Read off the command, `cd D && git …` is not an
