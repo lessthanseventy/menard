@@ -42,12 +42,13 @@ defmodule Menard.Piped do
   @doc "What is so in this session, said at its start."
   @spec upfront(String.t()) :: String.t()
   def upfront(menard) do
-    "In this session a test run piped through tail, head or grep (`mix test … | tail -20`) is run " <>
-      "as `#{menard} run test …` in its place, and `mix precommit | …` as `#{menard} run check`: " <>
-      "the answer is one JSON line, `ok`, the counts, and every failure with its file, line and " <>
-      "message, a failed assertion with its left and right. Nothing is cut, so no run is made " <>
-      "again to read the rest. `#{menard} …` itself runs bare: its reply piped into a filter that " <>
-      "ends the line is run without it, and refused where more follows."
+    "Tests run with `#{menard} run test [FILE[:LINE] …]`, and a change is finished on " <>
+      "`#{menard} run check` (format, warnings as errors, the whole suite): the answer is one JSON " <>
+      "line, `ok`, the counts, and every failure with its file, line and message, a failed assertion " <>
+      "with its left and right. Nothing is cut: read it whole, and never run again to see more. A " <>
+      "`mix test` or `mix precommit` piped through tail, head or grep is run as these in its place. " <>
+      "`#{menard} …` itself runs bare: its reply piped into a filter that ends the line is run " <>
+      "without it, and refused where more follows."
   end
 
   defp verb("precommit", _args), do: "check"

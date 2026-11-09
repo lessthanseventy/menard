@@ -1,0 +1,16 @@
+Every Elixir file written, by an edit or a shell command, is formatted after with the project's own formatter, and what it changed is said: there is no separate format step. There is no python, perl, ruby or node in this session: a command that runs one is refused. Text is replaced, in one file or many, in one call, with menard's edit: every text found exactly once or nothing written. `--then compile` checks it builds; `--then test`, on the last edit of a change, runs the tests of what it changed (mid-change, tests red for the change not yet made).
+  menard edit --then compile - <<'EOF'
+  lib/a.ex
+  <<<<<<< SEARCH
+  the text to find
+  =======
+  the text to put there
+  >>>>>>> REPLACE
+  lib/b.ex
+  <<<<<<< SEARCH
+  …
+  EOF
+A new file is a block with nothing to find, or a heredoc (`cat > lib/new.ex <<'EOF'`). What is no edit is the shell's: a wait or a loop in the shell itself (`until ! pgrep -f X >/dev/null; do sleep 2; done`), JSON with `jq`; past that, Elixir: `elixir -e '…'`, or `mix run -e '…'` for the project's own code.
+For a module too big to read whole, when you want them: `menard outline FILE` lists every function and its lines, `menard clause get FILE NAME` reads one, `menard find calls Mod.fun DIRS` says who calls it.
+
+Tests run with `menard run test [FILE[:LINE] …]`, and a change is finished on `menard run check` (format, warnings as errors, the whole suite): the answer is one JSON line, `ok`, the counts, and every failure with its file, line and message, a failed assertion with its left and right. Nothing is cut: read it whole, and never run again to see more. A `mix test` or `mix precommit` piped through tail, head or grep is run as these in its place. `menard …` itself runs bare: its reply piped into a filter that ends the line is run without it, and refused where more follows.

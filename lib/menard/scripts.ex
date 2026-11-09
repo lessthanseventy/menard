@@ -83,7 +83,9 @@ defmodule Menard.Scripts do
   @doc "What is so in every session, said at its start."
   @spec upfront(String.t()) :: String.t()
   def upfront(menard) do
-    "There is no python, perl, ruby or node in this session: a command that runs one is refused. " <>
+    "Every Elixir file written, by an edit or a shell command, is formatted after with the " <>
+      "project's own formatter, and what it changed is said: there is no separate format step. " <>
+      "There is no python, perl, ruby or node in this session: a command that runs one is refused. " <>
       instead(menard) <>
       "\nFor a module too big to read whole, when you want them: `#{menard} outline FILE` lists every " <>
       "function and its lines, `#{menard} clause get FILE NAME` reads one, `#{menard} find calls " <>
