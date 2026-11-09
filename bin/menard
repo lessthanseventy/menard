@@ -277,6 +277,9 @@ script='
 # `mcp` is a long-running stdio SERVER: its stdout IS the JSON-RPC channel, so nothing may buffer
 # it — no capture and no wrapper, exec.
 if [[ "$verb" == "mcp" ]]; then
+  # Claude Code stops a server with SIGINT, then SIGTERM, then SIGKILL; SIGINT's BREAK menu would
+  # land on the protocol channel, so it is off and SIGTERM is the stop (Mix.Tasks.Menard.Mcp)
+  export ERL_FLAGS="+Bd $ERL_FLAGS"
   if [[ -n "$mcp_first_line" && "$answered_init" == 0 ]]; then
     exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@" < <(printf '%s\n' "$mcp_first_line"; cat)
   fi

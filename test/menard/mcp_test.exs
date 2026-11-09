@@ -186,6 +186,61 @@ defmodule Menard.MCPTest do
     assert out =~ "go"
   end
 
+  test "the server stops the way Claude Code stops it: SIGINT, then SIGTERM, before the SIGKILL", %{
+    root: dir
+  } do
+    messages = [
+      %{
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: %{protocolVersion: "2025-06-18", capabilities: %{}, clientInfo: %{name: "t", version: "0"}}
+      },
+      %{jsonrpc: "2.0", method: "notifications/initialized"},
+      %{jsonrpc: "2.0", id: 2, method: "tools/list"}
+    ]
+
+    port =
+      Port.open({:spawn_executable, "/bin/sh"}, [
+        :binary,
+        :exit_status,
+        {:line, 65_536},
+        args: ["-c", ~S[exec "$BIN" mcp --hooks]],
+        cd: @root,
+        env: [
+          {~c"BIN", String.to_charlist(Path.join(@root, "bin/menard"))},
+          {~c"MENARD_ROOT", String.to_charlist(dir)}
+        ]
+      ])
+
+    Port.command(port, Enum.map_join(messages, &(JSON.encode!(&1) <> "\n")))
+    answer(port, ~s("id":2), "")
+    {:os_pid, pid} = Port.info(port, :os_pid)
+
+    System.cmd("kill", ["-INT", "#{pid}"])
+    Process.sleep(70)
+    System.cmd("kill", ["-TERM", "#{pid}"])
+
+    stdout =
+      Stream.repeatedly(fn ->
+        receive do
+          {^port, {:data, {_, line}}} -> {:line, line}
+          {^port, {:exit_status, _}} -> :exited
+        after
+          400 -> :alive
+        end
+      end)
+      |> Enum.reduce_while([], fn
+        {:line, line}, acc -> {:cont, [line | acc]}
+        end_state, acc -> {:halt, {end_state, acc}}
+      end)
+
+    {end_state, lines} = stdout
+    if end_state == :alive, do: System.cmd("kill", ["-KILL", "#{pid}"])
+    assert end_state == :exited
+    assert Enum.all?(lines, &String.starts_with?(&1, "{")), "stdout past the protocol: #{inspect(lines)}"
+  end
+
   test "block add takes a test's context, and block delete removes one", %{root: root} do
     file = Path.join(root, "lib/a_test.exs")
 

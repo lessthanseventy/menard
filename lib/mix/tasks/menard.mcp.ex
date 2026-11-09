@@ -50,6 +50,13 @@ defmodule Mix.Tasks.Menard.Mcp do
     # server of a client that died without killing it lingers for good.
     ref = Process.monitor(Anubis.Server.Registry.transport_name(server, :stdio))
 
+    # the default SIGTERM stops every application in turn, past the harness's wait before SIGKILL
+    {:ok, _} =
+      System.trap_signal(:sigterm, fn ->
+        Menard.Door.close()
+        System.halt(0)
+      end)
+
     receive do
       {:DOWN, ^ref, :process, _pid, _reason} ->
         Menard.Door.close()
