@@ -12,7 +12,29 @@
 - The formatting hook leaves a test's fixture alone when a repo around it ignores it, up to the
   session's directory: a fixture is a repo of its own, and a suite run in an agent's worktree had
   its fixtures linted as the session's writes.
+- `edit --then test` runs each changed file's mirror test, else the test files that name its
+  modules, else nothing and says so. It fell back to `mix test --stale`, which in a fresh worktree
+  ran the whole suite and otherwise every test touched since the last `--stale`: of 366 such runs
+  in two weeks, 169 ran 30 tests or more.
+- One `run test` at a time in a project, as `run check` already was: ExUnit gives a test the same
+  `tmp/` directory in every run of a checkout and clears it as the test starts, so a second run
+  deleted the first's fixtures mid-test. The next waits, and says how long.
+- Each project keeps its own run-log directory. The name was the path cut to 60 characters, so
+  projects under one long path shared it, and each rotation deleted the other's logs.
+- The week-old sweep of menard's temp files runs once a day, not at every session start, which
+  stat'ed every run log there was.
+- `rename` of a module: nested names (`Acme.Billing.Error`) and a multi-alias's entry are renamed;
+  an entry whose new name has another base leaves the braces for its own alias; and `alias Old`
+  binds the bare last name per module, not per file. `alias X, as: Pay` no longer counts as
+  binding `X`'s last name.
+- A `require` only the moved code used leaves the source in `clause move`/`split`: it failed
+  `--warnings-as-errors` under Elixir 1.20.
+- A dev checkout's `bin/menard` uses only a door its own checkout's server opened, not the
+  installed plugin's.
 - `@spec` on every public function written by hand.
+- The suite runs half the cores' worth of cases and starts every VM with four schedulers: at the
+  default it pegged the machine and ran single tests past their timeout, for no shorter a run
+  (290 s now, against 374 s).
 
 - `rename OLD NEW` with a module name renames the module: its `defmodule`, its aliases and every
   call that spells it, strings and comments left alone. A dotted name was read as `Mod.fun`, and a
