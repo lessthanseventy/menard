@@ -37,14 +37,14 @@ defmodule Menard.Rename do
     {last_old, last_new} =
       {old |> String.split(".") |> List.last(), new |> String.split(".") |> List.last()}
 
-    short? = last_old != last_new and Enum.any?(Macro.prewalker(ast), &binds?(&1, old))
-
+    scopes = if last_old == last_new, do: MapSet.new(), else: binding_scopes(ast, old)
     moved = Enum.flat_map(Macro.prewalker(ast), &List.wrap(leaving_patch(&1, source, old, new)))
 
     patches =
       ast
       |> Zipper.zip()
       |> Zipper.traverse([], fn z, acc ->
+        short? = bound?(z, scopes)
         {z, List.wrap(module_patch(Zipper.node(z), source, {old, new}, {last_old, last_new, short?})) ++ acc}
       end)
       |> elem(1)
@@ -53,6 +53,48 @@ defmodule Menard.Rename do
       end)
 
     moved ++ patches
+  end
+
+  # the scopes where an `alias` binds the bare last segment: `:root` for the file's own top level,
+  # else the `defmodule`s, by position. A scope's own body counts, not a module nested in it, which
+  # inherits the binding from where it sits
+  defp binding_scopes(ast, old) do
+    for {:defmodule, meta, [_name, body]} <- Macro.prewalker(ast),
+        scope_binds?(body, old),
+        into: if(scope_binds?(ast, old), do: MapSet.new([:root]), else: MapSet.new()),
+        do: {meta[:line], meta[:column]}
+  end
+
+  defp scope_binds?({:defmodule, _, _}, _old), do: false
+
+  defp scope_binds?(node, old) do
+    cond do
+      binds?(node, old) ->
+        true
+
+      match?({_, _, args} when is_list(args), node) ->
+        Enum.any?([elem(node, 0) | elem(node, 2)], &scope_binds?(&1, old))
+
+      is_tuple(node) and tuple_size(node) == 2 ->
+        Enum.any?(Tuple.to_list(node), &scope_binds?(&1, old))
+
+      is_list(node) ->
+        Enum.any?(node, &scope_binds?(&1, old))
+
+      true ->
+        false
+    end
+  end
+
+  defp bound?(z, scopes), do: :root in scopes or inside_bound?(z, scopes)
+
+  defp inside_bound?(nil, _scopes), do: false
+
+  defp inside_bound?(z, scopes) do
+    case Zipper.node(z) do
+      {:defmodule, meta, _} -> {meta[:line], meta[:column]} in scopes or inside_bound?(Zipper.up(z), scopes)
+      _ -> inside_bound?(Zipper.up(z), scopes)
+    end
   end
 
   # `alias Acme.{Billing, X}` renamed to another base cannot keep the entry in the braces: it

@@ -235,6 +235,40 @@ defmodule Menard.RenameTest do
     assert Rename.run(alone, "Acme.Billing", "Shop.Invoicing") =~ "  alias Shop.Invoicing\n  def go"
   end
 
+  test "an alias binds the bare last segment in its own module, and in the modules nested in it" do
+    src = """
+    defmodule A do
+      alias Acme.Billing
+      def go, do: Billing.x()
+
+      defmodule Inner do
+        def go, do: Billing.y()
+      end
+    end
+
+    defmodule B do
+      alias Acme.Reports.Billing
+      def go, do: Billing.x()
+    end
+    """
+
+    assert Rename.run(src, "Acme.Billing", "Acme.Invoicing") == """
+           defmodule A do
+             alias Acme.Invoicing
+             def go, do: Invoicing.x()
+
+             defmodule Inner do
+               def go, do: Invoicing.y()
+             end
+           end
+
+           defmodule B do
+             alias Acme.Reports.Billing
+             def go, do: Billing.x()
+           end
+           """
+  end
+
   test "renames a remote call and a remote capture, not a field access" do
     src = """
     defmodule A do
