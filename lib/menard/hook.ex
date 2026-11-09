@@ -95,6 +95,7 @@ defmodule Menard.Hook do
   defp settings(opts) do
     %{
       state: opts[:state_dir] || System.tmp_dir!(),
+      env_file: Keyword.get(opts, :env_file, System.get_env("CLAUDE_ENV_FILE")),
       run: opts[:run] || (&Menard.Run.result/3),
       # under the hooks server, whose process outlives the call: credo off the call's path
       async: opts[:async] == true,
@@ -226,7 +227,7 @@ defmodule Menard.Hook do
   # named by its absolute path, the agent types that path on every call. Put there, every text names
   # it `menard`
   defp on_path(hook) do
-    with env when is_binary(env) <- System.get_env("CLAUDE_ENV_FILE"),
+    with env when is_binary(env) <- hook.env_file,
          :ok <- File.write(env, ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n), [:append]) do
       File.write!(path_mark(hook), "")
     end
