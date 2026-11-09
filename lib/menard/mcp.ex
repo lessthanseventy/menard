@@ -70,12 +70,15 @@ if Code.ensure_loaded?(Anubis.Server) do
     def handle_request(request, frame), do: Handlers.handle(request, __MODULE__, frame)
 
     @doc "The directory every path resolves under."
+    @spec root() :: String.t()
     def root, do: System.get_env("MENARD_ROOT") || Menard.caller_dir()
 
     @doc "A path under the root, or a refusal — no edit escapes the launch directory (`Menard.Verbs.resolve/2`)."
+    @spec resolve(String.t()) :: {:ok, String.t()} | {:error, String.t()}
     def resolve(path), do: Menard.Verbs.resolve(path, %{root: root()})
 
     @doc "Every path resolved, globs expanded, or the first refusal — no partial edits."
+    @spec resolve_all([String.t()]) :: {:ok, [String.t()]} | {:error, String.t()}
     def resolve_all(paths), do: Menard.Verbs.resolve_all(paths, %{root: root()})
 
     defp takes(tool) do
