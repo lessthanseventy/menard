@@ -272,22 +272,21 @@ defmodule Menard.Scripts do
   end
 
   defp instead(menard) do
+    tool = System.get_env("MENARD_TOOL_PREFIX", "mcp__plugin_menard_menard__") <> "edit"
+
     """
-    Text is replaced, in one file or many, in one call, with menard's edit: every text found exactly \
-    once or nothing written. `--then compile` checks it builds; `--then test`, on the last edit of a \
-    change, runs the tests of what it changed (mid-change, tests red for the change not yet made).
-      #{menard} edit --then compile - <<'EOF'
-      lib/a.ex
-      <<<<<<< SEARCH
-      the text to find
-      =======
-      the text to put there
-      >>>>>>> REPLACE
-      lib/b.ex
-      <<<<<<< SEARCH
-      …
-      EOF
-    A new file is a block with nothing to find, or a heredoc (`cat > lib/new.ex <<'EOF'`). \
+    Text is replaced, in one file or many, in one call, with menard's `edit` tool (`#{tool}`): \
+    `edits` is a list of `{file, old, new}`, every `old` found exactly once or nothing written, and \
+    an empty `old` makes a new file. A relative `file` is from the directory the session started in, \
+    not the shell's: working elsewhere, give the absolute path. `then: "compile"` checks it builds; \
+    `then: "test"`, on the last edit of a change, runs the tests of what it changed (mid-change, \
+    tests red for the change not yet made).
+      {"edits": [{"file": "lib/a.ex", "old": "the text to find", "new": "the text to put there"},
+                 {"file": "lib/b.ex", "old": "…", "new": "…"}],
+       "then": "compile"}
+    From the shell, where a path is from its own directory, the same edit is \
+    `#{menard} edit --then compile - <<'EOF'`: each file's path on a line, then its \
+    `<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE` blocks. \
     What is no edit is the shell's: a wait or a loop in the shell itself \
     (`until ! pgrep -f X >/dev/null; do sleep 2; done`), JSON with `jq`; past that, Elixir: \
     `elixir -e '…'`, or `mix run -e '…'` for the project's own code.\
