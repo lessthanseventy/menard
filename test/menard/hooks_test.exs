@@ -568,6 +568,30 @@ defmodule Menard.HooksTest do
     assert File.read!(Path.join(dir, "lib/ok.ex")) =~ "  def f(x), do: x\n"
   end
 
+  test "format-report leaves a fixture repo alone that sits where an enclosing repo ignores" do
+    outer = Path.join(System.tmp_dir!(), "menard-hook-#{System.pid()}-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(outer) end)
+    host(outer)
+    File.write!(Path.join(outer, ".gitignore"), "/tmp/\n")
+    fixture = Path.join(outer, "tmp/fixture")
+    host(fixture)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "mix test"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), outer)
+    backdate_format_mark(bash, outer)
+    File.write!(Path.join(fixture, "lib/bad.ex"), "defmodule Bad do\n  def f(x, do: x\nend\n")
+    File.write!(Path.join(outer, "lib/ok.ex"), "defmodule Ok do\n  def   f(x), do: x\nend\n")
+
+    {out, 0} = report(Map.put(bash, :hook_event_name, "PostToolUse"), outer)
+    refute out =~ "bad.ex"
+    assert File.read!(Path.join(outer, "lib/ok.ex")) =~ "  def f(x), do: x\n"
+  end
+
   test "format-report asks each file's own repo what git ignores, not the session's directory" do
     # a session whose cwd is no repo ran menard's suite: every fixture it wrote was named, and the
     # server kept a formatter warm for each
