@@ -1206,7 +1206,7 @@ defmodule Menard.HooksTest do
     File.touch!(mark, old)
 
     name = "sweep-test-#{System.pid()}-#{System.unique_integer([:positive])}"
-    logs = Path.join([System.tmp_dir!(), "menard-run", name <> "-#{System.pid()}"])
+    logs = Path.join(Menard.log_dir(), name)
 
     File.mkdir_p!(logs)
     File.write!(Path.join(logs, "x.log"), "")
@@ -1221,6 +1221,17 @@ defmodule Menard.HooksTest do
     refute File.exists?(mark)
     assert File.exists?(recent)
     refute File.exists?(logs)
+
+    # once a day: every start stat'ed every run log there is, thousands, through the one file server
+    File.write!(mark, "")
+    File.touch!(mark, old)
+
+    Menard.Hook.run(
+      %{"hook_event_name" => "SessionStart", "source" => "startup", "session_id" => "t", "cwd" => dir},
+      state_dir: dir
+    )
+
+    assert File.exists?(mark)
   end
 
   @tag :tmp_dir
