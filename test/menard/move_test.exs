@@ -22,6 +22,23 @@ defmodule Menard.MoveTest do
     assert File.read!(from) == "defmodule A do\n  def stays, do: 2\nend\n"
   end
 
+  test "a require only the moved code used goes with it: an unused require warns", %{tmp_dir: dir} do
+    Host.mix_project(dir, :app)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    from = Path.join(dir, "lib/a.ex")
+
+    File.write!(
+      from,
+      "defmodule A do\n  require Logger\n\n  def go, do: Logger.info(\"go\")\n\n  def stays, do: 2\nend\n"
+    )
+
+    dest = Path.join(dir, "lib/b.ex")
+
+    assert {:ok, _} = Menard.Move.run(from, dest, "go/0", root: dir, as: "B")
+    assert File.read!(dest) =~ "require Logger"
+    assert File.read!(from) == "defmodule A do\n  def stays, do: 2\nend\n"
+  end
+
   test "the new module takes the prefix the source carries past its own path", %{tmp_dir: dir} do
     Host.mix_project(dir, :app)
     File.mkdir_p!(Path.join(dir, "lib"))
