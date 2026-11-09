@@ -158,7 +158,10 @@ defmodule Menard.Edit do
   defp refusal(file, why), do: {file, why}
 
   defp replace({:error, :enoent}, %{old: "", new: new}), do: {:ok, new}
-  defp replace({:error, :enoent}, _edit), do: {:error, "the file is not there (an empty `old` makes it)"}
+
+  defp replace({:error, :enoent}, edit),
+    do: {:error, "the file is not there, looked for at #{edit.file} (an empty `old` makes it)"}
+
   defp replace({:error, reason}, _edit), do: {:error, "cannot be read: #{:file.format_error(reason)}"}
 
   defp replace({:ok, _text}, %{old: ""}),
