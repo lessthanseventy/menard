@@ -2,6 +2,18 @@
 
 ## 0.8.8
 
+- The MCP servers stop when Claude Code stops them. SIGINT opened the BEAM's BREAK menu on stdout,
+  the protocol channel, and the default SIGTERM outlasted the harness's wait, so a server was
+  SIGKILLed and its session told its hooks were down. SIGINT's menu is off and SIGTERM halts.
+- The session-start text says how to run tests (`run test`) and finish a change (`run check`), and
+  that every written Elixir file is formatted. It described only the piped-test rewrite, which read
+  as leave to pipe. On a fresh install or an update, when menard is not built yet, the text comes
+  from `hooks/upfront.txt` (a test keeps it equal) instead of nothing.
+- The formatting hook leaves a test's fixture alone when a repo around it ignores it, up to the
+  session's directory: a fixture is a repo of its own, and a suite run in an agent's worktree had
+  its fixtures linted as the session's writes.
+- `@spec` on every public function written by hand.
+
 - `rename OLD NEW` with a module name renames the module: its `defmodule`, its aliases and every
   call that spells it, strings and comments left alone. A dotted name was read as `Mod.fun`, and a
   module rename answered "unchanged" for every file.

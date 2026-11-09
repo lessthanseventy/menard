@@ -105,9 +105,15 @@ Each from the transcripts, a failing test first, its own commit.
   `attr`, `directive`, `split`, `module`) and 4,500 of tests, for fifteen calls in three weeks. The
   10-01 decision (frozen until one eval built to favour them) stands; this review adds that nothing
   in three weeks of real work reached for them unprompted. Build the eval, or cut them.
-- `run check` at the cap: 48 of 287. The cap is menard's, the gate's length is tlon's.
+- `run check` at the cap: 48 of 287. The cap is menard's, the gate's length is tlon's. *Not
+  menard's (2026-11-09): at 600 s Claude Code moves a command to the background and sends its
+  reply when it ends; across tlon's transcripts 42 were moved and none killed.*
 - The filter refusal does not say which it saw: a `| head` or a `>/dev/null`. One clause.
 - Reading one function costs 11 s (`clause get`, p50) against a free `Read`; 80 of the 141 were
   piped into `head`. The reading aids earn their place on a module too big to read, not elsewhere.
+  *Through the door (0.8.7), 60-85 ms in tlon at a load of 22 (2026-11-09).*
 - Both MCP servers timed out connecting (30 s) in three sessions (10-12, 11-08 twice), under load:
-  a session with no hooks server has no hooks at all, and nothing says so.
+  a session with no hooks server has no hooks at all, and nothing says so. *Said since 0.8.7
+  (`hooks/server-up.sh`). The 11-08 timeouts fall on a toolchain rebuild and a new install's first
+  boots; `bin/release` builds the installed copy now. A server Claude Code restarted was
+  SIGKILLed, not stopped: fixed in 0.8.8.*
