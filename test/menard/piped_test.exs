@@ -85,6 +85,11 @@ defmodule Menard.PipedTest do
     assert Piped.upfront("/p/bin/menard") =~ "`/p/bin/menard …` itself runs bare"
   end
 
+  test "hooks/upfront.txt, said when menard is not built yet, is the session-start text as it is" do
+    text = Menard.Scripts.upfront("menard") <> "\n\n" <> Piped.upfront("menard") <> "\n"
+    assert File.read!(Path.expand("../../hooks/upfront.txt", __DIR__)) == text
+  end
+
   test "a piped credo is menard's run credo" do
     # the agent's own `mix credo --strict … | grep -v "^Checking"`: a lint cut down to read, where
     # `run credo` is the issues as one line
