@@ -172,4 +172,27 @@ defmodule Menard.RunCheckTest do
     # a dead holder's lock is moved aside to be taken (a rename only one waiter wins), then gone
     assert Path.wildcard(lock <> ".*") == []
   end
+
+  @tag :tmp_dir
+  test "a test run waits for a run already in the project, as a check does", %{tmp_dir: dir} do
+    # ExUnit gives a test the same tmp/ directory in every run of a checkout, and clears it as the
+    # test starts: a second run beside the first deleted the files its tests were reading
+    Host.mix_project(dir, :locked_test)
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+
+    File.write!(
+      Path.join(dir, "test/a_test.exs"),
+      "defmodule ATest do\n  use ExUnit.Case\n  test \"a\", do: :ok\nend\n"
+    )
+
+    lock = Path.join(dir, "_build/.menard-check.lock")
+    File.mkdir_p!(Path.dirname(lock))
+
+    holder = Port.open({:spawn, "sleep 3"}, [])
+    {:os_pid, pid} = Port.info(holder, :os_pid)
+    File.write!(lock, to_string(pid))
+    assert %{ok: true, waited: waited} = Run.result(dir, "test", [])
+    assert waited >= 2
+  end
 end

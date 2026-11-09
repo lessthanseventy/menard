@@ -32,7 +32,7 @@ defmodule Menard.Run do
     reply =
       cond do
         verb in @tasks and not File.regular?(Path.join(dir, "mix.exs")) -> task(run, verb, args)
-        verb == "check" -> one_at_a_time(run, fn -> verb(run, verb, args) end)
+        verb in ["check", "test"] -> one_at_a_time(run, fn -> verb(run, verb, args) end)
         true -> verb(run, verb, args)
       end
 
@@ -980,9 +980,9 @@ defmodule Menard.Run do
           })
   end
 
-  # One check at a time in a project: two sessions' gates in one checkout raced in its _build and its
-  # tmp/. The next waits for the one running,
-  # up to its own deadline, and says how long; a lock whose holder is dead is no wait.
+  # One check or test run at a time in a project: two in one checkout raced in its _build and its
+  # tmp/. The next waits for the one running, up to its own deadline, and says how long; a lock
+  # whose holder is dead is no wait.
   defp one_at_a_time(%{dir: dir} = run, check) do
     lock = Path.join(dir, "_build/.menard-check.lock")
     File.mkdir_p!(Path.dirname(lock))
