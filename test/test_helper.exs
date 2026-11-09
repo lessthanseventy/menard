@@ -1,5 +1,9 @@
 # :corpus is the hex corpus benchmark: it fetches, and takes minutes (`mise run bench:identity`)
-ExUnit.start(exclude: [:corpus])
+# Half the cores' worth of cases, and four schedulers for every VM a test starts: at the default,
+# forty cases each booting a host mix with a scheduler per core pegged the machine and ran single
+# tests past their timeout, and finished no sooner (374 s against 397 s, 1 timeout against 0)
+ExUnit.start(exclude: [:corpus], max_cases: max(div(System.schedulers_online(), 2), 2))
+System.put_env("ERL_FLAGS", String.trim("+S 4 " <> (System.get_env("ERL_FLAGS") || "")))
 
 # this VM runs in a Claude Code session: a bin/menard a test starts would find the session's own
 # hooks server by this id (Menard.Door) and run the installed plugin's build, not this tree's
