@@ -636,6 +636,7 @@ defmodule Menard.Move do
     with {:ok, out} <- reduce(alias_it, out, &Directive.add(&2, :alias, &1, module: src.mod)),
          {:ok, out} <- unread(out, src, needs),
          {:ok, out} <- unaliased(out, src),
+         {:ok, out} <- unrequired(out, src),
          {:ok, out} <- unimported(out, src, needs) do
       {:ok, out, delegated}
     end
@@ -813,6 +814,43 @@ defmodule Menard.Move do
       end)
       |> reduce(out, fn {:alias, target, _}, acc -> unalias(acc, target, src.mod) end)
     end
+  end
+
+  # A require the source used before the move and does not after goes: an unused require warns.
+  defp unrequired(out, src) do
+    with {:ok, module} <- scope(out, src.mod) do
+      {before, now} = {spelled_outside_directives(src.module), spelled_outside_directives(module)}
+
+      out
+      |> directives(src.mod)
+      |> Enum.filter(fn {kind, target, _} ->
+        kind == :require and names?(before, target) and not names?(now, target)
+      end)
+      |> reduce(out, fn {:require, target, _}, acc ->
+        Directive.remove(acc, :require, target, module: src.mod)
+      end)
+    end
+  end
+
+  # a require is used by its module's first or last segment, as `used/2` reads it
+  defp names?(names, target) do
+    parts = String.split(target, ".")
+    Enum.any?([hd(parts), List.last(parts)], &(&1 in names))
+  end
+
+  defp spelled_outside_directives(module) do
+    module
+    |> Tree.module_body()
+    |> Enum.reject(&match?({kind, _, _} when kind in @directives, &1))
+    |> Macro.prewalker()
+    |> Enum.flat_map(fn
+      {:__aliases__, _, [first | _] = parts} when is_atom(first) ->
+        Enum.map([first, List.last(parts)], &to_string/1)
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
   end
 
   # one of an `alias A.{B, C}` leaves its line; one of an `alias A.{B, C}, opts` stays, as the
