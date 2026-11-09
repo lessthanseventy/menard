@@ -43,6 +43,8 @@ defmodule Menard.Door do
   @spec served() :: non_neg_integer()
   def served, do: GenServer.call(__MODULE__, :served)
 
+  @doc "Start the door, registered as this module; what `open/1` has the supervisor call."
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @impl true

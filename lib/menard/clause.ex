@@ -371,6 +371,7 @@ defmodule Menard.Clause do
   A head as the clause verbs address it: the arguments without their `\\\\ default`s, the guard kept.
   What a caller passes as HEAD, and what `outline` prints for each def.
   """
+  @spec bare_head(String.t()) :: String.t()
   def bare_head(head) do
     case split_head(head) do
       {_args, nil} -> bare_args(head)

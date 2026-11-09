@@ -91,6 +91,8 @@ defmodule Menard.Deps do
   # A pipeline step and a capture, written as the call they make: `x |> step()` is step/1, not
   # step/0, and `&step/1` calls step/1. Read as written, a helper two functions share looked free
   # to move.
+  @doc "A pipeline step or a capture as the call it makes; any other node as it is."
+  @spec as_call(Macro.t()) :: Macro.t()
   def as_call({:|>, _meta, [lhs, {fun, meta, args}]}) when is_list(args) or is_nil(args),
     do: {fun, meta, [lhs | List.wrap(args)]}
 
