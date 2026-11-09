@@ -454,6 +454,19 @@ defmodule Menard.RunTest do
     assert Process.get() == before
   end
 
+  test "two projects keep their logs apart, however long the path they share", %{tmp_dir: dir} do
+    [one, two] =
+      for name <- ["a", "b"] do
+        project = Path.join(dir, name)
+        File.mkdir_p!(project)
+        Host.mix_project(project, String.to_atom("logs_" <> name))
+        assert %{ok: true, log: log} = Menard.Run.result(project, "compile", [])
+        Path.dirname(log)
+      end
+
+    assert one != two
+  end
+
   test "run test reads each failure as ExUnit holds it, not as the prose it prints", %{tmp_dir: dir} do
     # read from the CLI's prose, a `left:` that did not fit one line came back as its first line, "%{"
     Host.mix_project(dir, :held)

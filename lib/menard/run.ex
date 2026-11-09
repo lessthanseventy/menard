@@ -1110,7 +1110,11 @@ defmodule Menard.Run do
   # reply names it, so what the failures leave out is a grep away, not a second run (Tlön's cap.sh
   # rule: run once, read the log; 40% of the operator's test runs were run again to see more)
   defp log_path(dir, words) do
-    logs = Path.join([System.tmp_dir!(), "menard-run", slug(Path.expand(dir))])
+    dir = Path.expand(dir)
+    # the slug is cut short, and two projects under one long path shared it, each's rotation
+    # deleting the other's logs
+    hash = :md5 |> :crypto.hash(dir) |> Base.encode16(case: :lower) |> binary_part(0, 8)
+    logs = Path.join([System.tmp_dir!(), "menard-run", slug(dir) <> "-" <> hash])
     File.mkdir_p!(logs)
     # room for this run's: all but one of the last @keep stay
     logs |> File.ls!() |> Enum.sort(:desc) |> Enum.drop(@keep - 1) |> Enum.each(&File.rm(Path.join(logs, &1)))
