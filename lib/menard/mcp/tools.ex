@@ -5,14 +5,22 @@ if Code.ensure_loaded?(Anubis.Server) do
     alias Anubis.Server.Response
     alias Menard.Verbs
 
+    @type reply :: {:reply, Response.t(), Anubis.Server.Frame.t()}
+
+    @doc "The tool's answer: `payload` as menard's JSON."
+    @spec ok(Anubis.Server.Frame.t(), term()) :: reply()
     def ok(frame, payload), do: {:reply, Response.text(Response.tool(), Menard.encode(payload)), frame}
+    @doc "The tool's answer as an error carrying `message`."
+    @spec fail(Anubis.Server.Frame.t(), String.t()) :: reply()
     def fail(frame, message), do: {:reply, Response.error(Response.tool(), message), frame}
 
     @doc "A verb's result (`Menard.Verbs`) as the tool's answer: the reply as is, the reason as a tool error."
+    @spec answer(Anubis.Server.Frame.t(), Verbs.result()) :: reply()
     def answer(frame, {:ok, reply}), do: ok(frame, reply)
     def answer(frame, {:error, reason}), do: fail(frame, reason)
 
     @doc "The tool's params as the verb takes them: every path resolves under the launch root."
+    @spec params(map()) :: map()
     def params(params), do: Map.put(params, :root, Menard.MCP.root())
 
     @doc """
@@ -22,6 +30,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     harness, which reads the text as a command hook's stdout: a JSON object, or nothing to say; a
     file that could not be formatted blocks, which is how its reason reaches the agent.
     """
+    @spec call(module(), map(), Anubis.Server.Frame.t(), pos_integer()) :: reply()
     def call(Verbs.Run = verbs, params, frame, ms),
       do: answer(frame, verbs.run(params |> params() |> Map.put(:timeout, ms - 20_000)))
 
@@ -56,6 +65,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     any verb. Its 600s are for the tests a `then` runs, and a small write must not go silent past
     the client's 120s.
     """
+    @spec deadline(pos_integer(), module(), map()) :: pos_integer()
     def deadline(ms, Verbs.Edit, params) when not is_map_key(params, :then) or params.then in [nil, ""],
       do: min(ms, Verbs.Noun.deadline(%{}))
 
@@ -72,6 +82,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     where an edit half applied does not compile) and loads the modules that changed. An installed
     menard's source does not change: this is a stat of each file.
     """
+    @spec fresh() :: :ok
     def fresh do
       stamp = newest_source()
 
@@ -80,10 +91,13 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     @doc "What the server runs, stamped as current: called once it has started."
+    @spec loaded!() :: :ok
     def loaded!, do: :persistent_term.put({__MODULE__, :loaded}, newest_source())
 
     # Every tool runs under a deadline: over stdio a call that never returns is a server gone
     # silent, and one went past Claude Code's 120s.
+    @doc "`tool`'s call on `params`, answered within `ms` ms or with why it did not finish."
+    @spec bounded(module(), map(), Anubis.Server.Frame.t(), pos_integer()) :: reply()
     def bounded(tool, params, frame, ms) do
       fresh()
       caller = self()
