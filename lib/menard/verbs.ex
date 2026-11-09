@@ -193,7 +193,18 @@ defmodule Menard.Verbs do
         args =
           if verb == "test" and File.regular?(Path.join(dir, "mix.exs")), do: tests_of(files, dir), else: []
 
-        {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
+        run =
+          case args do
+            {:none, why} ->
+              %{skipped: why}
+
+            args ->
+              {:ok, run} =
+                Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
+
+              run
+          end
+
         if dir == root, do: run, else: Map.put(run, :dir, Path.relative_to(dir, root))
       end
 
@@ -222,16 +233,50 @@ defmodule Menard.Verbs do
 
   # a run while working, not the gate: an edited test file, and the test file of an edited lib file
   # (lib/a/b.ex, test/a/b_test.exs); none of those, the tests stale since the last run
+  # Each file's mirror test, or, for a file with none (a helper, a test support module), the tests
+  # that name its modules. Never the suite: `--stale` with no manifest, as in a fresh worktree, ran
+  # all of it, and with one ran every test touched since the last `--stale`
   defp tests_of(files, root) do
-    tests =
-      for file <- files,
-          test = test_of(Path.relative_to(file, root)),
-          test && File.regular?(Path.join(root, test)),
-          uniq: true,
-          do: test
+    {mirrored, bare} =
+      Enum.split_with(files, fn file ->
+        test = test_of(Path.relative_to(file, root))
+        test != nil and File.regular?(Path.join(root, test))
+      end)
 
-    if tests == [], do: ["--stale"], else: tests
+    mods = Enum.flat_map(bare, &modules_of/1)
+
+    tests =
+      Enum.map(mirrored, &test_of(Path.relative_to(&1, root))) ++ naming(mods, root)
+
+    case Enum.uniq(tests) do
+      [] ->
+        {:none, "no test is the mirror of what changed, or names #{names(mods)}: `run test` runs the suite"}
+
+      tests ->
+        tests
+    end
   end
+
+  defp modules_of(file) do
+    case File.read(file) do
+      {:ok, source} -> Menard.Module.list(source)
+      _ -> []
+    end
+  end
+
+  defp naming([], _root), do: []
+
+  # by the whole name: `C` is not named by `ExUnit.Case`
+  defp naming(mods, root) do
+    named = ~r/(?<![\w.])(?:#{Enum.map_join(mods, "|", &Regex.escape/1)})(?![\w])/
+
+    for test <- Path.wildcard(Path.join(root, "test/**/*_test.exs")),
+        Regex.match?(named, File.read!(test)),
+        do: Path.relative_to(test, root)
+  end
+
+  defp names([]), do: "a module"
+  defp names(mods), do: Enum.join(mods, ", ")
 
   defp test_of("test/" <> _ = rel), do: if(String.ends_with?(rel, "_test.exs"), do: rel)
   defp test_of("lib/" <> rest), do: "test/" <> Path.rootname(rest) <> "_test.exs"
