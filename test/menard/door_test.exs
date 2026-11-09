@@ -63,7 +63,7 @@ defmodule Menard.DoorTest do
     {:ok, listen} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
     {:ok, port} = :inet.port(listen)
     :gen_tcp.close(listen)
-    File.write!(Path.join(ctx.tmp, "menard-door-#{System.pid()}"), "#{port}\n")
+    File.write!(Path.join(ctx.tmp, "menard-door-#{System.pid()}"), "#{port}\n#{@root}\n")
 
     assert {out, 0} = edit(ctx.dir, ctx.env)
     assert out =~ ~r/^\{"did":"edit a.ex: 1 replacement"/
@@ -77,6 +77,17 @@ defmodule Menard.DoorTest do
     assert {out, 0} = edit(ctx.dir, env)
     assert out =~ ~s("did":"edit a.ex: 1 replacement")
     assert Menard.Door.served() == 1
+  end
+
+  test "a door another build of menard opened is not used: the verb runs in this build's VM", ctx do
+    start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
+    file = Path.join(ctx.tmp, "menard-door-#{System.pid()}")
+    [port | _] = String.split(File.read!(file), "\n")
+    File.write!(file, "#{port}\n/elsewhere/menard\n")
+
+    assert {out, 0} = edit(ctx.dir, ctx.env)
+    assert out =~ ~r/^\{"did":"edit a.ex: 1 replacement"/
+    assert Menard.Door.served() == 0
   end
 
   test "`run` and a verb from inside menard's checkout keep their own VM", ctx do

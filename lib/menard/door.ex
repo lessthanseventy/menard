@@ -5,7 +5,7 @@ defmodule Menard.Door do
   Every `bin/menard VERB` started a VM of its own: mise and mix, menard's compile check, then the
   host formatter's VM. Idle that is 1.4 s, and far more under load, where the MCP door's `edit`,
   warm, takes 1 s. The hooks server (`mcp --hooks`) runs for the whole session with the formatters warm, so it listens on
-  a port of localhost's and leaves the port in `$TMPDIR/menard-door-KEY`, KEY the session's id
+  a port of localhost's and leaves the port, then its checkout's root, in `$TMPDIR/menard-door-KEY`, KEY the session's id
   (`CLAUDE_CODE_SESSION_ID`, which the harness gives its servers and its shells alike) or, without
   one, its parent's PID (the harness). `bin/menard` looks for the session's file, then walks up its
   ancestors, and sends the verb there over bash's `/dev/tcp`: no VM of its own.
@@ -54,7 +54,9 @@ defmodule Menard.Door do
     {:ok, port} = :inet.port(listen)
     key = opts[:key] || System.get_env("CLAUDE_CODE_SESSION_ID") || parent_pid()
     file = Path.join(opts[:dir] || System.tmp_dir!(), "menard-door-#{key}")
-    File.write!(file, "#{port}\n")
+    # the checkout this server runs from (bin/menard starts it there): a launcher of another build
+    # leaves the door alone
+    File.write!(file, "#{port}\n#{File.cwd!()}\n")
     door = self()
     {:ok, _} = Task.start_link(fn -> accept(listen, door) end)
     {:ok, %{listen: listen, file: file, served: 0}}
