@@ -65,6 +65,28 @@ defmodule Menard.EditThenTest do
     assert why =~ "D"
   end
 
+  test "then: test, beside a file that is not Elixir, runs the tests of the Elixir one", %{tmp_dir: dir} do
+    File.mkdir_p!(Path.join(dir, "test"))
+    File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
+    File.write!(Path.join(dir, "hooks.json"), "{\n  \"a\": \"${x}\"\n}\n")
+    File.write!(Path.join(dir, "lib/c.ex"), "defmodule C do\n  def three, do: 3\nend\n")
+
+    File.write!(
+      Path.join(dir, "test/uses_c_test.exs"),
+      "defmodule UsesCTest do\n  use ExUnit.Case\n  test \"c\", do: assert(C.three() == 33)\nend\n"
+    )
+
+    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+             edit(
+               dir,
+               [
+                 %{file: "hooks.json", old: "${x}", new: "${y}"},
+                 %{file: "lib/c.ex", old: "do: 3", new: "do: 33"}
+               ],
+               %{then: "test"}
+             )
+  end
+
   test "then: test runs the tests of what the edit changed, not the whole suite", %{tmp_dir: dir} do
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
