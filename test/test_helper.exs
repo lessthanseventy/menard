@@ -12,3 +12,8 @@ System.delete_env("CLAUDE_ENV_FILE")
 cache = Path.join(System.tmp_dir!(), "menard-test-cache-#{System.pid()}")
 Application.put_env(:menard, :cache_dir, cache)
 ExUnit.after_suite(fn _ -> File.rm_rf(cache) end)
+
+# and its run logs: a session start's sweep reads this run's, not every live session's
+logs = Path.join(System.tmp_dir!(), "menard-test-logs-#{System.pid()}")
+Application.put_env(:menard, :log_dir, logs)
+ExUnit.after_suite(fn _ -> File.rm_rf(logs) end)

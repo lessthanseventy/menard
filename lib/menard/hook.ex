@@ -326,8 +326,19 @@ defmodule Menard.Hook do
   # by its path, or `menard` where this session's PATH has it (`on_path/1`)
   defp menard(hook), do: if(File.exists?(path_mark(hook)), do: "menard", else: Menard.bin())
 
-  # What a week-old session left: its marks and reads, and a project's run logs
+  # What a week-old session left: its marks and reads, and a project's run logs. Once a day: each
+  # start stat'ed every run log there was, thousands, through the VM's one file server
   defp sweep(state) do
+    swept = Path.join(state, "menard-swept")
+    day_ago = System.os_time(:second) - 24 * 3600
+
+    unless match?({:ok, %{mtime: m}} when m > day_ago, File.stat(swept, time: :posix)) do
+      File.write!(swept, "")
+      sweep_week_old(state)
+    end
+  end
+
+  defp sweep_week_old(state) do
     week_ago = System.os_time(:second) - 7 * 24 * 3600
     old? = fn path -> match?({:ok, %{mtime: m}} when m < week_ago, File.stat(path, time: :posix)) end
 
@@ -336,7 +347,7 @@ defmodule Menard.Hook do
         old?.(file),
         do: File.rm(file)
 
-    for logs <- Path.wildcard(Path.join([System.tmp_dir!(), "menard-run", "*"])),
+    for logs <- Path.wildcard(Path.join(Menard.log_dir(), "*")),
         File.dir?(logs),
         Enum.all?([logs | Path.wildcard(Path.join(logs, "*"))], old?),
         do: File.rm_rf(logs)

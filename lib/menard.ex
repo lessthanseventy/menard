@@ -46,6 +46,13 @@ defmodule Menard do
   @spec cache_dir() :: String.t()
   def cache_dir, do: Application.get_env(:menard, :cache_dir) || :filename.basedir(:user_cache, "menard")
 
+  @doc """
+  Where `run` keeps each project's logs: `menard-run` in the temp directory, or `config :menard,
+  :log_dir` where one is set (menard's own tests, whose sweeps then read their own logs only).
+  """
+  @spec log_dir() :: String.t()
+  def log_dir, do: Application.get_env(:menard, :log_dir) || Path.join(System.tmp_dir!(), "menard-run")
+
   @doc "Format `file` in place with the host's own formatter: `Menard.Format.file/2`."
   @spec format(String.t(), keyword()) :: :ok | {:error, String.t()}
   defdelegate format(file, opts \\ []), to: Menard.Format, as: :file
