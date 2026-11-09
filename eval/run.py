@@ -4,7 +4,8 @@
     eval/run.py ROUND --suite eval/SUITE --models claude-fable-5-1 --runs 5
 
 Two arms. `without`: Claude Code and nothing else. `with`: the menard plugin as a user installs it
-(a pinned copy of this repo: its hooks, MCP tools and skill), and nothing the eval adds to it. The
+(a pinned copy of this repo: its hooks, MCP tools and skill), and nothing the eval adds to it.
+eval/ast's arms are `none`, `ast` (as `with`) and `edit-only` (`with`, its AST verbs denied). The
 arms run in pairs, their order within a pair shuffled by the round's seed. Each run appends one
 JSON line to eval/results/ROUND/runs.jsonl and keeps its stream-json trace next to it. `claude
 plugin eval` is not used: its sandbox cannot start Erlang (see STATUS.md), and it has no shell
@@ -142,7 +143,23 @@ def build_template(suite, force=False):
 # as a user installs it; the others are that plugin with a setting of its own turned on, to see
 # what the setting costs and buys before it is anyone's default.
 VARIANTS = {"with": {}}
-ARMS = ("without", *VARIANTS)
+# The arms of the AST verbs' eval (eval/ast): the `with` plugin as installed, the agent kept to part
+# of it, as (tools denied it, what it is told). `none` is `without` under that eval's name, never
+# lent as a baseline. Denied, not only told: a skill or a session note naming a verb is still read.
+AST_VERBS = ("clause", "rename", "stmt", "attr", "directive", "module", "block")
+NARROWED = {
+    "ast": ([], None),
+    "edit-only": ([f"mcp__plugin_menard_menard__{v}" for v in AST_VERBS]
+                  + [f"Bash({at}menard {v} *)" for v in AST_VERBS for at in ("", "*/")],
+                  "In this session menard's AST verbs (clause, rename, stmt, attr, directive, module, block) are "
+                  "not available, through MCP or the CLI. menard's edit, write, run, outline and find are."),
+}
+ARMS = ("without", "none", *VARIANTS, *NARROWED)
+
+
+def plugin_of(arm):
+    """The plugin copy an arm runs: its own, or `with`'s for an arm that narrows it; None for none."""
+    return "with" if arm in NARROWED else arm if arm in VARIANTS else None
 
 
 def basis(suite, case=None):
@@ -233,8 +250,9 @@ def build_plugin(dest, settings, force):
 
 def pinned(arm):
     """The menard a row's arm ran: the commit its plugin was copied at, None for the arm without."""
-    mark = PLUGINS / arm / ".pinned"
-    return mark.read_text().strip() if arm in VARIANTS and mark.exists() else None
+    plugin = plugin_of(arm)
+    mark = PLUGINS / (plugin or arm) / ".pinned"
+    return mark.read_text().strip() if plugin and mark.exists() else None
 
 
 def warm_plugins():
@@ -277,8 +295,11 @@ def claude_cmd(prompt, model, arm, resume=None, persist=False):
     cmd += ["--resume", resume] if resume else []
     cmd += [] if persist else ["--no-session-persistence"]
     cmd += ["--effort", EFFORT] if EFFORT else []
-    if arm in VARIANTS:
-        cmd += ["--plugin-dir", str(PLUGINS / arm)]
+    if plugin_of(arm):
+        cmd += ["--plugin-dir", str(PLUGINS / plugin_of(arm))]
+    denied, told = NARROWED.get(arm, ([], None))
+    cmd += ["--disallowedTools", *denied] if denied else []
+    cmd += ["--append-system-prompt", told] if told else []
     return cmd
 
 

@@ -24,7 +24,6 @@ class Arms(unittest.TestCase):
         self.assertEqual(plugin_dirs("without"), [])
 
     def test_a_variant_is_the_plugin_with_its_settings_and_nothing_else(self):
-        self.assertEqual(plugin_dirs("with-full"), [str(run.PLUGINS / "with-full")])
         with tempfile.TemporaryDirectory() as tmp, unittest.mock.patch.object(run, "PLUGINS", Path(tmp)):
             run.build_plugins(force=True)
             shipped = json.loads((run.REPO / ".claude-plugin/plugin.json").read_text())
@@ -39,7 +38,7 @@ class Arms(unittest.TestCase):
                 self.assertEqual(manifest["mcpServers"]["menard"], {k: v for k, v in shipped["mcpServers"]["menard"].items() if k != "env"})
 
     def test_no_arm_but_these_is_run(self):
-        self.assertEqual(run.ARMS, ("without", "with", "with-narrow", "with-full"))
+        self.assertEqual(run.ARMS, ("without", "none", "with", "ast", "edit-only"))
         with unittest.mock.patch.object(sys, "argv", ["run.py", "r", "--arms", "without,all"]):
             with self.assertRaises(SystemExit) as refused:
                 run.main()
@@ -54,7 +53,19 @@ class Arms(unittest.TestCase):
             for shipped in [".claude-plugin/plugin.json", "hooks/hooks.json", "skills/menard/SKILL.md", "bin/menard"]:
                 self.assertEqual((root / shipped).read_bytes(), (run.REPO / shipped).read_bytes(), shipped)
             manifest = json.loads((root / ".claude-plugin/plugin.json").read_text())
-            self.assertEqual(list(manifest["mcpServers"]), ["menard"])
+            self.assertEqual(list(manifest["mcpServers"]), ["menard", "menard-hooks"])
+
+    def test_the_ast_arms_run_the_shipped_plugin_and_edit_only_is_denied_the_ast_verbs(self):
+        self.assertEqual(plugin_dirs("none"), [])
+        self.assertEqual(plugin_dirs("ast"), [str(run.PLUGINS / "with")])
+        self.assertEqual(plugin_dirs("edit-only"), [str(run.PLUGINS / "with")])
+        self.assertEqual(run.claude_cmd("p", "m", "ast"), run.claude_cmd("p", "m", "with"))
+        cmd = run.claude_cmd("p", "m", "edit-only")
+        denied = cmd[cmd.index("--disallowedTools") + 1:cmd.index("--append-system-prompt")]
+        for verb in run.AST_VERBS:
+            self.assertIn(f"mcp__plugin_menard_menard__{verb}", denied)
+            self.assertIn(f"Bash(menard {verb} *)", denied)
+        self.assertFalse([d for d in denied if any(v in d for v in ("edit", "write", "run", "outline", "find"))])
 
 
 if __name__ == "__main__":
