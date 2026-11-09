@@ -159,6 +159,57 @@ defmodule Menard.RenameTest do
     assert out =~ ~s(@moduledoc "Shop.Cart.Item in a string stays")
   end
 
+  test "old as a module renames the names under it and a multi-alias's entry, not a name it only begins" do
+    nested = """
+    defmodule Acme.Billing do
+      defmodule Error do
+        defexception [:message]
+      end
+    end
+
+    defmodule Acme.Other do
+      alias Acme.Billing
+      def fail, do: raise(Billing.Error)
+      def again, do: raise(Acme.Billing.Error)
+    end
+    """
+
+    out = Rename.run(nested, "Acme.Billing", "Acme.Invoicing")
+    assert out =~ "defmodule Acme.Invoicing do\n  defmodule Error do"
+    assert out =~ "raise(Invoicing.Error)"
+    assert out =~ "raise(Acme.Invoicing.Error)"
+
+    multi = """
+    defmodule Acme.Caller do
+      alias Acme.{Billing, BillingAddress}
+      def go, do: {Billing.charge(), BillingAddress.new(), Acme.BillingAddress}
+    end
+    """
+
+    assert Rename.run(multi, "Acme.Billing", "Acme.Invoicing") == """
+           defmodule Acme.Caller do
+             alias Acme.{Invoicing, BillingAddress}
+             def go, do: {Invoicing.charge(), BillingAddress.new(), Acme.BillingAddress}
+           end
+           """
+
+    as = """
+    defmodule Acme.Report do
+      alias Acme.Billing, as: Pay
+      alias Acme.Reports.Billing
+      def go, do: {Pay.charge(), Billing.title()}
+    end
+    """
+
+    assert Rename.run(as, "Acme.Billing", "Acme.Invoicing") == """
+           defmodule Acme.Report do
+             alias Acme.Invoicing, as: Pay
+             alias Acme.Reports.Billing
+             def go, do: {Pay.charge(), Billing.title()}
+           end
+           """
+  end
+
   test "renames a remote call and a remote capture, not a field access" do
     src = """
     defmodule A do
