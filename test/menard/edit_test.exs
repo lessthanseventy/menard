@@ -74,6 +74,13 @@ defmodule Menard.EditTest do
     assert {read(dir, "lib/a.ex"), read(dir, "lib/b.ex")} == before
   end
 
+  # through MCP a relative path is from the directory the session started in, not the shell's: a
+  # session started a level up looked in the wrong place and was told only that nothing was there
+  test "a file that is not there is named by where it was looked for", %{tmp_dir: dir} do
+    assert {:error, why} = edit(dir, [%{file: "lib/c.ex", old: "x", new: "y"}])
+    assert why =~ Path.join(dir, "lib/c.ex")
+  end
+
   test "a text that is there twice is refused with its lines, unless all of them are asked for", %{
     tmp_dir: dir
   } do
