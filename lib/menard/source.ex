@@ -9,6 +9,7 @@ defmodule Menard.Source do
   The dotted name an `{:__aliases__, _, parts}` spells. `__MODULE__` is an AST node, not an atom,
   so it becomes `current` when the enclosing module is known and stays `__MODULE__` when not.
   """
+  @spec alias_name([atom() | Macro.t()], String.t() | nil) :: String.t()
   def alias_name(parts, current \\ nil) do
     Enum.map_join(parts, ".", fn
       {:__MODULE__, _meta, _ctx} -> current || "__MODULE__"
@@ -17,6 +18,7 @@ defmodule Menard.Source do
   end
 
   @doc "The source text a range covers."
+  @spec slice(String.t(), Sourceror.Range.t()) :: String.t()
   def slice(source, %{start: [line: a, column: ca], end: [line: b, column: cb]}) do
     case source |> String.split("\n") |> Enum.slice((a - 1)..(b - 1)) do
       [] ->
@@ -32,6 +34,7 @@ defmodule Menard.Source do
   end
 
   @doc "`text` with the indent its lines share removed."
+  @spec dedent(String.t()) :: String.t()
   def dedent(text) do
     pad =
       text
@@ -49,6 +52,7 @@ defmodule Menard.Source do
   the newline; it ends an INTERPOLATED heredoc inside its closing quotes, and a patch over that
   leaves quotes behind.
   """
+  @spec clamp(Sourceror.Range.t(), String.t()) :: Sourceror.Range.t()
   def clamp(%{end: [line: b, column: c]} = range, source) do
     line = source |> String.split("\n") |> Enum.at(b - 1, "")
 
@@ -66,6 +70,7 @@ defmodule Menard.Source do
   at `indent` — after dropping the indent those lines already share, so code sliced from a file
   (first line bare, the rest still indented) is not indented twice. Blank lines stay blank.
   """
+  @spec reindent(String.t(), String.t()) :: String.t()
   def reindent(code, indent) do
     case code |> String.trim() |> String.split("\n") do
       [one] ->
@@ -96,6 +101,7 @@ defmodule Menard.Source do
   process dictionary: one verb finds a clause, then a statement in it, then patches — all over the
   same bytes — and the parse was most of each call's cost.
   """
+  @spec parse(String.t()) :: {:ok, Macro.t()} | {:error, String.t()}
   def parse(source) do
     case Process.get(__MODULE__) do
       {^source, result} ->
@@ -169,6 +175,7 @@ defmodule Menard.Source do
   end
 
   @doc "How many `#` comment lines sit directly above zero-based line `i` — the why glued to what follows."
+  @spec comment_lines_above([String.t()], non_neg_integer()) :: non_neg_integer()
   def comment_lines_above(lines, i) do
     lines
     |> Enum.take(i)
@@ -182,6 +189,7 @@ defmodule Menard.Source do
   comment of its own: a new body that restates the comment above the old body's first statement
   replaces it, where a body's range alone left it and wrote it twice. Otherwise `range` as it is.
   """
+  @spec with_leading_comments(Sourceror.Range.t(), String.t(), String.t()) :: Sourceror.Range.t()
   def with_leading_comments(%{start: [line: line, column: _]} = range, source, code) do
     lines = String.split(source, "\n")
 
@@ -210,6 +218,7 @@ defmodule Menard.Source do
   and made the statement unreachable by what is written: the true start is the earliest position
   any node inside carries. nil where Sourceror has no range.
   """
+  @spec range(Macro.t(), String.t()) :: Sourceror.Range.t() | nil
   def range(node, source) do
     case Sourceror.get_range(node) do
       nil -> nil
@@ -222,6 +231,7 @@ defmodule Menard.Source do
   text}`, the text exactly as written between the delimiters. ~H is a string to the AST, so this
   is the only way into what its expressions call.
   """
+  @spec heex_expressions(String.t(), Macro.t()) :: [{pos_integer(), pos_integer(), String.t()}]
   def heex_expressions(source, node) do
     %{start: [line: a, column: ca], end: [line: b, column: _]} = Sourceror.get_range(node)
 
@@ -240,6 +250,7 @@ defmodule Menard.Source do
   end
 
   @doc "The `{line, column}` just past `text`, written from `{line, column}`."
+  @spec advance({pos_integer(), pos_integer()}, String.t()) :: {pos_integer(), pos_integer()}
   def advance({line, column}, text) do
     case String.split(text, "\n") do
       [one] -> {line, column + String.length(one)}
@@ -251,6 +262,7 @@ defmodule Menard.Source do
   `code` placed at column `col`, its first line too: `reindent/2` with the indent in front, so a blank
   line stays blank and the lines of a multi-line string stay where its value has them.
   """
+  @spec indented(String.t(), pos_integer()) :: String.t()
   def indented(code, col) do
     indent = String.duplicate(" ", col - 1)
     indent <> reindent(code, indent)
