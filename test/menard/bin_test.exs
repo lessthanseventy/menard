@@ -112,7 +112,12 @@ defmodule Menard.BinTest do
     File.chmod!(mktemp, 0o755)
     path = dir <> ":" <> System.get_env("PATH")
 
-    {out, 0} = System.cmd(@bin, ["attr", "get", file, "limit"], env: [{"MIX_ENV", "dev"}, {"PATH", path}])
+    {out, 0} =
+      System.cmd(@bin, ["attr", "get", file, "limit"],
+        env: [{"MIX_ENV", "dev"}, {"PATH", path}],
+        stderr_to_stdout: true
+      )
+
     assert out == ~s({"value":"5_000"}\n)
   end
 
