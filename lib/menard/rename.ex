@@ -39,13 +39,48 @@ defmodule Menard.Rename do
 
     short? = last_old != last_new and Enum.any?(Macro.prewalker(ast), &binds?(&1, old))
 
-    ast
-    |> Zipper.zip()
-    |> Zipper.traverse([], fn z, acc ->
-      {z, List.wrap(module_patch(Zipper.node(z), source, {old, new}, {last_old, last_new, short?})) ++ acc}
-    end)
-    |> elem(1)
+    moved = Enum.flat_map(Macro.prewalker(ast), &List.wrap(leaving_patch(&1, source, old, new)))
+
+    patches =
+      ast
+      |> Zipper.zip()
+      |> Zipper.traverse([], fn z, acc ->
+        {z, List.wrap(module_patch(Zipper.node(z), source, {old, new}, {last_old, last_new, short?})) ++ acc}
+      end)
+      |> elem(1)
+      |> Enum.reject(fn %{range: %{start: at}} ->
+        Enum.any?(moved, &(at >= &1.range.start and at <= &1.range.end))
+      end)
+
+    moved ++ patches
   end
+
+  # `alias Acme.{Billing, X}` renamed to another base cannot keep the entry in the braces: it
+  # becomes its own `alias New`, and the braces keep the rest
+  defp leaving_patch({:alias, meta, [{{:., _, [base, :{}]}, _, entries}]} = node, source, old, new) do
+    prefix = spelled(base)
+    new_base = new |> String.split(".") |> Enum.drop(-1) |> Enum.join(".")
+
+    {gone, rest} =
+      Enum.split_with(
+        entries,
+        &(is_binary(prefix) and spelled(&1) != nil and prefix <> "." <> spelled(&1) == old)
+      )
+
+    if gone != [] and new_base != prefix do
+      kept =
+        case Enum.map(rest, &Sourceror.to_string/1) do
+          [] -> []
+          [one] -> ["alias #{prefix}.#{one}"]
+          many -> ["alias #{prefix}.{#{Enum.join(many, ", ")}}"]
+        end
+
+      change = Enum.join(kept ++ ["alias #{new}"], "\n" <> String.duplicate(" ", meta[:column] - 1))
+      %{range: Menard.Source.range(node, source), change: change}
+    end
+  end
+
+  defp leaving_patch(_node, _source, _old, _new), do: nil
 
   defp module_patch(node, source, {old, new}, {last_old, last_new, short?}) do
     name = spelled(node)

@@ -210,6 +210,31 @@ defmodule Menard.RenameTest do
            """
   end
 
+  test "a multi-alias entry moves out of the braces when the new name has another base" do
+    src = """
+    defmodule Acme.Caller do
+      alias Acme.{Billing, X}
+      def go, do: {Billing.charge(), X.new()}
+    end
+    """
+
+    assert Rename.run(src, "Acme.Billing", "Shop.Invoicing") == """
+           defmodule Acme.Caller do
+             alias Acme.X
+             alias Shop.Invoicing
+             def go, do: {Invoicing.charge(), X.new()}
+           end
+           """
+
+    three = String.replace(src, "{Billing, X}", "{Billing, X, Y}")
+
+    assert Rename.run(three, "Acme.Billing", "Shop.Invoicing") =~
+             "  alias Acme.{X, Y}\n  alias Shop.Invoicing\n"
+
+    alone = String.replace(src, "{Billing, X}", "{Billing}")
+    assert Rename.run(alone, "Acme.Billing", "Shop.Invoicing") =~ "  alias Shop.Invoicing\n  def go"
+  end
+
   test "renames a remote call and a remote capture, not a field access" do
     src = """
     defmodule A do
