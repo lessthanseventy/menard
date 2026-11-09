@@ -15,6 +15,7 @@ defmodule Menard do
   @last ~w(file version log)
 
   @doc "The directory the caller stood in."
+  @spec caller_dir() :: String.t()
   def caller_dir, do: Process.get(:menard_cwd) || System.get_env("MENARD_CWD") || File.cwd!()
 
   @doc """
@@ -34,6 +35,7 @@ defmodule Menard do
   def command(verb), do: if(File.regular?(bin()), do: "#{bin()} #{verb}", else: "mix menard.#{verb}")
 
   @doc "A path as the caller meant it: absolute stays, relative joins the caller's directory."
+  @spec resolve(Path.t()) :: String.t()
   def resolve(path), do: Path.expand(path, caller_dir())
 
   @doc """
@@ -41,12 +43,16 @@ defmodule Menard do
   or `config :menard, :cache_dir` where one is set (menard's own tests, so a run never writes into,
   or prunes, the cache a live session reads).
   """
+  @spec cache_dir() :: String.t()
   def cache_dir, do: Application.get_env(:menard, :cache_dir) || :filename.basedir(:user_cache, "menard")
 
   @doc "Format `file` in place with the host's own formatter: `Menard.Format.file/2`."
+  @spec format(String.t(), keyword()) :: :ok | {:error, String.t()}
   defdelegate format(file, opts \\ []), to: Menard.Format, as: :file
 
   @doc "Format `content` for `file` without writing, formatter and plugins apart: `Menard.Format.staged/3`."
+  @spec format_staged(String.t(), String.t(), keyword()) ::
+          {:ok, String.t(), {String.t(), [String.t()]} | nil} | {:error, String.t()}
   defdelegate format_staged(file, content, opts \\ []), to: Menard.Format, as: :staged
 
   # Every version handed out is kept, so a stale edit can be answered with the diff since it. A
@@ -56,6 +62,7 @@ defmodule Menard do
   can be answered with the diff since. What every writing verb and `outline` hand out. Twelve: a
   version is one file's state, and the whole hash would be a quarter of a reply's characters.
   """
+  @spec remember(String.t()) :: String.t()
   def remember(content) do
     version = version_of(content)
     path = version_path(version)
@@ -71,6 +78,7 @@ defmodule Menard do
   end
 
   @doc "The kept copies older than a week, gone: longer than any session holds a version."
+  @spec prune_versions() :: :ok
   def prune_versions do
     week_ago = System.os_time(:second) - 7 * 24 * 3600
 
@@ -149,6 +157,7 @@ defmodule Menard do
   host's toolchain built would load. With mise installed, `mise exec` picks the host's pins.
   `require:` names an .exs file the host's VM loads before mix starts (`elixir -r FILE -S mix`).
   """
+  @spec host_mix(String.t(), [String.t(), ...], keyword()) :: {String.t(), non_neg_integer()}
   def host_mix(dir, args, opts \\ []) do
     {require, opts} = Keyword.pop(opts, :require)
     argv = if require, do: ["elixir", "-r", require, "-S", "mix" | args], else: ["mix" | args]
@@ -177,6 +186,7 @@ defmodule Menard do
   past it the process is killed and the status is 124 (137 when it would not stop); `label:` names
   it in the line that says so.
   """
+  @spec host_cmd(String.t(), [String.t(), ...], keyword()) :: {String.t(), non_neg_integer()}
   def host_cmd(dir, [exe | args], opts \\ []) do
     {timeout, opts} = Keyword.pop(opts, :timeout)
     {label, opts} = Keyword.pop(opts, :label, exe)
@@ -195,6 +205,7 @@ defmodule Menard do
       iex> Menard.jsonable(%{module: "A", lines: {1, 3}, defs: [%{lines: {2, 2}}]})
       %{module: "A", lines: [1, 3], defs: [%{lines: [2, 2]}]}
   """
+  @spec jsonable(term()) :: term()
   def jsonable(%{__struct__: _} = struct), do: struct
   def jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
   def jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)

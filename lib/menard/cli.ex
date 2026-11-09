@@ -13,6 +13,7 @@ defmodule Menard.CLI do
   and a reader of the exit status alone would take it for clean.
   """
   @spec answer(Menard.Verbs.result()) :: map()
+  @spec answer(Menard.Verbs.result(), boolean()) :: map()
   def answer(result, json \\ true)
 
   # A read of code is the code, under one line naming where it is, not JSON-escaped. `--json` is
