@@ -258,8 +258,11 @@ defmodule Menard.Verbs do
   end
 
   defp modules_of(file) do
-    case File.read(file) do
-      {:ok, source} -> Menard.Module.list(source)
+    with true <- Path.extname(file) in [".ex", ".exs"],
+         {:ok, source} <- File.read(file),
+         [_ | _] = mods <- Menard.Module.list(source) do
+      mods
+    else
       _ -> []
     end
   end
