@@ -905,8 +905,6 @@ defmodule Menard.HooksTest do
   test "a session's start puts menard on its PATH, and every text then names it `menard`", %{tmp_dir: dir} do
     # the agent would type menard's absolute path on every call
     env = Path.join(dir, "env")
-    System.put_env("CLAUDE_ENV_FILE", env)
-    on_exit(fn -> System.delete_env("CLAUDE_ENV_FILE") end)
 
     payload = fn event, tool, input ->
       %{
@@ -920,7 +918,9 @@ defmodule Menard.HooksTest do
       }
     end
 
-    assert {:context, text} = Menard.Hook.run(payload.("SessionStart", "", %{}), state_dir: dir)
+    assert {:context, text} =
+             Menard.Hook.run(payload.("SessionStart", "", %{}), state_dir: dir, env_file: env)
+
     assert File.read!(env) == ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n)
     assert text =~ "\n  menard edit --then compile - <<'EOF'"
     refute text =~ Menard.bin()
@@ -934,9 +934,8 @@ defmodule Menard.HooksTest do
     refute why =~ Menard.bin()
 
     # no env file (another harness): the path, as before
-    System.delete_env("CLAUDE_ENV_FILE")
     start = payload.("SessionStart", "", %{}) |> Map.put("session_id", "p2")
-    assert {:context, text} = Menard.Hook.run(start, state_dir: dir)
+    assert {:context, text} = Menard.Hook.run(start, state_dir: dir, env_file: nil)
     assert text =~ Menard.bin()
   end
 

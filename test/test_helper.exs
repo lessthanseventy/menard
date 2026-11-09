@@ -4,6 +4,8 @@ ExUnit.start(exclude: [:corpus])
 # this VM runs in a Claude Code session: a bin/menard a test starts would find the session's own
 # hooks server by this id (Menard.Door) and run the installed plugin's build, not this tree's
 System.delete_env("CLAUDE_CODE_SESSION_ID")
+# and by its env file, which every SessionStart a test sends would append menard's PATH line to
+System.delete_env("CLAUDE_ENV_FILE")
 
 # the versions the verbs hand out and the formatters' cached deps go to this run's own directory:
 # async tests wrote into, and pruned, the cache the live sessions on this machine read
