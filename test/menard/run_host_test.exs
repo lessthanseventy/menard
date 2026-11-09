@@ -123,13 +123,14 @@ defmodule Menard.RunHostTest do
     assert %{exit: 0, tests: 0} = Menard.Run.result(dir, "test", ["--exclude", "test"], [])
 
     # the bound is loose on purpose: the test itself never ends, so any answer is the kill, and the
-    # room past 10s is a loaded host's teardown, not slack in the deadline
+    # room past 30s is a loaded host's teardown, not slack in the deadline. 30s, not less: at a load
+    # of 40 the host's VM had not reached its first test by 10s
     started = System.monotonic_time(:millisecond)
-    result = Menard.Run.result(dir, "test", ["--seed", "0"], timeout: 10_000)
-    assert System.monotonic_time(:millisecond) - started < 40_000
+    result = Menard.Run.result(dir, "test", ["--seed", "0"], timeout: 30_000)
+    assert System.monotonic_time(:millisecond) - started < 60_000
 
     refute result.ok
-    assert result.tail =~ "did not finish in 10s"
+    assert result.tail =~ "did not finish in 30s"
     # a run stopped at its deadline answers what it had: the failures so far, and the test that was
     # still running
     assert %{name: "fails first"} = Enum.find(result.failures, &(&1.kind == "test"))

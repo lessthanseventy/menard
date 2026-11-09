@@ -39,7 +39,7 @@ defmodule Menard.SkillTest do
   test "the reply it gives for clause move is the one move answers", %{tmp_dir: dir} do
     file = Path.join(dir, "a.ex")
     File.write!(file, "defmodule A do\n  def go, do: 1\nend\n")
-    {:ok, moved} = Menard.Move.run(file, Path.join(dir, "b.ex"), "go/0", as: "B")
+    {:ok, moved} = Menard.Move.run(file, Path.join(dir, "b.ex"), "go/0", as: "B", root: dir)
     # both doors add the `did`
     keys = moved |> Map.put(:did, "") |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
 
