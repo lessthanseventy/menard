@@ -12,6 +12,7 @@ defmodule Menard.Run do
   alias Menard.Run.Output
 
   @keep 40
+  @page 2_000
   # what a repo with no mix.exs answers through its mise task of that name
   @tasks ~w(check test compile)
 
@@ -605,13 +606,25 @@ defmodule Menard.Run do
   defp brief(failures) do
     {whole, rest} = Enum.split(failures, 3)
 
-    whole ++
+    Enum.map(whole, &cut/1) ++
       Enum.map(rest, fn f ->
         f
         |> Map.take([:kind, :name, :at, :message])
         |> Map.update(:message, nil, &(&1 |> String.split("\n", parts: 2) |> hd()))
         |> Map.reject(fn {_k, v} -> v == nil end)
       end)
+  end
+
+  # an inspected value of pages (the map a KeyError missed in) is its start: the log has it whole
+  defp cut(failure) do
+    Map.new(failure, fn
+      {key, text} when key in [:message, :left, :right] and is_binary(text) and byte_size(text) > @page ->
+        more = String.length(text) - @page
+        {key, String.slice(text, 0, @page) <> "\n… #{more} more characters, in the log"}
+
+      pair ->
+        pair
+    end)
   end
 
   # the project's .formatter.exs, or why it could not be read: it is code, and may raise

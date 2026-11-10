@@ -5,6 +5,14 @@
 ExUnit.start(exclude: [:corpus], max_cases: max(div(System.schedulers_online(), 2), 2))
 System.put_env("ERL_FLAGS", String.trim("+S 4 " <> (System.get_env("ERL_FLAGS") || "")))
 
+# the bin tests run the dev build (`--frozen`) and copy it: a checkout that has only run its tests
+# (a fresh clone, a worktree) has none
+root = Path.expand("..", __DIR__)
+
+if not File.dir?(Path.join(root, "_build/dev/lib/menard/ebin")) do
+  {_, 0} = System.cmd("mix", ["compile"], cd: root, env: [{"MIX_ENV", "dev"}], stderr_to_stdout: true)
+end
+
 # this VM runs in a Claude Code session: a bin/menard a test starts would find the session's own
 # hooks server by this id (Menard.Door) and run the installed plugin's build, not this tree's
 System.delete_env("CLAUDE_CODE_SESSION_ID")
