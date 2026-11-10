@@ -65,6 +65,10 @@ Hooks and the door:
 - The launcher and hooks run under macOS's bash 3.2, BSD `stat` and no `timeout` (written from
   the manuals, run on no Mac).
 - The LSP client sends percent-encoded URIs and UTF-16 columns.
+- A piped test run rewritten to `mise exec -- menard run test` is approved as menard's own run
+  is. `run credo` is as strict as the project gates. Through MCP a call's directory goes with it
+  into the process that runs the verb. The session-start text says `mix test`'s flags pass
+  through `run test`, `--slowest` and `--slowest-modules` answering as data.
 
 And from before the review:
 
