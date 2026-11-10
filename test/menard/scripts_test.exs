@@ -53,7 +53,7 @@ defmodule Menard.ScriptsTest do
     for text <- [Scripts.refused(@edit, @menard), Scripts.upfront(@menard)] do
       assert text =~ "`mcp__plugin_menard_menard__edit`"
       assert text =~ ~s({"edits": [{"file": "lib/a.ex")
-      assert text =~ "directory the session started in"
+      assert text =~ "A relative `file` is from the shell's directory"
       assert text =~ "/p/bin/menard edit --then compile - <<'EOF'"
       assert text =~ "<<<<<<< SEARCH"
     end

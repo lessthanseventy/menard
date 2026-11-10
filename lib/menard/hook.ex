@@ -77,6 +77,21 @@ defmodule Menard.Hook do
     %{hookSpecificOutput: if(note, do: Map.put(output, :additionalContext, note), else: output)}
   end
 
+  @doc """
+  The directory session `session` stood in at its last call of a menard tool, as that call's
+  PreToolUse said, or nil: none yet, or one gone since. The MCP server is started in the
+  session's first directory and hears nothing of a `cd` after; this is how it follows the shell.
+  """
+  @spec session_dir(String.t(), String.t()) :: String.t() | nil
+  def session_dir(session, state \\ System.tmp_dir!()) do
+    case File.read(cwd_path(state, safe(session))) do
+      {:ok, dir} -> if File.dir?(dir), do: dir
+      {:error, _} -> nil
+    end
+  end
+
+  defp cwd_path(state, session), do: Path.join(state, "menard-cwd-#{session}")
+
   # what the harness said of the call
   defp call(payload) do
     %{
@@ -101,6 +116,11 @@ defmodule Menard.Hook do
       async: opts[:async] == true,
       compile: Keyword.get(opts, :compile, System.get_env("MENARD_HOOK_COMPILE") not in [nil, ""])
     }
+  end
+
+  defp tool(%{tool: "mcp__" <> _ = tool, event: "PreToolUse"} = hook) do
+    if tool =~ "menard__", do: File.write!(cwd_path(hook.state, hook.session), hook.root)
+    :quiet
   end
 
   # A write through menard's own tools: menard wrote and formatted the file itself, so there is

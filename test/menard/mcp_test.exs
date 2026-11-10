@@ -84,6 +84,37 @@ defmodule Menard.MCPTest do
     assert call(Menard.MCP.Module, %{verb: "nope", file: "lib/two.ex"}).isError
   end
 
+  test "a relative path is from where the session stands, as its hook last saw, not where it started", %{
+    root: root
+  } do
+    n = System.unique_integer([:positive])
+    session = "mcp-cwd-#{System.pid()}-#{n}"
+    here = Path.join(root, "thatch")
+    File.mkdir_p!(Path.join(here, "lib"))
+    File.write!(Path.join(here, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
+    System.put_env("CLAUDE_CODE_SESSION_ID", session)
+
+    on_exit(fn ->
+      System.delete_env("CLAUDE_CODE_SESSION_ID")
+      File.rm(Path.join(System.tmp_dir!(), "menard-cwd-mcp-cwd-#{System.pid()}-#{n}"))
+    end)
+
+    Menard.Hook.run(%{
+      "hook_event_name" => "PreToolUse",
+      "tool_name" => "mcp__plugin_menard_menard__edit",
+      "session_id" => session,
+      "cwd" => here,
+      "tool_input" => %{}
+    })
+
+    refute call(Menard.MCP.Edit, %{edits: [%{file: "lib/a.ex", old: "do: 1", new: "do: 2"}]}).isError
+    assert File.read!(Path.join(here, "lib/a.ex")) =~ "def one, do: 2"
+
+    # a directory gone since: where the session started
+    File.rm_rf!(here)
+    assert Menard.MCP.root() == root
+  end
+
   test "deps add writes, fetches and compiles a dependency, answering with the lock diff", %{root: root} do
     File.write!(Path.join(root, "mix.exs"), """
     defmodule Host.MixProject do

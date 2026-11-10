@@ -69,9 +69,15 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     def handle_request(request, frame), do: Handlers.handle(request, __MODULE__, frame)
 
-    @doc "The directory every path resolves under."
+    @doc """
+    The directory every path resolves under: where the session stands now (`Menard.Hook.session_dir/2`),
+    else where it started.
+    """
     @spec root() :: String.t()
-    def root, do: System.get_env("MENARD_ROOT") || Menard.caller_dir()
+    def root do
+      session = System.get_env("CLAUDE_CODE_SESSION_ID")
+      (session && Menard.Hook.session_dir(session)) || System.get_env("MENARD_ROOT") || Menard.caller_dir()
+    end
 
     @doc "A path under the root, or a refusal — no edit escapes the launch directory (`Menard.Verbs.resolve/2`)."
     @spec resolve(String.t()) :: {:ok, String.t()} | {:error, String.t()}

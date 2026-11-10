@@ -3,7 +3,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Agent|Task|Read",
+        "matcher": "Bash|Agent|Task|Read|mcp__plugin_menard_menard__.*",
         "hooks": [
           {
             "type": "mcp_tool",
