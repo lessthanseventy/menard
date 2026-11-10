@@ -1237,9 +1237,31 @@ defmodule Menard.Run do
     dot = Path.join(dir, ".formatter.exs")
 
     try do
-      {:ok, if(File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: [])}
+      case File.read(dot) do
+        {:ok, source} -> evaluated(dot, dir, source =~ ~r/\b(Path|File|System)\./)
+        {:error, _} -> {:ok, []}
+      end
     rescue
       e -> {:error, Exception.message(e)}
+    end
+  end
+
+  # A .formatter.exs that asks the file system (`Path.wildcard("lib/*.ex")`) means its own
+  # directory, and this VM's is menard's, or the session's first: evaluated in a VM of its own,
+  # there. One that is a literal, as nearly all are, costs no VM.
+  defp evaluated(dot, _dir, false), do: {:ok, elem(Code.eval_file(dot), 0)}
+
+  defp evaluated(dot, dir, true) do
+    code = "IO.write(Base.encode64(:erlang.term_to_binary(elem(Code.eval_file(hd(System.argv())), 0))))"
+
+    case Menard.host_cmd(dir, ["elixir", "-e", code, dot], label: "elixir .formatter.exs", timeout: 30_000) do
+      {out, 0} ->
+        # not `:safe`: a plugin's module is an atom this VM has not met, and the file is the
+        # project's own, evaluated here when it is a literal
+        {:ok, out |> String.split("\n") |> List.last() |> Base.decode64!() |> :erlang.binary_to_term()}
+
+      {out, _status} ->
+        {:error, out |> String.trim() |> String.split("\n") |> hd()}
     end
   end
 
