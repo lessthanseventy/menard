@@ -1062,6 +1062,12 @@ defmodule Menard.HooksTest do
 
     assert decision.("/p/bin/menard run test test/a_test.exs:12 --seed 0") == "allow"
     assert decision.("/p/bin/menard run check") == "allow"
+    # under mise, as a project that pins its toolchain calls it
+    assert decision.("mise exec -- menard run test --slowest-modules 20") == "allow"
+    assert decision.("mise exec -- rm -rf x; menard run test") == nil
+    assert decision.("LD_PRELOAD=/x.so menard run test") == nil
+    # an assignment that ends in the name is no path to it: what runs is `run`
+    assert decision.("X=/p/menard run test") == nil
 
     # the commands before the run, and anything a shell expands, are the user's rules' to pass
     for command <- [

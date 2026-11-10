@@ -80,7 +80,7 @@ defmodule Menard.Hook do
     # only to menard's own run standing where the test run stood. Anything more (the commands
     # before it, a filter dropped from another verb) goes by the user's rules, as rewritten.
     output =
-      if input["command"] =~ ~r{\A\S*menard run (test|check|credo)[\w\s./:=,@+-]*\z},
+      if input["command"] =~ ~r{\A(mise exec -- )?[\w./~-]*menard run (test|check|credo)[\w\s./:=,@+-]*\z},
         do: Map.put(output, :permissionDecision, "allow"),
         else: output
 
