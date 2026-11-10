@@ -63,7 +63,8 @@ defmodule Menard.Move do
   `unresolved` (each call only a `use` or an import without `only:` may answer, with those: not
   copied, as the AST cannot say which), `qualified` (the calls back to the source, and its types,
   that now name it), `delegated`, `published` (what was made public), `left` (each call
-  still naming a moved function, without `delegate`: five per file, then how many more), and `to`
+  still naming a moved function, without `delegate`: five per file, then how many more), `cycle`
+  (only when the two modules now call each other: what the moved code calls back), and `to`
   and `from`, each file's `Menard.write/3` reply, its version and stages.
   """
   @spec run(String.t(), String.t(), String.t() | [String.t()], keyword()) ::
@@ -88,7 +89,8 @@ defmodule Menard.Move do
       published =
         if opts[:public], do: plan.report.published ++ plan.report.moved, else: plan.report.published
 
-      {:ok, Map.merge(plan.report, %{created: created, left: left, published: published, to: to, from: from})}
+      reply = %{created: created, left: left, published: published, to: to, from: from}
+      {:ok, plan.report |> Map.merge(reply) |> Map.merge(cycle(plan.report, left, file, dest))}
     end
   end
 
@@ -1299,4 +1301,25 @@ defmodule Menard.Move do
   end
 
   defp file_of(line), do: line |> String.split(":") |> hd()
+
+  # The moved code calls back what stayed, and what stayed calls the moved code: two modules that
+  # need each other, said, with the call that takes the rest along
+  defp cycle(report, left, file, dest) do
+    back = Enum.reject(report.qualified, &(String.starts_with?(&1, "@") or &1 == "__MODULE__"))
+    {from, to} = {Path.basename(file), Path.basename(dest)}
+
+    forth? =
+      report.delegated != [] or Enum.any?(report.published, &(&1 in report.moved)) or
+        Enum.any?(left, &(&1 =~ "#{from}:"))
+
+    if back != [] and forth? do
+      %{
+        cycle:
+          "#{to} calls #{Enum.join(back, ", ")} back in #{from}, which calls #{to}: the two modules " <>
+            "now need each other. Named in a move, a function goes too, and what stays calls it there"
+      }
+    else
+      %{}
+    end
+  end
 end

@@ -170,6 +170,8 @@ defmodule Menard.MoveSplitTest do
     assert {:ok, reply} = Menard.Move.run(file, dest, ["a/1"], as: "Split2.Out", delegate: true)
     assert reply.published == ["fmt/1"]
     assert reply.carried == []
+    # the source delegates to the module that calls it back
+    assert reply.cycle =~ "out.ex calls fmt/1 back in fmt.ex, which calls out.ex"
 
     source = File.read!(file)
     assert source =~ "  def fmt(x), do: to_string(x)\n"
@@ -202,6 +204,7 @@ defmodule Menard.MoveSplitTest do
     assert {:ok, reply} = Menard.Move.run(file, dest, ["a/1", "fmt/1"], as: "Split2b.Out", delegate: true)
     assert reply.published == ["fmt/1"]
     assert reply.delegated == ["a/1"]
+    refute Map.has_key?(reply, :cycle)
 
     source = File.read!(file)
     assert source =~ "  alias Split2b.Out\n"
