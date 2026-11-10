@@ -6,7 +6,7 @@ defmodule Menard.Move do
 
   - a private helper only the moved functions call travels with them; one that a function staying
     behind also calls stays, made public, and the moved code calls it there (`published`); one the
-    caller named in the move is refused, naming it (it was asked to go, and something needs it here);
+    caller named in the move goes, public where it lands, and what stays calls it there;
   - the module attributes it reads are copied, and leave the source when nothing there reads them;
   - the `alias`, `import` and `require` lines it uses are added to the destination, and only those:
     an unused one fails a `--warnings-as-errors` build, so the source loses the ones it stops using;
@@ -161,7 +161,7 @@ defmodule Menard.Move do
          graph = Deps.graph(module),
          {:ok, named} <- named(names, graph, mod),
          taking = taking(named, graph),
-         :ok <- unshared(taking, named, graph, mod),
+         {:ok, shared} <- unshared(taking, named, graph, mod),
          :ok <- delegable(named, graph, opts[:delegate]),
          {:ok, dest_ast} <- parse(dest_source),
          {:ok, dest_module} <- Tree.module_scope(dest_ast, opts[:module]),
@@ -180,6 +180,7 @@ defmodule Menard.Move do
         named: named,
         taking: taking,
         spans: spans,
+        shared: shared,
         uses_copied: false
       }
 
@@ -191,6 +192,9 @@ defmodule Menard.Move do
     with {:ok, needs} <- needs(src, dest.code),
          {:ok, ref, qualified, code} <- qualify(src, needs, dest),
          {:ok, dest_out, directives} <- dest(src, dest, code, needs, ref, opts[:module]),
+         shared = Enum.map(src.shared, &na/1),
+         {:ok, dest_out} <-
+           reduce(shared, dest_out, &Clause.visibility(&2, "#{module_name(dest.module)}.#{&1}", :public)),
          {:ok, out, delegated} <- source_after(src, dest, needs, opts[:delegate]) do
       report = %{
         moved: Enum.map(src.named, &na/1),
@@ -201,7 +205,7 @@ defmodule Menard.Move do
           Enum.map(needs.answered.open, &"#{na(&1)} (one of: #{Enum.join(needs.answered.from, "; ")})"),
         qualified: qualified,
         delegated: Enum.map(delegated, &na/1),
-        published: []
+        published: shared
       }
 
       {:ok, %{source: out, dest: dest_out, report: report}}
@@ -275,8 +279,8 @@ defmodule Menard.Move do
 
   # A private function the moved code takes that a function staying behind also calls cannot go
   # without breaking that one, nor stay private without breaking the moved code. A helper the move
-  # only carried stays and goes public (`plan/4`); one the caller named was asked to go, so that one
-  # is refused with both ways out.
+  # only carried stays and goes public (`plan/4`); one the caller named was asked to go: it goes
+  # public in the destination, and what stays calls it there (`there/3`).
   defp unshared(taking, named, graph, mod) do
     shared =
       for key <- taking,
@@ -286,27 +290,28 @@ defmodule Menard.Move do
           do: {key, by |> Enum.sort_by(&line(graph, &1)) |> Enum.map(&na/1)}
 
     case Enum.split_with(shared, fn {key, _by} -> key in named end) do
-      {[], []} -> :ok
-      {[], carried} -> {:publish, Enum.map(carried, &elem(&1, 0)), mod}
-      {asked, _carried} -> {:error, shared_refusal(asked, mod)}
+      {asked, []} -> {:ok, Enum.map(asked, &elem(&1, 0))}
+      {_asked, carried} -> {:publish, Enum.map(carried, &elem(&1, 0)), mod}
     end
   end
 
-  defp shared_refusal(shared, mod) do
-    helpers = Enum.map(shared, &na(elem(&1, 0)))
-    callers = shared |> Enum.flat_map(&elem(&1, 1)) |> Enum.uniq()
+  # What stays and called a private function the move was asked to take calls it where it went
+  defp there(out, %{shared: []}, _ref), do: {:ok, out, false}
 
-    why =
-      Enum.map_join(shared, "; ", fn {key, by} ->
-        verb = if match?([_], by), do: "stays and calls", else: "stay and call"
-        "#{na(key)} is private, and #{Enum.join(by, ", ")} #{verb} it too"
-      end)
+  defp there(out, src, ref) do
+    with {:ok, ast} <- parse(out),
+         {:ok, scan} <- scan(out) do
+      {_, module} = List.keyfind(Tree.modules(ast), src.mod, 0)
+      {first, last} = Tree.line_span(module)
 
-    one = if match?([_], helpers), do: hd(helpers), else: "NAME/ARITY"
-    calls = Enum.map_join(shared, ", ", fn {{name, _}, _} -> "#{mod}.#{name}" end)
+      patches =
+        for {{fun, _} = call, meta} <- scan.calls,
+            meta[:line] in first..last,
+            Deps.reached(src.graph, call) in src.shared,
+            do: name_patch(meta, fun, "#{ref.name}.#{fun}")
 
-    "refused, nothing written: #{why}. Move #{Enum.join(callers, ", ")} as well, or make " <>
-      "#{Enum.join(helpers, ", ")} public first (clause visibility FILE #{one} public): the moved code then calls #{calls}"
+      {:ok, Menard.Source.patch(out, patches), patches != []}
+    end
   end
 
   defp delegable(named, graph, true) do
@@ -631,9 +636,10 @@ defmodule Menard.Move do
       end)
 
     out = Clause.cut(src.source, Enum.flat_map(src.taking, &src.spans[&1]), replace)
-    alias_it = if delegated != [] and ref.alias, do: [ref.alias], else: []
 
-    with {:ok, out} <- reduce(alias_it, out, &Directive.add(&2, :alias, &1, module: src.mod)),
+    with {:ok, out, called?} <- there(out, src, ref),
+         alias_it = if((delegated != [] or called?) and ref.alias, do: [ref.alias], else: []),
+         {:ok, out} <- reduce(alias_it, out, &Directive.add(&2, :alias, &1, module: src.mod)),
          {:ok, out} <- unread(out, src, needs),
          {:ok, out} <- unaliased(out, src),
          {:ok, out} <- unrequired(out, src),
@@ -1133,6 +1139,7 @@ defmodule Menard.Move do
            named: named,
            taking: taking,
            spans: spans,
+           shared: [],
            uses_copied: created?
          },
          {:ok, plan} <- move(src, %{code: code, dest: dest_source, module: dest_module}, []) do

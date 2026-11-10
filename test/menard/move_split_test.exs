@@ -184,9 +184,8 @@ defmodule Menard.MoveSplitTest do
     assert split.b(3) == "3!"
   end
 
-  test "a shared private helper named in the move itself is still refused: it was asked to go", %{
-    tmp_dir: dir
-  } do
+  test "a shared private helper named in the move itself goes, public there, and what stays calls it there",
+       %{tmp_dir: dir} do
     file = Path.join(dir, "fmt.ex")
 
     src = """
@@ -200,11 +199,20 @@ defmodule Menard.MoveSplitTest do
     File.write!(file, src)
     dest = Path.join(dir, "fmt/out.ex")
 
-    assert {:error, "refused, nothing written: fmt/1 is private, and b/1 stays and calls it too." <> _} =
-             Menard.Move.run(file, dest, ["a/1", "fmt/1"], as: "Split2b.Out", delegate: true)
+    assert {:ok, reply} = Menard.Move.run(file, dest, ["a/1", "fmt/1"], as: "Split2b.Out", delegate: true)
+    assert reply.published == ["fmt/1"]
+    assert reply.delegated == ["a/1"]
 
-    assert File.read!(file) == src
-    refute File.exists?(dest)
+    source = File.read!(file)
+    assert source =~ "  alias Split2b.Out\n"
+    assert source =~ ~s|def b(x), do: Out.fmt(x) <> "!"|
+    assert File.read!(dest) =~ "  def fmt(x), do: to_string(x)\n"
+
+    assert compile([File.read!(dest), source]) == []
+    {split, out} = {Module.concat(["Split2b"]), Module.concat(["Split2b.Out"])}
+    assert split.a(1) == "1"
+    assert split.b(3) == "3!"
+    assert out.fmt(2) == "2"
   end
 
   test "without delegate, the calls left pointing at nothing are named", %{tmp_dir: dir} do
