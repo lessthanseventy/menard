@@ -131,10 +131,17 @@ defmodule Menard.CLI do
   defp shaped(shapes, args, named) do
     Enum.find_value(shapes, fn
       {nil, fields} ->
-        fill(fields -- named, args, %{})
+        fill(unnamed(fields, named), args, %{})
 
       {verb, fields} ->
-        if verb == verb(List.first(args) || ""), do: fill(fields -- named, tl(args), %{verb: verb})
+        if verb == verb(List.first(args) || ""), do: fill(unnamed(fields, named), tl(args), %{verb: verb})
+    end)
+  end
+
+  defp unnamed(fields, named) do
+    Enum.reject(fields, fn
+      {_kind, field} -> field in named
+      field -> field in named
     end)
   end
 
