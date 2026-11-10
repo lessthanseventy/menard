@@ -50,7 +50,8 @@ defmodule Menard.Verbs.Outline do
       # one): this repo's bin tests leave checkout copies of itself there, 241 MB with a lib/
       # each, and map walked them all: 2.5 min for a 9 s answer (docs/tui.md)
       |> Enum.reject(
-        &(&1 =~ ~r{/(deps|_build|node_modules)/} or String.starts_with?(&1, Path.join(root, "tmp") <> "/"))
+        &(Path.relative_to(&1, root) =~ ~r{(^|/)(deps|_build|node_modules)/} or
+            String.starts_with?(&1, Path.join(root, "tmp") <> "/"))
       )
       |> Enum.sort()
       |> Enum.flat_map(&modules(&1, Path.relative_to(&1, root), all))

@@ -15,7 +15,13 @@ defmodule Mix.Tasks.Menard.Map do
 
   @impl true
   def run(argv) do
-    {:ok, %{modules: modules, cut: cut}} = Verbs.Outline.run(%{verb: "map", all: "--all" in argv})
+    all =
+      case Menard.CLI.options(argv, all: :boolean) do
+        {flags, []} -> flags[:all] == true
+        _ -> Menard.CLI.usage("mix menard.map [--all]   (the project of the directory you are in)")
+      end
+
+    {:ok, %{modules: modules, cut: cut}} = Verbs.Outline.run(%{verb: "map", all: all})
     Enum.each(modules, &Mix.shell().info(Verbs.Outline.line(&1)))
 
     if cut > 0,

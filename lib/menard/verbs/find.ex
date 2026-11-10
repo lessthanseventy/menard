@@ -168,7 +168,13 @@ defmodule Menard.Verbs.Find do
 
   # a call is found by name: `Mod.fun/2`'s arity, the address the other verbs take, refused it
   defp finder("calls", target), do: {:ok, &Find.calls(&1, target |> String.split("/") |> hd())}
-  defp finder("defs", target), do: {:ok, &Find.defs(&1, target)}
+
+  defp finder("defs", target) do
+    if target =~ ~r{\A[^/]+(/\d+)?\z},
+      do: {:ok, &Find.defs(&1, target)},
+      else: {:error, "find defs takes NAME or NAME/ARITY, the arity a number: got #{target}"}
+  end
+
   defp finder("aliases", target), do: {:ok, &Find.aliases(&1, target)}
 
   defp finder(kind, _target),

@@ -294,4 +294,15 @@ defmodule Menard.FindTest do
     assert {:ok, %{hits: [%{line: 2}]}} =
              Menard.Verbs.Find.run(%{verb: "calls", target: "Shop.Cart.total", files: [file]})
   end
+
+  @tag :tmp_dir
+  test "defs with an arity that is no number is refused in a sentence", %{tmp_dir: dir} do
+    file = Path.join(dir, "f.ex")
+    File.write!(file, "defmodule F do\n  def go(x), do: x\nend\n")
+
+    for target <- ["go/", "go/x"] do
+      assert {:error, why} = Menard.Verbs.Find.run(%{kind: "defs", target: target, files: [file]})
+      assert why =~ "NAME/ARITY"
+    end
+  end
 end
