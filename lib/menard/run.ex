@@ -379,15 +379,25 @@ defmodule Menard.Run do
   defp diagnostics(out, dir) do
     # its `└─` is the first below it: one with none (a deprecation mix prints bare) is not given
     # the next diagnostic's place. In an umbrella the path may follow `(app 0.1.0) `
-    ~r/^\s*(warning|error): (.+)\n(?:(?!\s*(?:warning|error): ).*\n)*?\s*└─ (?:\([^)]*\) )?([^\s:]+):(\d+)/m
+    ~r/^([ \t]*)(warning|error): (.+\n(?:(?!\s*(?:warning|error): ).*\n)*?)\s*└─ (?:\([^)]*\) )?([^\s:]+):(\d+)/m
     |> Regex.scan(out)
-    |> Enum.flat_map(fn [_, kind, message, file, line] ->
+    |> Enum.flat_map(fn [_, indent, kind, block, file, line] ->
       case placed(file, dir) do
         nil -> []
-        file -> [%{kind: kind, message: message, at: "#{file}:#{line}"}]
+        file -> [%{kind: kind, message: said(block, indent), at: "#{file}:#{line}"}]
       end
     end)
     |> Kernel.++(raised(out))
+  end
+
+  # a diagnostic's message: its lines down to the gutter (`│`) that frames the code, at their own
+  # indent. A type warning's first line is "comparison between distinct types found:" and no more
+  defp said(block, indent) do
+    block
+    |> String.split("\n")
+    |> Enum.take_while(&(not String.starts_with?(String.trim_leading(&1), "│")))
+    |> Enum.map_join("\n", &String.replace_prefix(&1, indent, ""))
+    |> String.trim_trailing()
   end
 
   # the file as the project names it, or nil for one that is not the project's. An umbrella's app
