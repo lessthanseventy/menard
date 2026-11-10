@@ -114,6 +114,8 @@ defmodule Menard.Hook do
       root: nonempty(payload["cwd"]) || System.get_env("CLAUDE_PROJECT_DIR") || File.cwd!(),
       # an empty one named every session's files in a glob (`menard-*#{""}*`)
       session: nonempty(safe(payload["session_id"] || "")) || "none",
+      # the subagent a call is from, where the harness names one: what it has read is its own
+      agent: safe(payload["agent_id"] || ""),
       call: nonempty(safe(payload["tool_use_id"] || "")) || "none"
     }
   end
@@ -428,7 +430,9 @@ defmodule Menard.Hook do
   defp whole?(input), do: input["offset"] == nil and input["limit"] == nil
   # a Read's file: the hook's own elixir?/1 takes a project's relative path
   defp elixir_file?(file), do: is_binary(file) and Path.extname(file) in [".ex", ".exs", ".heex"]
-  defp read_path(hook, file), do: session_file(hook, "read-" <> Base.encode16(:crypto.hash(:md5, file)))
+
+  defp read_path(hook, file),
+    do: session_file(hook, "read-" <> Base.encode16(:crypto.hash(:md5, hook.agent <> file)))
 
   # What the agent wrote, and what the formatter did after it (the write's report told it), it knows:
   # a module's read snapshot follows its own writes, and a read again is no news
