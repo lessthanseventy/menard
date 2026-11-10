@@ -105,7 +105,7 @@ defmodule Menard.Lsp do
       quiet_since: nil
     }
 
-    uri = "file://" <> project
+    uri = uri(project)
 
     state =
       send_request(state, "initialize", %{
@@ -125,7 +125,7 @@ defmodule Menard.Lsp do
     if ready?(state) do
       state =
         send_request(state, "textDocument/references", %{
-          textDocument: %{uri: "file://" <> file},
+          textDocument: %{uri: uri(file)},
           position: %{line: line - 1, character: column - 1},
           context: %{includeDeclaration: false}
         })
@@ -202,6 +202,9 @@ defmodule Menard.Lsp do
       do: %{state | quiet_since: System.monotonic_time(:millisecond)},
       else: state
   end
+
+  # a space or a `#` in a path is no part of a URI as written
+  defp uri(path), do: "file://" <> URI.encode(path)
 
   # null is the server not ready, not "none"
   defp locations(nil), do: :warming
