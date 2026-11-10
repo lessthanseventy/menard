@@ -17,7 +17,9 @@ if [[ ! -e "$first" ]]; then
   touch "$first"
   exit 0
 fi
-(($(date +%s) - $(stat -c %Y "$first") >= 90)) || exit 0
+# GNU's stat, then BSD's
+at=$(stat -c %Y "$first" 2>/dev/null || stat -f %m "$first" 2>/dev/null) || exit 0
+(($(date +%s) - at >= 90)) || exit 0
 
 door="${TMPDIR:-/tmp}/menard-door-$session"
 if [[ -r "$door" ]]; then
