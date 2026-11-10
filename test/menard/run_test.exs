@@ -112,6 +112,18 @@ defmodule Menard.RunTest do
              "comparison between distinct types found:\n\n    x == :a\n\ngiven types:\n\n    integer() == :a"
   end
 
+  test "a run stopped at its deadline says so, not an error some test logged on the way" do
+    out = """
+    Compiling 1 file (.ex)
+    ** (RuntimeError) a line a test's log printed
+
+    menard: mix test did not finish in 30s, and was stopped
+    """
+
+    assert [%{kind: "timeout", message: "mix test did not finish in 30s, and was stopped"}] =
+             Run.parse_test(out, 124).failures
+  end
+
   test "a warning mix prints with no place is not given the next diagnostic's" do
     out = """
     warning: Mix.Config is deprecated. Use Config instead

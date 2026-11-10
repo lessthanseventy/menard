@@ -1191,6 +1191,13 @@ defmodule Menard.Run do
   # mix refusing to run at all (an unknown option, a task it cannot find): its `** (Mix)` line and
   # what follows up to the first blank line, before the usage it lists after
   defp refusal(out) do
+    case Regex.run(~r/^menard: (.+ did not finish in \d+s, and was stopped)$/m, out) do
+      [_, stopped] -> [%{kind: "timeout", message: stopped}]
+      nil -> refused(out)
+    end
+  end
+
+  defp refused(out) do
     case out |> String.split("\n") |> Enum.drop_while(&(not String.starts_with?(&1, "** ("))) do
       [] ->
         []
