@@ -13,6 +13,12 @@ test('a menard call is named by what it did', async () => {
   expect(menardSaid({ tool: 'mcp__plugin_menard_menard__run', input: { verb: 'test' }, output: '{"ok":false,"failures":[]}' })).toBe('run test: failed')
   // a run's flags and files are a list
   expect(menardSaid({ tool: 'mcp__plugin_menard_menard__run', input: { verb: 'credo', args: ['--changed', 'lib/a.ex'] }, output: '{"ok":true}' })).toBe('run credo --changed lib/a.ex: ok')
+  // from the shell: the verb and what follows it, not the command's description
+  const run = { command: 'cd x && bin/menard --frozen run test test/a_test.exs 2>&1', description: 'Run the tests' }
+  expect(menardSaid({ tool: 'Bash', input: run, output: { stdout: '{"ok":true,"tests":3}' } })).toBe('run test test/a_test.exs: ok')
+  // a command that only mentions menard is not a call
+  const commit = { command: `c.sh "plugin: a menard call's line names its arguments"`, description: 'Commit the fix' }
+  expect(menardSaid({ tool: 'Bash', input: commit, output: {} })).toBeNull()
   expect(menardSaid({ tool: 'Bash', input: { command: 'ls' }, output: {} })).toBeNull()
   expect(menardSaid({ tool: 'Read', input: { file_path: 'menard edit' } })).toBeNull()
 })
