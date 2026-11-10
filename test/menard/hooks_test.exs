@@ -148,6 +148,36 @@ defmodule Menard.HooksTest do
     for file <- left, do: assert(pre.("Edit", file) == :quiet, "#{file} is not edit's to take")
   end
 
+  @tag :tmp_dir
+  test "an .ex file that is no Elixir, which edit refuses to write, is the harness's", %{tmp_dir: dir} do
+    template = Path.join(dir, "priv/templates/mod.ex")
+    File.mkdir_p!(Path.dirname(template))
+    File.write!(template, "defmodule <%= @mod %> do\nend\n")
+
+    pre = fn tool, input ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => "PreToolUse",
+          "tool_name" => tool,
+          "session_id" => "t#{System.unique_integer([:positive])}",
+          "cwd" => dir,
+          "tool_input" => input
+        },
+        state_dir: dir,
+        home: dir
+      )
+    end
+
+    assert pre.("Edit", %{"file_path" => template, "old_string" => "end", "new_string" => "end\n"}) == :quiet
+    assert pre.("MultiEdit", %{"file_path" => template, "edits" => []}) == :quiet
+
+    new = %{"file_path" => Path.join(dir, "priv/templates/new.ex")}
+    assert pre.("Write", Map.put(new, "content", "defmodule <%= @mod %>.New do\nend\n")) == :quiet
+    assert {:deny, _} = pre.("Write", Map.put(new, "content", "defmodule New do\nend\n"))
+    # over the template, Elixir that parses is edit's again
+    assert {:deny, _} = pre.("Write", %{"file_path" => template, "content" => "defmodule A do\nend\n"})
+  end
+
   test "every hook command runs its script with the interpreter its shebang names" do
     hooks = @root |> Path.join("hooks/hooks.json") |> File.read!() |> JSON.decode!()
 
