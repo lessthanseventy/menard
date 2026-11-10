@@ -7,6 +7,7 @@ defmodule Menard.HelpTest do
 
   alias Menard.Verbs.Help
   alias Menard.Verbs.Noun
+  alias Mix.Tasks.Menard.Clause
   alias Mix.Tasks.Menard.Outline
 
   @bin Path.expand("../../bin/menard", __DIR__)
@@ -23,6 +24,14 @@ defmodule Menard.HelpTest do
       out = capture_io(fn -> task.run([flag]) end)
       assert {:ok, %{text: text}} = Help.run(%{verb: verb})
       assert out == String.trim_trailing(text) <> "\n"
+    end
+  end
+
+  test "--help after a noun's own verb is the noun's help, as `clause move --help` is asked" do
+    assert {:ok, %{text: text}} = Help.run(%{verb: "clause"})
+
+    for argv <- [["move", "--help"], ["move", "lib/a.ex", "-h"]] do
+      assert capture_io(fn -> Clause.run(argv) end) == String.trim_trailing(text) <> "\n"
     end
   end
 
