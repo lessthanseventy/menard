@@ -125,19 +125,10 @@ defmodule Menard.Run do
   """
   @spec formatter_inputs(String.t()) :: [String.t()]
   def formatter_inputs(dir) do
-    dot = Path.join(dir, ".formatter.exs")
-    opts = if File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: []
-    # the glob under dir, not dir joined into it: a dir with glob characters in its name (`p[x]`)
-    # matched nothing
-    glob = fn pattern ->
-      for path <- :filelib.wildcard(to_charlist(pattern), to_charlist(dir)),
-          do: Path.join(dir, to_string(path))
+    case formatter_opts(dir) do
+      {:ok, opts} -> inputs(dir, opts)
+      {:error, _why} -> []
     end
-
-    subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
-
-    (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs/1))
-    |> Enum.uniq()
   end
 
   @doc """
@@ -551,7 +542,17 @@ defmodule Menard.Run do
   defp verb(%{dir: dir}, "format", files) do
     # no files named: what the project's own `mix format` would take, its formatter inputs. Given
     # none, this formatted nothing and answered ok, while the project's check failed.
-    files = if files == [], do: formatter_inputs(dir), else: Enum.map(files, &Path.expand(&1, dir))
+    rel = &Path.relative_to(&1, Path.expand(dir))
+
+    {files, broken} =
+      case {files, formatter_opts(dir)} do
+        {[], {:ok, opts}} -> {inputs(dir, opts), []}
+        {[], {:error, why}} -> {[], [%{kind: "format", message: why, at: ".formatter.exs"}]}
+        {files, _opts} -> {Enum.map(files, &Path.expand(&1, dir)), []}
+      end
+
+    {files, missing} = Enum.split_with(files, &File.regular?/1)
+    missing = for file <- missing, do: %{kind: "format", message: "no such file", at: rel.(file)}
     before = Map.new(files, &{&1, File.read!(&1)})
 
     # menard's own formatter, not the host's bare `mix format`: it works while the host's deps do not
@@ -564,8 +565,9 @@ defmodule Menard.Run do
     failures =
       for {file, message} <- failed,
           file not in passing,
-          do: %{kind: "format", message: message, at: Path.relative_to(file, Path.expand(dir))}
+          do: %{kind: "format", message: message, at: rel.(file)}
 
+    failures = broken ++ missing ++ failures
     changed = Enum.filter(files, &(File.read!(&1) != before[&1]))
     %{ok: failures == [], changed: changed, failures: failures}
   end
@@ -1192,5 +1194,30 @@ defmodule Menard.Run do
         |> Map.update(:message, nil, &(&1 |> String.split("\n", parts: 2) |> hd()))
         |> Map.reject(fn {_k, v} -> v == nil end)
       end)
+  end
+
+  # the project's .formatter.exs, or why it could not be read: it is code, and may raise
+  defp formatter_opts(dir) do
+    dot = Path.join(dir, ".formatter.exs")
+
+    try do
+      {:ok, if(File.regular?(dot), do: elem(Code.eval_file(dot), 0), else: [])}
+    rescue
+      e -> {:error, Exception.message(e)}
+    end
+  end
+
+  defp inputs(dir, opts) do
+    # the glob under dir, not dir joined into it: a dir with glob characters in its name (`p[x]`)
+    # matched nothing
+    glob = fn pattern ->
+      for path <- :filelib.wildcard(to_charlist(pattern), to_charlist(dir)),
+          do: Path.join(dir, to_string(path))
+    end
+
+    subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
+
+    (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs/1))
+    |> Enum.uniq()
   end
 end

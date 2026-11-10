@@ -253,6 +253,23 @@ defmodule Menard.RunTest do
     assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
   end
 
+  test "format of a file that is not there, or under a .formatter.exs that raises, is a failure said", %{
+    tmp_dir: dir
+  } do
+    assert %{ok: false, failures: [%{kind: "format", at: "lib/nope.ex", message: message}]} =
+             Menard.Run.result(dir, "format", ["lib/nope.ex"])
+
+    assert message =~ "no such file"
+
+    File.write!(Path.join(dir, ".formatter.exs"), ~s|[inputs: File.read!("no_such")]|)
+
+    assert %{ok: false, failures: [%{kind: "format", at: ".formatter.exs", message: message}]} =
+             Menard.Run.result(dir, "format", [])
+
+    assert message =~ "no_such"
+    assert Menard.Run.formatter_inputs(dir) == []
+  end
+
   test "format with no files formats a subdirectory's inputs too (Phoenix's migrations)", %{tmp_dir: dir} do
     # `subdirectories:` was ignored: `run format` skipped the migrations, and `run check` failed on them
     File.write!(
