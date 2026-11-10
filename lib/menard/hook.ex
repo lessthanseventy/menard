@@ -133,9 +133,10 @@ defmodule Menard.Hook do
       files = [hook.input["file"], hook.input["to"] | List.wrap(hook.input["files"])]
       edits = for %{"file" => file} <- List.wrap(hook.input["edits"]), do: file
       known(hook, files ++ edits)
+      linted(hook, files ++ edits)
+    else
+      :quiet
     end
-
-    :quiet
   end
 
   # A shell command: a mark before it, and after it every Elixir file newer than the mark. One mark
@@ -233,6 +234,18 @@ defmodule Menard.Hook do
     answer = written(List.wrap(file), hook, fn files, _dir -> files end)
     known(hook, List.wrap(file))
     in_a_run(answer, hook)
+  end
+
+  # menard formatted what it wrote, so credo is all that is left to say of it
+  defp linted(hook, files) do
+    paths = for file <- files, is_binary(file), do: Path.expand(file, hook.root)
+
+    notes =
+      for {dir, written} <- by_project(paths),
+          note <- lint(hook, dir, Enum.map(written, &Path.relative_to(&1, dir))),
+          do: note
+
+    if notes == [], do: :quiet, else: {:context, Enum.join(notes, "\n") <> "\n"}
   end
 
   # a command that is menard's own write: its reply said what it found on these files, and the same
