@@ -135,7 +135,7 @@ Pass the reply's `version` back on your next edit to that file. If another sessi
 since, the edit is refused with the diff: re-read and redo it. `clause move` answers `{did,
 created, moved, carried, attributes, directives, unresolved, qualified, delegated, published, left, to, from}`:
 `to` and `from` are each file's own reply, its `version` and stages; `created` is the new module's
-name when `to` did not exist; `carried` the helpers that came along; `published` the ones that stayed, made public; `unresolved` each call a `use`
+name when `to` did not exist; `carried` the helpers that came along; `published` the ones that stayed, made public (and a private function you named that what stays calls too: it goes, public, and the staying calls name it there); `cycle`, only when the two modules now call each other, what to name in a move to end it; `unresolved` each call a `use`
 or an import without `only:` may answer, which is not copied: add the one it names. `rename` answers `{did, changed,
 unchanged, skipped}`: `changed` is each file's own reply, `skipped` each file it could not parse
 or write, with why. Both doors give one reply: the CLI prints the MCP tool's map as one JSON
