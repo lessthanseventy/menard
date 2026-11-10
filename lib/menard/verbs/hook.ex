@@ -2,8 +2,8 @@ defmodule Menard.Verbs.Hook do
   @moduledoc """
   The `hook` verb (`Menard.Verbs`): what the harness said of a tool call, answered by
   `Menard.Hook`. The payload is the harness's own (`payload`, Claude Code's hook JSON as a map), or
-  its fields as a `mcp_tool` hook fills them: `event`, `tool`, `session`, `call`, `cwd`, and the
-  tool's `input` and `response` as JSON text. The reply is `%{}` with nothing to say, `context`
+  its fields as a `mcp_tool` hook fills them: `event`, `tool`, `session`, `call`, `cwd`, `mode`
+  (the permission mode), and the tool's `input` and `response` as JSON text. The reply is `%{}` with nothing to say, `context`
   with what the formatter changed, `problem` with the files that could not be formatted, or `deny`
   with why the command is one this session does not run.
   """
@@ -24,7 +24,8 @@ defmodule Menard.Verbs.Hook do
         {:call, :string, []},
         {:cwd, :string, []},
         {:input, :string, []},
-        {:response, :string, []}
+        {:response, :string, []},
+        {:mode, :string, []}
       ]
     }
   end
@@ -42,6 +43,7 @@ defmodule Menard.Verbs.Hook do
         "session_id" => p[:session],
         "tool_use_id" => p[:call],
         "cwd" => p[:cwd],
+        "permission_mode" => p[:mode],
         "tool_input" => object(p[:input]),
         "tool_response" => object(p[:response])
       }
