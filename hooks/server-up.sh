@@ -22,6 +22,12 @@ at=$(stat -c %Y "$first" 2>/dev/null || stat -f %m "$first" 2>/dev/null) || exit
 (($(date +%s) - at >= 90)) || exit 0
 
 door="${TMPDIR:-/tmp}/menard-door-$session"
+# a session whose id changed under its server (`/clear`): the door is under the harness's pid too
+p=$PPID
+while [[ ! -r "$door" && -n "$p" && "$p" -gt 1 ]]; do
+  [[ -r "${TMPDIR:-/tmp}/menard-door-$p" ]] && door="${TMPDIR:-/tmp}/menard-door-$p" && break
+  p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+done
 if [[ -r "$door" ]]; then
   port=$(head -n1 "$door")
   [[ "$port" =~ ^[0-9]+$ ]] && (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null && exit 0
