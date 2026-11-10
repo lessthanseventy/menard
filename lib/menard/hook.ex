@@ -467,7 +467,8 @@ defmodule Menard.Hook do
     with true <- Path.extname(file) in [".ex", ".exs"],
          {:ok, path} <- Menard.Verbs.resolve(file, %{root: hook.root, home: hook.home}),
          rel = Path.relative_to(path, Path.expand(hook.root)),
-         false <- Enum.any?(Path.split(rel), &(&1 in @prune)) do
+         false <- Enum.any?(Path.split(rel), &(&1 in @prune)),
+         true <- parses?(hook, path) do
       rel
     else
       _ -> nil
@@ -475,6 +476,22 @@ defmodule Menard.Hook do
   end
 
   defp editable(_hook, _file), do: nil
+
+  # An .ex that is no Elixir (an EEx template under priv/templates) is one `edit` refuses to write:
+  # judged by what a Write would put there, else by the file as it stands
+  defp parses?(%{tool: "Write", input: %{"content" => text}}, _path) when is_binary(text),
+    do: elixir_text?(text)
+
+  defp parses?(%{tool: "Write"}, _path), do: true
+
+  defp parses?(_hook, path) do
+    case File.read(path) do
+      {:ok, text} -> elixir_text?(text)
+      {:error, _} -> true
+    end
+  end
+
+  defp elixir_text?(text), do: match?({:ok, _}, Menard.Source.parse(text))
 
   defp by_edit(hook, tool, rel) do
     "This is menard's answer, not an error: nothing was written. #{rel} is Elixir, written with " <>
