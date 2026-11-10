@@ -1,5 +1,6 @@
 {
   "description": "Every Elixir file an edit or a shell command writes is formatted with its own project's formatter, plugins included; what the formatter changed goes back to the agent, and a file that does not parse is named. Each hook is a call to menard's hooks server already running (Menard.MCP.Hooks, apart from the verbs' so no hook waits on a run): no process is started. PreToolUse fails open after 10 s.",
+  "modules": ["./register.tsx"],
   "hooks": {
     "PreToolUse": [
       {

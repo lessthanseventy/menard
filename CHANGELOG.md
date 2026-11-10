@@ -81,6 +81,9 @@ Hooks and the door:
 - An MCP call of more than 30 s answers. The transport gave every request 30 s and, past it,
   wrote no response: a `run check`, or an `edit` whose `then` ran a slow test file, did its work
   and the call hung until the client gave up.
+- In Claude Code's transcript a folded run of menard calls ("Called plugin:menard:menard 2
+  times") is a line for each, saying what it did: `menard edit cart.ex: 2 replacements`,
+  `menard run test: ok`. The plugin's first hooks module (`hooks/register.tsx`).
 - A server whose install is replaced under it (a plugin reinstall, with sessions open) stops. It
   rebuilt itself from the new files, crashed, and went silent for good: every hook then waited
   out its timeout, 130 s on each Bash call, until the session was restarted.
