@@ -118,20 +118,22 @@ defmodule Menard.Find do
 
         ast
         |> Zipper.zip()
-        |> Zipper.traverse_while([], fn zipper, hits ->
-          # a @spec, a @callback, a type: they name a function, and call and define nothing
-          if typed?(Zipper.node(zipper)) do
-            {:skip, zipper, hits}
-          else
-            {zipper, hits} = add_hit(zipper, hits, match.(Zipper.node(zipper), aliases))
-            {:cont, zipper, hits}
-          end
-        end)
+        |> Zipper.traverse_while([], &visit(&1, &2, match, aliases))
         |> elem(1)
         |> Enum.reverse()
 
       {:error, _} ->
         []
+    end
+  end
+
+  # a @spec, a @callback, a type: they name a function, and call and define nothing
+  defp visit(zipper, hits, match, aliases) do
+    if typed?(Zipper.node(zipper)) do
+      {:skip, zipper, hits}
+    else
+      {zipper, hits} = add_hit(zipper, hits, match.(Zipper.node(zipper), aliases))
+      {:cont, zipper, hits}
     end
   end
 
