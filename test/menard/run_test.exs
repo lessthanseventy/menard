@@ -87,6 +87,31 @@ defmodule Menard.RunTest do
              "  test \"move/2 refuses another workspace\" do\n    assert moved.channel_id == infra.id\n  end"
   end
 
+  test "a warning written over several lines is its whole message, not its first line" do
+    out = """
+    Compiling 1 file (.ex)
+        warning: comparison between distinct types found:
+
+            x == :a
+
+        given types:
+
+            integer() == :a
+
+        │
+      3 │     x == :a
+        │       ~
+        │
+        └─ lib/a.ex:3:7: A.go/1
+
+    """
+
+    assert [%{kind: "warning", message: message, at: "lib/a.ex:3"}] = Run.parse_test(out, 1).failures
+
+    assert message ==
+             "comparison between distinct types found:\n\n    x == :a\n\ngiven types:\n\n    integer() == :a"
+  end
+
   test "a warning mix prints with no place is not given the next diagnostic's" do
     out = """
     warning: Mix.Config is deprecated. Use Config instead
