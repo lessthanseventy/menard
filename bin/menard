@@ -16,6 +16,7 @@ cd -- "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")/.." && pwd
 
 # menard runs on ITS toolchain (.tool-versions), not whatever the caller's PATH puts first: a host's
 # newer Elixir rebuilt menard from scratch on every switch, and an older one cannot run it at all.
+# an empty array is unbound to bash 3.2's `set -u` (macOS's): hence ${run[@]+"${run[@]}"}
 run=()
 command -v mise >/dev/null 2>&1 && run=(mise exec -C "$PWD" --)
 
@@ -99,7 +100,7 @@ fi
 readonly_build=0
 [[ -d "_build/${MIX_ENV:-dev}" && ! -w "_build/${MIX_ENV:-dev}" ]] && readonly_build=1
 if ((!frozen && !readonly_build)) && ! cmp -s mix.lock "$fetched"; then
-  quietly "${run[@]}" mix deps.get --only "${MIX_ENV:-dev}"
+  quietly ${run[@]+"${run[@]}"} mix deps.get --only "${MIX_ENV:-dev}"
   cp mix.lock "$fetched"
 fi
 
@@ -221,7 +222,7 @@ elif ((!frozen)) && stale; then
   mkdir -p "$build"
   good=$(mktemp -d "$build/.menard-last-ebin.XXXXXX")
   [[ -d "$ebin" ]] && cp -a "$ebin/." "$good/"
-  if ! quietly "${run[@]}" mix compile; then
+  if ! quietly ${run[@]+"${run[@]}"} mix compile; then
     rm -rf "$ebin" && mkdir -p "$ebin" && cp -a "$good/." "$ebin/"
     rm -rf "$good"
     echo "menard: that is a compile error in menard ITSELF (a half-applied edit) — retry with: $self --frozen $verb …" >&2
@@ -289,18 +290,18 @@ if [[ "$verb" == "mcp" ]]; then
   # land on the protocol channel, so it is off and SIGTERM is the stop (Mix.Tasks.Menard.Mcp)
   export ERL_FLAGS="+Bd $ERL_FLAGS"
   if [[ -n "$mcp_first_line" && "$answered_init" == 0 ]]; then
-    exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@" < <(printf '%s\n' "$mcp_first_line"; cat)
+    exec ${run[@]+"${run[@]}"} elixir "${pa[@]}" -e "$script" -- "$verb" "$@" < <(printf '%s\n' "$mcp_first_line"; cat)
   fi
-  exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
+  exec ${run[@]+"${run[@]}"} elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
 fi
 
 # Only STDERR is captured, to read what went wrong: capturing stdout would buffer it until exit,
 # which is fatal to anything that streams. `&& status=0 || status=$?` keeps the call in a
 # condition: under `set -e` a failing verb would abort the script before the lines below.
 # a sandbox that denies the temp dir gets the verb's stderr uncaptured, not no answer at all
-err=$(mktemp 2>/dev/null) || exec "${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
+err=$(mktemp 2>/dev/null) || exec ${run[@]+"${run[@]}"} elixir "${pa[@]}" -e "$script" -- "$verb" "$@"
 trap 'rm -f "$err"' EXIT
-"${run[@]}" elixir "${pa[@]}" -e "$script" -- "$verb" "$@" 2>"$err" && status=0 || status=$?
+${run[@]+"${run[@]}"} elixir "${pa[@]}" -e "$script" -- "$verb" "$@" 2>"$err" && status=0 || status=$?
 # the reader went away (`| head`): the BEAM's writer crashed on the closed stdout (:epipe) with a
 # stack trace, and nothing is wrong. What was read was the answer; exit as a shell tool does.
 if ((status != 0)) && grep -q "Writer crashed (:epipe)" "$err"; then
