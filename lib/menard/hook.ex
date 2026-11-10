@@ -70,10 +70,20 @@ defmodule Menard.Hook do
   @doc """
   A call's input as it is to run in place of what was given, as the harness reads it; `note`, what
   the agent is told of it (Claude Code 2.1.293 shows a PreToolUse's `additionalContext` beside it).
+  With no decision the harness holds the rewritten command to the user's permission rules.
   """
   @spec rewrite(map(), String.t() | nil) :: map()
   def rewrite(input, note \\ nil) do
-    output = %{hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: input}
+    output = %{hookEventName: "PreToolUse", updatedInput: input}
+
+    # "allow" passes the whole command with no prompt, whatever the user's rules say of it: given
+    # only to menard's own run standing where the test run stood. Anything more (the commands
+    # before it, a filter dropped from another verb) goes by the user's rules, as rewritten.
+    output =
+      if input["command"] =~ ~r{\A\S*menard run (test|check|credo)[\w\s./:=,@+-]*\z},
+        do: Map.put(output, :permissionDecision, "allow"),
+        else: output
+
     %{hookSpecificOutput: if(note, do: Map.put(output, :additionalContext, note), else: output)}
   end
 

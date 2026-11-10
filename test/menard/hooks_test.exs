@@ -1015,6 +1015,27 @@ defmodule Menard.HooksTest do
              Menard.Hook.rewrite(input, note)
   end
 
+  test "a rewrite is approved for the user only when it is menard's test run and nothing else" do
+    decision = fn command ->
+      Menard.Hook.rewrite(%{"command" => command}).hookSpecificOutput[:permissionDecision]
+    end
+
+    assert decision.("/p/bin/menard run test test/a_test.exs:12 --seed 0") == "allow"
+    assert decision.("/p/bin/menard run check") == "allow"
+
+    # the commands before the run, and anything a shell expands, are the user's rules' to pass
+    for command <- [
+          "rm -rf build && /p/bin/menard run test",
+          "cd /w; /p/bin/menard run test",
+          "/p/bin/menard run test `touch x`",
+          "/p/bin/menard run test $(touch x)",
+          "touch x; rm y; menard find calls A.b lib",
+          "/p/bin/menard edit lib/a.ex"
+        ] do
+      assert decision.(command) == nil, command
+    end
+  end
+
   @tag :tmp_dir
   test "a session's first refusal carries what is so in it; one told at its start is not told again",
        %{tmp_dir: dir} do
