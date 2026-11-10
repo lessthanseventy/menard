@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.10
+
+- `edit` with a `then` runs credo on the lines it changed and puts the findings in the reply's
+  `credo`, beside the compile or test it ran. Under the hooks server credo's note came a call
+  later, beside whatever the session did next, and a nesting finding was passed over until the
+  gate. For that call the hook adds nothing, through MCP or the CLI; with no `then`, its note is
+  as before.
+
 ## 0.8.9
 
 - The session-start text and the script refusal teach the MCP `edit` tool first, its `edits` list
