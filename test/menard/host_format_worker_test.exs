@@ -98,6 +98,19 @@ defmodule Menard.HostFormatWorkerTest do
     # the plugins are held as first loaded: a lock that changed since is a new VM
     File.write!(Path.join(dir, "mix.lock"), "%{}\n")
     assert vm.([]) != first
+
+    # and a dependency built again since (a path dependency's plugin, which no lock names); the
+    # project's own build, which every compile changes, is no reason
+    File.write!(
+      Path.join(dir, "mix.exs"),
+      "defmodule Own.MixProject do\n  use Mix.Project\n  def project, do: [app: :own, version: \"0.1.0\"]\nend\n"
+    )
+
+    second = vm.([])
+    File.mkdir_p!(Path.join(dir, "_build/dev/lib/own/ebin"))
+    assert vm.([]) == second
+    File.mkdir_p!(Path.join(dir, "_build/dev/lib/a_plugin/ebin"))
+    assert vm.([]) != second
   end
 
   test "stopping a project's worker kills the host VM it started — nothing outlives the call", %{tmp_dir: dir} do
