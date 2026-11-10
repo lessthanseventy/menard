@@ -18,6 +18,8 @@ defmodule Mix.Tasks.Menard.Find do
   import Menard.CLI
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("find")
+
   def run(argv) do
     {opts, args} = options(argv, json: :boolean)
 

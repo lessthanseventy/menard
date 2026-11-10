@@ -14,6 +14,8 @@ defmodule Mix.Tasks.Menard.Map do
   alias Menard.Verbs
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("map")
+
   def run(argv) do
     all =
       case Menard.CLI.options(argv, all: :boolean) do

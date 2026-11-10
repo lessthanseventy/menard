@@ -5,6 +5,7 @@ defmodule Menard.CLI do
   error, so a caller reads one line and gates on the exit status. Only a door prints or raises.
   """
 
+  alias Menard.Verbs.Help
   alias Menard.Verbs.Noun
 
   @doc """
@@ -50,7 +51,9 @@ defmodule Menard.CLI do
   A noun's mix task (`Menard.Verbs.Noun`): `argv` read by the noun's `cli`, its verb run, the
   result answered. An argv no shape takes raises the usage, made from the same shapes.
   """
-  @spec run(module(), [String.t()]) :: map()
+  @spec run(module(), [String.t()]) :: map() | :ok
+  def run(verbs, [flag | _]) when flag in ["--help", "-h"], do: help(to_string(Noun.of(verbs).name))
+
   def run(verbs, argv) do
     # `--json`: the reply as the map, where a read of code is otherwise printed as code
     {json, argv} = {"--json" in argv, argv -- ["--json"]}
@@ -66,6 +69,13 @@ defmodule Menard.CLI do
       params ->
         answer(Menard.Verbs.call(verbs, from_stdin(Map.merge(named, params), noun)), json)
     end
+  end
+
+  @doc "A verb's help, printed: what `mix menard.VERB --help` answers, where no launcher turns it into `help VERB`."
+  @spec help(String.t()) :: :ok
+  def help(verb) do
+    {:ok, %{text: text}} = Help.run(%{verb: verb})
+    Mix.shell().info(String.trim_trailing(text))
   end
 
   @doc "The usage line, raised: a call the verbs do not take."

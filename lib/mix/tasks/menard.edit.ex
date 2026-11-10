@@ -33,6 +33,8 @@ defmodule Mix.Tasks.Menard.Edit do
            "       a block: FILE, `<<<<<<< SEARCH`, the text to find, `=======`, the text to put there, `>>>>>>> REPLACE`"
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("edit")
+
   def run(argv) do
     # `--then test FILE… BLOCKS`: the files before the blocks are the then's, as the MCP door's
     # `then: "test FILE…"` names them. Written so seven times in a week, refused with the bare usage

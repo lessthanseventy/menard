@@ -20,6 +20,8 @@ defmodule Mix.Tasks.Menard.Deps do
   import Menard.CLI
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("deps")
+
   def run(argv) do
     {opts, args} = options(argv, module: :string, in: :string, to: :string)
 

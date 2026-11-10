@@ -3,8 +3,11 @@ defmodule Menard.HelpTest do
   # example that is refused teaches the wrong call.
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias Menard.Verbs.Help
   alias Menard.Verbs.Noun
+  alias Mix.Tasks.Menard.Outline
 
   @bin Path.expand("../../bin/menard", __DIR__)
 
@@ -12,6 +15,15 @@ defmodule Menard.HelpTest do
     {out, 2} = System.cmd(@bin, ["--frozen", "nosuch"], stderr_to_stdout: true)
     [_, listed] = Regex.run(~r/\(([a-z|]+)\)/, out)
     assert Enum.sort(Help.verbs()) == Enum.sort(String.split(listed, "|") -- ~w(mcp guard hook help))
+  end
+
+  test "a verb's own task answers --help, as `mix menard.outline --help` is asked in a host" do
+    for flag <- ["--help", "-h"],
+        {task, verb} <- [{Outline, "outline"}, {Mix.Tasks.Menard.Rename, "rename"}] do
+      out = capture_io(fn -> task.run([flag]) end)
+      assert {:ok, %{text: text}} = Help.run(%{verb: verb})
+      assert out == String.trim_trailing(text) <> "\n"
+    end
   end
 
   test "the overview names each verb, what it is for, and a call by this menard's path" do
