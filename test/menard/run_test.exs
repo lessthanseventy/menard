@@ -4,6 +4,7 @@ defmodule Menard.RunTest do
   use ExUnit.Case, async: true
 
   alias Menard.Run
+  alias Menard.Run.Output
   alias Menard.Test.Host
 
   # Most of this module's tests run a real `check` (compile+format+test) in a tmp mix project —
@@ -42,7 +43,7 @@ defmodule Menard.RunTest do
   """
 
   test "parses counts and each failure's name, location, assertion and error" do
-    r = Run.parse_test(@out, 2)
+    r = Output.parse_test(@out, 2)
     assert %{tests: 5, failed: 2, ok: false} = r
 
     # an assertion and an exception, one shape: kind, message, at — then what only a test has
@@ -80,7 +81,7 @@ defmodule Menard.RunTest do
         "defmodule X do\n  test \"move/2 refuses another workspace\" do\n    assert moved.channel_id == infra.id\n  end\nend\n"
     )
 
-    r = @out |> Run.parse_test(2) |> Run.with_sources(tmp)
+    r = @out |> Output.parse_test(2) |> Output.with_sources(tmp)
     [first | _] = r.failures
 
     assert first.source ==
@@ -106,7 +107,7 @@ defmodule Menard.RunTest do
 
     """
 
-    assert [%{kind: "warning", message: message, at: "lib/a.ex:3"}] = Run.parse_test(out, 1).failures
+    assert [%{kind: "warning", message: message, at: "lib/a.ex:3"}] = Output.parse_test(out, 1).failures
 
     assert message ==
              "comparison between distinct types found:\n\n    x == :a\n\ngiven types:\n\n    integer() == :a"
@@ -129,7 +130,7 @@ defmodule Menard.RunTest do
     """
 
     assert [%{kind: "timeout", message: "mix test did not finish in 30s, and was stopped"}] =
-             Run.parse_test(out, 124).failures
+             Output.parse_test(out, 124).failures
   end
 
   test "a warning mix prints with no place is not given the next diagnostic's" do
@@ -146,11 +147,11 @@ defmodule Menard.RunTest do
     """
 
     assert [%{kind: "error", message: ~s(undefined variable "x"), at: "lib/a.ex:3"}] =
-             Run.parse_test(out, 1).failures
+             Output.parse_test(out, 1).failures
   end
 
   test "a green run has no failures and a one-line tail" do
-    r = Run.parse_test("....\n\nFinished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed\n", 0)
+    r = Output.parse_test("....\n\nFinished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed\n", 0)
     assert %{ok: true, tests: 4, failed: 0, failures: []} = r
     assert r.tail == "Finished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed"
   end
@@ -172,7 +173,7 @@ defmodule Menard.RunTest do
         (elixir 1.20.4) lib/kernel/parallel_compiler.ex:550: anonymous fn/5 in Kernel.ParallelCompiler.spawn_workers/8
     """
 
-    r = Run.parse_test(out, 1)
+    r = Output.parse_test(out, 1)
     refute r.ok
     assert r.tail =~ "error: undefined function thread/1"
     assert r.tail =~ "rail_test.exs:79:19"
@@ -281,7 +282,7 @@ defmodule Menard.RunTest do
     1 test, 1 failure
     """
 
-    assert [%{message: message}] = Run.parse_test(out, 2).failures
+    assert [%{message: message}] = Output.parse_test(out, 2).failures
     assert message =~ "(MatchError) no match of right hand side value:"
     assert message =~ "{:error, :enoent}"
     refute message =~ "code:"
@@ -333,14 +334,14 @@ defmodule Menard.RunTest do
 
   test "lean keeps what a reader looks for: ok and the counts when green, the failures and seed when red" do
     green =
-      Run.parse_test(
+      Output.parse_test(
         "Running ExUnit with seed: 7, max_cases: 4\n\n..\nFinished in 0.1 seconds\n2 tests, 0 failures\n",
         0
       )
 
     assert Run.lean(Map.put(green, :fetched, [])) == %{ok: true, tests: 2, failed: 0, failures: []}
 
-    red = Run.parse_test(@out, 2)
+    red = Output.parse_test(@out, 2)
     lean = Run.lean(red)
     assert %{ok: false, exit: 2, tests: 5, failed: 2, seed: 1, failures: [_, _]} = lean
     # the failures say what broke; the tail and a single run's count say nothing more
@@ -372,7 +373,7 @@ defmodule Menard.RunTest do
     }
 
     assert ["test/a_test.exs:4", "lib/a.ex:2", "lib/b.ex"] =
-             Enum.map(Run.with_sources(result, dir).failures, & &1.at)
+             Enum.map(Output.with_sources(result, dir).failures, & &1.at)
   end
 
   test "a green run still answers with the warnings its compile printed" do
@@ -394,7 +395,7 @@ defmodule Menard.RunTest do
     4 tests, 0 failures
     """
 
-    r = Run.parse_test(out, 0)
+    r = Output.parse_test(out, 0)
     assert r.ok
     assert r.failures == [%{kind: "warning", message: "unused alias Money", at: "lib/shop/cart.ex:5"}]
   end
@@ -430,7 +431,7 @@ defmodule Menard.RunTest do
     4 tests, 0 failures
     """
 
-    r = Run.parse_test(out, 0, nil, dir)
+    r = Output.parse_test(out, 0, nil, dir)
     assert r.ok
     assert r.failures == [%{kind: "warning", message: "unused alias Money", at: "lib/shop/cart.ex:5"}]
   end
@@ -442,7 +443,7 @@ defmodule Menard.RunTest do
     out =
       "** (Mix) Could not invoke task \"test\": 1 error found!\n--doctest : Unknown option\n\nSupported options:\n#{options}\n"
 
-    r = Run.parse_test(out, 1)
+    r = Output.parse_test(out, 1)
     refute r.ok
     assert [%{kind: "error", message: message}] = r.failures
     assert message =~ "--doctest : Unknown option"
@@ -461,7 +462,9 @@ defmodule Menard.RunTest do
         lib/shop/cart.ex:285: Shop.Cart.discount/1
     """
 
-    assert [%{kind: "error", at: "lib/shop/cart.ex:285", message: message}] = Run.parse_test(out, 1).failures
+    assert [%{kind: "error", at: "lib/shop/cart.ex:285", message: message}] =
+             Output.parse_test(out, 1).failures
+
     assert message =~ "cannot set attribute @doc inside function/macro"
   end
 
@@ -470,7 +473,7 @@ defmodule Menard.RunTest do
   test "a failing doctest, a property and a setup_all are failures too, and count" do
     # real `mix test` output (Elixir 1.19): only `N) test …` parsed, so these came back ok: false,
     # failures: [] and the hooks had nothing to act on
-    r = Run.parse_test(@kinds, 2)
+    r = Output.parse_test(@kinds, 2)
 
     assert [
              %{kind: "test", name: "ints are small", module: "BenchTest", at: "test/bench_test.exs:10"} =
@@ -486,7 +489,7 @@ defmodule Menard.RunTest do
     assert {r.tests, r.failed} == {4, 4}
     # and a run that left tests out says so after the counts
     assert %{tests: 1, failed: 0} =
-             Run.parse_test("Finished in 0.9 seconds\n1 test, 0 failures (22 excluded)\n", 0)
+             Output.parse_test("Finished in 0.9 seconds\n1 test, 0 failures (22 excluded)\n", 0)
   end
 
   test "a host that colours its output through a pipe still has its failures read", %{tmp_dir: dir} do
@@ -645,10 +648,10 @@ defmodule Menard.RunTest do
   test "ExUnit's prose says how many skipped, the way the formatter counts them" do
     # 1.19 counts a skipped test in `N tests`, 1.20 leaves it out of `passed`: `tests` is what ran
     # either way, as the formatter counts it. An excluded test is the project's own filter, not counted.
-    old = Run.parse_test("Finished in 0.02 seconds\n3 tests, 1 failure, 1 skipped (1 excluded)\n", 2)
+    old = Output.parse_test("Finished in 0.02 seconds\n3 tests, 1 failure, 1 skipped (1 excluded)\n", 2)
 
     new =
-      Run.parse_test(
+      Output.parse_test(
         "Finished in 0.01 seconds\n\nResult: 1/2 passed, 1 skipped, 1 excluded\nFailed: 1 test\n",
         2
       )
@@ -661,12 +664,12 @@ defmodule Menard.RunTest do
     out =
       "Running ExUnit with seed: 1, max_cases: 8\n\n\nFinished in 0.1 seconds\n0 tests, 0 failures (150 excluded)\n\nAll tests have been excluded.\n"
 
-    assert %{ok: false, tests: 0, excluded: 150, failures: [%{kind: "excluded"}]} = Run.parse_test(out, 0)
+    assert %{ok: false, tests: 0, excluded: 150, failures: [%{kind: "excluded"}]} = Output.parse_test(out, 0)
 
     out =
       "Running ExUnit with seed: 1, max_cases: 8\n\n.\nFinished in 0.1 seconds\n1 test, 0 failures (3 excluded)\n"
 
-    assert %{ok: true, tests: 1, excluded: 3, failures: []} = Run.parse_test(out, 0)
+    assert %{ok: true, tests: 1, excluded: 3, failures: []} = Output.parse_test(out, 0)
   end
 
   test "a test file's compile errors printed after the seed line are its failures" do
@@ -687,7 +690,7 @@ defmodule Menard.RunTest do
     """
 
     assert [%{kind: "error", at: "test/menard/run_test.exs:753", message: ~s(undefined variable "dir")}] =
-             Run.parse_test(out, 1).failures
+             Output.parse_test(out, 1).failures
   end
 
   test "a run that excludes every test it was given is red, and says which tags to include", %{tmp_dir: dir} do
