@@ -180,6 +180,22 @@ defmodule Menard.ScriptsTest do
     end
   end
 
+  test "menard's help through a filter runs as written: a help has no reply to drop" do
+    for command <- [
+          "/p/bin/menard --help | head -40",
+          "cd /x && ~/p/bin/menard edit --help 2>&1 | head -30",
+          "grep -n floki mix.exs; bin/menard --help 2>&1 | head -40; bin/menard edit -h | head -40",
+          "bin/menard help run | grep then"
+        ] do
+      assert Scripts.unfiltered(command) == nil, command
+      refute refused?(command), command
+    end
+
+    # a help beside a reply that is cut is still that reply cut
+    assert refused?("bin/menard --help | head; bin/menard outline lib/a.ex | head; echo done")
+    assert Scripts.unfiltered("bin/menard --help | head; bin/menard outline lib/a.ex | head") != nil
+  end
+
   test "menard's reply piped through a filter is refused where dropping it changes what runs" do
     # a filter over the reply drops what the caller did not think to ask for (the formatter's changes
     # in an edit's `stages`, a failure past the first): what it holds is the answer, whole

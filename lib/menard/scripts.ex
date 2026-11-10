@@ -26,6 +26,10 @@ defmodule Menard.Scripts do
               "m"
             )
 
+  # menard asked its help: text for whoever reads it, with no reply a filter could drop a part of
+  @help ~S"menard\s+(?:help\b|[^|;&\n>]*?(?<=\s)(?:--help|-h)\b)[^|;&\n>]*"
+  @helped Regex.compile!(@help <> ~S"(?:\|\s*(?:jq|head|tail|cut|grep|sed|awk)\b[^|;&()<>\n]*)+")
+
   # the same, the filters ending the command line, one line: what runs bare in their place
   @unfiltered Regex.compile!(
                 ~S"\A(?<bare>(?:.*(?:[;&|(]\s*|\b(?:do|then|else)\s+|\bxargs(?:\s+-\S+)*\s+))?" <>
@@ -65,9 +69,12 @@ defmodule Menard.Scripts do
     # the original's
     masked = Regex.replace(~r/'[^']*'|"(?:[^"\\]|\\.)*"|2>&1/, command, &String.duplicate("_", byte_size(&1)))
 
-    case Regex.run(@unfiltered, masked, capture: ["bare"], return: :index) do
-      [{0, length}] -> command |> binary_part(0, length) |> String.trim_trailing()
-      nil -> nil
+    with [{0, length}] <- Regex.run(@unfiltered, masked, capture: ["bare"], return: :index),
+         bare = command |> binary_part(0, length) |> String.trim_trailing(),
+         false <- Regex.match?(~r/#{@help}\z/, String.replace(bare, "2>&1", "")) do
+      bare
+    else
+      _ -> nil
     end
   end
 
@@ -187,7 +194,7 @@ defmodule Menard.Scripts do
     # menard where a command starts (after a separator, or a loop's `do`, `then`, `xargs`, under
     # `timeout`, `time` or a wrapper, as the script ban reads them), its reply piped into a filter
     # or thrown away
-    Regex.match?(@filtered, commands_of(command))
+    Regex.match?(@filtered, command |> commands_of() |> String.replace(@helped, "true"))
   end
 
   # a heredoc's body goes, the rest of its opening line stays: `menard edit - <<'EOF' | jq`
