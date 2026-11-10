@@ -112,8 +112,9 @@ defmodule Menard.Hook do
       input: payload["tool_input"] || %{},
       response: payload["tool_response"] || %{},
       root: nonempty(payload["cwd"]) || System.get_env("CLAUDE_PROJECT_DIR") || File.cwd!(),
-      session: safe(payload["session_id"] || "none"),
-      call: safe(payload["tool_use_id"] || "none")
+      # an empty one named every session's files in a glob (`menard-*#{""}*`)
+      session: nonempty(safe(payload["session_id"] || "")) || "none",
+      call: nonempty(safe(payload["tool_use_id"] || "")) || "none"
     }
   end
 

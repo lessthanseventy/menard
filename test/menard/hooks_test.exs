@@ -1352,6 +1352,10 @@ defmodule Menard.HooksTest do
     assert Path.wildcard(Path.join(dir, "menard-*gone*")) == []
     assert File.exists?(Path.join(dir, "menard-told-other"))
 
+    # an end that names no session takes no other session's marks
+    assert hook.("SessionEnd", "", %{"reason" => "other"}) == :quiet
+    assert File.exists?(Path.join(dir, "menard-told-other"))
+
     # resumed after its end: it was told at its start, and is not told again on a refusal
     assert hook.("SessionStart", "gone", %{"source" => "resume"}) == :quiet
     assert File.exists?(Path.join(dir, "menard-told-gone"))
