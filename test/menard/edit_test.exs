@@ -30,6 +30,31 @@ defmodule Menard.EditTest do
     assert read(dir, "notes.md") == new <> "\n"
   end
 
+  test "a file with no newline at its end keeps none", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "VERSION"), "v1.2")
+    assert {:ok, _} = edit(dir, [%{file: "VERSION", old: "1.2", new: "1.3"}])
+    assert read(dir, "VERSION") == "v1.3"
+  end
+
+  test "a file of CRLF lines is found by text written with LF, and keeps its line ends", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "run.bat"), "one\r\ntwo\r\nthree\r\n")
+    assert {:ok, _} = edit(dir, [%{file: "run.bat", old: "one\ntwo", new: "uno\ndos\nmas"}])
+    assert read(dir, "run.bat") == "uno\r\ndos\r\nmas\r\nthree\r\n"
+  end
+
+  test "one file named two ways takes both edits", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "real.txt"), "one\ntwo\n")
+    File.ln_s!(Path.join(dir, "real.txt"), Path.join(dir, "link.txt"))
+
+    assert {:ok, %{changed: [_one]}} =
+             edit(dir, [
+               %{file: "real.txt", old: "one", new: "ONE"},
+               %{file: "link.txt", old: "two", new: "TWO"}
+             ])
+
+    assert read(dir, "real.txt") == "ONE\nTWO\n"
+  end
+
   test "an Elixir file that is a literal and a comment after it is edited", %{tmp_dir: dir} do
     File.write!(Path.join(dir, "settings.exs"), "[a: 1]\n# the last word\n")
 

@@ -284,10 +284,17 @@ defmodule Menard do
   defp checked(file, content, original) do
     with {:ok, patched} <- Menard.Write.checked(file, content),
          :ok <- Menard.Write.together(file, original, patched) do
-      {:ok, patched}
+      {:ok, if(bare_end?(file, original, content), do: content, else: patched)}
     else
       {:error, reason} -> {:error, "refusing to write #{Path.relative_to_cwd(file)} — #{reason}"}
     end
+  end
+
+  # a file that had no newline at its end and is no code of a language with a formatter (a VERSION,
+  # a fixture) keeps none: the check's newline is for what it parses
+  defp bare_end?(file, original, content) do
+    original != "" and not String.ends_with?(original, "\n") and not String.ends_with?(content, "\n") and
+      Path.extname(file) not in [".ex", ".exs"] and not Menard.Lang.known?(file)
   end
 
   # An edit computed against a version the file no longer has would overwrite whatever changed it
