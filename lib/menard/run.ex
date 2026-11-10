@@ -149,7 +149,7 @@ defmodule Menard.Run do
     # the compile before the first run: its warnings, which a green run went on to hide, or a test
     # file's errors, which 1.19 on prints after the seed line, in the first run
     # an umbrella's apps each print a run, and each may hold a test file's errors
-    suites = (held && held[:suites]) || 1
+    suites = suites(held)
     compile = runs |> Enum.take(max(2, suites + 1)) |> Enum.join() |> diagnostics(dir)
     failures = failures ++ compile
     # every test filtered out is no green, whatever mix's exit: `ok, tests: 0` read as "it passes"
@@ -1190,6 +1190,9 @@ defmodule Menard.Run do
 
   # mix refusing to run at all (an unknown option, a task it cannot find): its `** (Mix)` line and
   # what follows up to the first blank line, before the usage it lists after
+  defp suites(%{suites: suites}), do: suites
+  defp suites(_held), do: 1
+
   defp refusal(out) do
     case Regex.run(~r/^menard: (.+ did not finish in \d+s, and was stopped)$/m, out) do
       [_, stopped] -> [%{kind: "timeout", message: stopped}]

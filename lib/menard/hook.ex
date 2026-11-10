@@ -113,12 +113,14 @@ defmodule Menard.Hook do
       response: object(payload["tool_response"]),
       root: nonempty(payload["cwd"]) || System.get_env("CLAUDE_PROJECT_DIR") || File.cwd!(),
       # an empty one named every session's files in a glob (`menard-*#{""}*`)
-      session: nonempty(safe(payload["session_id"] || "")) || "none",
+      session: id(payload["session_id"]) || "none",
       # the subagent a call is from, where the harness names one: what it has read is its own
-      agent: safe(payload["agent_id"] || ""),
-      call: nonempty(safe(payload["tool_use_id"] || "")) || "none"
+      agent: id(payload["agent_id"]) || "",
+      call: id(payload["tool_use_id"]) || "none"
     }
   end
+
+  defp id(given), do: nonempty(safe(given || ""))
 
   # a tool's input and response are objects; one that is not (a harness's placeholder, a tool
   # answering with a list) is read as none
