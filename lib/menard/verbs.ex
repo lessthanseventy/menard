@@ -127,6 +127,10 @@ defmodule Menard.Verbs do
   def module(m) when m in [nil, "-", ""], do: nil
   def module(m), do: m
 
+  @doc "`path` with every symlink in it followed, as far as it exists: macOS's /var is /private/var."
+  @spec real_path(String.t()) :: String.t()
+  def real_path(path), do: real(Path.expand(path))
+
   # the root's own real path once, not per file: resolving 20,000 paths is a rename's first step
   defp resolve_each(paths, nil, _params), do: {:ok, Enum.map(paths, &Menard.resolve/1)}
 

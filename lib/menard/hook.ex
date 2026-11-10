@@ -720,7 +720,8 @@ defmodule Menard.Hook do
     ignored =
       files
       |> Enum.group_by(&(project(&1) || Path.dirname(&1)))
-      |> Enum.flat_map(fn {dir, group} -> ignored_in(dir, group, Path.expand(root)) end)
+      # real, as git's --show-toplevel is: else a repo under /var/folders never reached /private/var/…
+      |> Enum.flat_map(fn {dir, group} -> ignored_in(dir, group, Menard.Verbs.real_path(root)) end)
       |> MapSet.new()
 
     Enum.reject(files, &MapSet.member?(ignored, &1))
