@@ -1,13 +1,15 @@
 defmodule Menard.Run do
   @moduledoc """
-  The run verbs' parsers: mix's output → `failures` in one shape for every verb (`kind`, `message`,
-  `at`; a test failure adds its name, module, source and the assertion's code/left/right), the
-  counts, and a tail that is the summary, not the logs a suite prints on its way.
-  `mix menard.run` prints what these return, as one JSON line.
+  The run verbs: each runs mix in the project and answers `failures` in one shape for every verb
+  (`kind`, `message`, `at`; a test failure adds its name, module, source and the assertion's
+  code/left/right), the counts, and a tail that is the summary, not the logs a suite prints on its
+  way. `Menard.Run.Output` reads what mix printed; `mix menard.run` prints what these return, as
+  one JSON line.
   """
 
   alias Menard.Run.Lint
   alias Menard.Run.Lock
+  alias Menard.Run.Output
 
   @keep 40
   # what a repo with no mix.exs answers through its mise task of that name
@@ -64,46 +66,6 @@ defmodule Menard.Run do
   end
 
   @doc """
-  Parse `mix test` output (+ its exit status) into `%{ok, exit, tests, failed, skipped, excluded,
-  failures, tail}`. A run that excluded every test it had is not `ok`, whatever mix's exit.
-  `held`, what priv/ex_unit_formatter.exs wrote, gives the counts and the test failures when the
-  run had it; output menard does not run itself (a precommit alias) is read from its prose.
-  """
-  @spec parse_test(String.t(), non_neg_integer(), map() | nil, String.t() | nil) :: map()
-  def parse_test(out, status, held \\ nil, dir \\ nil) do
-    # `--repeat-until-failure N` prints one run after another, and only the LAST run says anything:
-    # the one that failed, or the Nth that passed. Its counts, failures and tail are the answer; the
-    # seed is how to reproduce it, and the run count is how long it hid.
-    runs = out |> String.split(~r/Running ExUnit with seed: /)
-    last = List.last(runs)
-    # the formatter's counts and failures when it wrote them, else what the prose says
-    {tests, failed, skipped, excluded, excluded_by, failures} = read_run(held, last)
-    # the compile before the first run: its warnings, which a green run went on to hide, or a test
-    # file's errors, which 1.19 on prints after the seed line, in the first run
-    # an umbrella's apps each print a run, and each may hold a test file's errors
-    suites = suites(held)
-    compile = runs |> Enum.take(max(2, suites + 1)) |> Enum.join() |> diagnostics(dir)
-    failures = failures ++ compile
-    # every test filtered out is no green, whatever mix's exit: `ok, tests: 0` read as "it passes"
-    # (up3-oban 03: a new test under a tag the test_helper excludes, and ~30 calls to find out why)
-    none_ran? = tests == 0 and (excluded || 0) > 0
-    failures = if none_ran? and failures == [], do: [none_ran(excluded, excluded_by)], else: failures
-
-    %{
-      ok: status == 0 and not none_ran?,
-      excluded: excluded,
-      exit: status,
-      tests: tests,
-      failed: failed,
-      skipped: skipped,
-      failures: if(failures == [] and status != 0, do: refusal(out), else: failures),
-      tail: summary(last),
-      runs: length(runs) - suites,
-      seed: seed(last)
-    }
-  end
-
-  @doc """
   The reply as both doors print it: what a reader looks for, nothing it has to filter out. Green,
   `ok` and the counts; red, the failures and the seed that reproduces them. `ok` and `failures`
   are always there, so every reply is the same shape. A tail stays only where it is the answer: a
@@ -131,316 +93,6 @@ defmodule Menard.Run do
     |> Map.update(:failures, [], &brief/1)
   end
 
-  # The first few failures whole; past them, where and what, the message's first line: the log has all
-
-  @doc """
-  Attach each failure's `source`: the test's body as written, from `at`'s file (under `root`)
-  starting at its line and ending at the matching `end` (the first line at the test's indent).
-  """
-  @spec with_sources(%{required(:failures) => [map()], optional(atom()) => term()}, String.t()) :: map()
-  def with_sources(%{failures: failures} = result, root) do
-    # `at` relative to the project, however mix printed it: under a precommit alias ExUnit prints
-    # absolute paths, and the same failure must not look different by which verb found it
-    prefix = Path.expand(root) <> "/"
-    # a test file changed since HEAD is the agent's own, its test written a call ago: its body said
-    # back is noise in a red reply
-    changed = changed_tests(root)
-
-    sourced = fn f ->
-      f = if is_binary(f[:at]), do: %{f | at: String.replace_prefix(f.at, prefix, "")}, else: f
-
-      if f[:kind] == "test" and not changed?(f[:at], changed),
-        do: Map.put(f, :source, source_of(f[:at], root)),
-        else: f
-    end
-
-    %{result | failures: Enum.map(failures, sourced)}
-  end
-
-  defp source_of(nil, _root), do: nil
-
-  defp source_of(at, root) do
-    [file, line] = String.split(at, ":")
-    path = Path.expand(file, root)
-
-    with true <- File.exists?(path),
-         lines <- File.read!(path) |> String.split("\n"),
-         {start, _} <- Integer.parse(line),
-         [head | rest] <- Enum.drop(lines, start - 1),
-         # a line that opens no block (`doctest Mod`, a one-line test) is the whole source: read
-         # down to the next `end` at its indent would be the rest of the module
-         true <- String.ends_with?(String.trim_trailing(head), " do") || head do
-      indent = String.length(head) - String.length(String.trim_leading(head))
-
-      body =
-        Enum.take_while(
-          rest,
-          &(String.trim(&1) != "end" or
-              String.length(&1) - String.length(String.trim_leading(&1)) != indent)
-        )
-
-      closer = Enum.at(rest, length(body))
-      Enum.join([head | body] ++ List.wrap(closer), "\n")
-    else
-      head when is_binary(head) -> head
-      _ -> nil
-    end
-  end
-
-  # ExUnit ≥ 1.20 prints `Result: 5 passed` / `Result: 3/5 passed`; older prints `5 tests, 2 failures`.
-  defp counts(out) do
-    cond do
-      m = Regex.run(~r/Result: (\d+)\/(\d+) passed.*/, out) ->
-        [line, passed, total] = m
-        {String.to_integer(total), String.to_integer(total) - String.to_integer(passed), skipped(line)}
-
-      m = Regex.run(~r/Result: (\d+) passed.*/, out) ->
-        [line, passed] = m
-        {String.to_integer(passed), 0, skipped(line)}
-
-      # `1 doctest, 1 property, 2 tests, 3 failures, 1 invalid`: every kind of test counts, and a test
-      # a failed setup_all invalidated did not pass. `N tests` counts the skipped too: out, as 1.20
-      # and the formatter leave them.
-      line =
-          ~r/^\d+ [a-z]+(?:, \d+ [a-z]+)*/m
-          |> Regex.scan(out)
-          |> List.flatten()
-          |> Enum.filter(&(&1 =~ "failure"))
-          |> List.last() ->
-        counted = for [_, n, word] <- Regex.scan(~r/(\d+) ([a-z]+)/, line), do: {word, String.to_integer(n)}
-        failed = for {word, n} <- counted, word in ~w(failure failures invalid), do: n
-        tests = for {word, n} <- counted, word not in ~w(failure failures invalid excluded skipped), do: n
-        {Enum.sum(tests) - skipped(line), Enum.sum(failed), skipped(line)}
-
-      true ->
-        {nil, nil, nil}
-    end
-  end
-
-  # a run's counts and failures: as the formatter held them, else as the prose says
-  defp read_run(nil, out) do
-    {tests, failed, skipped} = counts(out)
-    {tests, failed, skipped, excluded(out), nil, failures(out)}
-  end
-
-  # `excluded` is the project's filters' (its test_helper); the run's own (a file:line, --only, as
-  # the `test` filter) left out what was not asked for, and is no news. All of them, when nothing ran.
-  defp read_run(held, _out) do
-    by = held[:excluded_by] || %{}
-    project = by |> Map.delete("test") |> Map.values() |> Enum.sum()
-    excluded = if held.tests == 0, do: held[:excluded], else: project
-    {held.tests, held.failed, held[:skipped], excluded, Map.keys(by), held.failures ++ running(held)}
-  end
-
-  # `(N excluded)` in a summary line: the tests the project's filters (or the run's --only) left out
-  defp excluded(out) do
-    case Regex.run(~r/^\d+ [a-z]+.*\((\d+) excluded\)/m, out) do
-      [_, n] -> String.to_integer(n)
-      nil -> nil
-    end
-  end
-
-  defp none_ran(n, tags) do
-    include = (tags || []) |> List.delete("test") |> Enum.map_join(" ", &"--include #{&1}")
-
-    how =
-      cond do
-        tags == nil -> "the project's filters (its test_helper's exclude); `--include TAG` runs them"
-        include == "" -> "the run's own filter (--only, a file:line)"
-        true -> "the project's filters; `#{include}` runs them"
-      end
-
-    %{kind: "excluded", message: "no test ran: #{n} excluded by #{how}"}
-  end
-
-  # `N skipped` in a summary line. An excluded test is the project's own filter and no count, as in
-  # the formatter: a skip is a test that did not run when it was asked to.
-  defp skipped(line) do
-    case Regex.run(~r/(\d+) skipped/, line) do
-      [_, n] -> String.to_integer(n)
-      nil -> 0
-    end
-  end
-
-  # Each `N) TYPE NAME (Module)` block (a test, a doctest, a property) up to the next block or the
-  # summary, and each `N) Module: failure on setup_all callback` block.
-  defp failures(out) do
-    ~r/^\s*\d+\) (?:\w+ (.+?) \(([\w.]+)\)|([\w.]+): failure on setup_all callback[^\n]*)\n(.*?)(?=^\s*\d+\) |\nFinished in|\z)/ms
-    |> Regex.scan(out)
-    |> Enum.map(fn
-      [_, "", "", module, body] ->
-        %{
-          kind: "test",
-          name: "setup_all",
-          module: module,
-          message:
-            "setup_all failed, so none of the module's tests ran: " <> (error_of(body) || headline(body)),
-          at: first(~r/^\s*(\S+_test\.exs:\d+):/m, body)
-        }
-
-      [_, name, module, _, body] ->
-        %{
-          kind: "test",
-          message: error_of(body) || headline(body),
-          at: first(~r/^\s*(\S+_test\.exs:\d+)\s*$/m, body),
-          name: name,
-          module: module,
-          code: first(~r/^\s*code:\s+(.+)$/m, body),
-          left: first(~r/^\s*left:\s+(.+)$/m, body),
-          right: first(~r/^\s*right:\s+(.+)$/m, body)
-        }
-    end)
-    |> Enum.map(fn failure -> failure |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new() end)
-  end
-
-  # An assertion's reason: ExUnit's lines under the location up to its code, "Assertion with ==
-  # failed", or a property's generated values with the assertion under them
-  defp headline(body) do
-    body
-    |> String.split("\n")
-    |> Enum.map(&String.trim/1)
-    |> Enum.drop_while(&(&1 == "" or &1 =~ ~r/^\S+_test\.exs:\d+$/))
-    |> Enum.take_while(&(not Regex.match?(~r/^(code|left|right|stacktrace|doctest):/, &1)))
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.join("\n")
-  end
-
-  # Compiler warnings and errors, each the same shape as a test failure: kind, message, at. A
-  # dependency's print relative to its own root (`lib/styler/…`, under `==> styler`): no file of
-  # the project's, and not its failures (`ok: true` over a non-empty list).
-  defp diagnostics(out, dir) do
-    # its `└─` is the first below it: one with none (a deprecation mix prints bare) is not given
-    # the next diagnostic's place. In an umbrella the path may follow `(app 0.1.0) `
-    ~r/^([ \t]*)(warning|error): (.+\n(?:(?!\s*(?:warning|error): ).*\n)*?)\s*└─ (?:\([^)]*\) )?([^\s:]+):(\d+)/m
-    |> Regex.scan(out)
-    |> Enum.flat_map(fn [_, indent, kind, block, file, line] ->
-      case placed(file, dir) do
-        nil -> []
-        file -> [%{kind: kind, message: said(block, indent), at: "#{file}:#{line}"}]
-      end
-    end)
-    |> Kernel.++(raised(out))
-  end
-
-  # a diagnostic's message: its lines down to the gutter (`│`) that frames the code, at their own
-  # indent. A type warning's first line is "comparison between distinct types found:" and no more
-  defp said(block, indent) do
-    block
-    |> String.split("\n")
-    |> Enum.take_while(&(not String.starts_with?(String.trim_leading(&1), "│")))
-    |> Enum.map_join("\n", &String.replace_prefix(&1, indent, ""))
-    |> String.trim_trailing()
-  end
-
-  # the file as the project names it, or nil for one that is not the project's. An umbrella's app
-  # prints its paths from its own root
-  defp placed(file, nil), do: file
-
-  defp placed(file, dir) do
-    if File.exists?(Path.expand(file, dir)) do
-      file
-    else
-      case Path.wildcard(Path.join([dir, "apps", "*", file])) do
-        [one] -> Path.relative_to(one, dir)
-        _ -> nil
-      end
-    end
-  end
-
-  # A compile error raised as an exception (`cannot set attribute @doc inside function/macro`) comes
-  # as `== Compilation error in file F ==` and `** (Error) message` over a stack: no `error:` line
-  # for the pattern above, so it was no failure at all. `at` is the first frame in the project. The
-  # CompileError that says "errors have been logged" only sums up `error:` lines already parsed.
-  defp raised(out) do
-    for [_, file, error, message, stack] <-
-          Regex.scan(
-            ~r/== Compilation error in file (\S+) ==\n\*\* \(([\w.]+)\) (.+)\n((?:[ \t]+.*\n?)*)/,
-            out
-          ),
-        not String.contains?(message, "errors have been logged") do
-      at =
-        case Regex.run(~r/^\s+((?:lib|test|config)\/\S+?\.exs?):(\d+):/m, stack) do
-          [_, path, line] -> "#{path}:#{line}"
-          nil -> file
-        end
-
-      %{kind: "error", message: "(#{error}) #{message}", at: at}
-    end
-  end
-
-  # `mix format --check-formatted`'s list of files, each with its diff after
-  defp unformatted(out, dir) do
-    case String.split(out, "The following files are not formatted:", parts: 2) do
-      [_, rest] ->
-        root = Path.expand(dir) <> "/"
-
-        for line <- String.split(rest, "\n"),
-            path = String.trim(line),
-            path =~ ~r/\.(ex|exs|heex)$/,
-            do: %{kind: "format", message: "not formatted", at: String.replace_prefix(path, root, "")}
-
-      _ ->
-        []
-    end
-  end
-
-  # The `** (Error) message` line and what follows it up to `code:` or `stacktrace:`: a MatchError's
-  # value is on the lines after, and cut at the first line it read "no match of right hand side
-  # value:" and nothing else.
-  defp error_of(body) do
-    case body |> String.split("\n") |> Enum.drop_while(&(not String.starts_with?(String.trim(&1), "** "))) do
-      [] ->
-        nil
-
-      [first | rest] ->
-        more = Enum.take_while(rest, &(not Regex.match?(~r/^\s*(code|left|right|stacktrace|hint):/, &1)))
-
-        [first | more]
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
-        |> String.replace_prefix("** ", "")
-    end
-  end
-
-  defp first(re, text) do
-    case Regex.run(re, text) do
-      [_, v] -> String.trim(v)
-      _ -> nil
-    end
-  end
-
-  # From ExUnit's `Finished in` line to the end — the summary lines only.
-  defp summary(out) do
-    case Regex.run(~r/(Finished in .*)\z/s, out) do
-      [_, tail] ->
-        tail |> String.trim() |> String.split("\n") |> Enum.map_join("\n", &String.trim/1)
-
-      # no run at all: a compile error in a test file — the errors are what matters, not the
-      # last five lines (the stack trace under "cannot compile module")
-      _ ->
-        compile_errors(out)
-    end
-  end
-
-  defp compile_errors(out) do
-    case Regex.scan(~r/^\s*error: .*(?:\n(?!\s*error:).*)*?\n\s*└─ .*$/m, out) do
-      [] ->
-        # the last lines that say anything: a run stopped at its deadline ends in blank lines and the
-        # VM's shutdown notice, and what it was doing is just above them
-        out
-        |> String.split("\n")
-        |> Enum.reject(&(String.trim(&1) == ""))
-        |> Enum.take(-5)
-        |> Enum.join("\n")
-
-      errors ->
-        Enum.map_join(errors, "\n", fn [e] ->
-          e |> String.split("\n") |> Enum.map_join("\n", &String.trim/1)
-        end)
-    end
-  end
-
   defp verb(%{dir: dir} = run, "check", args) do
     # Formatting is mechanical, as an editor does it on save: the project formatted first, so the gate
     # fails on nothing a formatter fixes, and the reply names what it formatted
@@ -458,7 +110,7 @@ defmodule Menard.Run do
         do: check_steps(run, args),
         else:
           out
-          |> gate(status, fetched, dir)
+          |> Output.parse_check(status, fetched, dir)
           |> credo_named(out, run, "--strict" in args)
           |> step_named(failed_step)
 
@@ -518,7 +170,13 @@ defmodule Menard.Run do
     # no --force: the Elixir mix.exs requires reports, and fails on, warnings an earlier compile stored
     {out, status, fetched} = mix_fetching(run, ["compile", "--warnings-as-errors"])
 
-    %{ok: status == 0, exit: status, failures: diagnostics(out, run.dir), tail: tail(out), fetched: fetched}
+    %{
+      ok: status == 0,
+      exit: status,
+      failures: Output.diagnostics(out, run.dir),
+      tail: Output.tail(out),
+      fetched: fetched
+    }
   end
 
   defp verb(run, "credo", args) do
@@ -548,19 +206,6 @@ defmodule Menard.Run do
   end
 
   defp slowest(_args, _held), do: nil
-
-  # what the formatter wrote at the suite's end; nil when no suite ran
-  defp read_held(path) do
-    case File.read(path) do
-      {:ok, bin} ->
-        File.rm(path)
-        # an umbrella's suites, one per app, added up by the formatter (`suites`)
-        bin |> :erlang.binary_to_term([:safe]) |> Map.drop([:prior, :app, :out])
-
-      _ ->
-        nil
-    end
-  end
 
   # A precommit that failed in credo printed its report as text: the same report as data puts each
   # issue in `failures`, at the alias's own strictness. `--strict` asked of an alias that lints at
@@ -607,7 +252,7 @@ defmodule Menard.Run do
           ok: false,
           exit: status,
           failures: [%{kind: "error", message: "credo gave no report"}],
-          tail: tail(out),
+          tail: Output.tail(out),
           fetched: fetched
         }
     end
@@ -684,7 +329,7 @@ defmodule Menard.Run do
       end)
       |> case do
         {_out, 0, fetched} -> Map.update!(tested(run, [], run.log <> ".exunit"), :fetched, &(fetched ++ &1))
-        {out, status, fetched} -> gate(out, status, fetched, dir)
+        {out, status, fetched} -> Output.parse_check(out, status, fetched, dir)
       end
 
     lint =
@@ -704,29 +349,6 @@ defmodule Menard.Run do
   defp drop_format([arg | rest]), do: [arg | drop_format(rest)]
   defp drop_format([]), do: []
 
-  # Everything `check` can fail on, one shape: the files not formatted, the compiler's warnings and
-  # errors, the failing tests
-  defp problems(out, dir), do: unformatted(out, dir) ++ diagnostics(out, dir) ++ failures(out)
-
-  # `check`'s reply, whichever way it ran: `test`'s counts and summary, and every kind of failure
-  defp gate(out, status, fetched, dir) do
-    {tests, failed, skipped} = counts(out)
-
-    with_sources(
-      %{
-        ok: status == 0,
-        exit: status,
-        tests: tests,
-        failed: failed,
-        skipped: skipped,
-        failures: problems(out, dir),
-        tail: summary(out),
-        fetched: fetched
-      },
-      dir
-    )
-  end
-
   # ExUnit's failures as data, from a formatter required into the host's VM beside its CLI one: read
   # from the prose, a `left:` that did not fit one line came back as its first line. The prose
   # still says what no formatter sees (a test file that does not compile, mix refusing an option).
@@ -740,11 +362,11 @@ defmodule Menard.Run do
 
     {out, status, fetched} = mix_fetching(run, ["test" | formatters ++ args], host)
 
-    held = read_held(held)
+    held = Output.read_held(held)
 
     out
-    |> parse_test(status, held, run.dir)
-    |> with_sources(run.dir)
+    |> Output.parse_test(status, held, run.dir)
+    |> Output.with_sources(run.dir)
     |> Map.put(:fetched, fetched)
     |> Map.put(:ran, ran(args, held))
     |> Map.put(:slowest, slowest(args, held))
@@ -878,30 +500,14 @@ defmodule Menard.Run do
   # and one at least in a test file unchanged since HEAD: a red of the agent's own new test is the
   # red it wrote, no flake to look for
   defp rerun?(%{ok: false, failures: [_ | _] = failures}, args, dir) do
-    changed = changed_tests(dir)
+    changed = Output.changed_tests(dir)
 
     length(failures) <= 10 and Enum.all?(failures, &(&1[:kind] == "test" and &1[:at] != nil)) and
-      Enum.any?(failures, &(not changed?(&1.at, changed))) and
+      Enum.any?(failures, &(not Output.changed?(&1.at, changed))) and
       not Enum.any?(args, &(&1 in ["--failed", "--repeat-until-failure"]))
   end
 
   defp rerun?(_first, _args, _dir), do: false
-
-  # the files changed since HEAD, tracked and untracked, from `dir`; :unknown outside git
-  defp changed_tests(dir) do
-    git = &System.cmd("git", ["-C", dir | &1], stderr_to_stdout: true)
-
-    with {diff, 0} <- git.(["diff", "--name-only", "--relative", "HEAD"]),
-         {new, 0} <- git.(["ls-files", "--others", "--exclude-standard"]) do
-      MapSet.new(String.split(diff <> "\n" <> new, "\n", trim: true))
-    else
-      _ -> :unknown
-    end
-  end
-
-  defp changed?(_at, :unknown), do: false
-  defp changed?(at, changed) when is_binary(at), do: MapSet.member?(changed, at |> String.split(":") |> hd())
-  defp changed?(_at, _changed), do: false
 
   # a failure that passed again is a flake; one that failed again stands. A rerun that ran nothing
   # (it did not compile, mix refused) says nothing, and the first run is the answer
@@ -920,16 +526,6 @@ defmodule Menard.Run do
   end
 
   defp flakes(first, _again), do: first
-
-  # a run stopped at its deadline: the tests it was still running are failures too, by name
-  defp running(held) do
-    for test <- held[:running] || [],
-        do:
-          Map.merge(test, %{
-            kind: "timeout",
-            message: "still running when the run was stopped at its deadline"
-          })
-  end
 
   # A pull that moved mix.lock leaves deps/ behind it, and every run failed on "dependency not
   # available" until someone ran deps.get. mix's own message is the signal: fetch, run once more,
@@ -976,13 +572,13 @@ defmodule Menard.Run do
 
       File.write!(run.log, "$ mise run #{Enum.join([verb | args], " ")}\n#{out}\n", [:append])
       out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
-      %{ok: status == 0, exit: status, failures: [], ran: "mise run #{verb}", tail: tail(out)}
+      %{ok: status == 0, exit: status, failures: [], ran: "mise run #{verb}", tail: Output.tail(out)}
     else
       nil ->
         %{ok: false, failures: [], tail: none}
 
       {out, _status} ->
-        %{ok: false, failures: [], tail: if(out =~ "Task not found", do: none, else: tail(out))}
+        %{ok: false, failures: [], tail: if(out =~ "Task not found", do: none, else: Output.tail(out))}
     end
   end
 
@@ -1005,43 +601,7 @@ defmodule Menard.Run do
   defp slug(text),
     do: text |> String.replace(~r/[^A-Za-z0-9]+/, "-") |> String.trim("-") |> String.slice(0, 60)
 
-  defp tail(out), do: out |> String.split("\n") |> Enum.take(-12) |> Enum.join("\n")
-
-  # mix refusing to run at all (an unknown option, a task it cannot find): its `** (Mix)` line and
-  # what follows up to the first blank line, before the usage it lists after
-  defp suites(%{suites: suites}), do: suites
-  defp suites(_held), do: 1
-
-  defp refusal(out) do
-    case Regex.run(~r/^menard: (.+ did not finish in \d+s, and was stopped)$/m, out) do
-      [_, stopped] -> [%{kind: "timeout", message: stopped}]
-      nil -> refused(out)
-    end
-  end
-
-  defp refused(out) do
-    case out |> String.split("\n") |> Enum.drop_while(&(not String.starts_with?(&1, "** ("))) do
-      [] ->
-        []
-
-      lines ->
-        message =
-          lines
-          |> Enum.take_while(&(String.trim(&1) != ""))
-          |> Enum.join("\n")
-          |> String.replace_prefix("** ", "")
-
-        [%{kind: "error", message: message}]
-    end
-  end
-
-  defp seed(run) do
-    case Integer.parse(run) do
-      {seed, _rest} -> seed
-      :error -> nil
-    end
-  end
-
+  # The first few failures whole; past them, where and what, the message's first line: the log has all
   defp brief(failures) do
     {whole, rest} = Enum.split(failures, 3)
 
