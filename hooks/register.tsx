@@ -7,7 +7,7 @@ type Ui = { ui: { resolve: (e: never) => Record<string, any>; invalidate: (event
 
 // One call's line, and under it, once clicked, the call as it was made and answered. All of it
 // is the button: a click anywhere in an opened call folds it.
-function row($: Ui, e: unknown, opened: Set<string>, id: string, call: Call, said: string, lead: string) {
+function row($: Ui, e: unknown, opened: Set<string>, id: string, call: Call, said: string) {
   const { Text, Button } = $.ui.resolve(e as never)
   const isOpen = opened.has(id)
   const toggle = () => {
@@ -16,7 +16,7 @@ function row($: Ui, e: unknown, opened: Set<string>, id: string, call: Call, sai
   }
   return (
     <Button plain key={`menard-${id}`} onPress={toggle}>
-      {lead}
+      {'  ⎿  '}
       <Text color="remember">menard</Text> {said}
       <Text dimColor>{isOpen ? '  ▾' : '  ▸'}</Text>
       {isOpen ? <Text dimColor>{callText(call).map(line => `\n    ${line}`).join('')}</Text> : null}
@@ -44,7 +44,7 @@ export const register: Register = on => {
     ours.add(e.props.tool_use_id)
     const state = e.props.isRunning ? ' …' : e.props.isErrored || e.props.isInterrupted ? ' (failed)' : ''
     const call = { ...e.props, output: e.props.output ?? replies.get(e.props.tool_use_id) }
-    return row($, e, opened, e.props.tool_use_id, call, `${said}${state}`, '')
+    return row($, e, opened, e.props.tool_use_id, call, `${said}${state}`)
   })
 
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
@@ -65,7 +65,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {isAllSaid ? null : await next(e)}
-        {calls.map(({ call, id, said }) => row($, e, opened, id, call, said, isAllSaid ? '' : '  ⎿  '))}
+        {calls.map(({ call, id, said }) => row($, e, opened, id, call, said))}
       </Box>
     )
   })

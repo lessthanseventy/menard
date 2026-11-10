@@ -30,7 +30,7 @@ test('a menard call is its line, and a click opens the call as it was made', asy
   on('ui.render', (_, e) => ({ type: 'Text', props: {}, children: [`the ${(e as { component: string }).component} as drawn`] }) as never)
   const call = { tool: 'Bash', input: { command: "bin/menard edit - <<'EOF'\nlib/a.ex\n…" }, isRunning: false, isInterrupted: false, output: { stdout: '{"did":"edit a.ex: 1 replacement"}' } }
   const use = await $.ui.mount(row('ToolUse', call))
-  expect(await use.find({ text: /edit a\.ex: 1 replacement/ })).toBeDefined()
+  expect(await use.find({ text: /⎿  menard edit a\.ex: 1 replacement/ })).toBeDefined()
   expect(await use.find({ text: /the ToolUse as drawn/ })).toBeUndefined()
   const result = await $.ui.mount(row('ToolResult', { tool: 'Bash', output: call.output }))
   expect(await result.find({ text: /the ToolResult as drawn/ })).toBeUndefined()
