@@ -23,6 +23,29 @@ test('a menard call is named by what it did', async () => {
   expect(menardSaid({ tool: 'Read', input: { file_path: 'menard edit' } })).toBeNull()
 })
 
+const row = (component: 'ToolUse' | 'ToolResult', props: object) =>
+  ({ plugin: 'menard', component, surface: 'terminal', requestId: 't1', props: { tool_use_id: 't1', isErrored: false, ...props } }) as never
+
+test('a menard call is its line, and a click opens the call as it was made', async ($, on) => {
+  on('ui.render', (_, e) => ({ type: 'Text', props: {}, children: [`the ${(e as { component: string }).component} as drawn`] }) as never)
+  const call = { tool: 'Bash', input: { command: "bin/menard edit - <<'EOF'\nlib/a.ex\n…" }, isRunning: false, isInterrupted: false, output: { stdout: '{"did":"edit a.ex: 1 replacement"}' } }
+  const use = await $.ui.mount(row('ToolUse', call))
+  expect(await use.find({ text: /edit a\.ex: 1 replacement/ })).toBeDefined()
+  expect(await use.find({ text: /the ToolUse as drawn/ })).toBeUndefined()
+  const result = await $.ui.mount(row('ToolResult', { tool: 'Bash', output: call.output }))
+  expect(await result.find({ text: /the ToolResult as drawn/ })).toBeUndefined()
+
+  await use.press({ key: 'menard-t1' } as never)
+  expect(await use.find({ text: /the ToolUse as drawn/ })).toBeDefined()
+  expect(await result.find({ text: /the ToolResult as drawn/ })).toBeDefined()
+})
+
+test('a call that is not menard is drawn as it was', async ($, on) => {
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['ls as drawn'] }) as never)
+  const use = await $.ui.mount(row('ToolUse', { tool: 'Bash', input: { command: 'ls' }, isRunning: false, isInterrupted: false }))
+  expect(await use.find({ text: /ls as drawn/ })).toBeDefined()
+})
+
 const group = (calls: unknown[], isCallsOnly: boolean) =>
   ({ plugin: 'menard', component: 'ToolGroup', surface: 'terminal', props: { calls, isActive: false, isExpanded: false, isCallsOnly } }) as never
 
