@@ -77,6 +77,12 @@ defmodule Menard.RenameTest do
     assert Rename.run("defmodule A do\n  def go?, do: 1\nend\n", "go?", "run!") =~ "def run!, do: 1"
   end
 
+  test "a module spelled from Elixir, `Elixir.Shop.Cart`, is renamed and keeps the spelling" do
+    src = "defmodule U do\n  def go, do: Elixir.Shop.Cart.total(1) + Elixir.Shop.Cart.Item.n()\nend\n"
+    out = Rename.run(src, "Shop.Cart", "Shop.Basket")
+    assert out =~ "Elixir.Shop.Basket.total(1) + Elixir.Shop.Basket.Item.n()"
+  end
+
   test "a rename onto a function the module already has is refused: two functions would be one" do
     src = """
     defmodule A do

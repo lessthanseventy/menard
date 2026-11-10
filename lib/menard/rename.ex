@@ -200,6 +200,10 @@ defmodule Menard.Rename do
   defp renamed(nil, _old, _new), do: nil
   defp renamed(old, old, new), do: new
 
+  defp renamed("Elixir." <> name, old, new) do
+    if full = renamed(name, old, new), do: "Elixir." <> full
+  end
+
   defp renamed(name, old, new) do
     if String.starts_with?(name, old <> "."),
       do: new <> binary_part(name, byte_size(old), byte_size(name) - byte_size(old))
