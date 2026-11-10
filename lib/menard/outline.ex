@@ -37,7 +37,14 @@ defmodule Menard.Outline do
   defp modules({:defmodule, _, [name, [{_do, body}]]} = node, parent),
     do: [module(full_name(name, parent), body, node)]
 
+  # a module defined only where something is loaded (`if Code.ensure_loaded?(…) do`)
+  defp modules({guard, _, [_condition, branches]}, parent) when guard in [:if, :unless] and is_list(branches),
+    do: Enum.flat_map(branches, fn {_do, body} -> modules(body, parent) end)
+
   defp modules(_other, _parent), do: []
+
+  defp full_name({:__aliases__, _, [{:__MODULE__, _, _} | rest]}, parent) when is_binary(parent),
+    do: Enum.join([parent | rest], ".")
 
   defp full_name(name, nil), do: Macro.to_string(name)
   defp full_name(name, parent), do: parent <> "." <> Macro.to_string(name)
@@ -139,6 +146,12 @@ defmodule Menard.Outline do
 
   # A doc is a string literal Sourceror wraps in a `:__block__`; `false` (no doc) reads as nil.
   defp string_first_line({:__block__, _, [text]}) when is_binary(text), do: text |> String.split("\n") |> hd()
+
+  # `~S"""`, as a doc with backslashes or `#{` in its examples is written
+  defp string_first_line({sigil, _, [{:<<>>, _, [text | _]}, _modifiers]})
+       when sigil in [:sigil_S, :sigil_s] and is_binary(text),
+       do: text |> String.split("\n") |> hd()
+
   defp string_first_line(_other), do: nil
 
   defp lines(node), do: Menard.Tree.line_span(node)

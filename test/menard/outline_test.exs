@@ -14,6 +14,37 @@ defmodule Menard.OutlineTest do
 
   alias Menard.Outline
 
+  test "a module named under __MODULE__, one defined under an if, and a doc written as a sigil" do
+    src = ~S'''
+    defmodule Odd do
+      @moduledoc ~S"""
+      Odd things.
+      """
+
+      defmodule __MODULE__.Child do
+        def a, do: 1
+      end
+
+      if Code.ensure_loaded?(Foo) do
+        defmodule Inner do
+          def b, do: 2
+        end
+      end
+
+      @doc ~S"""
+      Says `\d`.
+      """
+      def c, do: 3
+    end
+    '''
+
+    assert {:ok,
+            [%{module: "Odd", doc: "Odd things.", modules: nested, defs: [%{name: :c, doc: "Says `\\d`."}]}]} =
+             Outline.run(src)
+
+    assert Enum.map(nested, & &1.module) == ["Odd.Child", "Odd.Inner"]
+  end
+
   @src """
   defmodule Demo.A do
     @moduledoc "the demo"

@@ -118,7 +118,15 @@ defmodule Menard.Find do
 
         ast
         |> Zipper.zip()
-        |> Zipper.traverse([], &add_hit(&1, &2, match.(Zipper.node(&1), aliases)))
+        |> Zipper.traverse_while([], fn zipper, hits ->
+          # a @spec, a @callback, a type: they name a function, and call and define nothing
+          if typed?(Zipper.node(zipper)) do
+            {:skip, zipper, hits}
+          else
+            {zipper, hits} = add_hit(zipper, hits, match.(Zipper.node(zipper), aliases))
+            {:cont, zipper, hits}
+          end
+        end)
         |> elem(1)
         |> Enum.reverse()
 
@@ -140,7 +148,16 @@ defmodule Menard.Find do
     end
   end
 
-  defp one_line(node), do: node |> Source.render() |> String.split("\n") |> List.first()
+  defp typed?({:@, _, [{name, _, [_ | _]}]}),
+    do: name in [:spec, :callback, :macrocallback, :type, :typep, :opaque]
+
+  defp typed?(_node), do: false
+
+  # the node's first line of code: a comment above it is rendered with it
+  defp one_line(node) do
+    lines = node |> Source.render() |> String.split("\n")
+    Enum.find(lines, hd(lines), &(not String.starts_with?(String.trim_leading(&1), "#")))
+  end
 
   # `def name(args)` as text, without the body — the head is what a search shows.
   defp head_only(kind, head), do: "#{kind} " <> Source.render(head)
