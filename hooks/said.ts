@@ -16,7 +16,7 @@ export const menardSaid = ({ tool, input, output }: Call): string | null => {
   const did = /"did":"([^"]*)"/.exec(reply)?.[1]
   if (did) return did.slice(0, MAX_SAID)
   const edits = Array.isArray(fields.edits) ? (fields.edits as { file?: unknown }[]).map(edit => edit.file) : []
-  const targets = [...edits, ...Object.values(fields)].filter(
+  const targets = [...edits, ...Object.values(fields).flat()].filter(
     (v): v is string => typeof v === 'string' && v.length <= 60 && !v.includes('\n'),
   )
   const ok = /"ok":(true|false)/.exec(reply)?.[1]
