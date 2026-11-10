@@ -303,26 +303,31 @@ defmodule Menard.Rename do
       modules
       |> flat()
       |> Enum.filter(&of?.(&1.module))
-      |> Enum.find_value(:ok, fn m ->
-        arities = fn name -> for d <- m.defs, Atom.to_string(d.name) == name, uniq: true, do: d.arity end
-
-        case arities.(old) -- (arities.(old) -- arities.(new)) do
-          [] ->
-            nil
-
-          [n | _] ->
-            {:error,
-             "rename: #{m.module} already has #{new}/#{n}, and #{old}/#{n} would become more of its clauses"}
-        end
-      end)
+      |> Enum.find_value(:ok, &clash(&1, old, new))
     end
   end
+
+  defp clash(m, old, new) do
+    arities = fn name -> for d <- m.defs, Atom.to_string(d.name) == name, uniq: true, do: d.arity end
+
+    case arities.(old) -- (arities.(old) -- arities.(new)) do
+      [] ->
+        nil
+
+      [n | _] ->
+        {:error,
+         "rename: #{m.module} already has #{new}/#{n}, and #{old}/#{n} would become more of its clauses"}
+    end
+  end
+
+  defp named_apart(_source, _old, _new, :variables), do: :ok
+  defp named_apart(source, old, new, _only), do: apart(source, old, new, fn _module -> true end)
 
   defp flat(modules), do: Enum.flat_map(modules, &[&1 | flat(&1.modules)])
 
   defp by_name(source, old, new, opts) do
     with {:ok, ast} <- Menard.Source.parse(source),
-         :ok <- if(opts[:only] == :variables, do: :ok, else: apart(source, old, new, fn _ -> true end)) do
+         :ok <- named_apart(source, old, new, opts[:only]) do
       Menard.Source.patch(
         source,
         code_patches(ast, old, new, opts) ++
