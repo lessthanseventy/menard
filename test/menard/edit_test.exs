@@ -210,9 +210,9 @@ defmodule Menard.EditTest do
     File.chmod!(a, 0o644)
   end
 
-  test "a path outside the root is refused", %{tmp_dir: dir} do
-    assert {:error, "refused: ../x.ex is outside" <> _} =
-             edit(dir, [%{file: "../x.ex", old: "a", new: "b"}])
+  test "a path outside the root, in no checkout under the home, is refused", %{tmp_dir: dir} do
+    assert {:error, "refused: /nonexistent-menard/x.ex is outside" <> _} =
+             edit(dir, [%{file: "/nonexistent-menard/x.ex", old: "a", new: "b"}])
   end
 
   test "the CLI's edits are search/replace blocks", %{tmp_dir: dir} do

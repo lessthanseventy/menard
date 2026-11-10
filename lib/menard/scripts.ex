@@ -141,6 +141,10 @@ defmodule Menard.Scripts do
     end
   end
 
+  @doc "The harness's name for menard's `edit` tool."
+  @spec edit_tool() :: String.t()
+  def edit_tool, do: System.get_env("MENARD_TOOL_PREFIX", "mcp__plugin_menard_menard__") <> "edit"
+
   # -- reading code --------------------------------------------------------
 
   # the commands of a command line, split at `&&`, `||`, `;`, `|` and new lines outside quotes: a
@@ -279,10 +283,8 @@ defmodule Menard.Scripts do
   end
 
   defp instead(menard) do
-    tool = System.get_env("MENARD_TOOL_PREFIX", "mcp__plugin_menard_menard__") <> "edit"
-
     """
-    Text is replaced, in one file or many, in one call, with menard's `edit` tool (`#{tool}`): \
+    Text is replaced, in one file or many, in one call, with menard's `edit` tool (`#{edit_tool()}`): \
     `edits` is a list of `{file, old, new}`, every `old` found exactly once or nothing written, and \
     an empty `old` makes a new file. A relative `file` is from the shell's directory. \
     `then: "compile"` checks it builds, credo's findings on the lines changed beside it; \
