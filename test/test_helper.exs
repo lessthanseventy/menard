@@ -11,6 +11,13 @@ System.delete_env("CLAUDE_CODE_SESSION_ID")
 # and by its env file, which every SessionStart a test sends would append menard's PATH line to
 System.delete_env("CLAUDE_ENV_FILE")
 
+# A verb given no root works where its caller stood, and for this VM that was this checkout: a
+# test that lost its root renamed through lib/. Where a test names no directory, an empty one.
+nowhere = Path.join(System.tmp_dir!(), "menard-test-nowhere-#{System.pid()}")
+File.mkdir_p!(nowhere)
+System.put_env("MENARD_CWD", nowhere)
+ExUnit.after_suite(fn _ -> File.rm_rf(nowhere) end)
+
 # the versions the verbs hand out and the formatters' cached deps go to this run's own directory:
 # async tests wrote into, and pruned, the cache the live sessions on this machine read
 cache = Path.join(System.tmp_dir!(), "menard-test-cache-#{System.pid()}")

@@ -821,6 +821,7 @@ defmodule Menard.MCPSessionTest do
   use ExUnit.Case, async: false
 
   alias Anubis.Server.Frame
+  alias Menard.MCP.Edit
 
   test "a relative path is from where the session stands, as its hook last saw, not where it started" do
     n = System.unique_integer([:positive])
@@ -834,7 +835,7 @@ defmodule Menard.MCPSessionTest do
 
     on_exit(fn ->
       System.delete_env("CLAUDE_CODE_SESSION_ID")
-      File.rm(Path.join(System.tmp_dir!(), "menard-cwd-#{session}"))
+      File.rm(Path.join(System.tmp_dir!(), "menard-cwd-mcp-cwd-#{System.pid()}-#{n}"))
       File.rm_rf!(root)
     end)
 
@@ -847,7 +848,7 @@ defmodule Menard.MCPSessionTest do
     })
 
     edit = %{edits: [%{file: "lib/a.ex", old: "do: 1", new: "do: 2"}]}
-    {:reply, response, _frame} = Menard.MCP.Edit.execute(edit, Frame.new())
+    {:reply, response, _frame} = Edit.execute(edit, Frame.new())
     refute response.isError
     assert File.read!(Path.join(here, "lib/a.ex")) =~ "def one, do: 2"
 
