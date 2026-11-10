@@ -92,7 +92,7 @@ defmodule Menard.Lang do
       []
     else
       dir = Path.dirname(file)
-      for i <- Menard.Run.only_changed(issues, dir), do: %{i | at: Path.join(dir, i.at)}
+      for i <- Menard.Run.Lint.only_changed(issues, dir), do: %{i | at: Path.join(dir, i.at)}
     end
   end
 
