@@ -4,6 +4,21 @@
 
 - The session's opening text says the check is its own call, read before a push: a session
   joined its gate to `git push` with `;`, and the push ran whatever the gate said.
+- A session idle past 30 minutes still answers its hooks: anubis ended the stdio session, and
+  every hook after waited out its timeout, about two minutes a Bash call. Every hook's timeout is
+  15 s, and a server that stopped answering is told apart from one that is up (`alive`).
+- The write verbs and `run` reach any git checkout under the home, not only the session's
+  directory; a sibling file's `then` runs in its own project.
+- Claude Code's `Edit`, `MultiEdit` and `Write` on an `.ex` or `.exs` file are refused for `edit`,
+  outside `deps`, `_build`, `.git` and `node_modules`; an `.ex` that is no Elixir (an EEx
+  template) is left to them, as `edit` would not write it.
+- A run whose `_build` lock cannot be taken says so; a run's mix is given neither the session's id
+  nor `MENARD_ROOT`.
+- A fixture repo under an ignored `tmp/` is left alone on macOS too.
+- `menard --help` through `head` runs as written.
+- Under auto mode, a command the hook would rewrite is refused with the command to run: auto mode
+  gave no verdict on a call a hook had changed.
+- A refused batch says its other edits are kept unwritten for the retry.
 
 ## 0.8.9
 

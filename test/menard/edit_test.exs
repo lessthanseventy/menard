@@ -282,7 +282,7 @@ defmodule Menard.EditTest do
 
     error = assert_raise(Mix.Error, fn -> Mix.Tasks.Menard.Edit.run([batch]) end)
     assert error.message =~ "edit 2 of 2, lib/a.ex: this text is not there"
-    assert error.message =~ "The other 1 are kept: send edit 2 corrected, alone"
+    assert error.message =~ "The other 1 are kept, unwritten, for the retry: send edit 2 corrected, alone"
     assert error.message =~ "--retry 2 -"
     assert File.read!(Path.join(dir, "lib/a.ex")) =~ "def one, do: 1"
 

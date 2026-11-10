@@ -82,7 +82,7 @@ defmodule Mix.Tasks.Menard.Edit do
       File.write!(kept_path(), :erlang.term_to_binary(edits))
 
       why <>
-        "\nThe other #{String.to_integer(total) - 1} are kept: send edit #{n} corrected, alone, as\n" <>
+        "\nThe other #{String.to_integer(total) - 1} are kept, unwritten, for the retry: send edit #{n} corrected, alone, as\n" <>
         "  #{Menard.command("edit")} --retry #{n} - <<'EOF'\n  FILE\n  <<<<<<< SEARCH\n  …\n  EOF"
     else
       _ -> why
