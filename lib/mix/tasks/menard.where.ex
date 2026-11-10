@@ -15,6 +15,8 @@ defmodule Mix.Tasks.Menard.Where do
   import Menard.CLI
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("where")
+
   def run(argv) do
     if argv == [], do: usage("mix menard.where FILE:LINE...")
     {:ok, %{at: found}} = Verbs.Outline.run(%{verb: "where", at: argv})

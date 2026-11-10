@@ -26,6 +26,8 @@ defmodule Mix.Tasks.Menard.Run do
   import Menard.CLI
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("run")
+
   def run(argv) do
     # Only `--in` is menard's; every other flag belongs to the mix task behind the verb
     # (`--repeat-until-failure 50`, `--seed 0`, `--only integration`) and passes through untouched.

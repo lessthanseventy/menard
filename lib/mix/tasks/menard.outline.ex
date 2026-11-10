@@ -12,6 +12,8 @@ defmodule Mix.Tasks.Menard.Outline do
   import Menard.CLI
 
   @impl true
+  def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("outline")
+
   def run(argv) do
     {opts, files} = options(argv, json: :boolean)
     if files == [], do: usage("mix menard.outline [--json] FILE...")
