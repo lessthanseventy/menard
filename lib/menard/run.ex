@@ -588,7 +588,8 @@ defmodule Menard.Run do
   end
 
   defp credo(run, args) do
-    {strict, args} = {"--strict" in args, args -- ["--strict"]}
+    # as strict as the project gates, asked or not: a clean answer its gate would not give is none
+    {strict, args} = {"--strict" in args or Lint.credo_strict?(run.dir), args -- ["--strict"]}
     {changed, files} = {"--changed" in args, args -- ["--changed"]}
     # the report is read as JSON: a caller's `--format oneline` came after it, won, and nothing parsed
     files = drop_format(files)
