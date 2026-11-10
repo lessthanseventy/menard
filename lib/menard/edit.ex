@@ -45,6 +45,10 @@ defmodule Menard.Edit do
          {:ok, changed} <- written(files, contents, before) do
       root = opts[:root] || File.cwd!()
 
+      # an `all` that made several replacements counts each
+      {places, notes} = Enum.split_with(notes, &match?({_file, {:places, _}}, &1))
+      more = Enum.sum(for {_file, {:places, n}} <- places, do: n - 1)
+
       # each note under its key: `moved` (a function put after its clauses), `indented` (text found deeper)
       notes =
         notes
@@ -54,7 +58,7 @@ defmodule Menard.Edit do
         # once a file: `indented` was said per replacement, 42 copies in 29 replies
         |> Map.new(fn {key, notes} -> {key, Enum.uniq(notes)} end)
 
-      {:ok, Map.merge(%{changed: changed, replacements: length(edits)}, notes)}
+      {:ok, Map.merge(%{changed: changed, replacements: length(edits) + more}, notes)}
     else
       # a file as the caller named it: under `root:`, where there is one; and which edit of the
       # batch, so the CLI can keep the rest for a retry of that one (`mix menard.edit --retry`)
@@ -177,7 +181,7 @@ defmodule Menard.Edit do
     case {:binary.matches(text, old), edit[:all] == true} do
       {[], _all} -> deeper(text, edit) || {:error, missed(text, old)}
       {[{at, length}], _all} -> placed(text, edit, at + length)
-      {_several, true} -> {:ok, String.replace(text, old, new)}
+      {several, true} -> {:ok, String.replace(text, old, new), {:places, length(several)}}
       {several, false} -> {:error, several(text, old, several)}
     end
   end
@@ -422,28 +426,35 @@ defmodule Menard.Edit do
   end
 
   defp written(files, contents, before) do
+    made = files |> Enum.flat_map(&missing(Path.dirname(&1))) |> Enum.uniq()
+
     Enum.reduce_while(files, {:ok, []}, fn file, {:ok, done} ->
       {:ok, text} = contents[file]
 
-      case write(file, text, done, before) do
+      case write(file, text, done, before, made) do
         {:ok, reply} ->
           {:cont, {:ok, done ++ [lean(reply)]}}
 
         {:error, why} ->
           # the ones written so far; a write that failed wrote nothing, and may not be writable
-          restore(Enum.map(done, & &1.file), before)
+          restore(Enum.map(done, & &1.file), before, made)
           {:halt, {:error, refusal(file, why)}}
       end
     end)
   end
 
+  # the directories above a new file that are not there yet, deepest first
+  defp missing(dir) do
+    if File.exists?(dir) or dir == Path.dirname(dir), do: [], else: [dir | missing(Path.dirname(dir))]
+  end
+
   # a crash in one file's write puts back the files written before it, then is raised as it was
-  defp write(file, text, done, before) do
+  defp write(file, text, done, before, made) do
     File.mkdir_p!(Path.dirname(file))
     Menard.write(file, text, did: "edit #{Path.basename(file)}")
   rescue
     e ->
-      restore([file | Enum.map(done, & &1.file)], before)
+      restore([file | Enum.map(done, & &1.file)], before, made)
       reraise e, __STACKTRACE__
   end
 
@@ -458,12 +469,15 @@ defmodule Menard.Edit do
     |> Map.merge(if(after_it == [], do: %{}, else: %{stages: after_it}))
   end
 
-  defp restore(files, before) do
+  defp restore(files, before, made) do
     for file <- files do
       case before[file] do
         {:ok, text} -> File.write!(file, text)
         {:error, _} -> File.rm(file)
       end
     end
+
+    # the directories this call made, where nothing else has been put since
+    made |> Enum.sort_by(&(-byte_size(&1))) |> Enum.each(&File.rmdir/1)
   end
 end

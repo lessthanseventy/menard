@@ -113,8 +113,23 @@ defmodule Menard.EditTest do
     assert why =~ "2 times"
     assert why =~ "lines 2, 3"
 
-    assert {:ok, _} = edit(dir, [%{file: "lib/a.ex", old: "do:", new: "do: 0 +", all: true}])
+    assert {:ok, %{replacements: 2}} = edit(dir, [%{file: "lib/a.ex", old: "do:", new: "do: 0 +", all: true}])
     assert read(dir, "lib/a.ex") =~ "def one, do: 0 + 1\n  def two, do: 0 + 2"
+  end
+
+  test "a batch refused at its write leaves no directory it made for a file before", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "lib/b.ex"), "defmodule B do\n  def go, do: A.one()\nend\n")
+    File.chmod!(Path.join(dir, "lib/b.ex"), 0o444)
+    File.chmod!(Path.join(dir, "lib"), 0o555)
+    on_exit(fn -> File.chmod(Path.join(dir, "lib"), 0o755) end)
+
+    assert {:error, _} =
+             edit(dir, [
+               %{file: "new/deep/c.txt", old: "", new: "c\n"},
+               %{file: "lib/b.ex", old: "A.one()", new: "A.two()"}
+             ])
+
+    refute File.exists?(Path.join(dir, "new"))
   end
 
   test "a later replacement sees what an earlier one of the call made", %{tmp_dir: dir} do
