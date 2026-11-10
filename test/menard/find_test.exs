@@ -57,6 +57,27 @@ defmodule Menard.FindTest do
     assert [%{line: 8, text: "total(1)"}] = Find.calls(src, "total")
   end
 
+  test "calls: an alias is its own module's, not the whole file's" do
+    src = """
+    defmodule One do
+      alias Shop.Cart, as: A
+      def go, do: A.total(1)
+    end
+
+    defmodule Two do
+      alias Other.Thing, as: A
+      def go, do: A.total(2)
+
+      defmodule In do
+        def go, do: A.total(3)
+      end
+    end
+    """
+
+    assert [%{line: 3}] = Find.calls(src, "Shop.Cart.total")
+    assert [%{line: 8}, %{line: 11}] = Find.calls(src, "Other.Thing.total")
+  end
+
   test "calls: a bare call in a module that imports the target's module" do
     # `find calls Menard.Verbs.edit lib`, where every writing verb calls it as `edit(…)` under
     # `import Menard.Verbs`
