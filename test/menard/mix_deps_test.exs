@@ -136,6 +136,7 @@ defmodule Menard.MixDepsTest do
 
       assert %{ok: false, error: _} = MixDeps.add_in(host, ~s({:gone, path: "../nowhere"}))
       assert File.read!(Path.join(host, "mix.exs")) == before
+      refute File.exists?(Path.join(host, "mix.lock"))
     end
 
     test "upgrade runs the update and answers the same way", %{tmp_dir: dir} do

@@ -177,7 +177,11 @@ defmodule Menard.MixDeps do
 
       {output, _status} ->
         File.write!(mix_exs, source)
-        if lock_before, do: File.write!(Path.join(dir, "mix.lock"), lock_before)
+        # a lock the failed command made is none of the project's
+        if lock_before,
+          do: File.write!(Path.join(dir, "mix.lock"), lock_before),
+          else: File.rm(Path.join(dir, "mix.lock"))
+
         tail = output |> String.split("\n") |> Enum.take(-8) |> Enum.join("\n")
 
         Map.merge(extra, %{ok: false, error: "#{Enum.join(command, " ")} failed; mix.exs put back:\n" <> tail})
