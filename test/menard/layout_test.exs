@@ -145,6 +145,37 @@ defmodule Menard.LayoutTest do
     assert {^twice, []} = Layout.private_last(was, twice)
   end
 
+  test "a new private macro stays above the function that calls it" do
+    after_edit = """
+    defmodule T do
+      defmacrop twice(x), do: quote(do: unquote(x) * 2)
+
+      def a, do: twice(1)
+
+      def b, do: 2
+
+      defp c, do: 3
+    end
+    """
+
+    assert {^after_edit, []} = Layout.private_last(@before, after_edit)
+  end
+
+  test "a new attribute nothing reads is the next function's own, and stays above it" do
+    after_edit = """
+    defmodule T do
+      def a, do: 1
+
+      @decorate cache()
+      def b, do: 2
+
+      defp c, do: 3
+    end
+    """
+
+    assert {^after_edit, []} = Layout.private_last(@before, after_edit)
+  end
+
   test "a new function written between another's clauses goes after its last clause" do
     # `clause rewrite` of one clause, a new helper written under it, between the function's clauses:
     # every write moves it
