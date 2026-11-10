@@ -1,10 +1,11 @@
 export type Call = { tool: string; input: unknown; output?: unknown }
 
 const MENARD_TOOL = /^mcp__plugin_menard_menard__(\w+)$/
-// menard's verbs (`menard help`): a command that only mentions menard, in a commit message's
-// words, is not a call
+// menard's verbs (`menard help`), and a command that starts with the call (after a `cd X &&`):
+// one that only mentions menard, in a commit message's words or a quoted string, is not a call,
+// and neither is one that ran something else first
 export const VERBS = 'edit rename find outline clause stmt block attr directive module write deps run map where version'
-const MENARD_SHELL = new RegExp(`(?:^|[\\s/;&|(])menard\\s+(?:--frozen\\s+)?(${VERBS.replaceAll(' ', '|')})\\b([^\\n;&|<>]*)`)
+const MENARD_SHELL = new RegExp(`^\\s*(?:cd\\s+\\S+\\s*&&\\s*)?(?:\\S*/)?menard\\s+(?:--frozen\\s+)?(${VERBS.replaceAll(' ', '|')})\\b([^\\n;&|<>]*)`)
 const MAX_SAID = 100
 
 // What a menard call did, in menard's own words: a write's reply carries `did`, a run's `ok`.
