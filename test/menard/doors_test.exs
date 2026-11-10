@@ -157,7 +157,9 @@ defmodule Menard.DoorsTest do
   end
 
   test "the MCP door refuses a path outside its root; the CLI resolves against the caller's directory" do
-    assert {:error, "refused: ../x.ex is outside" <> _} = mcp(Menard.MCP.Outline, %{file: "../x.ex"})
+    assert {:error, "refused: /nonexistent-menard/x.ex is outside" <> _} =
+             mcp(Menard.MCP.Outline, %{file: "/nonexistent-menard/x.ex"})
+
     assert {:error, "cannot read " <> _} = cli(Mix.Tasks.Menard.Outline, ["--json", "../x.ex"])
   end
 

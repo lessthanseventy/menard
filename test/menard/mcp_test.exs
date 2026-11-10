@@ -281,6 +281,26 @@ defmodule Menard.MCPTest do
     assert {:ok, _} = Menard.MCP.resolve("src/a.ex")
   end
 
+  test "a path in another git checkout under the home resolves; one in none, or under a dot-directory, is refused",
+       %{root: root} do
+    home = Path.join(root, "home")
+    here = Path.join(home, "projects/here")
+    there = Path.join(home, "projects/there")
+    for repo <- [here, there, Path.join(home, ".claude/x"), home], do: File.mkdir_p!(Path.join(repo, ".git"))
+    File.ln_s!(root, Path.join(there, "out"))
+    p = %{root: here, home: home}
+
+    sibling = Path.join(there, "lib/b.ex")
+    assert {:ok, ^sibling} = Menard.Verbs.resolve("../there/lib/b.ex", p)
+    assert {:ok, [_, ^sibling]} = Menard.Verbs.resolve_all(["lib/a.ex", sibling], p)
+
+    # the home's own repo, a dot-directory's, a checkout's .git, and a link out of the home
+    for refused <- ["~/notes/a.ex", "~/.claude/x/a.ex", "../there/.git/a.ex", "../there/out/a.ex"] do
+      path = String.replace_prefix(refused, "~", home)
+      assert {:error, "refused: " <> _} = Menard.Verbs.resolve(path, p), "#{refused} resolved"
+    end
+  end
+
   test "resolving many files costs each once" do
     # counted in reductions, the VM's own measure of work done, not by the clock: a wall-clock
     # bound failed on a loaded host with the code linear (3-4 s against 2 s)
@@ -828,6 +848,10 @@ defmodule Menard.MCPTransportTest do
     for noun <- Enum.map(Verbs.Noun.modules(), &Verbs.Noun.of/1) do
       assert wait > Verbs.Noun.deadline(noun), "#{noun.name} may run past the transport's #{wait} ms"
     end
+  end
+
+  test "a session left idle for a week still answers: an expired stdio session answers nothing" do
+    assert Reply.transport()[:session_idle_timeout] > to_timeout(week: 1)
   end
 end
 

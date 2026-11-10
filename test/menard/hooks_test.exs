@@ -101,6 +101,49 @@ defmodule Menard.HooksTest do
 
     assert Enum.any?(matchers, &Regex.match?(&1, "mcp__plugin_menard_menard__edit"))
     refute Enum.any?(matchers, &Regex.match?(&1, "mcp__plugin_menard_menard-hooks__hook"))
+
+    for tool <- ["Edit", "MultiEdit", "Write"], do: assert(Enum.any?(matchers, &Regex.match?(&1, tool)))
+  end
+
+  @tag :tmp_dir
+  test "a built-in Edit or Write of an Elixir file edit takes is refused for edit; any other is the harness's",
+       %{tmp_dir: dir} do
+    home = Path.join(dir, "home")
+    here = Path.join(home, "projects/here")
+    there = Path.join(home, "projects/there")
+    dotted = Path.join(home, ".claude/plugin")
+    for repo <- [there, dotted], do: File.mkdir_p!(Path.join(repo, ".git"))
+    File.mkdir_p!(here)
+
+    pre = fn tool, file ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => "PreToolUse",
+          "tool_name" => tool,
+          "session_id" => "e#{System.unique_integer([:positive])}",
+          "cwd" => here,
+          "tool_input" => %{"file_path" => file}
+        },
+        state_dir: dir,
+        home: home
+      )
+    end
+
+    for tool <- ["Edit", "MultiEdit", "Write"], file <- ["lib/a.ex", Path.join(here, "test/a_test.exs")] do
+      assert {:deny, why} = pre.(tool, file)
+      assert why =~ "is Elixir, written with menard's `edit`"
+      assert why =~ "not #{tool}"
+    end
+
+    # a sibling checkout is edit's too
+    assert {:deny, why} = pre.("Edit", Path.join(there, "lib/b.ex"))
+    assert why =~ "projects/there/lib/b.ex is Elixir"
+
+    left =
+      ["README.md", "deps/x/lib/x.ex", "_build/dev/a.ex"] ++
+        [Path.join(dotted, "a.ex"), Path.join(home, "notes/a.ex"), Path.join(there, ".git/a.ex")]
+
+    for file <- left, do: assert(pre.("Edit", file) == :quiet, "#{file} is not edit's to take")
   end
 
   test "every hook command runs its script with the interpreter its shebang names" do

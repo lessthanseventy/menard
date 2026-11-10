@@ -79,7 +79,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       (session && Menard.Hook.session_dir(session)) || System.get_env("MENARD_ROOT") || Menard.caller_dir()
     end
 
-    @doc "A path under the root, or a refusal — no edit escapes the launch directory (`Menard.Verbs.resolve/2`)."
+    @doc "A path under the root or in a sibling checkout under the home, or a refusal (`Menard.Verbs.resolve/2`)."
     @spec resolve(String.t()) :: {:ok, String.t()} | {:error, String.t()}
     def resolve(path), do: Menard.Verbs.resolve(path, %{root: root()})
 

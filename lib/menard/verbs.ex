@@ -8,9 +8,9 @@ defmodule Menard.Verbs do
   task, an MCP tool) only turns its input into the params and the result into its own answer:
   the CLI prints the reply as one JSON line and raises the reason, the MCP tool returns each.
 
-  `root` in the params is the MCP door's launch directory: a path resolves under it and one that
-  escapes it is refused. Without it a path resolves against the caller's directory, as the CLI
-  means it.
+  `root` in the params is the MCP door's launch directory: a path resolves under it, or in another
+  git checkout under the user's home (`home`, else `System.user_home/0`), and any other is refused.
+  Without it a path resolves against the caller's directory, as the CLI means it.
   """
 
   alias Menard.Run.Lint
@@ -21,14 +21,14 @@ defmodule Menard.Verbs do
 
   @doc """
   A path as the door meant it: under `params[:root]`, as written and as the OS follows it (a
-  symlink under the root that points outside it passed the first test alone), or against the
-  caller's directory when no root is given.
+  symlink under the root that points outside it passed the first test alone), or in another git
+  checkout under the user's home; against the caller's directory when no root is given.
   """
   @spec resolve(String.t(), params()) :: {:ok, String.t()} | {:error, String.t()}
   def resolve(path, params) do
     case params[:root] do
       nil -> {:ok, Menard.resolve(path)}
-      root -> resolve_under(path, Path.expand(root), real(Path.expand(root)))
+      root -> resolve_under(path, Path.expand(root), real(Path.expand(root)), home(params))
     end
   end
 
@@ -49,7 +49,7 @@ defmodule Menard.Verbs do
 
     case expanded do
       [] -> {:error, "no file matches #{paths |> Enum.filter(glob?) |> Enum.join(", ")}"}
-      _ -> resolve_each(expanded, params[:root])
+      _ -> resolve_each(expanded, params[:root], params)
     end
   end
 
@@ -128,15 +128,16 @@ defmodule Menard.Verbs do
   def module(m), do: m
 
   # the root's own real path once, not per file: resolving 20,000 paths is a rename's first step
-  defp resolve_each(paths, nil), do: {:ok, Enum.map(paths, &Menard.resolve/1)}
+  defp resolve_each(paths, nil, _params), do: {:ok, Enum.map(paths, &Menard.resolve/1)}
 
-  defp resolve_each(paths, root) do
+  defp resolve_each(paths, root, params) do
     root = Path.expand(root)
     real_root = real(root)
+    home = home(params)
 
     resolved =
       Enum.reduce_while(paths, {:ok, []}, fn p, {:ok, acc} ->
-        case resolve_under(p, root, real_root) do
+        case resolve_under(p, root, real_root, home) do
           {:ok, abs} -> {:cont, {:ok, [abs | acc]}}
           {:error, _} = refused -> {:halt, refused}
         end
@@ -145,12 +146,45 @@ defmodule Menard.Verbs do
     with {:ok, reversed} <- resolved, do: {:ok, Enum.reverse(reversed)}
   end
 
-  defp resolve_under(path, root, real_root) do
+  defp resolve_under(path, root, real_root, home) do
     abs = Path.expand(path, root)
 
-    if under?(abs, root) and under?(real_below(abs, root, real_root), real_root),
-      do: {:ok, abs},
-      else: {:error, "refused: #{path} is outside #{root}"}
+    cond do
+      under?(abs, root) and under?(real_below(abs, root, real_root), real_root) -> {:ok, abs}
+      in_a_checkout?(real(abs), home) -> {:ok, abs}
+      true -> {:error, "refused: #{path} is outside #{root}, and in no git checkout under the user's home"}
+    end
+  end
+
+  defp home(params) do
+    case params[:home] || System.user_home() do
+      home when is_binary(home) -> real(Path.expand(home))
+      nil -> nil
+    end
+  end
+
+  # A sibling repo is the session's too: a file, as the OS follows it, in a git checkout under the
+  # home. Not the home's own repo (dotfiles), one under a dot-directory of it (~/.claude, ~/.ssh), or
+  # a checkout's .git.
+  defp in_a_checkout?(_real, nil), do: false
+
+  defp in_a_checkout?(real, home) do
+    with true <- under?(real, home) and real != home,
+         [top | _] <- Path.split(Path.relative_to(real, home)),
+         false <- String.starts_with?(top, "."),
+         repo when is_binary(repo) <- checkout(Path.dirname(real), home) do
+      ".git" not in Path.split(Path.relative_to(real, repo))
+    else
+      _ -> false
+    end
+  end
+
+  defp checkout(dir, home) do
+    cond do
+      dir == home or not under?(dir, home) -> nil
+      File.exists?(Path.join(dir, ".git")) -> dir
+      true -> checkout(Path.dirname(dir), home)
+    end
   end
 
   # only the part below the root is walked, from the root's own real path: each link looked up is a
@@ -239,7 +273,8 @@ defmodule Menard.Verbs do
   defp project_of(dir, root) do
     cond do
       File.regular?(Path.join(dir, "mix.exs")) -> dir
-      dir == root or not String.starts_with?(dir, root <> "/") -> root
+      # a file in a sibling checkout is walked up to its own project, past where the root would stop
+      dir == root or dir == Path.dirname(dir) -> root
       true -> project_of(Path.dirname(dir), root)
     end
   end

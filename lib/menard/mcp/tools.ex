@@ -102,10 +102,17 @@ if Code.ensure_loaded?(Anubis.Server) do
     a `run check`, or an `edit` whose `then` ran a slow test file, did its work and never answered.
     Every tool answers within its own deadline (`bounded/4`), so the transport waits past the
     longest of them.
+
+    Anubis also ends a session idle for 30 minutes, and a stdio client never initializes again, so
+    every later call goes unanswered. The session lasts as long as a timer can: 2^32 - 1 ms, 49 days.
     """
     @spec transport() :: keyword()
     def transport,
-      do: [transport: :stdio, request_timeout: Verbs.Noun.deadline(Verbs.Run.noun()) + 30_000]
+      do: [
+        transport: :stdio,
+        request_timeout: Verbs.Noun.deadline(Verbs.Run.noun()) + 30_000,
+        session_idle_timeout: 0xFFFFFFFF
+      ]
 
     @doc "What the server runs, stamped as current: called once it has started."
     @spec loaded!() :: :ok

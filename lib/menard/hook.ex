@@ -222,6 +222,15 @@ defmodule Menard.Hook do
     end
   end
 
+  # An Elixir file `edit` can take is `edit`'s: it parse-checks, formats and batches. One it refuses
+  # (`Menard.Verbs.resolve/2`), or one in a build or a dep, is left to the harness's own tool.
+  defp tool(%{tool: tool, event: "PreToolUse"} = hook) when tool in ["Edit", "MultiEdit", "Write"] do
+    case editable(hook, hook.input["file_path"]) do
+      nil -> :quiet
+      rel -> {:deny, told(hook, by_edit(hook, tool, rel))}
+    end
+  end
+
   defp tool(%{tool: "Bash", event: "PreToolUse"} = hook) do
     command = hook.input["command"] || ""
     bare = Scripts.unfiltered(command)
@@ -451,6 +460,28 @@ defmodule Menard.Hook do
              "#{menard(hook)} clause get #{rel} NAME; every function's lines: #{menard(hook)} outline #{rel}."
          )},
       else: :quiet
+  end
+
+  # the file's path from the session's directory when `edit` would take it, else nil
+  defp editable(hook, file) when is_binary(file) do
+    with true <- Path.extname(file) in [".ex", ".exs"],
+         {:ok, path} <- Menard.Verbs.resolve(file, %{root: hook.root, home: hook.home}),
+         rel = Path.relative_to(path, Path.expand(hook.root)),
+         false <- Enum.any?(Path.split(rel), &(&1 in @prune)) do
+      rel
+    else
+      _ -> nil
+    end
+  end
+
+  defp editable(_hook, _file), do: nil
+
+  defp by_edit(hook, tool, rel) do
+    "#{rel} is Elixir, written with menard's `edit` (`#{Scripts.edit_tool()}`; a deferred tool is " <>
+      "loaded with ToolSearch first), not #{tool}: `edits: [{file, old, new}]` in one call, each " <>
+      "`old` found exactly once, an empty `old` for a new file, and `then: \"compile\"` checks it " <>
+      "builds. From the shell: `#{menard(hook)} edit --then compile -`, each file's path on a line, " <>
+      "then its `<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE` blocks."
   end
 
   defp whole?(input), do: input["offset"] == nil and input["limit"] == nil
