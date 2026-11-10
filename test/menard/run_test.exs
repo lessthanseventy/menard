@@ -828,6 +828,19 @@ defmodule Menard.RunTest do
     assert lean.log == "/l"
   end
 
+  test "a failure whose message is a page of inspected value is cut, and says the log has it" do
+    # a KeyError prints the whole map it missed in: three of those were a 15,000 character reply
+    long = "(KeyError) key :a not found in:\n" <> String.duplicate("x", 5_000)
+    failure = %{kind: "test", name: "t", at: "test/a_test.exs:1", message: long, left: long, right: "1"}
+
+    assert %{failures: [cut]} = Run.lean(%{ok: false, exit: 2, failures: [failure], log: "/l"})
+    assert String.starts_with?(cut.message, "(KeyError) key :a not found in:\n")
+    assert String.ends_with?(cut.message, "… 3032 more characters, in the log")
+    assert String.length(cut.message) < 2_100
+    assert String.length(cut.left) < 2_100
+    assert cut.right == "1"
+  end
+
   @tag :tmp_dir
   test "run test --slowest-modules N answers with the N test files that took longest, their tests counted", %{
     tmp_dir: dir

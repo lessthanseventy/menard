@@ -51,6 +51,19 @@ Package and CLI:
 - A piped `mix test` keeps its environment (`env FOO=1 mix test | tail`).
 - The warm formatter restarts when a dependency is built again. A failed `deps add` leaves no
   lock behind.
+- A failure's message, `left` or `right` of more than 2,000 characters (the map a `KeyError`
+  missed in) is its start, and says the log has the rest.
+- `run check --committed` (and `test`, `compile`) runs the last commit in a worktree menard keeps,
+  its build warm from the run before: the files can be edited while the gate runs. The reply
+  names the commit, and how many changed paths it did not see.
+
+`clause move`:
+
+- A private function named in a move that what stays calls too is no longer refused: it goes,
+  public where it lands, and the staying calls name it there.
+- When the move leaves the two modules calling each other, the reply's `cycle` says what to move
+  to end it.
+- `clause move --help`, and `--help` after any noun's verb, is the help.
 
 Hooks and the door:
 
