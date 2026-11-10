@@ -1120,6 +1120,19 @@ defmodule Menard.HooksTest do
     # shown as a "hook error", the answer would be taken for a failure and the Read asked again
     assert why =~ "This is the Read's answer, not an error"
 
+    # a subagent of the session has read nothing its parent read: its context is its own
+    assert Menard.Hook.run(
+             %{
+               "hook_event_name" => "PreToolUse",
+               "tool_name" => "Read",
+               "session_id" => "r1",
+               "agent_id" => "sub-1",
+               "cwd" => dir,
+               "tool_input" => %{"file_path" => file}
+             },
+             state_dir: dir
+           ) == :quiet
+
     # changed: read, and what it holds then is what was read (answered with a diff, it was read at
     # once anyway half the time)
     File.write!(file, String.replace(File.read!(file), "def f3, do: 3", "def f3, do: :three"))
