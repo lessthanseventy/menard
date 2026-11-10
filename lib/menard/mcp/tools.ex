@@ -84,6 +84,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     """
     @spec fresh() :: :ok
     def fresh do
+      if install() != :persistent_term.get({__MODULE__, :install}, install()), do: replaced()
       stamp = newest_source()
 
       if stamp > loaded(), do: :global.trans({__MODULE__, :fresh}, fn -> compile(stamp) end)
@@ -102,7 +103,10 @@ if Code.ensure_loaded?(Anubis.Server) do
 
     @doc "What the server runs, stamped as current: called once it has started."
     @spec loaded!() :: :ok
-    def loaded!, do: :persistent_term.put({__MODULE__, :loaded}, newest_source())
+    def loaded! do
+      :persistent_term.put({__MODULE__, :install}, install())
+      :persistent_term.put({__MODULE__, :loaded}, newest_source())
+    end
 
     # Every tool runs under a deadline: over stdio a call that never returns is a server gone
     # silent, and one went past Claude Code's 120s.
@@ -159,6 +163,23 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
 
     defp loaded, do: :persistent_term.get({__MODULE__, :loaded}, 0)
+
+    # The directory menard runs from, as the filesystem knows it: a reinstall puts another there
+    defp install do
+      case File.stat(root()) do
+        {:ok, %{major_device: device, inode: inode}} -> {device, inode}
+        {:error, _} -> nil
+      end
+    end
+
+    # A plugin reinstall under a running server: the modules it has not loaded yet are no longer on
+    # disk, and what is there is another version's. It built itself from those, crashed, and its
+    # session died unable to load the module that says so: every call after went unanswered, each
+    # hook to its timeout. Stopped, the harness has a server that is gone, not one that is silent.
+    defp replaced do
+      IO.puts(:stderr, "menard: its install was replaced under this server; stopping")
+      System.halt(0)
+    end
 
     # Again under the lock: a call that waited on another's build has nothing left to do.
     defp compile(stamp) do
