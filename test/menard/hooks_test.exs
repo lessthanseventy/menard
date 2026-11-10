@@ -95,6 +95,14 @@ defmodule Menard.HooksTest do
 
   # `sh` is dash on Debian/Ubuntu, and a bash script parsed by dash dies with exit 2 — which a
   # PreToolUse hook reads as "block", so every Edit/Write on every file was refused there.
+  test "a call of menard's MCP tools has a PreToolUse hook, which tells the server where the session stands" do
+    hooks = @root |> Path.join("hooks/hooks.json") |> File.read!() |> JSON.decode!()
+    matchers = for %{"matcher" => m} <- hooks["hooks"]["PreToolUse"], do: Regex.compile!("^(?:#{m})$")
+
+    assert Enum.any?(matchers, &Regex.match?(&1, "mcp__plugin_menard_menard__edit"))
+    refute Enum.any?(matchers, &Regex.match?(&1, "mcp__plugin_menard_menard-hooks__hook"))
+  end
+
   test "every hook command runs its script with the interpreter its shebang names" do
     hooks = @root |> Path.join("hooks/hooks.json") |> File.read!() |> JSON.decode!()
 

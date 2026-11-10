@@ -277,14 +277,14 @@ defmodule Menard.Scripts do
     """
     Text is replaced, in one file or many, in one call, with menard's `edit` tool (`#{tool}`): \
     `edits` is a list of `{file, old, new}`, every `old` found exactly once or nothing written, and \
-    an empty `old` makes a new file. A relative `file` is from the directory the session started in, \
-    not the shell's: working elsewhere, give the absolute path. `then: "compile"` checks it builds; \
+    an empty `old` makes a new file. A relative `file` is from the shell's directory. \
+    `then: "compile"` checks it builds; \
     `then: "test"`, on the last edit of a change, runs the tests of what it changed (mid-change, \
     tests red for the change not yet made).
       {"edits": [{"file": "lib/a.ex", "old": "the text to find", "new": "the text to put there"},
                  {"file": "lib/b.ex", "old": "…", "new": "…"}],
        "then": "compile"}
-    From the shell, where a path is from its own directory, the same edit is \
+    From the shell, the same edit is \
     `#{menard} edit --then compile - <<'EOF'`: each file's path on a line, then its \
     `<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE` blocks. \
     What is no edit is the shell's: a wait or a loop in the shell itself \
