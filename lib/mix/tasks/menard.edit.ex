@@ -92,7 +92,7 @@ defmodule Mix.Tasks.Menard.Edit do
   defp retried(sent, n) do
     case File.read(kept_path()) do
       {:ok, kept} ->
-        kept = :erlang.binary_to_term(kept)
+        kept = :erlang.binary_to_term(kept, [:safe])
 
         if n in 1..length(kept)//1,
           do: {:ok, List.flatten(List.replace_at(kept, n - 1, sent))},
@@ -104,12 +104,14 @@ defmodule Mix.Tasks.Menard.Edit do
   end
 
   # by a hash of the project's path, not the path itself: encoded whole, a deep one went past a
-  # file name's 255 bytes and the refusal was "file name too long"
-  defp kept_path,
-    do:
-      Path.join(
-        System.tmp_dir!(),
-        "menard-edit-kept-" <>
-          Base.url_encode64(:crypto.hash(:sha256, Menard.caller_dir()), padding: false)
-      )
+  # file name's 255 bytes and the refusal was "file name too long". In the user's own cache, not
+  # the shared temp directory: it is read back as a term, and its name is no secret
+  defp kept_path do
+    File.mkdir_p!(Menard.cache_dir())
+
+    Path.join(
+      Menard.cache_dir(),
+      "edit-kept-" <> Base.url_encode64(:crypto.hash(:sha256, Menard.caller_dir()), padding: false)
+    )
+  end
 end
