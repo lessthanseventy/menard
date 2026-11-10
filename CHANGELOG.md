@@ -78,6 +78,11 @@ Hooks and the door:
 - The launcher and hooks run under macOS's bash 3.2, BSD `stat` and no `timeout` (written from
   the manuals, run on no Mac).
 - The LSP client sends percent-encoded URIs and UTF-16 columns.
+- An MCP call of more than 30 s answers. The transport gave every request 30 s and, past it,
+  wrote no response: a `run check`, or an `edit` whose `then` ran a slow test file, did its work
+  and the call hung until the client gave up.
+- A session resumed has menard on its PATH once: each start added a line, an updated plugin's
+  older versions staying among them.
 - A piped test run rewritten to `mise exec -- menard run test` is approved as menard's own run
   is. `run credo` is as strict as the project gates. Through MCP a call's directory goes with it
   into the process that runs the verb. The session-start text says `mix test`'s flags pass
