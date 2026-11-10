@@ -76,6 +76,24 @@ defmodule Menard.Lsp do
     :exit, _ -> false
   end
 
+  @doc """
+  The protocol's `character` for a 1-based `column` of `text`: a 0-based count of UTF-16 units,
+  where a column counts characters, so one past an emoji is two further on.
+  """
+  @spec character(String.t(), pos_integer()) :: non_neg_integer()
+  def character(text, column) do
+    units = :unicode.characters_to_binary(String.slice(text, 0, column - 1), :utf8, :utf16)
+    div(byte_size(units), 2)
+  end
+
+  @doc "The 1-based column of `text` at the protocol's `character`: `character/2` back."
+  @spec column(String.t(), non_neg_integer()) :: pos_integer()
+  def column(text, character) do
+    units = :unicode.characters_to_binary(text, :utf8, :utf16)
+    before = binary_part(units, 0, min(character * 2, byte_size(units)))
+    String.length(:unicode.characters_to_binary(before, :utf16, :utf8)) + 1
+  end
+
   @doc false
   def start_link(project),
     do: GenServer.start_link(__MODULE__, project, name: {:via, Registry, {Menard.Lsp.Registry, project}})
@@ -126,7 +144,7 @@ defmodule Menard.Lsp do
       state =
         send_request(state, "textDocument/references", %{
           textDocument: %{uri: uri(file)},
-          position: %{line: line - 1, character: column - 1},
+          position: %{line: line - 1, character: character(line_of(file, line), column)},
           context: %{includeDeclaration: false}
         })
 
@@ -203,6 +221,13 @@ defmodule Menard.Lsp do
       else: state
   end
 
+  defp line_of(file, line) do
+    case File.read(file) do
+      {:ok, text} -> text |> String.split("\n") |> Enum.at(line - 1, "")
+      {:error, _} -> ""
+    end
+  end
+
   # a space or a `#` in a path is no part of a URI as written
   defp uri(path), do: "file://" <> URI.encode(path)
 
@@ -212,7 +237,8 @@ defmodule Menard.Lsp do
   defp locations(list) do
     locations =
       for %{"uri" => "file://" <> file, "range" => %{"start" => %{"line" => l, "character" => c}}} <- list,
-          do: %{file: URI.decode(file), line: l + 1, column: c + 1}
+          file = URI.decode(file),
+          do: %{file: file, line: l + 1, column: column(line_of(file, l + 1), c)}
 
     {:ok, locations}
   end

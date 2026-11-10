@@ -48,6 +48,16 @@ defmodule Menard.LspTest do
     {:ok, project: project}
   end
 
+  test "a column is counted in UTF-16 units for the server, and back" do
+    line = ~s|  def go, do: "héllo 🎉" <> total(1)|
+    column = String.length(hd(String.split(line, "total"))) + 1
+    # 0-based, and the emoji before it one character and two units
+    assert Menard.Lsp.character(line, column) == column
+    assert Menard.Lsp.column(line, column) == column
+    assert Menard.Lsp.character("  total(1)", 3) == 2
+    assert Menard.Lsp.column("  total(1)", 2) == 3
+  end
+
   test "def_sites: the name in each head of the module's own function, not a nested module's", %{
     project: project
   } do
