@@ -8,7 +8,8 @@
 # excluded_by, failures, times})` to the path
 # in MENARD_EXUNIT_OUT; each failure is the reply's shape (kind, message, at, name, module, and an
 # assertion's code/left/right). A `--repeat-until-failure` run writes once per suite, so the file
-# holds the last, the run the reply is about.
+# holds the last, the run the reply is about. An umbrella runs a suite per app into the one file:
+# a suite of another app than the file's is added to what it holds, not written over it.
 defmodule Menard.ExUnitFormatter do
   @moduledoc false
   use GenServer
@@ -16,7 +17,8 @@ defmodule Menard.ExUnitFormatter do
   @impl true
   def init(_opts) do
     snapshot_later()
-    {:ok, fresh()}
+    app = to_string(Mix.Project.config()[:app])
+    {:ok, Map.merge(fresh(), %{app: app, prior: prior(app)})}
   end
 
   # A run stopped at its deadline is killed with this VM, before its suite ends: what it had so far
@@ -91,8 +93,25 @@ defmodule Menard.ExUnitFormatter do
   defp write(acc) do
     if path = System.get_env("MENARD_EXUNIT_OUT") do
       acc = %{acc | failures: Enum.reverse(acc.failures), running: Map.values(acc.running)}
-      File.write!(path, :erlang.term_to_binary(acc))
+      File.write!(path, :erlang.term_to_binary(added(acc.prior, acc)))
     end
+  end
+
+  defp added(nil, acc), do: Map.put(acc, :suites, 1)
+
+  defp added(prior, acc) do
+    sums =
+      for key <- [:tests, :failed, :skipped, :excluded],
+          into: %{},
+          do: {key, Map.fetch!(prior, key) + Map.fetch!(acc, key)}
+
+    Map.merge(acc, sums)
+    |> Map.merge(%{
+      excluded_by: Map.merge(prior.excluded_by, acc.excluded_by, fn _tag, a, b -> a + b end),
+      failures: prior.failures ++ acc.failures,
+      times: prior.times ++ acc.times,
+      suites: prior.suites + 1
+    })
   end
 
   # every test that ran, for `--slowest N`: which N is the reply's to pick
@@ -103,7 +122,12 @@ defmodule Menard.ExUnitFormatter do
     test.name |> to_string() |> String.replace_prefix(type <> " ", "")
   end
 
-  defp at(test), do: "#{Path.relative_to_cwd(test.tags.file)}:#{test.tags.line}"
+  # from the umbrella's root, where mix runs an app's suite in the app's own directory
+  defp at(test) do
+    file = Path.relative_to_cwd(test.tags.file)
+    file = Path.join(Application.get_env(:ex_unit, :test_location_relative_path) || "", file)
+    "#{file}:#{test.tags.line}"
+  end
 
   defp filter(reason) do
     case Regex.run(~r/^due to (.+) filter$/, reason) do
@@ -117,7 +141,7 @@ defmodule Menard.ExUnitFormatter do
 
   defp finish(acc) do
     write(acc)
-    {:noreply, fresh()}
+    {:noreply, Map.merge(fresh(), Map.take(acc, [:app, :prior]))}
   end
 
   defp test_failure(test, [{kind, reason, stack} | _]) do
@@ -208,4 +232,15 @@ defmodule Menard.ExUnitFormatter do
   defp original(node), do: node
 
   defp compact(map), do: for({k, v} <- map, v != nil, into: %{}, do: {k, v})
+
+  # what the suites of the umbrella's other apps wrote before this one
+  defp prior(app) do
+    with path when is_binary(path) <- System.get_env("MENARD_EXUNIT_OUT"),
+         {:ok, bin} <- File.read(path),
+         %{} = held <- :erlang.binary_to_term(bin) do
+      if held[:app] == app, do: held[:prior], else: Map.delete(held, :prior)
+    else
+      _ -> nil
+    end
+  end
 end
