@@ -18,14 +18,16 @@ defmodule Menard.ExUnitFormatter do
   def init(_opts) do
     snapshot_later()
     app = to_string(Mix.Project.config()[:app])
-    {:ok, Map.merge(fresh(), %{app: app, prior: prior(app)})}
+    {:ok, Map.merge(fresh(), %{app: app, prior: prior(app), out: System.get_env("MENARD_EXUNIT_OUT")})}
   end
 
   # A run stopped at its deadline is killed with this VM, before its suite ends: what it had so far
   # is written every second, the tests still running with it
   @impl true
   def handle_info(:snapshot, acc) do
-    write(acc)
+    # between suites there is nothing so far: written then, it went over what the suite's end had
+    # just written, and a red run answered with no tests and no failures
+    if acc.tests + acc.skipped + acc.excluded + map_size(acc.running) > 0, do: write(acc)
     snapshot_later()
     {:noreply, acc}
   end
@@ -91,7 +93,7 @@ defmodule Menard.ExUnitFormatter do
   defp snapshot_later, do: Process.send_after(self(), :snapshot, 1_000)
 
   defp write(acc) do
-    if path = System.get_env("MENARD_EXUNIT_OUT") do
+    if path = acc.out do
       acc = %{acc | failures: Enum.reverse(acc.failures), running: Map.values(acc.running)}
       File.write!(path, :erlang.term_to_binary(added(acc.prior, acc)))
     end
@@ -141,7 +143,7 @@ defmodule Menard.ExUnitFormatter do
 
   defp finish(acc) do
     write(acc)
-    {:noreply, Map.merge(fresh(), Map.take(acc, [:app, :prior]))}
+    {:noreply, Map.merge(fresh(), Map.take(acc, [:app, :prior, :out]))}
   end
 
   defp test_failure(test, [{kind, reason, stack} | _]) do

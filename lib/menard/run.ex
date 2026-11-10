@@ -613,7 +613,7 @@ defmodule Menard.Run do
       {:ok, bin} ->
         File.rm(path)
         # an umbrella's suites, one per app, added up by the formatter (`suites`)
-        bin |> :erlang.binary_to_term([:safe]) |> Map.drop([:prior, :app])
+        bin |> :erlang.binary_to_term([:safe]) |> Map.drop([:prior, :app, :out])
 
       _ ->
         nil
