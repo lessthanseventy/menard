@@ -114,6 +114,7 @@ verbs="help|edit|outline|find|deps|attr|clause|stmt|block|module|directive|renam
 verb="${1:-}"
 # `--help`, and `VERB --help`: the help, of everything or of the verb
 case "$verb" in --help | -h) verb=help && set -- help "${@:2}" ;; esac
+case "$verb" in --version | -v) verb=version && set -- version ;; esac
 case "${2:-}" in --help | -h) set -- help "$verb" && verb=help ;; esac
 [[ -n "$verb" ]] || { echo "usage: $self [--frozen] VERB ARGS… [--stdin] ($verbs); $self --help says what each is for" >&2; exit 2; }
 # refused here, not by mix's "task could not be found" after a compile
