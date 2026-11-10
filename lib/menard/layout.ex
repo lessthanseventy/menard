@@ -23,10 +23,11 @@ defmodule Menard.Layout do
       the others, before them where it was written above them (a catch-all last stays last), else
       after them. Public or private, split clauses do not build with warnings as errors.
     * a module with more private functions than it had: each new one with a public definition
-      below it goes to the module's end. A rename, or an arity changed, adds none and moves none.
-    * a module attribute it did not have, set once, below the first function: up above it, with
-      its comment. Set twice, its place is its meaning; reading one set below the first
-      function, it cannot go above it.
+      below it goes to the module's end. A rename, or an arity changed, adds none and moves none;
+      a private macro stays above its use.
+    * a module attribute it did not have, set once and read, below the first function: up above
+      it, with its comment. Set twice, its place is its meaning; reading one set below the first
+      function, it cannot go above it; read by nothing, it is the next definition's own.
 
   Code that does not parse comes back as it is, for the parse check to refuse.
   """
@@ -99,7 +100,7 @@ defmodule Menard.Layout do
     with first when is_integer(first) <- Enum.find_index(forms, &definition?/1),
          below = set(Enum.drop(forms, first)),
          attribute when attribute != nil <-
-           forms |> Enum.drop(first) |> Enum.find(&movable?(&1, set(forms), below, was)),
+           forms |> Enum.drop(first) |> Enum.find(&movable?(&1, set(forms), below, was, read(node))),
          {:ok, spans} <- Menard.Clause.spans(content, "#{mod}.#{na(head(Enum.at(forms, first)))}") do
       {a, b} = Tree.line_span(attribute)
       lines = List.to_tuple(String.split(content, "\n"))
@@ -117,12 +118,25 @@ defmodule Menard.Layout do
 
   defp head({_kind, _, [head | _]}), do: head
 
-  defp movable?({:@, _, [{name, _, value}]}, names, below, was) do
-    name not in @bound and name not in was and Enum.count(names, &(&1 == name)) == 1 and
+  # one nothing reads is no constant: it is the next definition's own (`@decorate cache()`), and
+  # above another function it would be that one's
+  defp movable?({:@, _, [{name, _, value}]}, names, below, was, read) do
+    name not in @bound and name not in was and name in read and Enum.count(names, &(&1 == name)) == 1 and
       not Enum.any?(reads(value), &(&1 in below))
   end
 
-  defp movable?(_form, _names, _below, _was), do: false
+  defp movable?(_form, _names, _below, _was, _read), do: false
+
+  # the attributes the module reads (`@a`, not `@a 1`)
+  defp read(node) do
+    {_, names} =
+      Macro.prewalk(node, [], fn
+        {:@, _, [{name, _, context}]} = node, acc when is_atom(context) -> {node, [name | acc]}
+        node, acc -> {node, acc}
+      end)
+
+    names
+  end
 
   # the attributes a value reads (`@b @a + 1`)
   defp reads(value) do
@@ -210,9 +224,10 @@ defmodule Menard.Layout do
 
     with true <- length(privates.(defs)) > length(old),
          {_, last} <- last_public,
+         # a private macro is defined above its first use, or the module does not compile
          {{_kind, na}, _i} <-
            Enum.find(Enum.with_index(defs), fn {{kind, na}, i} ->
-             kind in @private and na not in old and i < last
+             kind == :defp and na not in old and i < last
            end),
          # a module the file defines twice cannot be addressed by name: its layout stays as written
          {:ok, spans} <- Menard.Clause.spans(content, "#{mod}.#{na}") do
