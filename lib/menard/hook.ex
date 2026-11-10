@@ -20,6 +20,7 @@ defmodule Menard.Hook do
   """
 
   alias Menard.Piped
+  alias Menard.Run.Lint
   alias Menard.Scripts
 
   @prune ~w(_build deps .git node_modules)
@@ -575,7 +576,7 @@ defmodule Menard.Hook do
   defp credo(_hook, _dir, []), do: []
 
   defp credo(hook, dir, rels) do
-    case Menard.Run.Lint.credo_changed(dir, rels, hook.run) do
+    case Lint.credo_changed(dir, rels, hook.run) do
       [] -> []
       found -> ["credo, on lines you changed:\n" <> Enum.map_join(found, "\n", &"  #{&1[:at]} #{&1.message}")]
     end
