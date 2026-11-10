@@ -40,6 +40,23 @@ defmodule Menard.FindTest do
     assert [%{line: 7}] = Find.calls(@src, "general")
   end
 
+  test "calls: a @spec or @callback names the function and calls nothing; a hit's text is code" do
+    src = """
+    defmodule A do
+      @callback total(integer()) :: integer()
+      @spec total(integer()) :: integer()
+      def total(x), do: x
+
+      def go do
+        # total(2) in a comment
+        total(1)
+      end
+    end
+    """
+
+    assert [%{line: 8, text: "total(1)"}] = Find.calls(src, "total")
+  end
+
   test "calls: a bare call in a module that imports the target's module" do
     # `find calls Menard.Verbs.edit lib`, where every writing verb calls it as `edit(…)` under
     # `import Menard.Verbs`
