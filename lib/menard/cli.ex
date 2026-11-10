@@ -116,13 +116,13 @@ defmodule Menard.CLI do
 
   def stdin(code, _what), do: code
 
-  # a flag fills its field; one that repeats (`--tag a --tag b`) fills it with every value, none with []
+  # a flag fills its field; one that repeats (`--tag a --tag b`) fills it with every value
   defp flagged(given, flags) do
     Map.new(flags, fn
       {flag, {:keep, field}} -> {field, Keyword.get_values(given, flag)}
       {flag, {_type, field}} -> {field, given[flag]}
     end)
-    |> Map.reject(fn {_field, value} -> is_nil(value) end)
+    |> Map.reject(fn {_field, value} -> value in [nil, []] end)
   end
 
   # the first shape of the verb that takes the arguments, as the params they fill. A field given as
