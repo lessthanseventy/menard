@@ -109,8 +109,8 @@ defmodule Menard.Hook do
       # a session's start: startup, resume, clear or compact
       source: payload["source"],
       tool: payload["tool_name"] || "",
-      input: payload["tool_input"] || %{},
-      response: payload["tool_response"] || %{},
+      input: object(payload["tool_input"]),
+      response: object(payload["tool_response"]),
       root: nonempty(payload["cwd"]) || System.get_env("CLAUDE_PROJECT_DIR") || File.cwd!(),
       # an empty one named every session's files in a glob (`menard-*#{""}*`)
       session: nonempty(safe(payload["session_id"] || "")) || "none",
@@ -119,6 +119,11 @@ defmodule Menard.Hook do
       call: nonempty(safe(payload["tool_use_id"] || "")) || "none"
     }
   end
+
+  # a tool's input and response are objects; one that is not (a harness's placeholder, a tool
+  # answering with a list) is read as none
+  defp object(%{} = value), do: value
+  defp object(_other), do: %{}
 
   defp settings(opts) do
     %{
