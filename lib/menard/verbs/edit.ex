@@ -22,7 +22,7 @@ defmodule Menard.Verbs.Edit do
       project's formatter: the reply says what the formatter changed, and nothing of what you
       wrote. Nix and shell are parse-checked too, formatted if already in their formatter's style,
       and linted on the lines changed (`lint` in the reply). `then` runs `test` (the tests of what it changed, or `test FILE…` those files), `check`
-      or `compile` after, its answer in `run`.
+      or `compile` after, its answer in `run`, and credo's findings on the lines changed in `credo`.
       """,
       deadline: 600_000,
       fields: [

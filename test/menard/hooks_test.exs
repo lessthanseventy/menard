@@ -522,7 +522,25 @@ defmodule Menard.HooksTest do
     assert {:context, text} = Menard.Hook.run(call, state_dir: dir, run: linting)
     assert text =~ "credo, on lines you changed:\n  lib/m1.ex:1 a nit"
     # menard formatted what it wrote: credo only
+    assert_received {:ran, "credo", _}
     refute_received {:ran, "format", _}
+
+    # with a `then`, the tool's own reply said it
+    with_then = put_in(call, ["tool_input", "then"], "compile")
+    assert :quiet = Menard.Hook.run(with_then, state_dir: dir, run: linting)
+    refute_received {:ran, _, _}
+  end
+
+  @tag :tmp_dir
+  test "menard's own edit with a then is not checked over: its reply said it", %{tmp_dir: dir} do
+    file = Path.join(dir, "lib/a.ex")
+    File.mkdir_p!(Path.dirname(file))
+    write = fn -> File.write!(file, "defmodule A do\n") end
+
+    assert {:problem, _} = shell_command(dir, "cat > lib/a.ex", write)
+
+    assert :quiet =
+             shell_command(dir, "cd #{dir} && #{Menard.bin()} edit --then compile - <<'EOF'", write)
   end
 
   @tag :tmp_dir

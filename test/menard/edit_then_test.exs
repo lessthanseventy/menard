@@ -87,6 +87,30 @@ defmodule Menard.EditThenTest do
              )
   end
 
+  test "then: credo's findings on the lines changed are in the reply, where the check is read", %{
+    tmp_dir: dir
+  } do
+    File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
+    test = self()
+
+    lint = fn _dir, "credo", args ->
+      send(test, {:credo, args})
+      %{ok: false, failures: [%{kind: "credo", at: "lib/a.ex:2", message: "a nit (Nesting)"}]}
+    end
+
+    edits = [
+      %{file: "lib/a.ex", old: "def one, do: 1", new: "def one, do: 11"},
+      %{file: "notes.md", old: "one", new: "uno"}
+    ]
+
+    assert {:ok, %{credo: ["lib/a.ex:2 a nit (Nesting)"]}} = edit(dir, edits, %{then: "compile", run: lint})
+    assert_received {:credo, ["--changed", "lib/a.ex"]}
+
+    # no `then`, no wait on credo: the hook's note follows the call
+    assert {:ok, reply} = edit(dir, [%{file: "lib/a.ex", old: "do: 11", new: "do: 1"}], %{run: lint})
+    refute Map.has_key?(reply, :credo)
+  end
+
   test "then: test runs the tests of what the edit changed, not the whole suite", %{tmp_dir: dir} do
     File.mkdir_p!(Path.join(dir, "test"))
     File.write!(Path.join(dir, "test/test_helper.exs"), "ExUnit.start()\n")
