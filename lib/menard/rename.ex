@@ -13,14 +13,48 @@ defmodule Menard.Rename do
 
   @def_kinds Menard.Tree.def_kinds()
 
+  @module ~r/^[A-Z][A-Za-z0-9_]*(\.[A-Z][A-Za-z0-9_]*)*$/
+  @name ~r/^[a-z_][A-Za-z0-9_]*[?!]?$/
+  @reserved ~w(do end fn true false nil when and or not in after else catch rescue)
+
   @spec run(String.t(), String.t(), String.t(), keyword()) :: String.t() | {:error, String.t()}
   def run(source, old, new, opts \\ [])
 
   def run(source, old, new, opts) when is_binary(source) and is_binary(old) and old != "" do
+    with :ok <- check(old, new) do
+      cond do
+        old =~ @module -> module(source, old, new)
+        String.contains?(old, ".") -> qualified(source, old, new)
+        true -> by_name(source, old, new, opts)
+      end
+    end
+  end
+
+  @doc """
+  `:ok`, or why `old` cannot become `new`: a new name that is not one (written as given, `bad name(`
+  parsed as a call of `bad`), a module renamed to a function's name or the other way, or an arity
+  on `old`, where a rename is of the name, every arity of it.
+  """
+  @spec check(String.t(), String.t()) :: :ok | {:error, String.t()}
+  def check(old, new) do
     cond do
-      old =~ ~r/^[A-Z][A-Za-z0-9_]*(\.[A-Z][A-Za-z0-9_]*)*$/ -> module(source, old, new)
-      String.contains?(old, ".") -> qualified(source, old, new)
-      true -> by_name(source, old, new, opts)
+      String.contains?(old, "/") ->
+        {:error,
+         "rename takes a name and renames every arity of it: #{old} names one. Give it without the arity"}
+
+      old =~ @module and new =~ @module ->
+        :ok
+
+      old =~ @module ->
+        {:error, "rename: #{old} is a module, and #{inspect(new)} is no module's name (Shop.Cart)"}
+
+      new =~ @name and new not in @reserved ->
+        :ok
+
+      true ->
+        {:error,
+         "rename: #{inspect(new)} is no name for a function or a variable (the new name alone, as `total` or `valid?`, " <>
+           "not `Mod.total`)"}
     end
   end
 
@@ -30,14 +64,43 @@ defmodule Menard.Rename do
   # changed, when those take the new last segment. Code only: strings, docs and comments stay
   defp module(source, old, new) do
     with {:ok, ast} <- Menard.Source.parse(source),
-         do: Menard.Source.patch(source, module_patches(ast, source, old, new))
+         {:ok, inside} <- defined_inside(ast, old, new),
+         do: Menard.Source.patch(source, module_patches(ast, source, old, new, inside))
   end
 
-  defp module_patches(ast, source, old, new) do
+  # `old` where it is defined inside its parent (`defmodule Cart` in `defmodule Shop`): the
+  # `defmodule`s, which spell only its last segment. Renamed there when the new name stays under the
+  # same parent; moved to another, it is not a rename of names
+  defp defined_inside(ast, old, new) do
+    {parent, last} = old |> String.split(".") |> Enum.split(-1)
+    parent = Enum.join(parent, ".")
+
+    inside =
+      for {^old, {:defmodule, _, [name | _]} = node} <- Menard.Tree.modules(ast),
+          spelled(name) != old,
+          do: node
+
+    cond do
+      inside == [] ->
+        {:ok, []}
+
+      String.starts_with?(new, parent <> ".") and
+          Enum.all?(inside, fn {:defmodule, _, [name | _]} -> [spelled(name)] == last end) ->
+        {:ok, inside}
+
+      true ->
+        {:error,
+         "rename: #{old} is defined inside #{parent} (a `defmodule` in its body), so it is renamed " <>
+           "under #{parent} (#{parent}.New), or moved out of it by hand first"}
+    end
+  end
+
+  defp module_patches(ast, source, old, new, inside) do
     {last_old, last_new} =
       {old |> String.split(".") |> List.last(), new |> String.split(".") |> List.last()}
 
-    scopes = if last_old == last_new, do: MapSet.new(), else: binding_scopes(ast, old)
+    defined = MapSet.new(inside, fn {:defmodule, meta, _} -> {meta[:line], meta[:column]} end)
+    scopes = if last_old == last_new, do: MapSet.new(), else: binding_scopes(ast, old, defined)
     moved = Enum.flat_map(Macro.prewalker(ast), &List.wrap(leaving_patch(&1, source, old, new)))
 
     patches =
@@ -58,28 +121,29 @@ defmodule Menard.Rename do
   # the scopes where an `alias` binds the bare last segment: `:root` for the file's own top level,
   # else the `defmodule`s, by position. A scope's own body counts, not a module nested in it, which
   # inherits the binding from where it sits
-  defp binding_scopes(ast, old) do
+  defp binding_scopes(ast, old, defined \\ MapSet.new()) do
     for {:defmodule, meta, [_name, body]} <- Macro.prewalker(ast),
-        scope_binds?(body, old),
-        into: if(scope_binds?(ast, old), do: MapSet.new([:root]), else: MapSet.new()),
+        scope_binds?(body, old, defined),
+        into: if(scope_binds?(ast, old, defined), do: MapSet.new([:root]), else: MapSet.new()),
         do: {meta[:line], meta[:column]}
   end
 
-  defp scope_binds?({:defmodule, _, _}, _old), do: false
+  # a module defined here by its last segment is named by it here, as one aliased is
+  defp scope_binds?({:defmodule, meta, _}, _old, defined), do: {meta[:line], meta[:column]} in defined
 
-  defp scope_binds?(node, old) do
+  defp scope_binds?(node, old, defined) do
     cond do
       binds?(node, old) ->
         true
 
       match?({_, _, args} when is_list(args), node) ->
-        Enum.any?([elem(node, 0) | elem(node, 2)], &scope_binds?(&1, old))
+        Enum.any?([elem(node, 0) | elem(node, 2)], &scope_binds?(&1, old, defined))
 
       is_tuple(node) and tuple_size(node) == 2 ->
-        Enum.any?(Tuple.to_list(node), &scope_binds?(&1, old))
+        Enum.any?(Tuple.to_list(node), &scope_binds?(&1, old, defined))
 
       is_list(node) ->
-        Enum.any?(node, &scope_binds?(&1, old))
+        Enum.any?(node, &scope_binds?(&1, old, defined))
 
       true ->
         false
@@ -170,7 +234,8 @@ defmodule Menard.Rename do
     parts = String.split(spec, ".")
     {mod, fun} = {parts |> Enum.drop(-1) |> Enum.join("."), List.last(parts)}
 
-    with {:ok, ast} <- Menard.Source.parse(source) do
+    with {:ok, ast} <- Menard.Source.parse(source),
+         :ok <- apart(source, fun, new, &(&1 == mod)) do
       own = own_lines(ast, source, mod)
       at = fn %{line: l, column: c, text: text} -> {l, c + name_offset(text, fun)} end
       remote = Enum.map(Menard.Find.calls(source, spec), at)
@@ -183,7 +248,24 @@ defmodule Menard.Rename do
               change: new
             }
 
-      Menard.Source.patch(source, patches)
+      Menard.Source.patch(source, patches ++ imported(ast, mod, fun, new))
+    end
+  end
+
+  # the function in the `only:`/`except:` of an import of `mod`, by its full name or the last
+  # segment an alias of it binds
+  defp imported(ast, mod, fun, new) do
+    last = mod |> String.split(".") |> List.last()
+    short? = MapSet.size(binding_scopes(ast, mod)) > 0
+
+    case existing_atom(fun) do
+      nil ->
+        []
+
+      from ->
+        for {:function, patch} <-
+              import_patches(ast, from, new, &(spelled(&1) == mod or (short? and spelled(&1) == last))),
+            do: patch
     end
   end
 
@@ -214,8 +296,33 @@ defmodule Menard.Rename do
     end
   end
 
+  # A module that defines `old/n` and `new/n` both: renamed, the two are one function, its clauses
+  # whichever came first, and it compiles. Refused, where the outline names both.
+  defp apart(source, old, new, of?) do
+    with {:ok, modules} <- Menard.Outline.run(source) do
+      modules
+      |> flat()
+      |> Enum.filter(&of?.(&1.module))
+      |> Enum.find_value(:ok, fn m ->
+        arities = fn name -> for d <- m.defs, Atom.to_string(d.name) == name, uniq: true, do: d.arity end
+
+        case arities.(old) -- (arities.(old) -- arities.(new)) do
+          [] ->
+            nil
+
+          [n | _] ->
+            {:error,
+             "rename: #{m.module} already has #{new}/#{n}, and #{old}/#{n} would become more of its clauses"}
+        end
+      end)
+    end
+  end
+
+  defp flat(modules), do: Enum.flat_map(modules, &[&1 | flat(&1.modules)])
+
   defp by_name(source, old, new, opts) do
-    with {:ok, ast} <- Menard.Source.parse(source) do
+    with {:ok, ast} <- Menard.Source.parse(source),
+         :ok <- if(opts[:only] == :variables, do: :ok, else: apart(source, old, new, fn _ -> true end)) do
       Menard.Source.patch(
         source,
         code_patches(ast, old, new, opts) ++
@@ -241,6 +348,7 @@ defmodule Menard.Rename do
         ast
         |> patches(from, new, Keyword.get(opts, :atoms, false))
         |> Kernel.++(import_patches(ast, from, new))
+        |> Kernel.++(keyed_patches(ast, from, new))
         |> Enum.filter(&wanted?(&1, opts[:only], functions))
         |> Enum.map(&elem(&1, 1))
         |> Enum.reject(&(&1.range.start in attributes))
@@ -290,14 +398,27 @@ defmodule Menard.Rename do
 
   # `import B, only: [old: 1]` names the function by a key: left as it was, it asks B for a function
   # the rename took away
-  defp import_patches(ast, from, new) do
-    for {:import, _, [_module, opts]} <- ast |> Macro.prewalker() |> Enum.to_list(),
-        is_list(opts),
+  defp import_patches(ast, from, new, of? \\ fn _module -> true end) do
+    for {:import, _, [module, opts]} <- ast |> Macro.prewalker() |> Enum.to_list(),
+        is_list(opts) and of?.(module),
         {{:__block__, _, [key]}, {:__block__, _, [names]}} <- opts,
         key in [:only, :except] and is_list(names),
         {{:__block__, _, [^from]} = name, _arity} <- names,
         do: {:function, %{range: Sourceror.get_range(name), change: "#{new}:"}}
   end
+
+  # `defoverridable old: 1` and `@compile {:inline, old: 1}` name the function by a key too
+  defp keyed_patches(ast, from, new) do
+    for node <- ast |> Macro.prewalker() |> Enum.to_list(),
+        keyed?(node),
+        {{:__block__, _, [^from]} = name, {:__block__, _, [arity]}} <- Macro.prewalker(node),
+        is_integer(arity),
+        do: {:function, %{range: Sourceror.get_range(name), change: "#{new}:"}}
+  end
+
+  defp keyed?({:defoverridable, _, [_ | _]}), do: true
+  defp keyed?({:@, _, [{attribute, _, [_ | _]}]}), do: attribute in [:compile, :dialyzer]
+  defp keyed?(_node), do: false
 
   defp strip_when({:when, _, [head | _]}), do: head
   defp strip_when(head), do: head
