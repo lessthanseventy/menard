@@ -102,12 +102,16 @@ if Code.ensure_loaded?(Anubis.Server) do
       fresh()
       caller = self()
       tag = make_ref()
+      # the caller's directory is its process's (`Menard.caller_dir/0`), and goes with the call
+      cwd = Process.get(:menard_cwd)
 
       # Monitored, not linked: in a linked Task, an exit the tool did not catch (or a process it had
       # linked dying) took the server's own process with it. A raise, a throw or an exit is an answer,
       # with the trace that says where in menard it came from.
       {pid, monitor} =
         spawn_monitor(fn ->
+          if cwd, do: Process.put(:menard_cwd, cwd)
+
           reply =
             try do
               tool.call(params, frame)

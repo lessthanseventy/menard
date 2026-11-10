@@ -1,6 +1,7 @@
 defmodule Menard.MCPTest do
-  # MENARD_ROOT is process-wide, so not async.
-  use ExUnit.Case, async: false
+  # the root is this test's process's (`Menard.caller_dir/0`), as the door gives a call its own:
+  # MENARD_ROOT is the whole VM's, and held these tests to one at a time
+  use ExUnit.Case, async: true
 
   alias Anubis.Server.Frame
   alias Menard.MCP.Reply
@@ -9,13 +10,8 @@ defmodule Menard.MCPTest do
   setup do
     root = Path.join(System.tmp_dir!(), "menard-mcp-#{System.pid()}-#{System.unique_integer([:positive])}")
     File.mkdir_p!(Path.join(root, "lib"))
-    previous = System.get_env("MENARD_ROOT")
-    System.put_env("MENARD_ROOT", root)
-
-    on_exit(fn ->
-      if previous, do: System.put_env("MENARD_ROOT", previous), else: System.delete_env("MENARD_ROOT")
-      File.rm_rf!(root)
-    end)
+    Process.put(:menard_cwd, root)
+    on_exit(fn -> File.rm_rf!(root) end)
 
     {:ok, root: root}
   end
@@ -82,37 +78,6 @@ defmodule Menard.MCPTest do
     assert File.read!(file) =~ "def b, do: :two"
 
     assert call(Menard.MCP.Module, %{verb: "nope", file: "lib/two.ex"}).isError
-  end
-
-  test "a relative path is from where the session stands, as its hook last saw, not where it started", %{
-    root: root
-  } do
-    n = System.unique_integer([:positive])
-    session = "mcp-cwd-#{System.pid()}-#{n}"
-    here = Path.join(root, "thatch")
-    File.mkdir_p!(Path.join(here, "lib"))
-    File.write!(Path.join(here, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
-    System.put_env("CLAUDE_CODE_SESSION_ID", session)
-
-    on_exit(fn ->
-      System.delete_env("CLAUDE_CODE_SESSION_ID")
-      File.rm(Path.join(System.tmp_dir!(), "menard-cwd-mcp-cwd-#{System.pid()}-#{n}"))
-    end)
-
-    Menard.Hook.run(%{
-      "hook_event_name" => "PreToolUse",
-      "tool_name" => "mcp__plugin_menard_menard__edit",
-      "session_id" => session,
-      "cwd" => here,
-      "tool_input" => %{}
-    })
-
-    refute call(Menard.MCP.Edit, %{edits: [%{file: "lib/a.ex", old: "do: 1", new: "do: 2"}]}).isError
-    assert File.read!(Path.join(here, "lib/a.ex")) =~ "def one, do: 2"
-
-    # a directory gone since: where the session started
-    File.rm_rf!(here)
-    assert Menard.MCP.root() == root
   end
 
   test "deps add writes, fetches and compiles a dependency, answering with the lock diff", %{root: root} do
@@ -297,7 +262,7 @@ defmodule Menard.MCPTest do
   end
 
   test "a root given with a trailing slash still admits paths under it", %{root: root} do
-    System.put_env("MENARD_ROOT", root <> "/")
+    Process.put(:menard_cwd, root <> "/")
     assert {:ok, _} = Menard.MCP.resolve("lib/a.ex")
   end
 
@@ -848,5 +813,46 @@ defmodule Menard.MCPTest do
 
     json = call(Menard.MCP.Outline, %{file: "lib/o.ex", json: true}).content |> hd() |> Map.fetch!("text")
     assert %{"modules" => [_]} = JSON.decode!(json)
+  end
+end
+
+defmodule Menard.MCPSessionTest do
+  # the session's id is the whole VM's: while it is set every MCP call resolves by it, so alone
+  use ExUnit.Case, async: false
+
+  alias Anubis.Server.Frame
+
+  test "a relative path is from where the session stands, as its hook last saw, not where it started" do
+    n = System.unique_integer([:positive])
+    root = Path.join(System.tmp_dir!(), "menard-mcp-session-#{System.pid()}-#{n}")
+    session = "mcp-cwd-#{System.pid()}-#{n}"
+    here = Path.join(root, "thatch")
+    File.mkdir_p!(Path.join(here, "lib"))
+    File.write!(Path.join(here, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
+    Process.put(:menard_cwd, root)
+    System.put_env("CLAUDE_CODE_SESSION_ID", session)
+
+    on_exit(fn ->
+      System.delete_env("CLAUDE_CODE_SESSION_ID")
+      File.rm(Path.join(System.tmp_dir!(), "menard-cwd-#{session}"))
+      File.rm_rf!(root)
+    end)
+
+    Menard.Hook.run(%{
+      "hook_event_name" => "PreToolUse",
+      "tool_name" => "mcp__plugin_menard_menard__edit",
+      "session_id" => session,
+      "cwd" => here,
+      "tool_input" => %{}
+    })
+
+    edit = %{edits: [%{file: "lib/a.ex", old: "do: 1", new: "do: 2"}]}
+    {:reply, response, _frame} = Menard.MCP.Edit.execute(edit, Frame.new())
+    refute response.isError
+    assert File.read!(Path.join(here, "lib/a.ex")) =~ "def one, do: 2"
+
+    # a directory gone since: where the session started
+    File.rm_rf!(here)
+    assert Menard.MCP.root() == root
   end
 end
