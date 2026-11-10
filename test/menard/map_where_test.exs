@@ -3,6 +3,7 @@ defmodule Menard.MapWhereTest do
   # hit sits in. Both read the caller's directory, which is process-wide: not async.
   use ExUnit.Case, async: false
 
+  alias Menard.Verbs.Outline
   alias Mix.Tasks.Menard.Where
 
   @tag :tmp_dir
@@ -43,6 +44,18 @@ defmodule Menard.MapWhereTest do
     assert out =~ "App.Cart.Line  app/lib/app/cart.ex  total/1\n"
     refute out =~ "secret"
     refute out =~ "Dep"
+  end
+
+  @tag :tmp_dir
+  test "map of a project that itself sits under a deps/ lists it", %{tmp_dir: dir} do
+    assert {:ok, %{modules: [%{module: "Dep"}]}} =
+             Outline.run(%{verb: "map", root: Path.join(dir, "deps/dep")})
+  end
+
+  @tag :tmp_dir
+  test "map refuses a flag it does not take" do
+    assert_raise Mix.Error, ~r/--bogus/, fn -> Mix.Tasks.Menard.Map.run(["--bogus"]) end
+    assert_raise Mix.Error, ~r/usage/, fn -> Mix.Tasks.Menard.Map.run(["lib"]) end
   end
 
   @tag :tmp_dir
