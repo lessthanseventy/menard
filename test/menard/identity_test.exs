@@ -1,8 +1,10 @@
-# An edit that writes back what is already there must leave the file as it was. Run over every
-# source file in this repo and test/fixtures/weird.ex, that is the check "only the named bytes
+# An edit that writes back what is already there must leave the file as it was. Run over lib/,
+# test/support and test/fixtures/weird.ex, that is the check "only the named bytes
 # move" never had: a verb that drops a `rescue`, eats a line, or reshapes a neighbour fails here,
 # however well its output parses. The oracle is Menard.Test.Identity, which the hex corpus
-# benchmark runs over real packages too.
+# benchmark runs over real packages too. Not the test files: half the corpus's bytes and a
+# sixth of the suite's time, for code shaped like no module (heredocs under `test` blocks); the
+# benchmark is where breadth comes from.
 #
 # Eight modules, the files dealt among them by size: ExUnit runs a module's tests one after another
 # and its modules in parallel, and as one module of 509 CPU-bound tests this was the suite's floor,
@@ -11,7 +13,9 @@
 # formatter VMs the other tests boot, which then hit their 60 s. Eight hold eight cores; the rest
 # stay with the tests that wait on a process.
 root = Path.expand("../..", __DIR__)
-files = Path.wildcard(Path.join(root, "{lib,test}/**/*.{ex,exs}"))
+
+files =
+  Enum.flat_map(~w(lib test/support test/fixtures), &Path.wildcard(Path.join([root, &1, "**/*.{ex,exs}"])))
 
 # the biggest file first, each to the lightest module so far: bytes stand in for edits
 buckets =
