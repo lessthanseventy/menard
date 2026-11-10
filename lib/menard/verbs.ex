@@ -92,7 +92,7 @@ defmodule Menard.Verbs do
 
       [verb | files] ->
         with {:ok, reply} <- verbs.run(params),
-             do: {:ok, reply |> then_run(params, verb, files) |> from_root(params)}
+             do: {:ok, reply |> then_run(params, verb, files) |> credo(params) |> from_root(params)}
     end
   end
 
@@ -211,6 +211,24 @@ defmodule Menard.Verbs do
     run = with [one] <- runs, do: one
     reply |> Map.update(:did, "then run #{verb}", &(&1 <> ", then run #{verb}")) |> Map.put(:run, run)
   end
+
+  # credo on the Elixir lines the write changed: with the check the agent reads, not a call later
+  defp credo(reply, p) do
+    root = p[:root] || Menard.caller_dir()
+    run = p[:run] || (&Menard.Run.result/3)
+
+    found =
+      for {dir, files} <- by_project(written(reply), root),
+          rels = for(f <- files, Path.extname(f) in [".ex", ".exs"], do: Path.relative_to(f, dir)),
+          failure <- Menard.Run.credo_changed(dir, rels, run),
+          do: "#{finding_at(failure[:at], dir, root)} #{failure.message}"
+
+    if found == [], do: reply, else: Map.put(reply, :credo, found)
+  end
+
+  defp finding_at(nil, _dir, _root), do: ""
+  defp finding_at(at, root, root), do: at
+  defp finding_at(at, dir, root), do: Path.join(Path.relative_to(dir, root), at)
 
   defp by_project([], root), do: [{root, []}]
 

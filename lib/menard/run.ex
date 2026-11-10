@@ -48,6 +48,21 @@ defmodule Menard.Run do
   @spec result(String.t(), String.t(), [String.t()]) :: map()
   def result(dir, verb, args), do: result(dir, verb, args, [])
 
+  @doc """
+  Credo's findings on the lines changed in `rels` (paths from `dir`), as strict as the project's
+  gate, or none where the project has no credo. `run` is `result/3`, or a test's stand-in.
+  """
+  @spec credo_changed(String.t(), [String.t()], (String.t(), String.t(), [String.t()] -> map())) :: [map()]
+  def credo_changed(dir, rels, run \\ &result/3)
+  def credo_changed(_dir, [], _run), do: []
+
+  def credo_changed(dir, rels, run) do
+    # as strict as the project's gate: at credo's default a strict-only check (AliasUsage) passed
+    # every write, and failed the gate
+    strict = if credo_strict?(dir), do: ["--strict"], else: []
+    if credo?(dir), do: run.(dir, "credo", ["--changed" | rels] ++ strict)[:failures] || [], else: []
+  end
+
   @doc "Whether `dir`'s project gates with `credo --strict`: what a lint of it must match."
   @spec credo_strict?(String.t()) :: boolean()
   def credo_strict?(dir) do

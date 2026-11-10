@@ -133,7 +133,7 @@ defmodule Menard.Hook do
       files = [hook.input["file"], hook.input["to"] | List.wrap(hook.input["files"])]
       edits = for %{"file" => file} <- List.wrap(hook.input["edits"]), do: file
       known(hook, files ++ edits)
-      linted(hook, files ++ edits)
+      if hook.input["then"] in [nil, ""], do: linted(hook, files ++ edits), else: :quiet
     else
       :quiet
     end
@@ -249,11 +249,21 @@ defmodule Menard.Hook do
   end
 
   # a command that is menard's own write: its reply said what it found on these files, and the same
-  # lint a second time, beside it, says nothing
+  # lint a second time, beside it, says nothing. With a `--then`, its reply has the compiler's and
+  # credo's word on its Elixir too.
   defp not_menards(files, hook) do
-    if (hook.input["command"] || "") =~ ~r/\A\s*(\S*\/)?menard\s/,
-      do: Enum.reject(files, &Menard.Lang.known?/1),
-      else: files
+    command = hook.input["command"] || ""
+
+    cond do
+      command =~ ~r/(^|[\s\/;&|])menard\s+\w+\s[^\n]*--then\s/ ->
+        Enum.reject(files, &(Menard.Lang.known?(&1) or elixir?(&1)))
+
+      command =~ ~r/\A\s*(\S*\/)?menard\s/ ->
+        Enum.reject(files, &Menard.Lang.known?/1)
+
+      true ->
+        files
+    end
   end
 
   # menard's bin/ on the session's PATH, through the env file the harness gives a SessionStart hook:
@@ -535,15 +545,9 @@ defmodule Menard.Hook do
   defp credo(_hook, _dir, []), do: []
 
   defp credo(hook, dir, rels) do
-    # as strict as the project's gate: at credo's default a strict-only check (AliasUsage) passed
-    # every write, and failed the gate
-    strict = if Menard.Run.credo_strict?(dir), do: ["--strict"], else: []
-
-    with true <- Menard.Run.credo?(dir),
-         [_ | _] = found <- hook.run.(dir, "credo", ["--changed" | rels] ++ strict)[:failures] do
-      ["credo, on lines you changed:\n" <> Enum.map_join(found, "\n", &"  #{&1[:at]} #{&1.message}")]
-    else
-      _ -> []
+    case Menard.Run.credo_changed(dir, rels, hook.run) do
+      [] -> []
+      found -> ["credo, on lines you changed:\n" <> Enum.map_join(found, "\n", &"  #{&1[:at]} #{&1.message}")]
     end
   end
 
