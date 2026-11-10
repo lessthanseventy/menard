@@ -499,6 +499,33 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "an edit through menard's MCP tool is linted as a Write is", %{tmp_dir: dir} do
+    host(dir)
+    File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
+    File.write!(Path.join(dir, "lib/m1.ex"), "defmodule M1 do\nend\n")
+    test = self()
+
+    linting = fn _dir, verb, args ->
+      send(test, {:ran, verb, args})
+      %{ok: false, failures: [%{kind: "credo", at: "lib/m1.ex:1", message: "a nit"}]}
+    end
+
+    call = %{
+      "hook_event_name" => "PostToolUse",
+      "tool_name" => "mcp__plugin_menard_menard__edit",
+      "session_id" => "m#{System.unique_integer([:positive])}",
+      "tool_use_id" => "c",
+      "cwd" => dir,
+      "tool_input" => %{"edits" => [%{"file" => "lib/m1.ex", "old" => "x", "new" => "y"}]}
+    }
+
+    assert {:context, text} = Menard.Hook.run(call, state_dir: dir, run: linting)
+    assert text =~ "credo, on lines you changed:\n  lib/m1.ex:1 a nit"
+    # menard formatted what it wrote: credo only
+    refute_received {:ran, "format", _}
+  end
+
+  @tag :tmp_dir
   test "format-report runs credo once over the files a call formatted, in a project that lints", %{
     tmp_dir: dir
   } do
