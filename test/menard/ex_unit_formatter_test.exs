@@ -5,6 +5,9 @@ defmodule Menard.ExUnitFormatterTest do
 
   @moduletag :tmp_dir
 
+  # required into the VM below, not compiled with the project: named so the compiler does not look
+  @formatter Menard.ExUnitFormatter
+
   setup_all do
     if not Code.ensure_loaded?(Menard.ExUnitFormatter),
       do: Code.require_file(Application.app_dir(:menard, "priv/ex_unit_formatter.exs"))
@@ -14,11 +17,11 @@ defmodule Menard.ExUnitFormatterTest do
 
   test "a snapshot due as the suite ends does not write the emptied state over the suite's", %{tmp_dir: dir} do
     out = Path.join(dir, "held")
-    {:ok, state} = Menard.ExUnitFormatter.init([])
+    {:ok, state} = @formatter.init([])
     state = %{state | out: out, tests: 3, failed: 1}
 
-    {:noreply, state} = Menard.ExUnitFormatter.handle_cast({:suite_finished, %{}}, state)
-    {:noreply, _state} = Menard.ExUnitFormatter.handle_info(:snapshot, state)
+    {:noreply, state} = @formatter.handle_cast({:suite_finished, %{}}, state)
+    {:noreply, _state} = @formatter.handle_info(:snapshot, state)
 
     assert %{tests: 3, failed: 1} = out |> File.read!() |> :erlang.binary_to_term()
   end
