@@ -19,6 +19,9 @@ test('a menard call is named by what it did', async () => {
   // a command that only mentions menard is not a call
   const commit = { command: `c.sh "plugin: a menard call's line names its arguments"`, description: 'Commit the fix' }
   expect(menardSaid({ tool: 'Bash', input: commit, output: {} })).toBeNull()
+  // nor one that quotes a call, or runs one after something else: its reply is not menard's alone
+  expect(menardSaid({ tool: 'Bash', input: { command: `tmux send-keys 'bin/menard version' Enter` }, output: {} })).toBeNull()
+  expect(menardSaid({ tool: 'Bash', input: { command: 'grep -n x a.ex; bin/menard edit -' }, output: {} })).toBeNull()
   expect(menardSaid({ tool: 'Bash', input: { command: 'ls' }, output: {} })).toBeNull()
   expect(menardSaid({ tool: 'Read', input: { file_path: 'menard edit' } })).toBeNull()
 })
