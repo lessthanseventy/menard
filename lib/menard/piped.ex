@@ -53,7 +53,9 @@ defmodule Menard.Piped do
     "Tests run with `#{menard} run test [FILE[:LINE] …]`, and a change is finished on " <>
       "`#{menard} run check` (format, warnings as errors, the whole suite): the answer is one JSON " <>
       "line, `ok`, the counts, and every failure with its file, line and message, a failed assertion " <>
-      "with its left and right. Nothing is cut: read it whole, and never run again to see more. A " <>
+      "with its left and right. Nothing is cut: read it whole, and never run again to see more. " <>
+      "`mix test`'s own flags pass through, and what they would print is in the reply: `--slowest 10` " <>
+      "and `--slowest-modules 10` answer as `slowest` and `slowest_modules`. A " <>
       "`mix test` or `mix precommit` piped through tail, head or grep is run as these in its place. " <>
       "`#{menard} …` itself runs bare: its reply piped into a filter that ends the line is run " <>
       "without it, and refused where more follows."
