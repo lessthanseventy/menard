@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.9
+
+- The session-start text and the script refusal teach the MCP `edit` tool first, its `edits` list
+  shown, with the CLI heredoc as the shell's form. Agents used the CLI because nothing else was
+  shown, and took it for the only way to edit several files at once.
+- Through MCP a relative path is from where the session stands, as the shell's is. The server
+  starts in the session's first directory and heard nothing of a `cd`: a session started in
+  `~/projects` and working in `~/projects/thatch` had `lib/x.ex` looked for, or made, in
+  `~/projects`. A PreToolUse hook on menard's tools leaves the call's `cwd` for the server, by the
+  session's id.
+- An edit through menard's MCP tools gets credo's notes on the lines it changed, as a Write and a
+  shell command do. Its hook recorded what it wrote and said nothing.
+- `edit` of a file that is not there names where it looked.
+- `edit --then test` beside a file that is not Elixir (a `hooks.json`) no longer crashes: only
+  Elixir files are read for the modules a test names.
+
 ## 0.8.8
 
 - The MCP servers stop when Claude Code stops them. SIGINT opened the BEAM's BREAK menu on stdout,
