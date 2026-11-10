@@ -114,11 +114,11 @@ defmodule Menard.Find do
   defp walk(source, match) do
     case Menard.Source.parse(source) do
       {:ok, ast} ->
-        aliases = collect_aliases(ast)
+        scopes = scoped_aliases(ast)
 
         ast
         |> Zipper.zip()
-        |> Zipper.traverse_while([], &visit(&1, &2, match, aliases))
+        |> Zipper.traverse_while([], &visit(&1, &2, match, scopes))
         |> elem(1)
         |> Enum.reverse()
 
@@ -128,12 +128,63 @@ defmodule Menard.Find do
   end
 
   # a @spec, a @callback, a type: they name a function, and call and define nothing
-  defp visit(zipper, hits, match, aliases) do
+  defp visit(zipper, hits, match, scopes) do
     if typed?(Zipper.node(zipper)) do
       {:skip, zipper, hits}
     else
-      {zipper, hits} = add_hit(zipper, hits, match.(Zipper.node(zipper), aliases))
+      {zipper, hits} = add_hit(zipper, hits, match.(Zipper.node(zipper), aliases_at(zipper, scopes)))
       {:cont, zipper, hits}
+    end
+  end
+
+  # An alias is its module's and the modules' inside it: read as one map for the file, `A` aliased
+  # to one module in one `defmodule` named it in every other. A file whose modules all read alike
+  # (nearly every file: one module) is one map, and no node looks for the module it is in.
+  defp scoped_aliases(ast) do
+    root = aliases_in(without_modules(ast), nil)
+    modules = for {name, node} <- Menard.Tree.modules(ast), do: {name, node, Menard.Tree.line_span(node)}
+
+    scopes =
+      Map.new(modules, fn {_name, {:defmodule, meta, _}, {a, b}} ->
+        around =
+          modules
+          |> Enum.filter(fn {_, _, {c, d}} -> c <= a and b <= d end)
+          |> Enum.sort_by(fn {_, _, {c, d}} -> c - d end)
+
+        {{meta[:line], meta[:column]},
+         Enum.reduce(around, root, fn {name, {:defmodule, _, [_name | body]}, _}, acc ->
+           Map.merge(acc, aliases_in(without_modules(body), name))
+         end)}
+      end)
+
+    case Enum.uniq([root | Map.values(scopes)]) do
+      [one] ->
+        one
+
+      [_ | _] when map_size(scopes) == 1 ->
+        scopes |> Map.values() |> hd()
+
+      _ ->
+        {root, scopes}
+    end
+  end
+
+  defp without_modules(ast) do
+    Macro.prewalk(ast, fn
+      {:defmodule, _, _} -> nil
+      node -> node
+    end)
+  end
+
+  defp aliases_at(_zipper, aliases) when is_map(aliases), do: aliases
+  defp aliases_at(nil, {root, _scopes}), do: root
+
+  defp aliases_at(zipper, {_root, scopes} = scoped) do
+    with {:defmodule, meta, _} <- Zipper.node(zipper),
+         {:ok, aliases} <- Map.fetch(scopes, {meta[:line], meta[:column]}) do
+      aliases
+    else
+      _ -> aliases_at(Zipper.up(zipper), scoped)
     end
   end
 
