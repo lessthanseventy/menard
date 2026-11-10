@@ -10,6 +10,8 @@ defmodule Mix.Tasks.Menard.Run do
       mix menard.run credo [FILES] [--strict] [--changed]
                                           # the project's credo, when it has one: {ok, failures};
                                           # --changed, only lines changed since the last commit
+      mix menard.run check --committed    # check, test or compile on the last commit, in a worktree
+                                          # menard keeps: the files can be edited while it runs
 
   Every verb's `failures` is one shape: `{kind, message, at}`, where `kind` is `test`, `error`,
   `warning`, `format` or `credo`, `message` says why, and `at` is `file:line` (a file, for `format`). A test
@@ -29,17 +31,18 @@ defmodule Mix.Tasks.Menard.Run do
   def run([flag | _]) when flag in ["--help", "-h"], do: Menard.CLI.help("run")
 
   def run(argv) do
-    # Only `--in` is menard's; every other flag belongs to the mix task behind the verb
+    # Only `--in` and `--committed` are menard's; every other flag belongs to the mix task behind the verb
     # (`--repeat-until-failure 50`, `--seed 0`, `--only integration`) and passes through untouched.
     {dir, args} = split_in(argv, ".", [])
+    {committed, args} = {"--committed" in args, args -- ["--committed"]}
 
     case args do
       [verb | rest] when verb in ~w(check test format compile credo) ->
-        finish(Verbs.Run.run(%{verb: verb, args: rest, dir: dir}))
+        finish(Verbs.Run.run(%{verb: verb, args: rest, dir: dir, committed: committed}))
 
       _ ->
         usage(
-          "mix menard.run [--in DIR] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed])"
+          "mix menard.run [--in DIR] [--committed] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed])"
         )
     end
   end

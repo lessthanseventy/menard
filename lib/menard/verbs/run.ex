@@ -6,6 +6,8 @@ defmodule Menard.Verbs.Run do
   false is an answer, never a refusal.
   """
 
+  alias Menard.Run.Committed
+
   import Menard.Verbs
 
   @verbs ~w(check test format compile credo)
@@ -34,24 +36,41 @@ defmodule Menard.Verbs.Run do
       the third, a failure is `{kind, name, at, message}` and the `log` has the rest. A failed test
       runs once more: one that passes is in `flaky`, not `failures`. A run whose tests were all
       excluded by the project's tags is not ok, and says which to `--include`.
+
+      `committed: true` (`--committed`) runs `check`, `test` or `compile` on the last commit, in a
+      worktree menard keeps: the files can be edited while it runs. The reply's `committed` is the
+      commit, `uncommitted` how many changed paths it did not see.
       """,
       deadline: 600_000,
       fields: [
         {:verb, :enum, [values: ["check", "test", "format", "compile", "credo"], required: true]},
         {:args, {:list, :string}, []},
-        {:dir, :string, []}
+        {:dir, :string, []},
+        {:committed, :boolean, []}
       ]
     }
   end
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: verb} = p) when verb in @verbs do
-    with {:ok, dir} <- resolve(p[:dir] || ".", p) do
+    with {:ok, dir} <- resolve(p[:dir] || ".", p),
+         {:ok, dir, said} <- at(dir, verb, p[:committed]) do
       opts = if ms = p[:timeout], do: [timeout: ms], else: []
-      {:ok, Menard.Run.lean(Menard.Run.result(dir, verb, p[:args] || [], opts))}
+      {:ok, Map.merge(Menard.Run.lean(Menard.Run.result(dir, verb, p[:args] || [], opts)), said)}
     end
   end
 
   def run(%{verb: verb}), do: {:error, "run has no verb #{inspect(verb)}: one of #{Enum.join(@verbs, ", ")}"}
   def run(_params), do: {:error, "run needs verb: one of #{Enum.join(@verbs, ", ")}"}
+
+  defp at(dir, verb, true) when verb in ~w(check test compile) do
+    with {:ok, %{dir: dir, sha: sha, uncommitted: n}} <- Committed.at_head(dir) do
+      {:ok, dir, if(n > 0, do: %{committed: sha, uncommitted: n}, else: %{committed: sha})}
+    end
+  end
+
+  defp at(_dir, verb, true),
+    do: {:error, "run #{verb} is of the working tree: --committed is for check, test and compile"}
+
+  defp at(dir, _verb, _committed), do: {:ok, dir, %{}}
 end

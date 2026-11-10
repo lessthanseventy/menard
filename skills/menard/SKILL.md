@@ -157,3 +157,6 @@ Outside Elixir, `edit` and `write` work on any file. Nix, shell and Lua (`.nix`,
 shebang) are also parse-checked, formatted if already in their formatter's style at HEAD, and linted on the lines
 changed (`lint` in the reply; a tool not installed is named in `skipped`). In a
 repo with no `mix.exs`, `run` and `then` take `check`, `test` and `compile` to its mise task of that name.
+`run check --committed` (`committed: true`) runs the last commit in a worktree menard keeps, its
+build warm from the run before: commit, start it in the background, and go on editing. Its reply
+names the commit (`committed`) and how many changed paths it did not see (`uncommitted`).
