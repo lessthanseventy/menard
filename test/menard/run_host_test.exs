@@ -23,6 +23,74 @@ defmodule Menard.RunHostTest do
     assert message =~ "x"
   end
 
+  describe "an umbrella" do
+    setup %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), """
+      defmodule Umb.MixProject do
+        use Mix.Project
+        def project, do: [apps_path: "apps", version: "0.1.0"]
+      end
+      """)
+
+      for app <- ~w(a b) do
+        root = Path.join([dir, "apps", app])
+        File.mkdir_p!(Path.join(root, "lib"))
+        File.mkdir_p!(Path.join(root, "test"))
+        File.write!(Path.join(root, "test/test_helper.exs"), "ExUnit.start()\n")
+
+        File.write!(Path.join(root, "mix.exs"), """
+        defmodule #{String.upcase(app)}.MixProject do
+          use Mix.Project
+
+          def project do
+            [app: :#{app}, version: "0.1.0", build_path: "../../_build", deps_path: "../../deps", lockfile: "../../mix.lock"]
+          end
+        end
+        """)
+      end
+
+      File.write!(Path.join(dir, "apps/a/lib/a.ex"), "defmodule A do\n  def go, do: 1\nend\n")
+      File.write!(Path.join(dir, "apps/b/lib/b.ex"), "defmodule B do\n  def go(x), do: 1\nend\n")
+
+      File.write!(Path.join(dir, "apps/a/test/a_test.exs"), """
+      defmodule ATest do
+        use ExUnit.Case
+
+        test "a is two" do
+          assert A.go() == 2
+        end
+      end
+      """)
+
+      File.write!(Path.join(dir, "apps/b/test/b_test.exs"), """
+      defmodule BTest do
+        use ExUnit.Case
+
+        test "b is one" do
+          assert B.go(0) == 1
+        end
+      end
+      """)
+
+      :ok
+    end
+
+    test "test answers every app's failures and counts, each at its path from the root", %{tmp_dir: dir} do
+      result = Run.result(dir, "test", [])
+      refute result.ok
+      assert %{tests: 2, failed: 1} = result
+
+      assert [%{name: "a is two", at: "apps/a/test/a_test.exs:4"}] =
+               Enum.filter(result.failures, &(&1.kind == "test"))
+    end
+
+    test "compile answers an app's warning at its path from the root", %{tmp_dir: dir} do
+      result = Run.result(dir, "compile", [])
+      refute result.ok
+      assert [%{kind: "warning", at: "apps/b/lib/b.ex:2"}] = result.failures
+    end
+  end
+
   @pinned "1.19.4-otp-27"
 
   test "the host's mix runs on the host's toolchain, not menard's", %{tmp_dir: dir} do

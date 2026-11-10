@@ -87,6 +87,23 @@ defmodule Menard.RunTest do
              "  test \"move/2 refuses another workspace\" do\n    assert moved.channel_id == infra.id\n  end"
   end
 
+  test "a warning mix prints with no place is not given the next diagnostic's" do
+    out = """
+    warning: Mix.Config is deprecated. Use Config instead
+    Compiling 1 file (.ex)
+        error: undefined variable "x"
+        │
+      3 │     x
+        │     ^
+        │
+        └─ lib/a.ex:3:5: A.go/0
+
+    """
+
+    assert [%{kind: "error", message: ~s(undefined variable "x"), at: "lib/a.ex:3"}] =
+             Run.parse_test(out, 1).failures
+  end
+
   test "a green run has no failures and a one-line tail" do
     r = Run.parse_test("....\n\nFinished in 0.1 seconds (0.1s async, 0.0s sync)\nResult: 4 passed\n", 0)
     assert %{ok: true, tests: 4, failed: 0, failures: []} = r

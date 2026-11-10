@@ -157,7 +157,9 @@ defmodule Menard.Run do
     {tests, failed, skipped, excluded, excluded_by, failures} = read_run(held, last)
     # the compile before the first run: its warnings, which a green run went on to hide, or a test
     # file's errors, which 1.19 on prints after the seed line, in the first run
-    compile = runs |> Enum.take(2) |> Enum.join() |> diagnostics(dir)
+    # an umbrella's apps each print a run, and each may hold a test file's errors
+    suites = (held && held[:suites]) || 1
+    compile = runs |> Enum.take(max(2, suites + 1)) |> Enum.join() |> diagnostics(dir)
     failures = failures ++ compile
     # every test filtered out is no green, whatever mix's exit: `ok, tests: 0` read as "it passes"
     # (up3-oban 03: a new test under a tag the test_helper excludes, and ~30 calls to find out why)
@@ -173,7 +175,7 @@ defmodule Menard.Run do
       skipped: skipped,
       failures: if(failures == [] and status != 0, do: refusal(out), else: failures),
       tail: summary(last),
-      runs: length(runs) - 1,
+      runs: length(runs) - suites,
       seed: seed(last)
     }
   end
@@ -384,20 +386,32 @@ defmodule Menard.Run do
   # dependency's print relative to its own root (`lib/styler/…`, under `==> styler`): no file of
   # the project's, and not its failures (`ok: true` over a non-empty list).
   defp diagnostics(out, dir) do
-    ~r/(warning|error): (.+)\n(?:.*\n)*?\s*└─ ([^\s:]+):(\d+)/
+    # its `└─` is the first below it: one with none (a deprecation mix prints bare) is not given
+    # the next diagnostic's place. In an umbrella the path may follow `(app 0.1.0) `
+    ~r/^\s*(warning|error): (.+)\n(?:(?!\s*(?:warning|error): ).*\n)*?\s*└─ (?:\([^)]*\) )?([^\s:]+):(\d+)/m
     |> Regex.scan(out)
-    |> Enum.map(fn [_, kind, message, file, line] ->
-      %{kind: kind, message: message, at: "#{file}:#{line}"}
+    |> Enum.flat_map(fn [_, kind, message, file, line] ->
+      case placed(file, dir) do
+        nil -> []
+        file -> [%{kind: kind, message: message, at: "#{file}:#{line}"}]
+      end
     end)
-    |> Enum.reject(&foreign?(&1, dir))
     |> Kernel.++(raised(out))
   end
 
-  defp foreign?(_diagnostic, nil), do: false
+  # the file as the project names it, or nil for one that is not the project's. An umbrella's app
+  # prints its paths from its own root
+  defp placed(file, nil), do: file
 
-  defp foreign?(%{at: at}, dir) do
-    [file | _] = String.split(at, ":")
-    not File.exists?(Path.expand(file, dir))
+  defp placed(file, dir) do
+    if File.exists?(Path.expand(file, dir)) do
+      file
+    else
+      case Path.wildcard(Path.join([dir, "apps", "*", file])) do
+        [one] -> Path.relative_to(one, dir)
+        _ -> nil
+      end
+    end
   end
 
   # A compile error raised as an exception (`cannot set attribute @doc inside function/macro`) comes
@@ -596,7 +610,8 @@ defmodule Menard.Run do
     case File.read(path) do
       {:ok, bin} ->
         File.rm(path)
-        :erlang.binary_to_term(bin, [:safe])
+        # an umbrella's suites, one per app, added up by the formatter (`suites`)
+        bin |> :erlang.binary_to_term([:safe]) |> Map.drop([:prior, :app])
 
       _ ->
         nil
