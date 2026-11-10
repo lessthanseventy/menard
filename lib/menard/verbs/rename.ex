@@ -51,6 +51,7 @@ defmodule Menard.Verbs.Rename do
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(p) do
     with :ok <- need(p, [:old, :new], "rename"),
+         :ok <- Menard.Rename.check(p.old, p.new),
          {:ok, files} <- files(p),
          {:ok, only} <- only(p[:only]),
          :ok <- versions(p) do

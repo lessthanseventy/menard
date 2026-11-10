@@ -58,6 +58,95 @@ defmodule Menard.RenameTest do
     assert out =~ "def total(z), do: z\n  def d, do: total(1)"
   end
 
+  test "a new name that is no name, or an arity on the old one, is refused before anything is read" do
+    for {old, new} <- [
+          {"go", "bad name"},
+          {"go", "x;y"},
+          {"go", "Go"},
+          {"go", "end"},
+          {"A.go", "B.run"},
+          {"Shop.Cart", "basket"},
+          {"Shop.Cart", "Shop.basket"},
+          {"A.go/3", "run"},
+          {"go/1", "run"}
+        ] do
+      assert {:error, why} = Rename.run("defmodule A do\n  def go, do: 1\nend\n", old, new)
+      assert why =~ "rename", "#{old} → #{new}: #{why}"
+    end
+
+    assert Rename.run("defmodule A do\n  def go?, do: 1\nend\n", "go?", "run!") =~ "def run!, do: 1"
+  end
+
+  test "a rename onto a function the module already has is refused: two functions would be one" do
+    src = """
+    defmodule A do
+      def go(x), do: x
+      def run(x), do: x + 1
+      def run(x, y), do: x + y
+    end
+    """
+
+    assert {:error, why} = Rename.run(src, "go", "run")
+    assert why =~ "A already has run/1"
+    assert {:error, _} = Rename.run(src, "A.go", "run")
+    assert Rename.run(src, "x", "y", only: :variables) =~ "def go(y), do: y"
+
+    assert Rename.run(
+             "defmodule B do\n  def go(x, y, z), do: x\n  def run(x), do: go(x, 1, 2)\nend\n",
+             "go",
+             "run"
+           ) =~
+             "def run(x, y, z)"
+  end
+
+  test "Mod.fun renames the function in an import's only: and except: of that module" do
+    src = """
+    defmodule U do
+      import Shop.Cart, only: [total: 1, other: 1]
+      import Else, only: [total: 1]
+      def go, do: total(1)
+    end
+    """
+
+    out = Rename.run(src, "Shop.Cart.total", "sum")
+    assert out =~ "import Shop.Cart, only: [sum: 1, other: 1]"
+    assert out =~ "import Else, only: [total: 1]"
+    assert out =~ "def go, do: sum(1)"
+  end
+
+  test "a name in defoverridable and in @compile's inline follows its function" do
+    src = """
+    defmodule A do
+      @compile {:inline, go: 1}
+      def go(x), do: x
+      defoverridable go: 1, stay: 0
+    end
+    """
+
+    out = Rename.run(src, "go", "run")
+    assert out =~ "@compile {:inline, run: 1}"
+    assert out =~ "defoverridable run: 1, stay: 0"
+  end
+
+  test "a module defined inside another is renamed where it is defined, and where its parent names it bare" do
+    src = """
+    defmodule Shop do
+      defmodule Cart do
+        def add(c), do: c
+      end
+
+      def x, do: Cart.add(1)
+    end
+    """
+
+    out = Rename.run(src, "Shop.Cart", "Shop.Basket")
+    assert out =~ "  defmodule Basket do"
+    assert out =~ "def x, do: Basket.add(1)"
+
+    assert {:error, why} = Rename.run(src, "Shop.Cart", "Store.Basket")
+    assert why =~ "defined inside Shop"
+  end
+
   test "renames def heads, calls and captures; leaves strings and comments" do
     out = Rename.run(@src, "author_workspaces", "live_workspaces")
     assert out =~ "def live_workspaces(state), do: Map.get(state, :author_workspaces, [])"
