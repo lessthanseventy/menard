@@ -121,6 +121,13 @@ defmodule Menard.BinTest do
     assert out == ~s({"value":"5_000"}\n)
   end
 
+  test "--version and -v are the version verb" do
+    for flag <- ["--version", "-v"] do
+      {out, 0} = System.cmd(@bin, ["--frozen", flag], env: [{"MIX_ENV", "dev"}])
+      assert out =~ "menard #{Mix.Project.config()[:version]} on Elixir"
+    end
+  end
+
   test "--frozen names its version" do
     # the version came from the app spec, never loaded under --frozen, or mix.exs, not there either
     {out, 0} = System.cmd(@bin, ["--frozen", "version"], env: [{"MIX_ENV", "dev"}])
