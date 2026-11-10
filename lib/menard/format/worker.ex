@@ -171,10 +171,23 @@ defmodule Menard.Format.Worker do
     end
   end
 
+  # mix.exs, the lock, and each dependency's build: a path dependency's plugin built again is in
+  # no lock. Not the project's own build, which every compile changes.
   defp print(project) do
-    for name <- ["mix.exs", "mix.lock"] do
-      case File.stat(Path.join(project, name), time: :posix) do
-        {:ok, %{mtime: mtime, size: size}} -> {mtime, size}
+    own =
+      case File.read(Path.join(project, "mix.exs")) do
+        {:ok, mix} -> Regex.run(~r/\bapp:\s*:(\w+)/, mix, capture: :all_but_first)
+        _ -> nil
+      end
+
+    built =
+      for ebin <- Path.wildcard(Path.join(project, "_build/*/lib/*/ebin")),
+          [ebin |> Path.dirname() |> Path.basename()] != own,
+          do: ebin
+
+    for file <- [Path.join(project, "mix.exs"), Path.join(project, "mix.lock") | built] do
+      case File.stat(file, time: :posix) do
+        {:ok, %{mtime: mtime, size: size}} -> {file, mtime, size}
         _ -> nil
       end
     end
