@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The session's opening text says the check is its own call, read before a push: a session
+  joined its gate to `git push` with `;`, and the push ran whatever the gate said.
+
 ## 0.8.9
 
 A review of the whole tool before it went to Hex; what it found, fixed.
