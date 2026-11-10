@@ -124,6 +124,15 @@ defmodule Menard.ScriptsTest do
     assert Scripts.delegated("Find every reference to the word transition in the docs", @menard) == nil
     assert Scripts.delegated("Review Desk.Tickets.transition/2 for bugs", @menard) == nil
 
+    # a brief with work in it is no search, though it names a function and its callers
+    for prompt <- [
+          "Read lib/billing.ex, refactor Billing.charge/2 to take a struct, then update all callers of " <>
+            "Billing.charge and fix the tests",
+          "Research on hexdocs how Ecto.Changeset.cast handles empty strings, and summarize usage examples"
+        ] do
+      assert Scripts.delegated(prompt, @menard) == nil, prompt
+    end
+
     # a build brief that TELLS the subagent to use find calls is no search
     assert Scripts.delegated(
              "Fix the bug in Server.Staffing.explain/1 and add a test. To find its callers use " <>
