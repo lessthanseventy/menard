@@ -52,23 +52,11 @@ defmodule Menard.CLI do
   result answered. An argv no shape takes raises the usage, made from the same shapes.
   """
   @spec run(module(), [String.t()]) :: map() | :ok
-  def run(verbs, [flag | _]) when flag in ["--help", "-h"], do: help(to_string(Noun.of(verbs).name))
-
   def run(verbs, argv) do
-    # `--json`: the reply as the map, where a read of code is otherwise printed as code
-    {json, argv} = {"--json" in argv, argv -- ["--json"]}
-    noun = Noun.of(verbs)
-    flags = Noun.flags(noun)
-    {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
-    named = flagged(given, flags)
-
-    case shaped(noun.cli.shapes, args, Map.keys(named)) do
-      nil ->
-        usage(Noun.usage(noun) <> given(args))
-
-      params ->
-        answer(Menard.Verbs.call(verbs, from_stdin(Map.merge(named, params), noun)), json)
-    end
+    # anywhere before `--`: past it, `--help` is CODE or an argument
+    if Enum.any?(Enum.take_while(argv, &(&1 != "--")), &(&1 in ["--help", "-h"])),
+      do: help(to_string(Noun.of(verbs).name)),
+      else: run_verb(verbs, argv)
   end
 
   @doc "A verb's help, printed: what `mix menard.VERB --help` answers, where no launcher turns it into `help VERB`."
@@ -189,4 +177,21 @@ defmodule Menard.CLI do
 
   defp inspect_last([]), do: "none"
   defp inspect_last(rest), do: List.last(rest)
+
+  defp run_verb(verbs, argv) do
+    # `--json`: the reply as the map, where a read of code is otherwise printed as code
+    {json, argv} = {"--json" in argv, argv -- ["--json"]}
+    noun = Noun.of(verbs)
+    flags = Noun.flags(noun)
+    {given, args} = options(argv, for({flag, {type, _field}} <- flags, do: {flag, type}))
+    named = flagged(given, flags)
+
+    case shaped(noun.cli.shapes, args, Map.keys(named)) do
+      nil ->
+        usage(Noun.usage(noun) <> given(args))
+
+      params ->
+        answer(Menard.Verbs.call(verbs, from_stdin(Map.merge(named, params), noun)), json)
+    end
+  end
 end
