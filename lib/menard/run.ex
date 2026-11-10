@@ -1018,26 +1018,38 @@ defmodule Menard.Run do
   defp one_at_a_time(%{dir: dir} = run, check) do
     lock = Path.join(dir, "_build/.menard-check.lock")
     File.mkdir_p!(Path.dirname(lock))
-    waited = take(lock, run.deadline, 0)
-    # the holder in this VM, by name: a check the MCP server killed at its deadline never ran its
-    # `after`, and its lock, the server's own (live) OS pid, would have stood for good
-    :global.register_name({__MODULE__, :check, lock}, self())
 
-    try do
-      reply = check.()
-      if waited > 0, do: Map.put(reply, :waited, waited), else: reply
-    after
-      :global.unregister_name({__MODULE__, :check, lock})
-      File.rm(lock)
+    case take(lock, run.deadline, 0) do
+      {:taken, waited} ->
+        try do
+          reply = check.()
+          if waited > 0, do: Map.put(reply, :waited, waited), else: reply
+        after
+          :global.unregister_name({__MODULE__, :check, lock})
+          File.rm(lock)
+        end
+
+      # the lock is its holder's: nothing is run beside it, and it is not this run's to remove
+      {:busy, waited} ->
+        message =
+          "another run in this project (pid #{lock |> File.read() |> elem(1) |> to_string() |> String.trim()}) " <>
+            "was still going after the #{waited}s this one could wait: nothing ran. Wait for it, or " <>
+            "give this run longer"
+
+        %{ok: false, exit: 124, waited: waited, failures: [%{kind: "error", message: message}]}
     end
   end
 
   defp take(lock, deadline, waited) do
     case File.open(lock, [:write, :exclusive]) do
       {:ok, io} ->
+        # the holder in this VM, by name: a check the MCP server killed at its deadline never ran
+        # its `after`, and its lock, the server's own (live) OS pid, would have stood for good.
+        # Named before the pid is written, so no waiter of this VM reads the pid with no name
+        :global.register_name({__MODULE__, :check, lock}, self())
         IO.write(io, System.pid())
         File.close(io)
-        waited
+        {:taken, waited}
 
       {:error, :eexist} ->
         cond do
@@ -1046,7 +1058,7 @@ defmodule Menard.Run do
             take(lock, deadline, waited)
 
           deadline && System.monotonic_time(:millisecond) > deadline ->
-            waited
+            {:busy, waited}
 
           true ->
             Process.sleep(1_000)
@@ -1073,6 +1085,13 @@ defmodule Menard.Run do
   # contents, moved aside)
   defp held?(lock, file \\ nil) do
     case File.read(file || lock) do
+      # made and not yet written: its holder is between the two
+      {:ok, ""} ->
+        case File.stat(file || lock, time: :posix) do
+          {:ok, %{mtime: at}} -> System.os_time(:second) - at < 5
+          _ -> false
+        end
+
       {:ok, pid} ->
         if String.trim(pid) == System.pid(),
           do: :global.whereis_name({__MODULE__, :check, lock}) != :undefined,

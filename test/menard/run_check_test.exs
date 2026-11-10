@@ -174,6 +174,22 @@ defmodule Menard.RunCheckTest do
   end
 
   @tag :tmp_dir
+  test "a run still held past this one's deadline is said, nothing run and the lock left", %{tmp_dir: dir} do
+    Host.mix_project(dir, :outwaited)
+    lock = Path.join(dir, "_build/.menard-check.lock")
+    File.mkdir_p!(Path.dirname(lock))
+
+    holder = Port.open({:spawn, "sleep 30"}, [])
+    {:os_pid, pid} = Port.info(holder, :os_pid)
+    File.write!(lock, to_string(pid))
+
+    assert %{ok: false, failures: [%{message: message}]} = Run.result(dir, "check", [], timeout: 1_500)
+    assert message =~ "another run"
+    assert File.read!(lock) == to_string(pid)
+    Port.close(holder)
+  end
+
+  @tag :tmp_dir
   test "a test run waits for a run already in the project, as a check does", %{tmp_dir: dir} do
     # ExUnit gives a test the same tmp/ directory in every run of a checkout, and clears it as the
     # test starts: a second run beside the first deleted the files its tests were reading
