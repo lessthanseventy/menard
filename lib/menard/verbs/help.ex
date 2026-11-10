@@ -85,7 +85,7 @@ defmodule Menard.Verbs.Help do
 
     #{Enum.join(lines, "\n")}
 
-    #{Menard.bin()} VERB --help   what a verb takes, with an example of each call
+    #{verb_help()}   what a verb takes, with an example of each call
     A path is relative to the directory you are in. CODE full of quotes goes on stdin: `-` in its place.
     """
   end
@@ -110,6 +110,11 @@ defmodule Menard.Verbs.Help do
   defp shapes(%{cli: _} = noun), do: "calls:\n  " <> Menard.CLI.as_run(Noun.usage(noun)) <> "\n\n"
   defp shapes(_noun), do: ""
 
-  defp at(example), do: String.replace_prefix(example, "menard ", Menard.bin() <> " ")
+  # as a project's dependency there is no bin/menard, and a mix task takes no --help
+  defp verb_help do
+    if File.regular?(Menard.bin()), do: "#{Menard.bin()} VERB --help", else: "mix menard.help VERB"
+  end
+
+  defp at(example), do: Regex.replace(~r/\Amenard (\w+)/, example, fn _all, verb -> Menard.command(verb) end)
   defp indent(text), do: text |> String.split("\n") |> Enum.map_join("\n", &("  " <> &1))
 end
