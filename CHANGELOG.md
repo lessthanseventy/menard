@@ -1,15 +1,78 @@
 # Changelog
 
-## 0.8.10
+## 0.8.9
+
+A review of the whole tool before it went to Hex; what it found, fixed.
+
+Package and CLI:
+
+- `menard --version` and `-v` are `menard version`.
+- In a host, `mix menard.VERB --help` answers the verb's help, and the help names `mix menard.…`
+  where there is no `bin/menard`. `mix test.no_leaks` is no longer in the package.
+- A flag that names a field (`rename --old a --new b --files lib`) is read as that field; the
+  verb's positional shape no longer waits for it too.
+- The package runs on Elixir 1.18, checked there.
+
+`edit`:
+
+- A file of CRLF lines is found by text written with LF, and keeps its line ends.
+- A file with no newline at its end, that is not code, keeps none.
+- A symlink and its target named in one call are one file: both edits land.
+- A file rewritten on nearly every line is diffed at once, not for 15 s an edit.
+- `replacements` counts every place an `all` replaced; a refused batch removes the directories
+  it made; the batch kept for `--retry` is in the user's cache, read as data.
+
+`rename`:
+
+- The new name is checked: `bad name`, a module's name for a function, or an arity on the old
+  name (`A.go/3`) is refused before a file is read.
+- A rename onto a function the module already has is refused: the two would be one.
+- `Mod.fun` follows into `import Mod, only: [fun: 1]`; by name, into `defoverridable` and
+  `@compile {:inline, …}`.
+- A module defined inside its parent is renamed where it is defined; `Elixir.Old` follows.
+- An alias is its own module's: `A` aliased differently in two modules of a file is two modules.
+
+`find`, `outline`, `map`:
+
+- `find calls` no longer lists a `@spec` or `@callback` as a call, and a hit's text is code, not
+  the comment above it. `find defs` checks its target.
+- `outline` names `defmodule __MODULE__.Child`, finds a module under an `if`, and shows a
+  `~S"""` doc's first line. `map` skips only a top-level `deps/` and `_build/`.
+
+`run`:
+
+- An umbrella's test run answers every app's counts and failures, each at its path from the root.
+- A red run no longer answers `tests: 0, failures: []` when the formatter's snapshot landed on
+  the suite's end.
+- A warning written over several lines is its whole message. A run stopped at its deadline says
+  so. A run that finds another still going answers that, with `waited`, and leaves its lock.
+- `run format` names a file that is not there and a `.formatter.exs` that raises; one that
+  computes its inputs is evaluated in its own directory.
+- A piped `mix test` keeps its environment (`env FOO=1 mix test | tail`).
+- The warm formatter restarts when a dependency is built again. A failed `deps add` leaves no
+  lock behind.
+
+Hooks and the door:
+
+- The door takes a token, kept in its file (0600): another local process cannot run verbs
+  through it. It greets the launcher, bounds a request in time and size, and is found by the
+  harness's pid when the session's id has changed (`/clear`).
+- A rewritten command is allowed without a prompt only when it is menard's own `run`; anything
+  else goes by the user's permission rules.
+- What a subagent has read is its own. A session standing in `~` is not walked after every
+  command. A payload whose input is no object is answered, not a crash. A session's start
+  answers one JSON document.
+- The launcher and hooks run under macOS's bash 3.2, BSD `stat` and no `timeout` (written from
+  the manuals, run on no Mac).
+- The LSP client sends percent-encoded URIs and UTF-16 columns.
+
+And from before the review:
 
 - `edit` with a `then` runs credo on the lines it changed and puts the findings in the reply's
   `credo`, beside the compile or test it ran. Under the hooks server credo's note came a call
   later, beside whatever the session did next, and a nesting finding was passed over until the
   gate. For that call the hook adds nothing, through MCP or the CLI; with no `then`, its note is
   as before.
-
-## 0.8.9
-
 - The session-start text and the script refusal teach the MCP `edit` tool first, its `edits` list
   shown, with the CLI heredoc as the shell's form. Agents used the CLI because nothing else was
   shown, and took it for the only way to edit several files at once.
