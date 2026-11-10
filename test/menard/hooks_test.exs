@@ -1144,6 +1144,33 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a module menard edited that was never read is read when asked", %{tmp_dir: dir} do
+    # the harness's own Edit wants the file Read first: a Read refused as "unchanged since you read
+    # it", of a file never read, left no way to it
+    file = Path.join(dir, "lib/a.ex")
+    File.mkdir_p!(Path.dirname(file))
+    File.write!(file, "defmodule A do\n  def one, do: 1\nend\n")
+
+    run = fn event, tool, input ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => event,
+          "tool_name" => tool,
+          "session_id" => "k1",
+          "tool_use_id" => "t#{System.unique_integer([:positive])}",
+          "cwd" => dir,
+          "tool_input" => input
+        },
+        state_dir: dir
+      )
+    end
+
+    edit = %{"edits" => [%{"file" => "lib/a.ex", "old" => "1", "new" => "2"}], "then" => "compile"}
+    run.("PostToolUse", "mcp__plugin_menard_menard__edit", edit)
+    assert run.("PreToolUse", "Read", %{"file_path" => file}) == :quiet
+  end
+
+  @tag :tmp_dir
   test "a module the agent wrote since its read is no news to it: a read again answers unchanged", %{
     tmp_dir: dir
   } do

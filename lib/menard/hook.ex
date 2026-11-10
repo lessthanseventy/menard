@@ -431,8 +431,14 @@ defmodule Menard.Hook do
 
   # What the agent wrote, and what the formatter did after it (the write's report told it), it knows:
   # a module's read snapshot follows its own writes, and a read again is no news
+  # Only a file it has read: one written and never read has no read to follow, and a Read of it
+  # refused as "unchanged since you read it" left the harness's Edit, which wants that Read, no way in
   defp known(hook, files) do
-    for file <- files, is_binary(file), path = Path.expand(file, hook.root), elixir_file?(path) do
+    for file <- files,
+        is_binary(file),
+        path = Path.expand(file, hook.root),
+        elixir_file?(path),
+        File.exists?(read_path(hook, path)) do
       with {:ok, text} <- File.read(path), do: File.write!(read_path(hook, path), text)
     end
   end
