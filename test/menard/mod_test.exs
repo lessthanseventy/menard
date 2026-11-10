@@ -21,7 +21,7 @@ defmodule Menard.ModTest do
     assert {out, 0} = System.cmd("claude", ["plugin", "test", dir], stderr_to_stdout: true)
     assert out =~ " 0 fail"
     assert {out, 0} = System.cmd("claude", ["plugin", "validate", dir], stderr_to_stdout: true)
-    assert out =~ "./register.tsx hooks: ui.render{component=ToolGroup}"
+    assert out =~ "./register.tsx hooks: ui.render{component=ToolUse}"
   end
 
   test "the module knows a shell call by menard's verbs, every one the help names" do
