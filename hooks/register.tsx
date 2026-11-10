@@ -5,23 +5,22 @@ import type { Call } from './said'
 
 type Ui = { ui: { resolve: (e: never) => Record<string, any>; invalidate: (event: string) => void } }
 
-// One call's line, and under it, once clicked, the call as it was made and answered.
+// One call's line, and under it, once clicked, the call as it was made and answered. All of it
+// is the button: a click anywhere in an opened call folds it.
 function row($: Ui, e: unknown, opened: Set<string>, id: string, call: Call, said: string, lead: string) {
-  const { Box, Text, Button } = $.ui.resolve(e as never)
+  const { Text, Button } = $.ui.resolve(e as never)
   const isOpen = opened.has(id)
   const toggle = () => {
     if (!opened.delete(id)) opened.add(id)
     $.ui.invalidate('ui.render')
   }
   return (
-    <Box flexDirection="column" key={`row-${id}`}>
-      <Button plain key={`menard-${id}`} onPress={toggle}>
-        {lead}
-        <Text color="remember">menard</Text> {said}
-        <Text dimColor>{isOpen ? '  ▾' : '  ▸'}</Text>
-      </Button>
-      {isOpen ? callText(call).map(line => <Text dimColor wrap="truncate-end">{`    ${line}`}</Text>) : null}
-    </Box>
+    <Button plain key={`menard-${id}`} onPress={toggle}>
+      {lead}
+      <Text color="remember">menard</Text> {said}
+      <Text dimColor>{isOpen ? '  ▾' : '  ▸'}</Text>
+      {isOpen ? <Text dimColor>{callText(call).map(line => `\n    ${line}`).join('')}</Text> : null}
+    </Button>
   )
 }
 
