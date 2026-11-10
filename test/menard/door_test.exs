@@ -117,6 +117,14 @@ defmodule Menard.DoorTest do
     assert Menard.Door.served() == 1
   end
 
+  test "alive says whether the hooks' MCP session takes calls, which a port that answers does not", ctx do
+    start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
+    [port, _root, token] = door_file(ctx) |> File.read!() |> String.split("\n", trim: true)
+
+    # no hooks server in this VM: the door answers, and no session would
+    assert {:ok, <<0, 0, "1\n">>} = ask(String.to_integer(port), [token, ctx.dir, "alive", "0", "0"])
+  end
+
   test "the verbs the launcher keeps to itself are refused by the server too", ctx do
     start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
     [port, _root, token] = door_file(ctx) |> File.read!() |> String.split("\n", trim: true)

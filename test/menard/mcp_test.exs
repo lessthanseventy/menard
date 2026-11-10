@@ -292,6 +292,8 @@ defmodule Menard.MCPTest do
 
     sibling = Path.join(there, "lib/b.ex")
     assert {:ok, ^sibling} = Menard.Verbs.resolve("../there/lib/b.ex", p)
+    # the checkout itself, as `run`'s `dir` names it
+    assert {:ok, ^there} = Menard.Verbs.resolve(there, p)
     assert {:ok, [_, ^sibling]} = Menard.Verbs.resolve_all(["lib/a.ex", sibling], p)
 
     # the home's own repo, a dot-directory's, a checkout's .git, and a link out of the home

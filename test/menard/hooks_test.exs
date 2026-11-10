@@ -132,6 +132,8 @@ defmodule Menard.HooksTest do
     for tool <- ["Edit", "MultiEdit", "Write"], file <- ["lib/a.ex", Path.join(here, "test/a_test.exs")] do
       assert {:deny, why} = pre.(tool, file)
       assert why =~ "is Elixir, written with menard's `edit`"
+      # shown under a "hook error" label, the refusal would be taken for a failure and retried
+      assert why =~ "This is menard's answer, not an error"
       assert why =~ "not #{tool}"
     end
 
@@ -1521,22 +1523,56 @@ defmodule Menard.HooksTest do
     assert prompt.("down") =~ "hooks server is not running"
     assert prompt.("down") == ""
 
-    # a door that answers is a server up; a door whose port refuses is a server killed
-    {:ok, listen} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
-    {:ok, port} = :inet.port(listen)
-    File.write!(Path.join(dir, "menard-door-up"), "#{port}\n")
+    # a door that greets and says its MCP session is alive is a server up; a door whose port
+    # refuses is a server killed
+    {listen, port} = door("0")
+    File.write!(Path.join(dir, "menard-door-up"), "#{port}\n#{dir}\ntoken\n")
     prompt.("up")
     aged.("up")
     assert prompt.("up") == ""
 
     # a session's id changed under its server: the door is under the harness's pid, an ancestor's
-    File.write!(Path.join(dir, "menard-door-#{System.pid()}"), "#{port}\n")
+    File.write!(Path.join(dir, "menard-door-#{System.pid()}"), "#{port}\n#{dir}\ntoken\n")
     prompt.("cleared")
     aged.("cleared")
     assert prompt.("cleared") == ""
     File.rm!(Path.join(dir, "menard-door-#{System.pid()}"))
+
+    # a port that takes the connection and says nothing (a wedged VM), and a door whose MCP session
+    # ended: neither answers a hook
+    for {session, answer} <- [{"wedged", nil}, {"expired", "1"}] do
+      {_listen, port} = door(answer)
+      File.write!(Path.join(dir, "menard-door-#{session}"), "#{port}\n#{dir}\ntoken\n")
+      prompt.(session)
+      aged.(session)
+      assert prompt.(session) =~ "hooks server is not running"
+    end
+
+    # a server started before the door knew `alive` answers that it has no such task: it is up
+    {_listen, port} = door(~s(** \(Mix.NoTaskError\) The task "menard.alive" could not be found))
+    File.write!(Path.join(dir, "menard-door-older"), "#{port}\n#{dir}\ntoken\n")
+    prompt.("older")
+    aged.("older")
+    assert prompt.("older") == ""
+
     :gen_tcp.close(listen)
     assert prompt.("up") =~ "hooks server is not running"
+  end
+
+  # a door's port: each connection greeted and given `answer` as its `alive` (0 a session that takes
+  # calls, 1 one that ended); with none, taken and never answered
+  defp door(answer) do
+    {:ok, listen} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false])
+    {:ok, port} = :inet.port(listen)
+    spawn(fn -> greet(listen, answer) end)
+    {listen, port}
+  end
+
+  defp greet(listen, answer) do
+    with {:ok, socket} <- :gen_tcp.accept(listen) do
+      if answer, do: :gen_tcp.send(socket, ["menard\n", 0, 0, answer, "\n"])
+      greet(listen, answer)
+    end
   end
 
   # the real run verbs, each call sent to the test as `{:ran, verb, args}`

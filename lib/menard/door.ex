@@ -32,6 +32,9 @@ defmodule Menard.Door do
   """
   use GenServer
 
+  # anubis_mcp is optional: a host without it has no hooks server, and `alive` answers 1 there
+  @compile {:no_warn_undefined, [Anubis.Server.Registry, Menard.MCP.Hooks]}
+
   # the launcher's own, and no door's: minutes of mix, the server itself, the harness's plumbing
   @kept ~w(run mcp hook guard)
   # a request is a verb's arguments and a file's worth of stdin
@@ -114,6 +117,21 @@ defmodule Menard.Door do
     :gen_tcp.close(listen)
   end
 
+  # `alive`: 0 while the hooks' MCP session takes calls. One that ended is never initialized again by
+  # its client, so every hook after it goes unanswered while this port still answers
+  defp alive do
+    with true <- Code.ensure_loaded?(Anubis.Server.Registry),
+         pid when is_pid(pid) <-
+           GenServer.whereis(Anubis.Server.Registry.stdio_session_name(Menard.MCP.Hooks)),
+         %{initialized: true} <- :sys.get_state(pid, 1_000) do
+      0
+    else
+      _ -> 1
+    end
+  catch
+    :exit, _ -> 1
+  end
+
   # the harness that started this server: Linux's /proc, else ps
   defp parent_pid do
     case File.read("/proc/self/stat") do
@@ -147,7 +165,7 @@ defmodule Menard.Door do
     with {:ok, request} <- request(socket, "", System.monotonic_time(:millisecond) + 30_000),
          true <- byte_size(request.token) == byte_size(token) and :crypto.hash_equals(request.token, token),
          true <- request.verb not in @kept do
-      {out, err, status} = run(request)
+      {out, err, status} = if request.verb == "alive", do: {"", "", alive()}, else: run(request)
       :gen_tcp.send(socket, [out, 0, err, 0, Integer.to_string(status), "\n"])
       GenServer.cast(door, :served)
     end

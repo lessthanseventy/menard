@@ -40,7 +40,7 @@
               "input": "${tool_input}",
               "response": "${tool_response}"
             },
-            "timeout": 120,
+            "timeout": 15,
             "statusMessage": "mix format"
           }
         ]
@@ -61,7 +61,7 @@
               "input": "${tool_input}",
               "response": "${tool_response}"
             },
-            "timeout": 120,
+            "timeout": 15,
             "statusMessage": "mix format"
           }
         ]
@@ -82,7 +82,7 @@
               "input": "${tool_input}",
               "response": "${tool_response}"
             },
-            "timeout": 120
+            "timeout": 15
           }
         ]
       }
@@ -104,7 +104,7 @@
               "input": "${tool_input}",
               "response": "${tool_response}"
             },
-            "timeout": 120,
+            "timeout": 15,
             "statusMessage": "mix format"
           }
         ]
