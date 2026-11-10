@@ -8,6 +8,8 @@ defmodule Menard.Lang do
   whole file of someone else's style.
   """
 
+  alias Menard.Run.Lint
+
   # shellcheck on the file, not its stdin, so `-x` follows what it sources beside it (lib.sh of the
   # hooks): the sourced file's variables are assigned, and SC1091 "not following" is not said
   @shell %{
@@ -92,7 +94,7 @@ defmodule Menard.Lang do
       []
     else
       dir = Path.dirname(file)
-      for i <- Menard.Run.Lint.only_changed(issues, dir), do: %{i | at: Path.join(dir, i.at)}
+      for i <- Lint.only_changed(issues, dir), do: %{i | at: Path.join(dir, i.at)}
     end
   end
 

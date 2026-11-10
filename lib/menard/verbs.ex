@@ -13,6 +13,7 @@ defmodule Menard.Verbs do
   means it.
   """
 
+  alias Menard.Run.Lint
   alias Menard.Verbs.Noun
   alias Menard.Verbs.Run
   @type params :: %{optional(atom()) => term()}
@@ -220,7 +221,7 @@ defmodule Menard.Verbs do
     found =
       for {dir, files} <- by_project(written(reply), root),
           rels = for(f <- files, Path.extname(f) in [".ex", ".exs"], do: Path.relative_to(f, dir)),
-          failure <- Menard.Run.Lint.credo_changed(dir, rels, run),
+          failure <- Lint.credo_changed(dir, rels, run),
           do: "#{finding_at(failure[:at], dir, root)} #{failure.message}"
 
     if found == [], do: reply, else: Map.put(reply, :credo, found)
