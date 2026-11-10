@@ -141,6 +141,21 @@ defmodule Menard.RunCredoTest do
 
     assert %{ok: false, failures: [%{kind: "credo", message: "no spec (Specs)"}]} =
              Run.result(dir, "check", ["--strict"])
+
+    # `run credo` is as strict as the project gates: one whose precommit says `credo --strict`
+    # answered clean where its gate, and the hook's note, did not
+    assert %{ok: true} = Run.result(dir, "credo", [])
+
+    File.write!(
+      Path.join(dir, "mix.exs"),
+      String.replace(
+        File.read!(Path.join(dir, "mix.exs")),
+        ~s(["compile"]),
+        ~s(["compile", "credo --strict"])
+      )
+    )
+
+    assert %{ok: false, failures: [%{message: "no spec (Specs)"}]} = Run.result(dir, "credo", [])
   end
 
   @tag :tmp_dir
