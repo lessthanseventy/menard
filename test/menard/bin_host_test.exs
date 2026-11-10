@@ -253,4 +253,23 @@ defmodule Menard.BinHostTest do
     assert out =~ ~s("did":"rename go → run in 1 of 1 file)
     assert File.read!(Path.join(dir, "lib/t.ex")) =~ "def run, do: 1"
   end
+
+  @tag :tmp_dir
+  test "a repeatable flag not given leaves its arguments to be read: clause split FILE PLAN...", %{
+    tmp_dir: dir
+  } do
+    Host.mix_project(dir, :flagkeep)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\n  def stay, do: 2\nend\n")
+
+    {out, 0} =
+      System.cmd(@bin, ["clause", "split", "lib/t.ex", "lib/t/x.ex=go/0"],
+        cd: dir,
+        env: [{"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("did":"split)
+    assert File.read!(Path.join(dir, "lib/t/x.ex")) =~ "def go, do: 1"
+  end
 end
