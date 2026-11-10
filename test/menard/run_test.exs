@@ -112,6 +112,14 @@ defmodule Menard.RunTest do
              "comparison between distinct types found:\n\n    x == :a\n\ngiven types:\n\n    integer() == :a"
   end
 
+  test "a .formatter.exs that computes its inputs is evaluated in its own directory", %{tmp_dir: dir} do
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/only_here.ex"), "defmodule OnlyHere do\nend\n")
+    File.write!(Path.join(dir, ".formatter.exs"), ~s|[inputs: Path.wildcard("lib/*.ex")]\n|)
+
+    assert Run.formatter_inputs(dir) == [Path.join(dir, "lib/only_here.ex")]
+  end
+
   test "a run stopped at its deadline says so, not an error some test logged on the way" do
     out = """
     Compiling 1 file (.ex)
