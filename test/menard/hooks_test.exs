@@ -346,6 +346,30 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a session standing in the user's home is not walked for what a shell command wrote", %{tmp_dir: dir} do
+    # every file under ~ stat'ed after every Bash call; a project is where a session formats
+    host(dir)
+    file = Path.join(dir, "lib/m.ex")
+
+    call = %{
+      "tool_name" => "Bash",
+      "session_id" => "home",
+      "cwd" => dir,
+      "tool_input" => %{"command" => "sed"}
+    }
+
+    hook = &Menard.Hook.run(Map.put(call, "hook_event_name", &1), state_dir: dir, home: &2)
+
+    for {home, formatted?} <- [{dir, false}, {"/elsewhere", true}] do
+      hook.("PreToolUse", home)
+      backdate_format_mark(%{session_id: "home"}, dir)
+      File.write!(file, "defmodule M do\n  def   f(x), do: x\nend\n")
+      hook.("PostToolUse", home)
+      assert File.read!(file) =~ "  def f(x), do: x\n" == formatted?
+    end
+  end
+
+  @tag :tmp_dir
   test "format-report starts menard once per project for a shell command's files", %{
     tmp_dir: dir
   } do

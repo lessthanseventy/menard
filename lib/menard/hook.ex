@@ -123,6 +123,7 @@ defmodule Menard.Hook do
   defp settings(opts) do
     %{
       state: opts[:state_dir] || System.tmp_dir!(),
+      home: opts[:home] || System.user_home(),
       env_file: Keyword.get(opts, :env_file, System.get_env("CLAUDE_ENV_FILE")),
       run: opts[:run] || (&Menard.Run.result/3),
       # under the hooks server, whose process outlives the call: credo off the call's path
@@ -234,7 +235,8 @@ defmodule Menard.Hook do
     mark = mark(hook)
 
     if File.exists?(mark) do
-      files = newer(hook.root, mark)
+      # a session standing in ~ or /: every file the user has, stat'ed after every command
+      files = if Path.expand(hook.root) in [hook.home, "/"], do: [], else: newer(hook.root, mark)
       File.rm(mark)
       files |> not_ignored(hook.root) |> not_menards(hook) |> written(hook, &not_held/2)
     else
