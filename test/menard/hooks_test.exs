@@ -346,6 +346,22 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a payload whose input or response is no object is answered, not a crash", %{tmp_dir: dir} do
+    for event <- ["PreToolUse", "PostToolUse"], tool <- ["Read", "Bash", "Write"] do
+      payload = %{
+        "hook_event_name" => event,
+        "tool_name" => tool,
+        "session_id" => "odd",
+        "cwd" => dir,
+        "tool_input" => "text",
+        "tool_response" => ["a list"]
+      }
+
+      assert Menard.Hook.run(payload, state_dir: dir) == :quiet
+    end
+  end
+
+  @tag :tmp_dir
   test "a session standing in the user's home is not walked for what a shell command wrote", %{tmp_dir: dir} do
     # every file under ~ stat'ed after every Bash call; a project is where a session formats
     host(dir)
