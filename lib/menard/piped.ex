@@ -22,8 +22,8 @@ defmodule Menard.Piped do
   @pipe ~S"\s*\|\s*(?:tail|head|grep)\b[^|;&()]*"
   @piped Regex.compile!(
            ~S/^\s*(?<cd>(?:(?:"[^"]*"|'[^']*'|[^|;&()<>"'\n])+(?:&&|;)\s*)*)(?<time>time\s+)?(?<open>\(\s*)?/ <>
-             ~S/(?:\w+=\S*\s+)*(?<mise>mise\s+(?:exec|x)\s+(?:[^\s;&|()]+\s+)*?--\s+)?(?:\w+=\S*\s+)*/ <>
-             ~S/mix\s+(?<task>test|precommit|credo)\b(?<args>[^|;&<>()]*?)(?:\s*2>&1)?(?:/ <>
+             ~S/(?<env>(?:\w+=\S*\s+)*)(?<mise>mise\s+(?:exec|x)\s+(?:[^\s;&|()]+\s+)*?--\s+)?(?<set>(?:\w+=\S*\s+)*)/ <>
+             ~S/mix\s+(?<task>test|precommit|credo)(?![\w.])(?<args>[^|;&<>()]*?)(?:\s*2>&1)?(?:/ <>
              @pipe <> ~S")+(?(<open>)\s*\))\s*$"
          )
 
@@ -31,8 +31,16 @@ defmodule Menard.Piped do
   @spec rewritten(String.t(), String.t()) :: String.t() | nil
   def rewritten(command, menard) do
     case Regex.named_captures(@piped, command) do
-      %{"cd" => cd, "time" => time, "mise" => mise, "task" => task, "args" => args} ->
-        cd <> time <> mise <> menard <> " run " <> verb(task, String.trim(args))
+      %{
+        "cd" => cd,
+        "time" => time,
+        "env" => env,
+        "mise" => mise,
+        "set" => set,
+        "task" => task,
+        "args" => args
+      } ->
+        cd <> time <> kept(env) <> mise <> kept(set) <> menard <> " run " <> verb(task, String.trim(args))
 
       nil ->
         nil
@@ -50,6 +58,9 @@ defmodule Menard.Piped do
       "`#{menard} …` itself runs bare: its reply piped into a filter that ends the line is run " <>
       "without it, and refused where more follows."
   end
+
+  # menard's run picks the env itself; any other variable changes what the tests do
+  defp kept(assignments), do: String.replace(assignments, ~r/\bMIX_ENV=\S*\s+/, "")
 
   defp verb("precommit", _args), do: "check"
   defp verb("credo", ""), do: "credo"

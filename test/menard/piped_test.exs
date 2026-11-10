@@ -22,6 +22,20 @@ defmodule Menard.PipedTest do
     end
   end
 
+  test "the variables it ran under are the ones it runs under, MIX_ENV aside" do
+    assert Piped.rewritten("DATABASE_URL=x MIX_ENV=test mix test test/a_test.exs | tail -5", @menard) ==
+             "DATABASE_URL=x /p/bin/menard run test test/a_test.exs"
+
+    assert Piped.rewritten("mise exec -- CI=1 mix test | tail", @menard) ==
+             "mise exec -- CI=1 /p/bin/menard run test"
+  end
+
+  test "a task that only starts with test or credo is not the run" do
+    for command <- ["mix test.watch | head", "mix credo.gen.check Foo | head", "mix test_no_leaks | tail"] do
+      assert Piped.rewritten(command, @menard) == nil, command
+    end
+  end
+
   test "the directory it ran in is the one it runs in" do
     assert Piped.rewritten("cd apps/desk && mix test test/a_test.exs | tail -3", @menard) ==
              "cd apps/desk && /p/bin/menard run test test/a_test.exs"
