@@ -28,13 +28,23 @@ while [[ ! -r "$door" && -n "$p" && "$p" -gt 1 ]]; do
   [[ -r "${TMPDIR:-/tmp}/menard-door-$p" ]] && door="${TMPDIR:-/tmp}/menard-door-$p" && break
   p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
 done
-if [[ -r "$door" ]]; then
-  port=$(head -n1 "$door")
-  [[ "$port" =~ ^[0-9]+$ ]] && (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null && exit 0
-fi
+# A port that takes the connection is no server that answers: a wedged VM's kernel still accepts,
+# and a server whose MCP session ended answers no hook. The door's greeting, then its `alive`
+alive() {
+  local port root token greeting answer
+  { read -r port && read -r root && read -r token; } <"$1" || return 1
+  [[ "$port" =~ ^[0-9]+$ ]] || return 1
+  (
+    exec 3<>"/dev/tcp/127.0.0.1/$port" || exit 1
+    printf '%s\0' "$token" "$root" alive 0 0 >&3
+    # 1 is a session that ended; a server older than `alive` answers that it has no such task, and is up
+    read -t 2 -r greeting <&3 && read -t 2 -r answer <&3 && [[ "$greeting" == menard && -n "$answer" && "$answer" != 1 ]]
+  ) 2>/dev/null
+}
+[[ -r "$door" ]] && alive "$door" && exit 0
 
 touch "$said"
 read -r -d '' ctx <<TEXT
-menard's hooks server is not running in this session (its connection timed out at startup, or it stopped): no file is formatted after an edit, no script is refused, and menard's verbs run cold. Tell the user, once: /mcp, then reconnect plugin:menard:menard-hooks, restores it.
+menard's hooks server is not running in this session (its connection timed out at startup, or it stopped or stopped answering): no file is formatted after an edit, no script is refused, and menard's verbs run cold. Tell the user, once: /mcp, then reconnect plugin:menard:menard-hooks, restores it.
 TEXT
 jq -n --arg ctx "$ctx" '{hookSpecificOutput: {hookEventName: "UserPromptSubmit", additionalContext: $ctx}}'

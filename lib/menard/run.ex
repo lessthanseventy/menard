@@ -553,7 +553,9 @@ defmodule Menard.Run do
   defp mix(run, args, host \\ []) do
     left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
     {env, host} = Keyword.pop(host, :env, [])
-    {out, status} = Menard.host_mix(run.dir, args, [env: [{"MIX_ENV", nil} | env], timeout: left] ++ host)
+    # the session's id or MENARD_ROOT, set, has every MCP call in the run resolve by the session's directory
+    env = [{"MIX_ENV", nil}, {"CLAUDE_CODE_SESSION_ID", nil}, {"MENARD_ROOT", nil} | env]
+    {out, status} = Menard.host_mix(run.dir, args, [env: env, timeout: left] ++ host)
     File.write!(run.log, "$ mix #{Enum.join(args, " ")}\n#{out}\n", [:append])
     # uncoloured, once, for every parser: `config :elixir, :ansi_enabled, true` colours ExUnit's
     # report even into this pipe, and `mix format --check-formatted` colours its list anyway

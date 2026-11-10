@@ -11,9 +11,17 @@ defmodule Menard.Run.Lock do
   @spec one_at_a_time(%{dir: String.t(), deadline: integer() | nil}, (-> map())) :: map()
   def one_at_a_time(%{dir: dir} = run, check) do
     lock = Path.join(dir, "_build/.menard-check.lock")
-    File.mkdir_p!(Path.dirname(lock))
+    _ = File.mkdir_p(Path.dirname(lock))
 
     case take(lock, run.deadline, 0) do
+      # a _build this user cannot write (a sandbox, another user's checkout): said, not a crash
+      {:error, reason} ->
+        message =
+          "cannot take the run lock #{lock}: #{:file.format_error(reason)}. Nothing ran: the run needs " <>
+            "to write the project's _build"
+
+        %{ok: false, exit: 1, failures: [%{kind: "error", message: message}]}
+
       {:taken, waited} ->
         try do
           reply = check.()
@@ -58,6 +66,9 @@ defmodule Menard.Run.Lock do
             Process.sleep(1_000)
             take(lock, deadline, waited + 1)
         end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

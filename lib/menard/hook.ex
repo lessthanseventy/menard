@@ -477,7 +477,8 @@ defmodule Menard.Hook do
   defp editable(_hook, _file), do: nil
 
   defp by_edit(hook, tool, rel) do
-    "#{rel} is Elixir, written with menard's `edit` (`#{Scripts.edit_tool()}`; a deferred tool is " <>
+    "This is menard's answer, not an error: nothing was written. #{rel} is Elixir, written with " <>
+      "menard's `edit` (`#{Scripts.edit_tool()}`; a deferred tool is " <>
       "loaded with ToolSearch first), not #{tool}: `edits: [{file, old, new}]` in one call, each " <>
       "`old` found exactly once, an empty `old` for a new file, and `then: \"compile\"` checks it " <>
       "builds. From the shell: `#{menard(hook)} edit --then compile -`, each file's path on a line, " <>

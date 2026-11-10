@@ -176,7 +176,7 @@ defmodule Menard.Verbs do
     with true <- under?(real, home) and real != home,
          [top | _] <- Path.split(Path.relative_to(real, home)),
          false <- String.starts_with?(top, "."),
-         repo when is_binary(repo) <- checkout(Path.dirname(real), home) do
+         repo when is_binary(repo) <- checkout(real, home) do
       ".git" not in Path.split(Path.relative_to(real, repo))
     else
       _ -> false
@@ -219,7 +219,9 @@ defmodule Menard.Verbs do
   # each, its `dir` named.
   # the files named: those, in the root
   defp then_run(reply, p, "test", [_ | _] = files) do
-    {:ok, run} = Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: "test", args: files}))
+    run =
+      ran(Map.merge(Map.take(p, [:root, :timeout]), %{verb: "test", args: files, dir: named_dir(reply, p)}))
+
     reply |> Map.update(:did, "then run test", &(&1 <> ", then run test")) |> Map.put(:run, run)
   end
 
@@ -238,10 +240,7 @@ defmodule Menard.Verbs do
               %{skipped: why}
 
             args ->
-              {:ok, run} =
-                Run.run(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
-
-              run
+              ran(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
           end
 
         if dir == root, do: run, else: Map.put(run, :dir, Path.relative_to(dir, root))
@@ -273,6 +272,24 @@ defmodule Menard.Verbs do
 
   defp by_project(files, root),
     do: files |> Enum.group_by(&project_of(Path.dirname(&1), root)) |> Enum.to_list()
+
+  # a run refused (its directory out of reach) is said in the reply, the write it follows kept
+  defp ran(params) do
+    case Run.run(params) do
+      {:ok, run} -> run
+      {:error, why} -> %{ok: false, failures: [%{kind: "error", message: why}]}
+    end
+  end
+
+  # where named test files run: the root, or a sibling checkout's own project when the write was there
+  defp named_dir(reply, p) do
+    root = Path.expand(p[:root] || Menard.caller_dir())
+
+    case written(reply) do
+      [file | _] -> if under?(file, root), do: root, else: project_of(Path.dirname(file), root)
+      [] -> root
+    end
+  end
 
   defp project_of(dir, root) do
     cond do

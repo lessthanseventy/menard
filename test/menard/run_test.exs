@@ -7,6 +7,19 @@ defmodule Menard.RunTest do
   alias Menard.Run.Output
   alias Menard.Test.Host
 
+  @tag :tmp_dir
+  test "a run whose lock it cannot take says why, and runs nothing", %{tmp_dir: dir} do
+    Host.mix_project(dir, :locked)
+    build = Path.join(dir, "_build")
+    File.mkdir_p!(build)
+    File.chmod!(build, 0o555)
+    on_exit(fn -> File.chmod(build, 0o755) end)
+
+    assert %{ok: false, failures: [%{message: why}]} = Run.result(dir, "test", [])
+    assert why =~ "cannot take the run lock"
+    assert why =~ "Nothing ran"
+  end
+
   # Most of this module's tests run a real `check` (compile+format+test) in a tmp mix project —
   # genuine subprocess work, not CPU-bound test logic. Timed at 15.1s alone, same as bin_test.exs's
   # documented "28s cold at load average 17, past ExUnit's 60s default" (1ff3ab2): under this box's
