@@ -816,6 +816,21 @@ defmodule Menard.MCPTest do
   end
 end
 
+defmodule Menard.MCPTransportTest do
+  use ExUnit.Case, async: true
+
+  alias Menard.MCP.Reply
+  alias Menard.Verbs
+
+  test "the transport waits for a request longer than any tool's deadline: past its wait it answers nothing" do
+    wait = Reply.transport()[:request_timeout]
+
+    for noun <- Enum.map(Verbs.Noun.modules(), &Verbs.Noun.of/1) do
+      assert wait > Verbs.Noun.deadline(noun), "#{noun.name} may run past the transport's #{wait} ms"
+    end
+  end
+end
+
 defmodule Menard.MCPSessionTest do
   # the session's id is the whole VM's: while it is set every MCP call resolves by it, so alone
   use ExUnit.Case, async: false

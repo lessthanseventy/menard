@@ -90,6 +90,16 @@ if Code.ensure_loaded?(Anubis.Server) do
       :ok
     end
 
+    @doc """
+    How the server is started. Anubis gives a request 30s and, past it, writes no response at all:
+    a `run check`, or an `edit` whose `then` ran a slow test file, did its work and never answered.
+    Every tool answers within its own deadline (`bounded/4`), so the transport waits past the
+    longest of them.
+    """
+    @spec transport() :: keyword()
+    def transport,
+      do: [transport: :stdio, request_timeout: Verbs.Noun.deadline(Verbs.Run.noun()) + 30_000]
+
     @doc "What the server runs, stamped as current: called once it has started."
     @spec loaded!() :: :ok
     def loaded!, do: :persistent_term.put({__MODULE__, :loaded}, newest_source())

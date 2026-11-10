@@ -293,9 +293,25 @@ defmodule Menard.Hook do
   # named by its absolute path, the agent types that path on every call. Put there, every text names
   # it `menard`
   defp on_path(hook) do
+    line = ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH")
+
     with env when is_binary(env) <- hook.env_file,
-         :ok <- File.write(env, ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n), [:append]) do
+         :ok <- File.write(env, Enum.map(others(env, line) ++ [line], &(&1 <> "\n"))) do
       File.write!(path_mark(hook), "")
+    end
+  end
+
+  # The env file's lines that are not menard's: a session resumed starts again, and each start's
+  # line, an updated plugin's older versions among them, stayed on the PATH
+  defp others(env, line) do
+    case File.read(env) do
+      {:ok, text} ->
+        text
+        |> String.split("\n", trim: true)
+        |> Enum.reject(&(&1 == line or &1 =~ ~r{^export PATH="[^"]*/menard/menard/[^/"]+/bin:\$PATH"$}))
+
+      {:error, _} ->
+        []
     end
   end
 

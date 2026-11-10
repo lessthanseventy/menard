@@ -32,7 +32,7 @@ defmodule Mix.Tasks.Menard.Mcp do
     {:ok, _} = Application.ensure_all_started(:menard)
 
     logs_to_stderr()
-    {:ok, _} = Supervisor.start_child(Menard.Supervisor, {server, transport: :stdio})
+    {:ok, _} = Supervisor.start_child(Menard.Supervisor, {server, Reply.transport()})
 
     # the launcher's verbs, run here with the formatters warm (Menard.Door): a task's prints are
     # messages to the process that ran it, never this server's stdout, the MCP channel

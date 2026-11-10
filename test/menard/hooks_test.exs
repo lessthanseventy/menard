@@ -1016,6 +1016,13 @@ defmodule Menard.HooksTest do
 
     assert File.read!(env) == ~s(export PATH="#{Path.dirname(Menard.bin())}:$PATH"\n)
     assert text =~ "`menard edit --then compile - <<'EOF'`"
+
+    # a session resumed starts again: its line once, an older plugin version's gone, another's kept
+    stale = ~s(export PATH="/home/u/.claude/plugins/cache/menard/menard/0.0.1/bin:$PATH"\n)
+    File.write!(env, "export OTHER=1\n" <> stale, [:append])
+    assert {:context, _} = Menard.Hook.run(payload.("SessionStart", "", %{}), state_dir: dir, env_file: env)
+
+    assert File.read!(env) == ~s(export OTHER=1\nexport PATH="#{Path.dirname(Menard.bin())}:$PATH"\n)
     refute text =~ Menard.bin()
 
     assert {:deny, why} =
