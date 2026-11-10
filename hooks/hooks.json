@@ -16,7 +16,8 @@
               "call": "${tool_use_id}",
               "cwd": "${cwd}",
               "input": "${tool_input}",
-              "response": "${tool_response}"
+              "response": "${tool_response}",
+              "mode": "${permission_mode}"
             },
             "timeout": 10
           }

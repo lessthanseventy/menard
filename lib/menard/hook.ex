@@ -80,10 +80,7 @@ defmodule Menard.Hook do
     # "allow" passes the whole command with no prompt, whatever the user's rules say of it: given
     # only to menard's own run standing where the test run stood. Anything more (the commands
     # before it, a filter dropped from another verb) goes by the user's rules, as rewritten.
-    output =
-      if input["command"] =~ ~r{\A(mise exec -- )?[\w./~-]*menard run (test|check|credo)[\w\s./:=,@+-]*\z},
-        do: Map.put(output, :permissionDecision, "allow"),
-        else: output
+    output = if own_run?(input["command"]), do: Map.put(output, :permissionDecision, "allow"), else: output
 
     %{hookSpecificOutput: if(note, do: Map.put(output, :additionalContext, note), else: output)}
   end
@@ -113,6 +110,7 @@ defmodule Menard.Hook do
       input: object(payload["tool_input"]),
       response: object(payload["tool_response"]),
       root: nonempty(payload["cwd"]) || System.get_env("CLAUDE_PROJECT_DIR") || File.cwd!(),
+      mode: payload["permission_mode"],
       # an empty one named every session's files in a glob (`menard-*#{""}*`)
       session: id(payload["session_id"]) || "none",
       # the subagent a call is from, where the harness names one: what it has read is its own
@@ -238,7 +236,7 @@ defmodule Menard.Hook do
     case Scripts.refused(bare || command, menard(hook), hook.root) do
       nil when is_binary(bare) ->
         marked(hook)
-        {:rewrite, Map.put(hook.input, "command", bare), Scripts.unfiltered_note(command, bare)}
+        rewritten(hook, bare, Scripts.unfiltered_note(command, bare))
 
       nil ->
         hook |> marked() |> piped(hook)
@@ -345,10 +343,31 @@ defmodule Menard.Hook do
   # a test run and its pipe, run through `menard run` in their place: the call goes on, as that
   defp piped(:quiet, hook) do
     case Piped.rewritten(hook.input["command"] || "", menard(hook)) do
-      command when is_binary(command) -> {:rewrite, Map.put(hook.input, "command", command)}
+      command when is_binary(command) -> rewritten(hook, command, nil)
       nil -> :quiet
     end
   end
+
+  # Auto mode reviewed the command as written and gives no verdict on one a hook changed, in words
+  # that send the agent to its user: the call is lost either way, so the refusal is menard's own
+  # and names what to run. A rewrite approved as it stands (`rewrite/2`) is not reviewed again.
+  defp rewritten(%{mode: "auto"} = hook, command, note) do
+    if own_run?(command) do
+      rewritten(%{hook | mode: nil}, command, note)
+    else
+      why =
+        note ||
+          "Run as `#{command}`: a test run is `menard run`'s, its answer read whole, not a filter's cut of mix's."
+
+      {:deny, told(hook, why)}
+    end
+  end
+
+  defp rewritten(hook, command, nil), do: {:rewrite, Map.put(hook.input, "command", command)}
+  defp rewritten(hook, command, note), do: {:rewrite, Map.put(hook.input, "command", command), note}
+
+  defp own_run?(command),
+    do: command =~ ~r{\A(mise exec -- )?[\w./~-]*menard run (test|check|credo)[\w\s./:=,@+-]*\z}
 
   defp marked(hook) do
     # written, not touched: File.touch! sets whole seconds, which dates the mark before files written

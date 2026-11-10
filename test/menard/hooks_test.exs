@@ -1137,6 +1137,56 @@ defmodule Menard.HooksTest do
              Menard.Hook.rewrite(input, note)
   end
 
+  @tag :tmp_dir
+  test "under auto mode a rewrite the user's rules would judge is a refusal that names what to run",
+       %{tmp_dir: dir} do
+    pre = fn command, mode ->
+      Menard.Hook.run(
+        %{
+          "hook_event_name" => "PreToolUse",
+          "tool_name" => "Bash",
+          "session_id" => "a#{System.unique_integer([:positive])}",
+          "tool_use_id" => "t1",
+          "cwd" => dir,
+          "permission_mode" => mode,
+          "tool_input" => %{"command" => command}
+        },
+        state_dir: dir
+      )
+    end
+
+    # auto mode reviewed the command as written, and gives no verdict on one a hook changed
+    assert {:deny, why} = pre.("cd /x && bin/menard outline lib/a.ex 2>&1 | head -30", "auto")
+    assert why =~ "Run as `cd /x && bin/menard outline lib/a.ex 2>&1`"
+    assert {:deny, why} = pre.("cd /x && mix test 2>&1 | tail -5", "auto")
+    assert why =~ ~r/Run as `cd \/x && \S*menard run test`/
+
+    # menard's own run alone is approved as rewritten, and any other mode holds a rewrite to its rules
+    assert {:rewrite, %{"command" => "bin/menard run check"}, _} =
+             pre.("bin/menard run check | tail -5", "auto")
+
+    assert {:rewrite, _, _} = pre.("cd /x && bin/menard outline lib/a.ex | head -30", "default")
+    assert {:rewrite, _} = pre.("cd /x && mix test 2>&1 | tail -5", "default")
+  end
+
+  test "the mcp_tool hook's `mode` is the harness's permission mode" do
+    assert Enum.any?(Menard.Verbs.Hook.noun().fields, &match?({:mode, :string, _}, &1))
+
+    pre = "hooks/hooks.json" |> File.read!() |> JSON.decode!() |> get_in(["hooks", "PreToolUse"])
+    assert [%{"input" => %{"mode" => "${permission_mode}"}}] = Enum.flat_map(pre, & &1["hooks"])
+
+    assert {:ok, %{deny: "Run as " <> _}} =
+             Menard.Verbs.Hook.run(%{
+               event: "PreToolUse",
+               tool: "Bash",
+               session: "m#{System.unique_integer([:positive])}",
+               call: "t1",
+               cwd: System.tmp_dir!(),
+               mode: "auto",
+               input: JSON.encode!(%{command: "cd /x && bin/menard outline lib/a.ex | head"})
+             })
+  end
+
   test "a rewrite is approved for the user only when it is menard's test run and nothing else" do
     decision = fn command ->
       Menard.Hook.rewrite(%{"command" => command}).hookSpecificOutput[:permissionDecision]
