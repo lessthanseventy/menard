@@ -138,7 +138,7 @@ connect() { exec 3<>"/dev/tcp/127.0.0.1/$1"; }
 door() {
   case "$verb" in run | mcp | hook | guard | version | help | map) return 1 ;; esac
   [[ "$MENARD_CWD" == "$PWD" || "$MENARD_CWD" == "$PWD/"* ]] && return 1
-  local p=$PPID file='' port a len out err status
+  local p=$PPID file='' port token hello a len out err status
   [[ -n "${CLAUDE_CODE_SESSION_ID:-}" && -r "${TMPDIR:-/tmp}/menard-door-$CLAUDE_CODE_SESSION_ID" ]] &&
     file="${TMPDIR:-/tmp}/menard-door-$CLAUDE_CODE_SESSION_ID"
   while [[ -z "$file" && -n "$p" && "$p" -gt 1 ]]; do
@@ -155,7 +155,12 @@ door() {
   # another checkout's server (the installed plugin's, for a dev checkout run from a project) would
   # answer with its build, not this one's
   [[ "$(sed -n 2p "$file")" == "$PWD" ]] || return 1
+  token=$(sed -n 3p "$file")
+  [[ -n "$token" ]] || return 1
   connect "$port" 2>/dev/null || return 1
+  # a server there to answer says so at once: a port that takes the connection and says nothing
+  # (its server wedged, or the port another process's now) is not waited on, and nothing was sent
+  IFS= read -r -t 5 hello <&3 && [[ "$hello" == menard ]] || { exec 3<&-; return 1; }
   # `-` is stdin's: read here, kept for the run below should the door not answer
   for a in "$@"; do [[ "$a" == "-" ]] && door_stdin_read=1; done
   if ((door_stdin_read)); then
@@ -163,7 +168,7 @@ door() {
     door_stdin=${door_stdin%x}
   fi
   len=$(LC_ALL=C; printf '%s' "${#door_stdin}")
-  { printf '%s\0' "$MENARD_CWD" "$verb" "$#" "$@" "$len"; printf '%s' "$door_stdin"; } >&3 || return 1
+  { printf '%s\0' "$token" "$MENARD_CWD" "$verb" "$#" "$@" "$len"; printf '%s' "$door_stdin"; } >&3 || return 1
   IFS= read -r -d '' out <&3 || return 1
   IFS= read -r -d '' err <&3 || return 1
   IFS= read -r status <&3 || return 1

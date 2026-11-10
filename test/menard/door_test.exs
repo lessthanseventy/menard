@@ -70,6 +70,69 @@ defmodule Menard.DoorTest do
     assert File.read!(Path.join(ctx.dir, "lib/a.ex")) =~ "def one, do: 11"
   end
 
+  # a request as the launcher frames it, sent by hand
+  defp ask(port, fields, wait \\ 2_000) do
+    {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false])
+    {:ok, "menard\n"} = :gen_tcp.recv(socket, 7, 2_000)
+    :ok = :gen_tcp.send(socket, Enum.map(fields, &[&1, 0]))
+    reply = :gen_tcp.recv(socket, 0, wait)
+    :gen_tcp.close(socket)
+    reply
+  end
+
+  defp door_file(ctx), do: Path.join(ctx.tmp, "menard-door-#{System.pid()}")
+
+  test "the door is the session's alone: its file is the user's to read, and a request carries its token",
+       ctx do
+    start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
+    assert %{mode: mode} = File.stat!(door_file(ctx))
+    assert Bitwise.band(mode, 0o077) == 0
+
+    [port, _root, token] = door_file(ctx) |> File.read!() |> String.split("\n", trim: true)
+    port = String.to_integer(port)
+    assert byte_size(token) >= 32
+
+    target = Path.join(ctx.dir, "evil.txt")
+    write = [ctx.dir, "write", "2", target, "pwned", "0"]
+    assert {:error, :closed} = ask(port, ["not-the-token" | write])
+    assert {:error, :closed} = ask(port, ["" | write])
+    refute File.exists?(target)
+    assert Menard.Door.served() == 0
+
+    assert {:ok, reply} = ask(port, [token | write], 30_000)
+    assert reply =~ ~s("did":"write evil.txt")
+    assert Menard.Door.served() == 1
+  end
+
+  test "the verbs the launcher keeps to itself are refused by the server too", ctx do
+    start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
+    [port, _root, token] = door_file(ctx) |> File.read!() |> String.split("\n", trim: true)
+
+    for verb <- ~w(run mcp hook guard) do
+      assert {:error, :closed} = ask(String.to_integer(port), [token, ctx.dir, verb, "0", "0"])
+    end
+
+    assert Process.alive?(Process.whereis(Menard.Door))
+  end
+
+  test "a door that takes the connection and never answers is not waited on: the verb runs itself", ctx do
+    {:ok, listen} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, port} = :inet.port(listen)
+    File.write!(door_file(ctx), "#{port}\n#{@root}\ntoken\n")
+
+    task = Task.async(fn -> edit(ctx.dir, ctx.env) end)
+    assert {out, 0} = Task.await(task, 120_000)
+    assert out =~ ~r/^\{"did":"edit a.ex: 1 replacement"/
+    :gen_tcp.close(listen)
+  end
+
+  test "a door closing leaves the file of the server that took its place", ctx do
+    door = start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
+    File.write!(door_file(ctx), "1\n#{@root}\nanother\n")
+    GenServer.stop(door)
+    assert File.read!(door_file(ctx)) =~ "another"
+  end
+
   test "the session's door is found by its id, with no walk up the ancestors", ctx do
     start_supervised!({Menard.Door, key: "s-door-test", dir: ctx.tmp})
     env = List.keystore(ctx.env, "CLAUDE_CODE_SESSION_ID", 0, {"CLAUDE_CODE_SESSION_ID", "s-door-test"})
