@@ -236,4 +236,21 @@ defmodule Menard.BinHostTest do
     assert out =~ ~s("did":"write t.ex")
     assert File.read!(Path.join(dir, "lib/t.ex")) =~ "do: 3"
   end
+
+  @tag :tmp_dir
+  test "a flag fills a trailing argument too: rename --old A --new B --files GLOB", %{tmp_dir: dir} do
+    Host.mix_project(dir, :flagrest)
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.write!(Path.join(dir, "lib/t.ex"), "defmodule T do\n  def go, do: 1\nend\n")
+
+    {out, 0} =
+      System.cmd(@bin, ["rename", "--old", "go", "--new", "run", "--files", "lib/*.ex"],
+        cd: dir,
+        env: [{"MENARD_CWD", nil}, {"MISE_ORIGINAL_CWD", nil}],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ ~s("did":"rename go → run in 1 of 1 file)
+    assert File.read!(Path.join(dir, "lib/t.ex")) =~ "def run, do: 1"
+  end
 end
