@@ -6,6 +6,7 @@ defmodule Menard.Run do
   `mix menard.run` prints what these return, as one JSON line.
   """
 
+  alias Menard.Run.Lint
   alias Menard.Run.Lock
 
   @keep 40
@@ -49,77 +50,6 @@ defmodule Menard.Run do
   """
   @spec result(String.t(), String.t(), [String.t()]) :: map()
   def result(dir, verb, args), do: result(dir, verb, args, [])
-
-  @doc """
-  Credo's findings on the lines changed in `rels` (paths from `dir`), as strict as the project's
-  gate, or none where the project has no credo. `run` is `result/3`, or a test's stand-in.
-  """
-  @spec credo_changed(String.t(), [String.t()], (String.t(), String.t(), [String.t()] -> map())) :: [map()]
-  def credo_changed(dir, rels, run \\ &result/3)
-  def credo_changed(_dir, [], _run), do: []
-
-  def credo_changed(dir, rels, run) do
-    # as strict as the project's gate: at credo's default a strict-only check (AliasUsage) passed
-    # every write, and failed the gate
-    strict = if credo_strict?(dir), do: ["--strict"], else: []
-    if credo?(dir), do: run.(dir, "credo", ["--changed" | rels] ++ strict)[:failures] || [], else: []
-  end
-
-  @doc "Whether `dir`'s project gates with `credo --strict`: what a lint of it must match."
-  @spec credo_strict?(String.t()) :: boolean()
-  def credo_strict?(dir) do
-    case File.read(Path.join(dir, "mix.exs")) do
-      {:ok, mix} -> mix =~ "credo --strict"
-      _ -> false
-    end
-  end
-
-  # The project lints with credo when it has it: its lock names it, or its deps hold it
-  @doc "Whether the project at `dir` has credo: its lock names it, or its deps hold it."
-  @spec credo?(String.t()) :: boolean()
-  def credo?(dir) do
-    File.dir?(Path.join(dir, "deps/credo")) or
-      case File.read(Path.join(dir, "mix.lock")) do
-        {:ok, lock} -> lock =~ ~s("credo":)
-        _ -> false
-      end
-  end
-
-  # `--format json` prints the report after whatever compiling said first: the object from a line
-  # that opens a brace to the end, however it is laid out
-  @doc "The issues in `credo --format json` output, as failures, or `:error` where it holds no report."
-  @spec credo_issues(String.t()) :: {:ok, [issue()]} | :error
-  def credo_issues(out) do
-    ~r/^\{/m
-    |> Regex.scan(out, return: :index)
-    |> Enum.find_value(:error, fn [{at, _}] ->
-      case JSON.decode(binary_part(out, at, byte_size(out) - at)) do
-        {:ok, %{"issues" => issues}} -> {:ok, Enum.map(issues, &credo_issue/1)}
-        _ -> nil
-      end
-    end)
-  end
-
-  # Only what an edit brought: issues on the lines changed since the last commit, every line of a file
-  # git does not track yet. Old debt in the file is not the edit's to answer for.
-  # Two git calls for every file at once, not two per file: which are tracked, and one diff.
-  @doc "The `issues` on lines changed since the last commit in the repo at `dir`, every one of an untracked file."
-  @spec only_changed([issue()], String.t()) :: [issue()]
-  def only_changed(issues, dir) do
-    files = issues |> Enum.map(&(&1.at |> String.split(":") |> hd())) |> Enum.uniq()
-    # paths as the project names them, whatever its place in the repo, and unquoted
-    git = &System.cmd("git", ["-C", dir, "-c", "core.quotePath=false" | &1], stderr_to_stdout: true)
-    {tracked, _} = git.(["ls-files", "-z", "--" | files])
-    tracked = tracked |> String.split(<<0>>, trim: true) |> MapSet.new()
-    {diff, _} = git.(["diff", "-U0", "--relative", "HEAD", "--" | files])
-    hunks = hunks(diff)
-    lines = Map.new(files, &{&1, if(&1 in tracked, do: Map.get(hunks, &1, MapSet.new()), else: :all)})
-
-    Enum.filter(issues, fn %{at: at} ->
-      [file, line] = String.split(at, ":")
-      lines[file] == :all or String.to_integer(line) in lines[file]
-    end)
-  end
 
   @doc """
   What `mix format` takes in `dir`: the inputs, and each `subdirectories:` match's own
@@ -592,7 +522,7 @@ defmodule Menard.Run do
   end
 
   defp verb(run, "credo", args) do
-    if credo?(run.dir),
+    if Lint.credo?(run.dir),
       do: credo(run, args),
       else: %{ok: true, failures: [], skipped: "no credo in this project"}
   end
@@ -636,10 +566,10 @@ defmodule Menard.Run do
   # issue in `failures`, at the alias's own strictness. `--strict` asked of an alias that lints at
   # credo's default level runs credo --strict as well: dropped, it passed a gate it was asked to fail.
   defp credo_named(reply, out, run, strict?) do
-    alias_strict? = credo_strict?(run.dir)
+    alias_strict? = Lint.credo_strict?(run.dir)
 
     cond do
-      not credo?(run.dir) ->
+      not Lint.credo?(run.dir) ->
         reply
 
       strict? and not alias_strict? ->
@@ -666,9 +596,9 @@ defmodule Menard.Run do
     {out, status, fetched} =
       mix_fetching(run, ["credo", "--format", "json"] ++ if(strict, do: ["--strict"], else: []) ++ files)
 
-    case credo_issues(out) do
+    case Lint.credo_issues(out) do
       {:ok, issues} ->
-        issues = if changed, do: only_changed(issues, run.dir), else: issues
+        issues = if changed, do: Lint.only_changed(issues, run.dir), else: issues
         %{ok: issues == [], failures: issues, fetched: fetched}
 
       :error ->
@@ -757,12 +687,14 @@ defmodule Menard.Run do
       end
 
     lint =
-      if credo?(dir), do: credo(run, Enum.filter(args, &(&1 == "--strict"))), else: %{ok: true, failures: []}
+      if Lint.credo?(dir),
+        do: credo(run, Enum.filter(args, &(&1 == "--strict"))),
+        else: %{ok: true, failures: []}
 
     %{reply | ok: reply.ok and lint.ok, failures: reply.failures ++ lint.failures}
     |> Map.put(
       :ran,
-      "format --check-formatted, compile --warnings-as-errors, test#{if credo?(dir), do: ", credo"} (no precommit alias)"
+      "format --check-formatted, compile --warnings-as-errors, test#{if Lint.credo?(dir), do: ", credo"} (no precommit alias)"
     )
   end
 
@@ -770,32 +702,6 @@ defmodule Menard.Run do
   defp drop_format(["--format=" <> _ | rest]), do: drop_format(rest)
   defp drop_format([arg | rest]), do: [arg | drop_format(rest)]
   defp drop_format([]), do: []
-
-  defp credo_issue(i) do
-    %{
-      kind: "credo",
-      message: "#{i["message"]} (#{i["check"] |> String.split(".") |> List.last()})",
-      at: "#{i["filename"]}:#{i["line_no"]}"
-    }
-  end
-
-  # each file's changed lines, from one diff of them all
-  defp hunks(diff) do
-    for [_, file, body] <- Regex.scan(~r/^\+\+\+ b\/(.+)\n((?:(?!diff --git ).*\n?)*)/m, diff),
-        into: %{},
-        do: {file, hunk_lines(body)}
-  end
-
-  defp hunk_lines(body) do
-    # the count's group always matches, empty when a hunk has none (`@@ -2 +2 @@`): an optional group
-    # that did not match drops out of scan's list, and the pattern skipped every one-line hunk
-    for [_, start, count] <- Regex.scan(~r/^@@ -\S+ \+(\d+),?(\d*) @@/m, body),
-        n = if(count == "", do: 1, else: String.to_integer(count)),
-        n > 0,
-        line <- String.to_integer(start)..(String.to_integer(start) + n - 1),
-        into: MapSet.new(),
-        do: line
-  end
 
   # Everything `check` can fail on, one shape: the files not formatted, the compiler's warnings and
   # errors, the failing tests

@@ -19,9 +19,9 @@ defmodule Menard.RunCredoTest do
 
     assert {:ok,
             [%{kind: "credo", at: "lib/a.ex:1", message: "Modules should have a @moduledoc tag. (ModuleDoc)"}]} =
-             Run.credo_issues(out)
+             Run.Lint.credo_issues(out)
 
-    assert Run.credo_issues("** (Mix) The task \"credo\" could not be found") == :error
+    assert Run.Lint.credo_issues("** (Mix) The task \"credo\" could not be found") == :error
   end
 
   test "reads the report however it is laid out, after output that has braces of its own" do
@@ -32,7 +32,7 @@ defmodule Menard.RunCredoTest do
     {"issues": [{"check": "Credo.Check.Design.TagTODO", "filename": "lib/a.ex", "line_no": 3, "message": "Found a TODO tag."}]}
     """
 
-    assert {:ok, [%{at: "lib/a.ex:3", message: "Found a TODO tag. (TagTODO)"}]} = Run.credo_issues(out)
+    assert {:ok, [%{at: "lib/a.ex:3", message: "Found a TODO tag. (TagTODO)"}]} = Run.Lint.credo_issues(out)
   end
 
   @tag :tmp_dir
@@ -49,7 +49,7 @@ defmodule Menard.RunCredoTest do
 
     issues = for at <- ~w(a.ex:1 a.ex:2 a.ex:4 a.ex:5 new.ex:1), do: %{kind: "credo", message: "m", at: at}
 
-    assert Enum.map(Run.only_changed(issues, dir), & &1.at) == ~w(a.ex:2 a.ex:5 new.ex:1)
+    assert Enum.map(Run.Lint.only_changed(issues, dir), & &1.at) == ~w(a.ex:2 a.ex:5 new.ex:1)
   end
 
   @tag :tmp_dir
@@ -65,7 +65,7 @@ defmodule Menard.RunCredoTest do
     File.write!(Path.join(project, "lib/a.ex"), "one\nTWO\n")
 
     issues = for at <- ~w(lib/a.ex:1 lib/a.ex:2), do: %{kind: "credo", message: "m", at: at}
-    assert Enum.map(Run.only_changed(issues, project), & &1.at) == ~w(lib/a.ex:2)
+    assert Enum.map(Run.Lint.only_changed(issues, project), & &1.at) == ~w(lib/a.ex:2)
   end
 
   @tag :tmp_dir
@@ -96,7 +96,7 @@ defmodule Menard.RunCredoTest do
     issues = for f <- files, line <- [1, 2], do: %{kind: "credo", message: "m", at: "#{f}:#{line}"}
 
     try do
-      assert Enum.map(Run.only_changed(issues, dir), & &1.at) == Enum.map(files, &"#{&1}:2")
+      assert Enum.map(Run.Lint.only_changed(issues, dir), & &1.at) == Enum.map(files, &"#{&1}:2")
     after
       System.put_env("PATH", path)
     end
