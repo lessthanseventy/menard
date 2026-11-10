@@ -1432,6 +1432,13 @@ defmodule Menard.HooksTest do
     prompt.("up")
     aged.("up")
     assert prompt.("up") == ""
+
+    # a session's id changed under its server: the door is under the harness's pid, an ancestor's
+    File.write!(Path.join(dir, "menard-door-#{System.pid()}"), "#{port}\n")
+    prompt.("cleared")
+    aged.("cleared")
+    assert prompt.("cleared") == ""
+    File.rm!(Path.join(dir, "menard-door-#{System.pid()}"))
     :gen_tcp.close(listen)
     assert prompt.("up") =~ "hooks server is not running"
   end

@@ -40,6 +40,19 @@ defmodule Menard.DoorTest do
     )
   end
 
+  test "a session's door is under its harness's pid too: a session id changed since still finds it", ctx do
+    door = start_supervised!({Menard.Door, key: ["a-session-id", System.pid()], dir: ctx.tmp})
+    files = for key <- ["a-session-id", System.pid()], do: Path.join(ctx.tmp, "menard-door-#{key}")
+    assert Enum.all?(files, &File.exists?/1)
+
+    # as after /clear: the shell's id is one the server never had
+    assert {_out, 0} = edit(ctx.dir, [{"CLAUDE_CODE_SESSION_ID", "another-id"} | ctx.env])
+    assert Menard.Door.served() == 1
+
+    GenServer.stop(door)
+    refute Enum.any?(files, &File.exists?/1)
+  end
+
   test "an edit through bin/menard is answered by the running server, no VM of its own", ctx do
     start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
 

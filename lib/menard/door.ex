@@ -64,19 +64,27 @@ defmodule Menard.Door do
     Process.flag(:trap_exit, true)
     {:ok, listen} = :gen_tcp.listen(0, [:binary, ip: {127, 0, 0, 1}, active: false, reuseaddr: true])
     {:ok, port} = :inet.port(listen)
-    key = opts[:key] || System.get_env("CLAUDE_CODE_SESSION_ID") || parent_pid()
-    file = Path.join(opts[:dir] || System.tmp_dir!(), "menard-door-#{key}")
+    # under the session's id, and the harness's pid: a session's id changes (`/clear`) under a
+    # server that keeps the one it was started with, and the launcher then finds it by its ancestors
+    keys =
+      List.wrap(opts[:key] || Enum.uniq([System.get_env("CLAUDE_CODE_SESSION_ID"), parent_pid()] -- [nil]))
+
+    files = for key <- keys, do: Path.join(opts[:dir] || System.tmp_dir!(), "menard-door-#{key}")
     # the checkout this server runs from (bin/menard starts it there): a launcher of another build
     # leaves the door alone
     token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
-    File.write!(file, "")
-    File.chmod!(file, 0o600)
-    File.write!(file, "#{port}\n#{File.cwd!()}\n#{token}\n")
+
+    for file <- files do
+      File.write!(file, "")
+      File.chmod!(file, 0o600)
+      File.write!(file, "#{port}\n#{File.cwd!()}\n#{token}\n")
+    end
+
     door = self()
     {:ok, _} = Task.start_link(fn -> accept(listen, door, token) end)
     # touched daily: the hook's sweep of week-old files would take a long session's door
     :timer.send_interval(@day, :touch)
-    {:ok, %{listen: listen, file: file, port: port, served: 0}}
+    {:ok, %{listen: listen, files: files, port: port, served: 0}}
   end
 
   @impl true
@@ -87,7 +95,7 @@ defmodule Menard.Door do
 
   @impl true
   def handle_info(:touch, state) do
-    File.touch(state.file)
+    Enum.each(state.files, &File.touch/1)
     {:noreply, state}
   end
 
@@ -96,10 +104,12 @@ defmodule Menard.Door do
   # the file goes only while it is still this door's: a server started for the same session since
   # has written its own port there
   @impl true
-  def terminate(_reason, %{file: file, listen: listen, port: port}) do
-    with {:ok, content} <- File.read(file),
-         true <- String.starts_with?(content, "#{port}\n"),
-         do: File.rm(file)
+  def terminate(_reason, %{files: files, listen: listen, port: port}) do
+    for file <- files do
+      with {:ok, content} <- File.read(file),
+           true <- String.starts_with?(content, "#{port}\n"),
+           do: File.rm(file)
+    end
 
     :gen_tcp.close(listen)
   end
