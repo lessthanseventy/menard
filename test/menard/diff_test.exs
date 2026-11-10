@@ -19,4 +19,16 @@ defmodule Menard.DiffTest do
     # about 7_500 here; a 2000 x 2000 table is 4_000_000 cells before any work in them
     assert done - start < 400_000
   end
+
+  test "a big file changed on every line is one hunk, not a search for what its lines share" do
+    # 3000 lines each changed took 15 s an edit, and a verb diffs up to three times
+    before = Enum.map_join(1..3000, "\n", &"line #{&1}")
+    after_ = Enum.map_join(1..3000, "\n", &"LINE #{&1}")
+    {:reductions, start} = Process.info(self(), :reductions)
+    assert [%{start: 2, removed: removed, added: added}] = Diff.hunks("top\n" <> before, "top\n" <> after_)
+    {:reductions, done} = Process.info(self(), :reductions)
+
+    assert {length(removed), length(added)} == {3000, 3000}
+    assert done - start < 400_000
+  end
 end

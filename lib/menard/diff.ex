@@ -59,10 +59,26 @@ defmodule Menard.Diff do
         [%{start: 1, removed: [], added: String.split(after_, "\n")}]
 
       true ->
-        String.split(before, "\n")
-        |> List.myers_difference(String.split(after_, "\n"))
-        |> collect(1, [])
+        {same, was, now} = unshared(String.split(before, "\n"), String.split(after_, "\n"), 0)
+        {now, was} = now |> Enum.reverse() |> unshared(Enum.reverse(was), 0) |> ends()
+
+        if rewritten?(was, now),
+          do: [%{start: same + 1, removed: was, added: now}],
+          else: was |> List.myers_difference(now) |> collect(same + 1, [])
     end
+  end
+
+  # the lines two lists start with alike, counted, and each list's rest
+  defp unshared([line | a], [line | b], n), do: unshared(a, b, n + 1)
+  defp unshared(a, b, n), do: {n, a, b}
+
+  defp ends({_n, a, b}), do: {Enum.reverse(a), Enum.reverse(b)}
+
+  # Myers' work grows with the lines that differ times the lines there are: 3000 lines each changed
+  # took 15 s, to say what one hunk says. Counted by the lines one side has and the other has not.
+  defp rewritten?(was, now) do
+    differ = length(was -- now) + length(now -- was)
+    differ * (length(was) + length(now)) > 4_000_000
   end
 
   # A :del and the :ins that follows it are one change, so they are one hunk.

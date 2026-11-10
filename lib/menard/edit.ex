@@ -36,6 +36,7 @@ defmodule Menard.Edit do
   def run([], _opts), do: {:error, "edit needs edits: a list of {file, old, new}"}
 
   def run(edits, opts) do
+    edits = one_name(edits)
     files = edits |> Enum.map(& &1.file) |> Enum.uniq()
     before = Map.new(files, &{&1, File.read(&1)})
 
@@ -170,13 +171,41 @@ defmodule Menard.Edit do
   defp replace({:ok, _text}, %{old: same, new: same}) when same != "",
     do: {:error, "the text and what replaces it are the same: nothing to change (a block left as it was?)"}
 
-  defp replace({:ok, text}, %{old: old, new: new} = edit) do
+  defp replace({:ok, text}, edit) do
+    %{old: old, new: new} = edit = line_ends(text, edit)
+
     case {:binary.matches(text, old), edit[:all] == true} do
       {[], _all} -> deeper(text, edit) || {:error, missed(text, old)}
       {[{at, length}], _all} -> placed(text, edit, at + length)
       {_several, true} -> {:ok, String.replace(text, old, new)}
       {several, false} -> {:error, several(text, old, several)}
     end
+  end
+
+  # a file of CRLF lines, and text written with LF as an agent writes it: found, and written, with
+  # the file's line ends
+  defp line_ends(text, %{old: old, new: new} = edit) do
+    if String.contains?(text, "\r\n") and not String.contains?(old <> new, "\r"),
+      do: %{edit | old: String.replace(old, "\n", "\r\n"), new: String.replace(new, "\n", "\r\n")},
+      else: edit
+  end
+
+  # One file named two ways (a symlink and its target) is one file: read once per name, the second
+  # name's edit was made to the file as it was and written over the first's.
+  defp one_name(edits) do
+    {edits, _seen} =
+      Enum.map_reduce(edits, %{}, fn edit, seen ->
+        case File.stat(edit.file) do
+          {:ok, %{inode: inode, major_device: device}} when inode != 0 ->
+            first = Map.get(seen, {device, inode}, edit.file)
+            {%{edit | file: first}, Map.put(seen, {device, inode}, first)}
+
+          _ ->
+            {edit, seen}
+        end
+      end)
+
+    edits
   end
 
   # New functions written under a clause (whole defs ending `new`), where the function has more
