@@ -11,11 +11,12 @@ and the AST tools for what a text edit does badly: a rename across files (`renam
 what (`find`), one function of a big module (`clause get`), a function moved with its docs
 (`clause move`). Each parses the file, changes the tree, formats with the project's formatter and
 parse-checks what it writes. Claude Code's `Edit` and `Write` are for what menard does not cover
-(TypeScript, Lua, Nix, Markdown); menard's hook still formats any Elixir they write and reports
-what changed. Under pi's guard an `Edit` or `Write` on a module is **blocked**.
+(TypeScript, Lua, Nix, Markdown): on an `.ex` or `.exs` file, in the project or a sibling checkout,
+they are **refused** for `edit`, a new file too (an empty `old` makes it). Under pi's guard an
+`Edit` or `Write` on a module is blocked.
 
-Plain files, edited as usual: new files, `_build/`, `deps/`, `config/*.exs`, `.formatter.exs`,
-`mix.lock`, and an `Edit` that only changes text inside a string (a heredoc, a `~H` template).
+Left to `Edit` and `Write`: `_build/`, `deps/`, `mix.lock`, `.heex`, and an `.ex` that is no
+Elixir (an EEx template under `priv/templates`, which `edit` would refuse as not parseable).
 
 ## Calling a tool
 
@@ -57,7 +58,7 @@ FILE:LINE` names the test a line (a failure's, a grep hit's) sits in. Then match
 | tests into another test file | `block {verb: "move", file, label: ["a", …], to, as?}`: their @tags, the helpers only they call, the attributes and aliases they use go too; a new file gets the `use` and `setup`. A helper a staying test calls is refused: put it in test/support |
 | an alias/import/use/require, a `doctest` | `directive {verb: "add" \| "replace" \| "remove", file, kind, target}` |
 | one whole module of several | `module {verb: "replace", file, module, code}` |
-| a `@doc` or a `#` comment | a plain Edit: a string and a comment are prose, and the guard passes an edit that changes only those |
+| a `@doc` or a `#` comment | `edit`: a string and a comment are prose, replaced as text |
 | a name, everywhere | `rename {old, new, files: ["lib/**/*.ex", "test/**/*.exs"]}` |
 | who calls what | `find {kind: "calls" \| "defs" \| "aliases", target, files}`: strings and comments never match; `calls` of `Mod.fun` adds the language server's `reference`s (below) |
 | what a function uses, who calls its helpers | `deps {verb: "refs", file, name_arity}` |

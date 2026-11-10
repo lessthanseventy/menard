@@ -123,6 +123,18 @@ defmodule Menard.DoorTest do
 
     # no hooks server in this VM: the door answers, and no session would
     assert {:ok, <<0, 0, "1\n">>} = ask(String.to_integer(port), [token, ctx.dir, "alive", "0", "0"])
+
+    # the session as anubis names it: not yet initialized it takes no call, initialized it does
+    session = Anubis.Server.Registry.stdio_session_name(Menard.MCP.Hooks)
+
+    start_supervised!(%{
+      id: :session,
+      start: {Agent, :start_link, [fn -> %{initialized: false} end, [name: session]]}
+    })
+
+    assert {:ok, <<0, 0, "1\n">>} = ask(String.to_integer(port), [token, ctx.dir, "alive", "0", "0"])
+    Agent.update(session, &%{&1 | initialized: true})
+    assert {:ok, <<0, 0, "0\n">>} = ask(String.to_integer(port), [token, ctx.dir, "alive", "0", "0"])
   end
 
   test "the verbs the launcher keeps to itself are refused by the server too", ctx do

@@ -1169,7 +1169,8 @@ defmodule Menard.HooksTest do
     assert {:rewrite, _} = pre.("cd /x && mix test 2>&1 | tail -5", "default")
   end
 
-  test "the mcp_tool hook's `mode` is the harness's permission mode" do
+  @tag :tmp_dir
+  test "the mcp_tool hook's `mode` is the harness's permission mode", %{tmp_dir: dir} do
     assert Enum.any?(Menard.Verbs.Hook.noun().fields, &match?({:mode, :string, _}, &1))
 
     pre = "hooks/hooks.json" |> File.read!() |> JSON.decode!() |> get_in(["hooks", "PreToolUse"])
@@ -1181,7 +1182,7 @@ defmodule Menard.HooksTest do
                tool: "Bash",
                session: "m#{System.unique_integer([:positive])}",
                call: "t1",
-               cwd: System.tmp_dir!(),
+               cwd: dir,
                mode: "auto",
                input: JSON.encode!(%{command: "cd /x && bin/menard outline lib/a.ex | head"})
              })
