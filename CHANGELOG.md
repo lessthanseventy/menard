@@ -86,9 +86,12 @@ Hooks and the door:
   `menard run test: ok`. A call on its own is the same line, in place of the command and its
   JSON reply, and a click on a line opens that one call as it was made and answered. The
   plugin's first hooks module (`hooks/register.tsx`).
-- A server whose install is replaced under it (a plugin reinstall, with sessions open) stops. It
-  rebuilt itself from the new files, crashed, and went silent for good: every hook then waited
-  out its timeout, 130 s on each Bash call, until the session was restarted.
+- A server whose install is replaced under it (a plugin reinstall, with sessions open) goes on:
+  from the code it has loaded, all of it at start, while the new install is not there yet, and
+  from the new install once it is, built and loaded as changed source is. It rebuilt itself from
+  files half there, crashed, and went silent for good: every hook then waited out its timeout,
+  130 s on each Bash call, until the session was restarted. (Stopping it was no cure: Claude
+  Code does not start a stopped server again, and the session ran on with no hooks.)
 - A session resumed has menard on its PATH once: each start added a line, an updated plugin's
   older versions staying among them.
 - A piped test run rewritten to `mise exec -- menard run test` is approved as menard's own run

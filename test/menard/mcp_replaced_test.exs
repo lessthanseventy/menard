@@ -1,8 +1,7 @@
 defmodule Menard.MCPReplacedTest do
-  # A plugin reinstall replaces the install's directory under the servers of every open session.
-  # Such a server built itself from the new files on its next call, crashed where they were not
-  # yet there, and its session died with no module on disk to say so with: every call after went
-  # unanswered, and every hook waited out its timeout (130 s a Bash call).
+  # A plugin reinstall replaces the install's directory under the servers of every open session,
+  # and Claude Code does not start again a server that stopped. So the server goes on: from the
+  # code it has loaded while the new install is not there yet, from the new install once it is.
   use ExUnit.Case, async: true
 
   import Menard.Test.Checkout
@@ -35,7 +34,7 @@ defmodule Menard.MCPReplacedTest do
       "\n"
   end
 
-  test "a hooks server whose install is replaced under it stops, where it went silent", %{tmp_dir: dir} do
+  test "a hooks server whose install is replaced under it goes on answering", %{tmp_dir: dir} do
     copy = checkout_copy!(dir)
 
     port =
@@ -61,11 +60,18 @@ defmodule Menard.MCPReplacedTest do
     Port.command(port, hook(2, dir))
     assert answer(port, 2) =~ ~s("isError":false)
 
-    # the reinstall: another directory where the server's was
+    # the reinstall, under way: another directory where the server's was, nothing in it yet
     File.rename!(copy, copy <> "-before")
     File.mkdir_p!(copy)
-
     Port.command(port, hook(3, dir))
-    assert_receive {^port, {:exit_status, 0}}, 30_000
+    assert answer(port, 3) =~ ~s("isError":false)
+
+    # and done: the install is there again, as other files
+    File.rm_rf!(copy)
+    File.cp_r!(copy <> "-before", copy)
+    Port.command(port, hook(4, dir))
+    assert answer(port, 4) =~ ~s("isError":false)
+    Port.command(port, hook(5, dir))
+    assert answer(port, 5) =~ ~s("isError":false)
   end
 end

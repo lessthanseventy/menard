@@ -81,13 +81,19 @@ if Code.ensure_loaded?(Anubis.Server) do
     call first builds menard as it is now (bin/menard, as any verb is built, the last good build kept
     where an edit half applied does not compile) and loads the modules that changed. An installed
     menard's source does not change: this is a stat of each file.
+
+    A plugin reinstall puts another directory where the install was, under the servers of every
+    open session, and Claude Code does not start again a server that stopped. So the server takes
+    the new install up as it does changed source; while that is not there yet (no source: a stamp
+    of 0) it answers from the code it has loaded, all of it since `loaded!/0`.
     """
     @spec fresh() :: :ok
     def fresh do
-      if install() != :persistent_term.get({__MODULE__, :install}, install()), do: replaced()
       stamp = newest_source()
 
-      if stamp > loaded(), do: :global.trans({__MODULE__, :fresh}, fn -> compile(stamp) end)
+      if stamp > 0 and (stamp > loaded() or moved?()),
+        do: :global.trans({__MODULE__, :fresh}, fn -> compile(stamp) end)
+
       :ok
     end
 
@@ -104,6 +110,7 @@ if Code.ensure_loaded?(Anubis.Server) do
     @doc "What the server runs, stamped as current: called once it has started."
     @spec loaded!() :: :ok
     def loaded! do
+      preload()
       :persistent_term.put({__MODULE__, :install}, install())
       :persistent_term.put({__MODULE__, :loaded}, newest_source())
     end
@@ -172,31 +179,41 @@ if Code.ensure_loaded?(Anubis.Server) do
       end
     end
 
-    # A plugin reinstall under a running server: the modules it has not loaded yet are no longer on
-    # disk, and what is there is another version's. It built itself from those, crashed, and its
-    # session died unable to load the module that says so: every call after went unanswered, each
-    # hook to its timeout. Stopped, the harness has a server that is gone, not one that is silent.
-    defp replaced do
-      IO.puts(:stderr, "menard: its install was replaced under this server; stopping")
-      System.halt(0)
+    defp moved?, do: install() != :persistent_term.get({__MODULE__, :install}, install())
+
+    # Every module of the build, loaded while it is on disk: one first called mid-reinstall is not
+    # there to load, and the session died on the module that words its own errors.
+    defp preload do
+      for dir <- :code.get_path(),
+          dir = List.to_string(dir),
+          String.starts_with?(dir, root()),
+          beam <- Path.wildcard(Path.join(dir, "*.beam")) do
+        :code.ensure_loaded(beam |> Path.basename(".beam") |> String.to_atom())
+      end
     end
 
     # Again under the lock: a call that waited on another's build has nothing left to do.
     defp compile(stamp) do
-      if stamp > loaded(), do: compiled(stamp)
+      if stamp > loaded() or moved?(), do: compiled(stamp)
     end
 
     # The server is a bare `elixir -pa …/ebin` (bin/menard), no mix in it: bin/menard builds, as it
     # does before any verb, and the beams it wrote are loaded over the ones running. A module new
-    # since loads from the path when first called.
+    # since loads from the path when first called. A build that failed leaves what is loaded: a
+    # module purged for a beam that is not there is a module gone.
     defp compiled(stamp) do
-      System.cmd(Path.join(root(), "bin/menard"), ["version"], stderr_to_stdout: true)
+      # a replaced install took this VM's directory with it, and nothing starts from one deleted
+      File.cd(root())
 
-      for module <- :code.modified_modules() do
-        :code.purge(module)
-        :code.load_file(module)
+      with {_, 0} <-
+             System.cmd(Path.join(root(), "bin/menard"), ["version"], stderr_to_stdout: true, cd: root()) do
+        for module <- :code.modified_modules() do
+          :code.purge(module)
+          :code.load_file(module)
+        end
       end
 
+      :persistent_term.put({__MODULE__, :install}, install())
       :persistent_term.put({__MODULE__, :loaded}, stamp)
     end
 
