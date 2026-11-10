@@ -30,3 +30,28 @@ export const menardSaid = ({ tool, input, output }: Call): string | null => {
   const said = [verb, ...new Set(targets)].join(' ').slice(0, MAX_SAID)
   return ok === undefined ? said : `${said}: ${ok === 'true' ? 'ok' : 'failed'}`
 }
+
+const MAX_LINES = 30
+
+const lines = (text: string): string[] => {
+  const all = text.replace(/\n+$/, '').split('\n')
+  return all.length > MAX_LINES ? [...all.slice(0, MAX_LINES), `… +${all.length - MAX_LINES} lines`] : all
+}
+
+// a reply as its text: a shell's stdout, an MCP tool's text blocks, else the value as JSON
+const replyText = (output: unknown): string => {
+  if (typeof output === 'string') return output
+  if (Array.isArray(output)) return output.map(block => (typeof block?.text === 'string' ? block.text : JSON.stringify(block))).join('\n')
+  const shell = output as { stdout?: unknown; stderr?: unknown } | null
+  if (typeof shell?.stdout === 'string') return [shell.stdout, typeof shell.stderr === 'string' ? shell.stderr : ''].filter(Boolean).join('\n')
+  return output === undefined ? '' : JSON.stringify(output, null, 2)
+}
+
+// A call as it was made and answered, for a line that was clicked open: the command or the
+// tool's arguments, then the reply, each cut to a screen's worth.
+export const callText = ({ input, output }: Call): string[] => {
+  const fields = (input ?? {}) as Record<string, unknown>
+  const made = typeof fields.command === 'string' ? `$ ${fields.command}` : JSON.stringify(input ?? {}, null, 2)
+  const reply = replyText(output)
+  return reply === '' ? lines(made) : [...lines(made), ...lines(reply)]
+}

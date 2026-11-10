@@ -83,7 +83,9 @@ Hooks and the door:
   and the call hung until the client gave up.
 - In Claude Code's transcript a folded run of menard calls ("Called plugin:menard:menard 2
   times") is a line for each, saying what it did: `menard edit cart.ex: 2 replacements`,
-  `menard run test: ok`. The plugin's first hooks module (`hooks/register.tsx`).
+  `menard run test: ok`. A call on its own is the same line, in place of the command and its
+  JSON reply, and a click on a line opens that one call as it was made and answered. The
+  plugin's first hooks module (`hooks/register.tsx`).
 - A server whose install is replaced under it (a plugin reinstall, with sessions open) stops. It
   rebuilt itself from the new files, crashed, and went silent for good: every hook then waited
   out its timeout, 130 s on each Bash call, until the session was restarted.

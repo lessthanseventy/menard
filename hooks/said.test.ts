@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { menardSaid } from './said'
+import { callText, menardSaid } from './said'
 
 const EDIT = 'mcp__plugin_menard_menard__edit'
 
@@ -36,8 +36,27 @@ test('a menard call is its line, and a click opens the call as it was made', asy
   expect(await result.find({ text: /the ToolResult as drawn/ })).toBeUndefined()
 
   await use.press({ key: 'menard-t1' } as never)
-  expect(await use.find({ text: /the ToolUse as drawn/ })).toBeDefined()
-  expect(await result.find({ text: /the ToolResult as drawn/ })).toBeDefined()
+  expect(await use.find({ text: /\$ bin\/menard edit - <<'EOF'/ })).toBeDefined()
+  expect(await use.find({ text: /"did":"edit a\.ex: 1 replacement"/ })).toBeDefined()
+  expect(await result.find({ text: /the ToolResult as drawn/ })).toBeUndefined()
+  await use.press({ key: 'menard-t1' } as never)
+  expect(await use.find({ text: /"did":"edit a\.ex/ })).toBeUndefined()
+})
+
+test('an opened call shows the reply its result carried', async ($, on) => {
+  on('ui.render', () => ({ type: 'Text', props: {}, children: ['as drawn'] }) as never)
+  const use = await $.ui.mount(row('ToolUse', { tool: 'mcp__plugin_menard_menard__run', input: { verb: 'test' }, isRunning: false, isInterrupted: false }))
+  await $.ui.mount(row('ToolResult', { tool: 'mcp__plugin_menard_menard__run', output: [{ type: 'text', text: '{"ok":true,"tests":2}' }] }))
+  await use.press({ key: 'menard-t1' } as never)
+  expect(await use.find({ text: /"tests":2/ })).toBeDefined()
+})
+
+test('an opened call is the call as made and its reply, a long one cut', async () => {
+  expect(callText({ tool: 'x', input: { verb: 'test', args: ['a'] }, output: [{ type: 'text', text: '{"ok":true}' }] })).toEqual(['{', '  "verb": "test",', '  "args": [', '    "a"', '  ]', '}', '{"ok":true}'])
+  const long = Array.from({ length: 40 }, (_, i) => `line ${i}`).join('\n')
+  const cut = callText({ tool: 'Bash', input: { command: 'menard run test' }, output: { stdout: long, stderr: '' } })
+  expect(cut[0]).toBe('$ menard run test')
+  expect(cut.at(-1)).toBe('… +10 lines')
 })
 
 test('a call that is not menard is drawn as it was', async ($, on) => {
@@ -52,13 +71,18 @@ const group = (calls: unknown[], isCallsOnly: boolean) =>
 test('a folded run of menard calls is a line for each, in place of the count', async ($, on) => {
   on('ui.render', () => ({ type: 'Text', props: {}, children: ['Called plugin:menard:menard 2 times'] }) as never)
   const calls = [
-    { tool: EDIT, input: { edits: [{ file: 'lib/cart.ex' }] }, output: '{"did":"edit cart.ex: 2 replacements"}' },
-    { tool: 'mcp__plugin_menard_menard__run', input: { verb: 'test' }, output: '{"ok":true}' },
+    { tool_use_id: 'g1', tool: EDIT, input: { edits: [{ file: 'lib/cart.ex' }] }, output: '{"did":"edit cart.ex: 2 replacements"}' },
+    { tool_use_id: 'g2', tool: 'mcp__plugin_menard_menard__run', input: { verb: 'test' }, output: '{"ok":true}' },
   ]
   const ui = await $.ui.mount(group(calls, true))
   expect(await ui.find({ text: /edit cart\.ex: 2 replacements/ })).toBeDefined()
   expect(await ui.find({ text: /run test: ok/ })).toBeDefined()
   expect(await ui.find({ text: /Called plugin/ })).toBeUndefined()
+
+  // a click opens that call alone
+  await ui.press({ key: 'menard-g2' } as never)
+  expect(await ui.find({ text: /"verb": "test"/ })).toBeDefined()
+  expect(await ui.find({ text: /"edits"/ })).toBeUndefined()
 })
 
 test('among other calls the count stays, and menard is named under it', async ($, on) => {
