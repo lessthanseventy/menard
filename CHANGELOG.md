@@ -7,6 +7,9 @@
 - A session idle past 30 minutes still answers its hooks: anubis ended the stdio session, and
   every hook after waited out its timeout, about two minutes a Bash call. Every hook's timeout is
   15 s, and a server that stopped answering is told apart from one that is up (`alive`).
+- A server whose MCP session ended, for any reason, starts it again itself, initialized without
+  the client's handshake, and says so on stderr: anubis starts no second session and Claude Code
+  initializes once, so every call after went unanswered.
 - The write verbs and `run` reach any git checkout under the home, not only the session's
   directory; a sibling file's `then` runs in its own project.
 - Claude Code's `Edit`, `MultiEdit` and `Write` on an `.ex` or `.exs` file are refused for `edit`,
