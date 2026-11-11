@@ -51,7 +51,7 @@ defmodule Menard.Scripts do
         filtered_why(command)
 
       script && not (programs?(command, root) or harmless?(command)) ->
-        "#{script} does not run here. " <> instead(menard)
+        "#{script} does not run here. " <> in_the_shell(menard)
 
       true ->
         nil
@@ -289,6 +289,34 @@ defmodule Menard.Scripts do
       )
   end
 
+  # the same, to an agent refused in the shell: the shell's edit, then the tool
+  defp in_the_shell(menard) do
+    """
+    Text is replaced, in one file or many, in one call, with \
+    `#{menard} edit --then compile - <<'EOF'`: each file's path on a line, then its \
+    `<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE` blocks, every SEARCH found exactly once or \
+    nothing written, an empty one for a new file. A relative path is from the shell's directory. \
+    `--then compile` checks it builds, credo's findings on the lines changed beside it; \
+    `--then test`, on the last edit of a change, runs the tests of what it changed.
+      #{menard} edit --then compile - <<'EOF'
+      lib/a.ex
+      <<<<<<< SEARCH
+      the text to find
+      =======
+      the text to put there
+      >>>>>>> REPLACE
+      EOF
+    The same edit is menard's `edit` tool (`#{edit_tool()}`, `edits: [{file, old, new}]` and \
+    `then`). #{shells()}\
+    """
+  end
+
+  defp shells do
+    "What is no edit is the shell's: a wait or a loop in the shell itself " <>
+      "(`until ! pgrep -f X >/dev/null; do sleep 2; done`), JSON with `jq`; past that, Elixir: " <>
+      "`elixir -e '…'`, or `mix run -e '…'` for the project's own code."
+  end
+
   defp instead(menard) do
     """
     Text is replaced, in one file or many, in one call, with menard's `edit` tool (`#{edit_tool()}`): \
@@ -302,10 +330,7 @@ defmodule Menard.Scripts do
        "then": "compile"}
     From the shell, the same edit is \
     `#{menard} edit --then compile - <<'EOF'`: each file's path on a line, then its \
-    `<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE` blocks. \
-    What is no edit is the shell's: a wait or a loop in the shell itself \
-    (`until ! pgrep -f X >/dev/null; do sleep 2; done`), JSON with `jq`; past that, Elixir: \
-    `elixir -e '…'`, or `mix run -e '…'` for the project's own code.\
+    `<<<<<<< SEARCH`, `=======`, `>>>>>>> REPLACE` blocks. #{shells()}\
     """
   end
 end

@@ -1105,7 +1105,7 @@ defmodule Menard.HooksTest do
                state_dir: dir
              )
 
-    assert why =~ "with menard's `edit` tool"
+    assert why =~ "with `menard edit --then compile - <<'EOF'`"
     refute why =~ Menard.bin()
 
     # no env file (another harness): the path, as before

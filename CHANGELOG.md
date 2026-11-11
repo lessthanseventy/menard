@@ -19,6 +19,7 @@
 - Under auto mode, a command the hook would rewrite is refused with the command to run: auto mode
   gave no verdict on a call a hook had changed.
 - A refused batch says its other edits are kept unwritten for the retry.
+- A script refused in the shell is shown the shell's `edit` first, then the tool.
 
 ## 0.8.9
 
