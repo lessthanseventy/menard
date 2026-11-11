@@ -52,11 +52,14 @@ defmodule Menard.ScriptsTest do
   test "a refusal, and what is said up front, name this menard by its path and show an edit" do
     for text <- [Scripts.refused(@edit, @menard), Scripts.upfront(@menard)] do
       assert text =~ "`mcp__plugin_menard_menard__edit`"
-      assert text =~ ~s({"edits": [{"file": "lib/a.ex")
-      assert text =~ "A relative `file` is from the shell's directory"
       assert text =~ "/p/bin/menard edit --then compile - <<'EOF'"
       assert text =~ "<<<<<<< SEARCH"
+      assert text =~ "is from the shell's directory"
     end
+
+    # each shows the edit where its reader stands: the tool's at a start, the shell's to a refused command
+    assert Scripts.upfront(@menard) =~ ~s({"edits": [{"file": "lib/a.ex")
+    assert Scripts.refused(@edit, @menard) =~ "  lib/a.ex\n  <<<<<<< SEARCH\n  the text to find\n"
 
     assert Scripts.refused(@edit, @menard) =~ "python3 does not run here"
     assert Scripts.upfront(@menard) =~ "There is no python"
@@ -178,6 +181,24 @@ defmodule Menard.ScriptsTest do
         ] do
       assert Scripts.unfiltered(command) == nil, command
     end
+  end
+
+  test "a refused script is told the shell's edit first: the agent refused is in the shell" do
+    why = Scripts.refused("python3 -c 'print(1)'", @menard)
+
+    [shell, tool] =
+      for text <- ["#{@menard} edit --then compile - <<'EOF'", Scripts.edit_tool()], do: place(why, text)
+
+    assert shell < tool, why
+
+    # at a session's start no one is anywhere yet: the tool, then the shell
+    upfront = Scripts.upfront(@menard)
+    assert place(upfront, Scripts.edit_tool()) < place(upfront, "#{@menard} edit --then compile - <<'EOF'")
+  end
+
+  defp place(text, part) do
+    {at, _} = :binary.match(text, part)
+    at
   end
 
   test "menard's help through a filter runs as written: a help has no reply to drop" do
