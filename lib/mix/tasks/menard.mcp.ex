@@ -13,7 +13,7 @@ defmodule Mix.Tasks.Menard.Mcp do
 
   # anubis_mcp is optional: a library host has no Registry, nor the Menard.MCP modules built on it,
   # and never reaches the calls
-  @compile {:no_warn_undefined, [Anubis.Server.Registry, Menard.MCP, Menard.MCP.Reply]}
+  @compile {:no_warn_undefined, [Anubis.Server.Registry, Menard.MCP, Menard.MCP.Keeper, Menard.MCP.Reply]}
 
   @impl true
   def run(argv) do
@@ -33,6 +33,13 @@ defmodule Mix.Tasks.Menard.Mcp do
 
     logs_to_stderr()
     {:ok, _} = Supervisor.start_child(Menard.Supervisor, {server, Reply.transport()})
+    # a session that ends is started again: its client never initializes a second time
+    {:ok, _} =
+      Supervisor.start_child(Menard.Supervisor, %{
+        id: Menard.MCP.Keeper,
+        start: {Menard.MCP.Keeper, :start_link, [server]},
+        restart: :transient
+      })
 
     # the launcher's verbs, run here with the formatters warm (Menard.Door): a task's prints are
     # messages to the process that ran it, never this server's stdout, the MCP channel

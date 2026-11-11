@@ -106,6 +106,51 @@ if Code.ensure_loaded?(Anubis.Server) do
     end
   end
 
+  defmodule Menard.MCP.Keeper do
+    @moduledoc """
+    Keeps a stdio server's session there. Anubis ends a session (idle past its timeout, or crashed)
+    and starts no other, and a stdio client initializes once: every call after went unanswered,
+    each hook to its timeout. When the session ends, the keeper starts it again from the spec the
+    server's supervisor had for it, initialized without the client's handshake.
+    """
+    use GenServer
+
+    require Logger
+
+    alias Anubis.Server.Registry
+    alias Anubis.Server.Session
+
+    @doc "Started once `server` is up, under a supervisor: it reads the session's spec while the session lives."
+    @spec start_link(module()) :: GenServer.on_start()
+    def start_link(server), do: GenServer.start_link(__MODULE__, server)
+
+    @impl true
+    def init(server) do
+      supervisor = Registry.supervisor_name(server)
+      # a temporary child's spec goes with it: read now, while it is there
+      {:ok, spec} = :supervisor.get_childspec(supervisor, Session)
+      {:ok, watch(%{session: Registry.stdio_session_name(server), supervisor: supervisor, spec: spec})}
+    end
+
+    @impl true
+    def handle_info({:DOWN, ref, :process, _pid, reason}, %{ref: ref} = state) do
+      with {:ok, _pid} <- Supervisor.start_child(state.supervisor, state.spec),
+           :ok <- Session.auto_initialize(state.session) do
+        Logger.warning("menard: the MCP session ended (#{inspect(reason)}) and was started again")
+        {:noreply, watch(state)}
+      else
+        # the server itself is stopping, its client gone: nothing to keep
+        _ -> {:stop, :normal, state}
+      end
+    catch
+      :exit, _ -> {:stop, :normal, state}
+    end
+
+    def handle_info(_other, state), do: {:noreply, state}
+
+    defp watch(state), do: Map.put(state, :ref, Process.monitor(state.session))
+  end
+
   defmodule Menard.MCP.Hooks do
     @moduledoc """
     The hooks' own server (`bin/menard mcp --hooks`), its one tool `hook`. A server takes one call

@@ -111,7 +111,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       do: [
         transport: :stdio,
         request_timeout: Verbs.Noun.deadline(Verbs.Run.noun()) + 30_000,
-        session_idle_timeout: 0xFFFFFFFF
+        session_idle_timeout: idle()
       ]
 
     @doc "What the server runs, stamped as current: called once it has started."
@@ -236,6 +236,14 @@ if Code.ensure_loaded?(Anubis.Server) do
         |> Enum.max()
       else
         0
+      end
+    end
+
+    # MENARD_MCP_IDLE_MS is the tests' way to end a session: nothing else ends one from outside
+    defp idle do
+      case Integer.parse(System.get_env("MENARD_MCP_IDLE_MS", "")) do
+        {ms, ""} when ms > 0 -> ms
+        _ -> 0xFFFFFFFF
       end
     end
   end
