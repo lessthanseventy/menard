@@ -16,6 +16,13 @@ defmodule Menard.MCPReplacedTest do
     end
   end
 
+  # a server that died says why: its stderr, kept beside the test's files
+  defp tell(port, line, stderr) do
+    Port.command(port, line)
+  rescue
+    ArgumentError -> flunk("the server is gone:\n" <> File.read!(stderr))
+  end
+
   defp hook(id, dir) do
     arguments = %{
       hook_event_name: "PreToolUse",
@@ -36,15 +43,21 @@ defmodule Menard.MCPReplacedTest do
 
   test "a hooks server whose install is replaced under it goes on answering", %{tmp_dir: dir} do
     copy = checkout_copy!(dir)
+    stderr = Path.join(dir, "stderr")
 
     port =
       Port.open({:spawn_executable, "/bin/sh"}, [
         :binary,
         :exit_status,
         {:line, 65_536},
-        args: ["-c", ~S[exec "$BIN" mcp --hooks 2>/dev/null]],
+        args: ["-c", ~S[exec "$BIN" mcp --hooks 2>"$ERR"]],
         cd: copy,
-        env: [{~c"BIN", String.to_charlist(Path.join(copy, "bin/menard"))}, {~c"MIX_ENV", ~c"dev"}]
+        env: [
+          {~c"BIN", String.to_charlist(Path.join(copy, "bin/menard"))},
+          {~c"ERR", String.to_charlist(stderr)},
+          {~c"MIX_ENV", ~c"dev"},
+          {~c"MENARD_LOG_LEVEL", ~c"info"}
+        ]
       ])
 
     initialize = %{
@@ -63,15 +76,15 @@ defmodule Menard.MCPReplacedTest do
     # the reinstall, under way: another directory where the server's was, nothing in it yet
     File.rename!(copy, copy <> "-before")
     File.mkdir_p!(copy)
-    Port.command(port, hook(3, dir))
+    tell(port, hook(3, dir), stderr)
     assert answer(port, 3) =~ ~s("isError":false)
 
     # and done: the install is there again, as other files
     File.rm_rf!(copy)
     File.cp_r!(copy <> "-before", copy)
-    Port.command(port, hook(4, dir))
+    tell(port, hook(4, dir), stderr)
     assert answer(port, 4) =~ ~s("isError":false)
-    Port.command(port, hook(5, dir))
+    tell(port, hook(5, dir), stderr)
     assert answer(port, 5) =~ ~s("isError":false)
   end
 end
