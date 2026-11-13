@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.11
+
+- A shell command's hook leaves Zig's `zig-pkg` and `.zig-cache` alone, as it does `deps` and
+  `_build`: Zig 0.17 fetches dependencies into the project's own tree, and a build's first fetch
+  had their vendored shell scripts reformatted as the agent's writes.
+
 ## 0.8.10
 
 - The session's opening text says the check is its own call, read before a push: a session
