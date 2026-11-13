@@ -62,6 +62,18 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a script under a package manager's fetched sources is not the agent's write", %{tmp_dir: dir} do
+    file = Path.join(dir, "zig-pkg/dep/run.sh")
+
+    run = fn ->
+      File.mkdir_p!(Path.dirname(file))
+      File.write!(file, "if true; then\n")
+    end
+
+    assert :quiet = shell_command(dir, "zig build", run)
+  end
+
+  @tag :tmp_dir
   test "menard's own command is not linted over: its reply said it", %{tmp_dir: dir} do
     file = Path.join(dir, "a.sh")
 

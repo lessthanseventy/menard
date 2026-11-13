@@ -23,7 +23,7 @@ defmodule Menard.Hook do
   alias Menard.Run.Lint
   alias Menard.Scripts
 
-  @prune ~w(_build deps .git node_modules)
+  @prune ~w(_build deps .git node_modules zig-pkg .zig-cache)
   @diff_lines 40
   @moved "Edit against these lines as they are now, not as you last read them."
 
