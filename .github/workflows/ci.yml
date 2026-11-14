@@ -44,4 +44,6 @@ jobs:
           key: mix-${{ hashFiles('.tool-versions', 'mix.lock') }}
 
       - run: mise exec -- mix deps.get
-      - run: mise exec -- mix precommit
+      # mise trusts every config while CI or GITHUB_ACTIONS is set, to any value; the suite runs
+      # as on a developer's machine, where an untrusted config is refused
+      - run: env -u CI -u GITHUB_ACTIONS mise exec -- mix precommit
