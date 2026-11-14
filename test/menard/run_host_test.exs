@@ -92,7 +92,11 @@ defmodule Menard.RunHostTest do
   end
 
   @pinned "1.19.4-otp-27"
-
+  @tag skip:
+         !(System.find_executable("mise") &&
+             File.dir?(Path.expand("~/.local/share/mise/installs/elixir/#{@pinned}")) &&
+             System.version() != "1.19.4") &&
+           "needs mise with elixir #{@pinned} installed, menard on another elixir"
   test "the host's mix runs on the host's toolchain, not menard's", %{tmp_dir: dir} do
     File.write!(Path.join(dir, "mise.toml"), "[tools]\nelixir = \"#{@pinned}\"\nerlang = \"27\"\n")
 
