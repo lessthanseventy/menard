@@ -25,6 +25,13 @@ defmodule Menard.Lang do
       lint: [~w(statix check -s -o json), ~w(nil diagnostics -- -)]
     },
     ".lua" => %{parse: ~w(luac -p -), format: ~w(stylua -), lint: []},
+    # ast-check refuses an unused local, which is a change half made, so it is the linter and
+    # zig fmt, which refuses only bad syntax, is the parse check
+    ".zig" => %{
+      parse: ~w(zig fmt --stdin),
+      format: ~w(zig fmt --stdin),
+      lint: [~w(zig ast-check --color off)]
+    },
     ".sh" => @shell,
     ".bash" => @shell
   }
@@ -86,7 +93,7 @@ defmodule Menard.Lang do
 
     issues =
       for [exe | _] = argv <- (row(file, code) || %{lint: []}).lint,
-          {out, _status} <- List.wrap(tool(argv, file, code)),
+          {out, _status} <- List.wrap(tool(argv, file, code, lint_redirect(exe))),
           issue <- issues(exe, out, base),
           do: issue
 
@@ -143,6 +150,15 @@ defmodule Menard.Lang do
       _outside ->
         false
     end
+  end
+
+  # ast-check says its errors on stderr only
+  defp lint_redirect("zig"), do: "2>&1"
+  defp lint_redirect(_exe), do: "2>/dev/null"
+
+  defp issues("zig", out, base) do
+    for [_, line, message] <- Regex.scan(~r/^<stdin>:(\d+):\d+: error: (.+)$/m, out),
+        do: %{kind: "zig", message: message, at: "#{base}:#{line}"}
   end
 
   defp issues("shellcheck", out, base) do
