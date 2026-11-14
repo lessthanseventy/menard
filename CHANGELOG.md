@@ -6,6 +6,11 @@
   was refused as outside the project and any checkout, and agents went back to the built-in Edit.
 - A version tag publishes to Hex from GitHub, after the gate passes there; CI runs the gate on
   every push to main and every pull request. Hex had stopped at 0.8.9.
+- Two menard VMs at once no longer share a command's output file: it was named by a counter unique
+  only within one VM, so one run's output was overwritten and removed under another. A hook's
+  compile answered with no warnings, and a `--repeat-until-failure` run with no run count.
+- An MCP tool refuses a key it does not take, and says the keys it does: `run` given `files` for
+  `args` dropped it and ran the whole suite.
 
 ## 0.8.15
 
