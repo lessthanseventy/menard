@@ -133,7 +133,7 @@ defmodule Menard.HostFormatWorkerTest do
   # and the suite keeps ~80 of these warm (format.exs's own comment) while doing real AST work,
   # not sitting idle, so 10s was never enough margin, not a hung watchdog.
   @tag timeout: 90_000
-  test "the host VM does not outlive the process that started it — killed outright, not stopped",
+  test "the host VM does not outlive the process that started it, nor leave its log — killed outright, not stopped",
        %{tmp_dir: dir} do
     # exercises priv/format.exs's own watchdog directly, not through Worker/DynamicSupervisor:
     # a stand-in "owner" OS process (not this test's BEAM) opens the warm VM exactly as
@@ -142,6 +142,7 @@ defmodule Menard.HostFormatWorkerTest do
     host(dir, "[inputs: [\"lib/**/*.ex\"]]")
     script = Application.app_dir(:menard, "priv/format.exs")
     owner_exs = Path.join(dir, "owner.exs")
+    log = Path.join(dir, "serve.log")
 
     File.write!(owner_exs, """
     port =
@@ -150,7 +151,7 @@ defmodule Menard.HostFormatWorkerTest do
         :nouse_stdio,
         :exit_status,
         {:packet, 4},
-        args: ["-c", ~s(exec "$@" </dev/null >/dev/null 2>&1), "sh", "elixir", #{inspect(script)}, "serve"],
+        args: ["-c", ~s(log=$1; shift; exec "$@" </dev/null >"$log" 2>&1), "sh", #{inspect(log)}, "elixir", #{inspect(script)}, "serve", #{inspect(log)}],
         cd: #{inspect(dir)}
       ])
 
@@ -172,6 +173,11 @@ defmodule Menard.HostFormatWorkerTest do
         args: [owner_exs]
       ])
 
+    # killed however the test ends: an owner left sleeping holds mix test's stderr open, and the run
+    # waits on it for good
+    {:os_pid, owner_pid} = Port.info(owner, :os_pid)
+    on_exit(fn -> System.cmd("kill", ["-KILL", "#{owner_pid}"], stderr_to_stdout: true) end)
+
     vm_pid =
       receive do
         {^owner, {:data, {:eol, line}}} -> line
@@ -182,7 +188,6 @@ defmodule Menard.HostFormatWorkerTest do
     on_exit(fn -> System.cmd("kill", ["-KILL", vm_pid], stderr_to_stdout: true) end)
     assert {_, 0} = System.cmd("kill", ["-0", vm_pid], stderr_to_stdout: true)
 
-    {:os_pid, owner_pid} = Port.info(owner, :os_pid)
     # not stop/1, not a signal the VM is watching for: the owner is simply gone
     System.cmd("kill", ["-KILL", "#{owner_pid}"], stderr_to_stdout: true)
 
@@ -193,6 +198,7 @@ defmodule Menard.HostFormatWorkerTest do
       end)
 
     assert dead, "the host VM (pid #{vm_pid}) outlived its killed owner"
+    refute File.exists?(log), "the host VM left its log behind"
   end
 
   test "a formatter whose VM died says why, and the next format starts another", %{tmp_dir: dir} do
