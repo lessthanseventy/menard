@@ -19,7 +19,8 @@ with the plugin as a skill, and it is the one copy of that reference.
 - A new public function goes above the module's first `defp` (credo's StrictModuleLayout, held on
   the lines you touch).
 - A release: write CHANGELOG.md's `## VERSION` section, then `bin/release VERSION "SUMMARY"`
-  bumps, gates, commits, tags, pushes and updates the installed plugin. The plugin follows main,
+  bumps, gates, commits, tags, pushes and updates the installed plugin; the tag's push publishes to
+  Hex (`.github/workflows/release.yml`). The plugin follows main,
   and `claude plugin update` goes by the version, so nothing ships until this runs.
 
 **This repo is where menard is dogfooded.** You work under the same hooks every user does: no
