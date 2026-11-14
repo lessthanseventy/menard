@@ -767,6 +767,21 @@ defmodule Menard.MCPTest do
     assert text =~ "given: dirs, name, verb"
   end
 
+  test "a key the tool does not take is refused, before anything runs" do
+    # `run` with `files` for `args`: every other key valid, and the whole suite ran for one test
+    request = %{
+      "method" => "tools/call",
+      "params" => %{"name" => "run", "arguments" => %{"verb" => "test", "files" => ["test/a_test.exs:3"]}}
+    }
+
+    assert {:reply, %{"isError" => true, "content" => [%{"text" => text}]}, _} =
+             Menard.MCP.handle_request(request, Frame.new())
+
+    assert text =~ "run: no key files"
+    assert text =~ "run takes: args, committed, dir, verb"
+    assert text =~ "given: files, verb"
+  end
+
   test "clause get answers with the function as written and the file's version, and writes nothing", %{
     root: root
   } do
