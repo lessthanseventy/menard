@@ -467,7 +467,10 @@ defmodule Menard do
     # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
     # Output goes to a file, not the port's pipe: the port's exit_status waits for end of file on
     # that pipe, so a grandchild that outlived the command and inherited it held `run` as long as it lived.
-    file = Path.join(System.tmp_dir!(), "menard-host-#{System.unique_integer([:positive])}.out")
+    # the OS pid too: unique_integer is unique in one VM, and every menard VM shares the tmp dir
+    file =
+      Path.join(System.tmp_dir!(), "menard-host-#{System.pid()}-#{System.unique_integer([:positive])}.out")
+
     argv = ["-c", ~s(out=$1; shift; exec "$@" </dev/null >"$out" 2>&1), "sh", file, exe | argv]
 
     try do

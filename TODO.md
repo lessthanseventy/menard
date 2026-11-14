@@ -3,10 +3,6 @@
 Found and not yet fixed. Fix it, or write it here, never just "noted". Delete a line when its
 commit lands.
 
-- `test/menard/run_flake_test.exs:45` failed once in a full suite (2026-11-14, 199 s, the box loaded
-  by a gate beside it) and passed on the re-run: `bin/menard run --repeat-until-failure 5`'s answer
-  had no `runs` (nil, 2 expected). Run log: `/tmp/menard-run/home-andrew-projects-menard-eb4ec761/
-  20261114T182741377485-test.log`.
 
 - `test/menard/mcp_replaced_test.exs:37` failed once in a full `run check` (2026-11-11, load ~5) and
   passed on the gate's own re-run: the hooks server was gone when hook 4 was sent, after hook 3 was
