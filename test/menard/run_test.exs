@@ -203,13 +203,6 @@ defmodule Menard.RunTest do
              r.failures
   end
 
-  @pinned "1.19.4-otp-27"
-  @tag skip:
-         !(System.find_executable("mise") &&
-             File.dir?(Path.expand("~/.local/share/mise/installs/elixir/#{@pinned}")) &&
-             System.version() != "1.19.4") &&
-           "needs mise with elixir #{@pinned} installed, menard on another elixir"
-
   describe "a repo with no mix.exs" do
     # outside menard's own repo: mise walks up, and menard has a `check` task of its own
     setup do
