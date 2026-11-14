@@ -154,8 +154,8 @@ NAME is the describe's name, a space, then the test's) or `args: [FILE, "--only"
 a name that matches nothing answers `ok: false` with no test run. A parse-checked write is a floor, not a proof: finish on
 a green check.
 
-Outside Elixir, `edit` and `write` work on any file. Nix, shell, Lua and Zig (`.nix`, `.sh`, `.bash`, `.lua`, `.zig`, a script by its
-shebang) are also parse-checked, formatted if already in their formatter's style at HEAD, and linted on the lines
+Outside Elixir, `edit` and `write` work on any file. Nix, shell, Lua, Zig, TypeScript and JavaScript (`.nix`, `.sh`,
+`.bash`, `.lua`, `.zig`, `.ts`/`.tsx`/`.js`/`.jsx` and their `m`/`c` kin, a script by its shebang) are also parse-checked, formatted if already in their formatter's style at HEAD, and linted on the lines
 changed (`lint` in the reply; a tool not installed is named in `skipped`). In a
 repo with no `mix.exs`, `run` and `then` take `check`, `test` and `compile` to its mise task of that name.
 `run check --committed` (`committed: true`) runs the last commit in a worktree menard keeps, its

@@ -32,12 +32,13 @@ A thin wrapper over one mix task adds surface and nothing else. That's why `insp
 
 `edit` never cared what it edits, and agents use it on Nix and shell. What travels to those files
 is what a write does around the edit, one table per extension (`Menard.Lang`): a parse check that
-refuses, linters on the lines changed. Nix, Bash, Lua and Zig, because they are what the operator's own
+refuses, linters on the lines changed. Nix, Bash, Lua, Zig and TypeScript, because they are what the operator's own
 repos hold; a script with no extension goes by its shebang. `run` and `then` in a repo with no `mix.exs` run its mise task of that
 name. `rename`, `clause` and the other AST verbs stay Elixir's: they are years of edge cases, and
 a language server covers much of it elsewhere. A language earns a row from a pain already hit;
 Lua's is ahead of that, on the operator's say, with one `luac` error in 2,957 transcripts. Zig's
-is arena's edits made blind, with the build the first to say a brace was dropped.
+is arena's edits made blind, with the build the first to say a brace was dropped. TypeScript's
+is the operator's own, and biome takes JavaScript with it: one tool, the same pain.
 
 A formatter leaves alone a file not already in its style at HEAD: ficciones holds no `nixfmt`-style
 Nix, and one line's edit must not rewrite a whole file. A tool that is not installed is skipped,
