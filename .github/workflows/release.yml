@@ -1,6 +1,6 @@
 name: Release
 
-# bin/release runs the gate locally, then pushes the version tag; that push publishes here.
+# bin/release pushes the version tag; that push runs the gate here again, then publishes.
 # Dispatch it on a tag (`gh workflow run release.yml --ref vX.Y.Z`) to publish one already pushed.
 # Needs the HEX_API_KEY secret: a hex.pm key with api:write.
 
@@ -13,7 +13,11 @@ permissions:
   contents: read
 
 jobs:
+  gate:
+    uses: ./.github/workflows/ci.yml
+
   hex:
+    needs: gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
