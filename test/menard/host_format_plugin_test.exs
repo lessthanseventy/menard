@@ -148,6 +148,16 @@ defmodule Menard.HostFormatPluginTest do
     assert name == inspect(plugin)
   end
 
+  test "a file that is not Elixir is not formatted as Elixir beside a host's plugins", %{tmp_dir: dir} do
+    plugin = plug(dir, "Plug", ~S["# plugged\n" <> contents])
+    host(dir, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    file = write(dir, "a.txt", "")
+
+    assert {:ok, reply} = Menard.write(file, "const a = 1;\n")
+    assert File.read!(file) == "const a = 1;\n"
+    assert [%{stage: :patch}] = reply.stages
+  end
+
   test "a plugin runs in the host's directory, where it looks for its config", %{tmp_dir: dir} do
     # Quokka reads the host's .credo.exs from File.cwd!(): run from menard's directory it found none,
     # and rewrapped every file at its default line length
