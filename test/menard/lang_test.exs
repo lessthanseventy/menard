@@ -179,6 +179,14 @@ defmodule Menard.LangTest do
     assert File.read!(Path.join(dir, "a.ts")) == "export const a = { b: 2 };\n"
   end
 
+  test "a new TypeScript file is formatted only where the repo has a biome config", %{tmp_dir: dir} do
+    repo(dir, [{"other", ""}])
+    assert Lang.format(Path.join(dir, "a.ts"), "const a = 1\n") == "const a = 1\n"
+
+    File.write!(Path.join(dir, "biome.json"), "{}\n")
+    assert Lang.format(Path.join(dir, "a.ts"), "const a = 1\n") == "const a = 1;\n"
+  end
+
   test "biome lints the lines changed, not the debt around them", %{tmp_dir: dir} do
     repo(dir, [{"a.ts", "const a = 1;\nexport const b = 2;\n"}])
 

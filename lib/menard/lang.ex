@@ -23,6 +23,7 @@ defmodule Menard.Lang do
   @biome %{
     parse: ~w(biome format --colors=off --stdin-file-path FILE),
     syntax: ~r/ parse ━/u,
+    config: ~w(biome.json biome.jsonc),
     format: ~w(biome format --colors=off --stdin-file-path FILE),
     lint: [~w(biome lint --colors=off --reporter=json FILE)]
   }
@@ -90,9 +91,9 @@ defmodule Menard.Lang do
   @doc "`code` through `file`'s formatter, or as it is: the file is not in its style at HEAD."
   @spec format(String.t(), String.t()) :: String.t()
   def format(file, code) do
-    with %{format: [exe | _] = argv} <- row(file, code),
+    with %{format: [exe | _] = argv} = row <- row(file, code),
          true <- System.find_executable(exe) != nil,
-         true <- in_style?(argv, file),
+         true <- in_style?(row, file),
          {out, 0} <- tool(argv, file, code) do
       out
     else
@@ -153,15 +154,15 @@ defmodule Menard.Lang do
     end
   end
 
-  defp in_style?(argv, file) do
+  defp in_style?(row, file) do
     dir = Path.dirname(file)
 
-    case System.cmd("git", ["-C", dir, "rev-parse", "--is-inside-work-tree"], stderr_to_stdout: true) do
-      {_inside, 0} ->
+    case System.cmd("git", ["-C", dir, "rev-parse", "--show-toplevel"], stderr_to_stdout: true) do
+      {top, 0} ->
         case System.cmd("git", ["-C", dir, "show", "HEAD:./#{Path.basename(file)}"], stderr_to_stdout: true) do
-          {was, 0} -> tool(argv, file, was) == {was, 0}
+          {was, 0} -> tool(row.format, file, was) == {was, 0}
           # not at HEAD: new, and no one's style yet
-          _new -> true
+          _new -> configured?(row, dir, String.trim(top))
         end
 
       # no history to say whose style it is
@@ -173,6 +174,21 @@ defmodule Menard.Lang do
   # ast-check says its errors on stderr only
   defp lint_redirect("zig"), do: "2>&1"
   defp lint_redirect(_exe), do: "2>/dev/null"
+
+  # a formatter whose defaults are no house style (biome's) takes a new file only where the repo
+  # configures it, between the file and the repo's top
+  defp configured?(%{config: names}, dir, top) do
+    dir
+    |> Path.expand()
+    |> Stream.unfold(fn
+      nil -> nil
+      d -> {d, if(Path.dirname(d) == d, do: nil, else: Path.dirname(d))}
+    end)
+    |> Enum.take_while(&String.starts_with?(&1, top))
+    |> Enum.any?(fn d -> Enum.any?(names, &File.exists?(Path.join(d, &1))) end)
+  end
+
+  defp configured?(_row, _dir, _top), do: true
 
   defp issues("zig", out, base) do
     for [_, line, message] <- Regex.scan(~r/^<stdin>:(\d+):\d+: error: (.+)$/m, out),
