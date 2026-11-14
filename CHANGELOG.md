@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.14
+
+- A warm formatter's log no longer outlives it: a menard that halted (an MCP server's exit, the end
+  of a test run) left one in TMPDIR per warm project, hundreds a day. The host VM is given its log
+  and removes it when its caller is gone.
+
 ## 0.8.13
 
 - The session's opening text says `edit` is for any file, and which languages are parse-checked
