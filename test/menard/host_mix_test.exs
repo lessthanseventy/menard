@@ -23,6 +23,22 @@ defmodule Menard.HostMixTest do
     assert out =~ "not installed"
   end
 
+  test "a command's output file is the VM's own: its name carries the OS pid", %{tmp_dir: dir} do
+    # System.unique_integer is unique in one VM, and fresh VMs count from about the same place: two
+    # menards at once took one file, the second truncating the first's output and removing it
+    # before the first read it (a hook's compile came back with no warnings, a run with no count)
+    tmpdir = Path.join(dir, "tmp")
+    File.mkdir_p!(tmpdir)
+    ebin = Path.join(:code.lib_dir(:menard), "ebin")
+
+    code =
+      ~s|IO.puts(System.pid()); {out, _} = Menard.host_cmd(#{inspect(dir)}, ["ls", #{inspect(tmpdir)}]); IO.write(out)|
+
+    assert {out, 0} = System.cmd("elixir", ["-pa", ebin, "-e", code], env: [{"TMPDIR", tmpdir}])
+    assert [pid, file] = String.split(out, "\n", trim: true)
+    assert file =~ ~r/^menard-host-#{pid}-\d+\.out$/
+  end
+
   test "the host's mix reads no stdin: a prompt gets end of input, not a wait", %{tmp_dir: dir} do
     # `mix deps.get` asking "Shall I install Hex? [Yn]" waited forever on the CLI door: the port's
     # stdin stays open and never says anything
