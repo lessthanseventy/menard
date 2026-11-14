@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.15
+
+- `run` no longer waits on a process the command left behind: a test that orphaned a child holding
+  mix's output pipe kept `run test` waiting until that child died (half an hour, once). The host
+  command's output goes to a file, read when it exits.
+
 ## 0.8.14
 
 - A warm formatter's log no longer outlives it: a menard that halted (an MCP server's exit, the end
