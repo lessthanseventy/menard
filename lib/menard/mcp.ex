@@ -49,21 +49,16 @@ if Code.ensure_loaded?(Anubis.Server) do
     # A call the schema refuses is a protocol error, "Invalid params", its why in the error's data,
     # which Claude Code does not show. The same refusal as a tool error puts the why where the agent
     # reads.
+    # A key the schema does not name it drops, and the call runs without it: `run` given `files`
+    # for `args` ran the whole suite.
     @impl Anubis.Server
     def handle_request(%{"method" => "tools/call"} = request, frame) do
-      case Handlers.handle(request, __MODULE__, frame) do
-        {:error, %Error{reason: :invalid_params, data: %{message: why}}, frame} ->
-          tool = get_in(request, ["params", "name"])
-          # what the tool takes beside what came: the schema's word for a wrong key inside a list
-          # (`edits: [{file, search, replace}]`) is nothing at all, and for a wrong key at the top
-          # (`name` for `target`) only the field it left empty
-          given = get_in(request, ["params", "arguments"]) || %{}
-          text = "#{tool}: #{why}\n#{tool} takes: #{takes(tool)}; given: #{keys(given)}"
+      tool = get_in(request, ["params", "name"])
+      given = get_in(request, ["params", "arguments"]) || %{}
 
-          {:reply, %{"content" => [%{"type" => "text", "text" => text}], "isError" => true}, frame}
-
-        other ->
-          other
+      case unknown(tool, given) do
+        [] -> call(request, tool, given, frame)
+        extra -> refuse(tool, "no key #{Enum.join(extra, ", ")}", given, frame)
       end
     end
 
@@ -87,10 +82,48 @@ if Code.ensure_loaded?(Anubis.Server) do
     @spec resolve_all([String.t()]) :: {:ok, [String.t()]} | {:error, String.t()}
     def resolve_all(paths), do: Menard.Verbs.resolve_all(paths, %{root: root()})
 
-    defp takes(tool) do
+    defp call(request, tool, given, frame) do
+      case Handlers.handle(request, __MODULE__, frame) do
+        {:error, %Error{reason: :invalid_params, data: %{message: why}}, frame} ->
+          refuse(tool, why, given, frame)
+
+        other ->
+          other
+      end
+    end
+
+    # what the tool takes beside what came: the schema's word for a wrong key inside a list
+    # (`edits: [{file, search, replace}]`) is nothing at all, and for a wrong key at the top
+    # (`name` for `target`) only the field it left empty
+    defp refuse(tool, why, given, frame) do
+      text = "#{tool}: #{why}\n#{tool} takes: #{takes(tool)}; given: #{keys(given)}"
+      {:reply, %{"content" => [%{"type" => "text", "text" => text}], "isError" => true}, frame}
+    end
+
+    defp unknown(tool, given) do
+      case fields(tool) do
+        nil ->
+          []
+
+        fields ->
+          given
+          |> Map.keys()
+          |> Enum.reject(&(&1 in Enum.map(fields, fn {name, _, _} -> to_string(name) end)))
+          |> Enum.sort()
+      end
+    end
+
+    defp fields(tool) do
       case Enum.find(Noun.modules(), &(Noun.of(&1).name == tool)) do
+        nil -> nil
+        verbs -> Noun.of(verbs).fields
+      end
+    end
+
+    defp takes(tool) do
+      case fields(tool) do
         nil -> "?"
-        verbs -> keys(Map.new(Noun.of(verbs).fields, fn {name, type, _} -> {name, type} end))
+        fields -> keys(Map.new(fields, fn {name, type, _} -> {name, type} end))
       end
     end
 
