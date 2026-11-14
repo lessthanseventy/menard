@@ -104,12 +104,14 @@ format = fn %{root: root, project: project, cache: cache, plugins: plugins?, fil
         opts = if dot, do: [{:dot_formatter, dot} | opts], else: opts
         {formatter, formatter_opts} = Mix.Tasks.Format.formatter_for_file(path, opts)
         formatted = formatter.(content)
+        elixir? = Path.extname(path) in ~w(.ex .exs)
 
         # The formatter alone, with the host's options, so what the plugins changed after it is
-        # theirs to answer for. A pass that fails (a .heex file) loses the split, not the format.
+        # theirs to answer for. A pass that fails (a .heex file) loses the split, not the format;
+        # a file mix leaves alone (a .ts) has none, as Code.format_string! would take it for Elixir.
         split =
           case formatter_opts[:plugins] do
-            plugins when plugins? and is_list(plugins) and plugins != [] ->
+            plugins when plugins? and is_list(plugins) and plugins != [] and elixir? ->
               try do
                 plain = Code.format_string!(content, Keyword.put(formatter_opts, :file, path))
                 {IO.iodata_to_binary([plain, ?\n]), Enum.map(plugins, &inspect/1)}
