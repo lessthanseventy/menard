@@ -215,6 +215,25 @@ defmodule Menard.EditTest do
              edit(dir, [%{file: "/nonexistent-menard/x.ex", old: "a", new: "b"}])
   end
 
+  test "a file in the harness's scratchpad, /tmp/claude-UID, is the session's", %{tmp_dir: dir} do
+    {uid, 0} = System.cmd("id", ["-u"])
+    claude = "/tmp/claude-#{String.trim(uid)}"
+    File.mkdir_p!(claude)
+    scratch = Path.join(claude, "menard-test-#{System.unique_integer([:positive])}/scratchpad")
+    File.mkdir_p!(scratch)
+    on_exit(fn -> File.rm_rf!(Path.dirname(scratch)) end)
+    file = Path.join(scratch, "client.vala")
+    File.write!(file, "one\n")
+
+    assert {:ok, _} = edit(dir, [%{file: file, old: "one", new: "uno"}])
+    assert File.read!(file) == "uno\n"
+  end
+
+  test "another user's /tmp/claude-UID is not the session's", %{tmp_dir: dir} do
+    assert {:error, "refused: /tmp/claude-0/x/scratchpad/a.vala is outside" <> _} =
+             edit(dir, [%{file: "/tmp/claude-0/x/scratchpad/a.vala", old: "a", new: "b"}])
+  end
+
   test "the CLI's edits are search/replace blocks", %{tmp_dir: dir} do
     blocks = """
     lib/a.ex
