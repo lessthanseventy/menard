@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.16
+
+- `edit` writes a file in Claude Code's scratchpad (`/tmp/claude-UID/…`, owned by that user): it
+  was refused as outside the project and any checkout, and agents went back to the built-in Edit.
+- A version tag publishes to Hex from GitHub, after the gate passes there; CI runs the gate on
+  every push to main and every pull request. Hex had stopped at 0.8.9.
+
 ## 0.8.15
 
 - `run` no longer waits on a process the command left behind: a test that orphaned a child holding
