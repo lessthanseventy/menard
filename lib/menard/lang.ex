@@ -18,6 +18,15 @@ defmodule Menard.Lang do
     lint: [~w(shellcheck -f json -x -P SCRIPTDIR FILE)]
   }
 
+  # biome exits 1 on a biome.json it cannot read, which says nothing of the file: `syntax` is what
+  # a refusal must say for the write to be refused
+  @biome %{
+    parse: ~w(biome format --colors=off --stdin-file-path FILE),
+    syntax: ~r/ parse ━/u,
+    format: ~w(biome format --colors=off --stdin-file-path FILE),
+    lint: [~w(biome lint --colors=off --reporter=json FILE)]
+  }
+
   @tools %{
     ".nix" => %{
       parse: ~w(nix-instantiate --parse -),
@@ -32,6 +41,14 @@ defmodule Menard.Lang do
       format: ~w(zig fmt --stdin),
       lint: [~w(zig ast-check --color off)]
     },
+    ".ts" => @biome,
+    ".tsx" => @biome,
+    ".mts" => @biome,
+    ".cts" => @biome,
+    ".js" => @biome,
+    ".jsx" => @biome,
+    ".mjs" => @biome,
+    ".cjs" => @biome,
     ".sh" => @shell,
     ".bash" => @shell
   }
@@ -61,8 +78,9 @@ defmodule Menard.Lang do
   @doc "`:ok`, or why `code` is not written to `file`: it does not parse."
   @spec parse(String.t(), String.t()) :: :ok | {:error, String.t()}
   def parse(file, code) do
-    with %{parse: argv} <- row(file, code),
-         {out, status} when status != 0 <- tool(argv, file, code, ~s(2>&1 >/dev/null)) do
+    with %{parse: argv} = row <- row(file, code),
+         {out, status} when status != 0 <- tool(argv, file, code, ~s(2>&1 >/dev/null)),
+         true <- out =~ Map.get(row, :syntax, ~r//) do
       {:error, "not parseable: #{String.trim(out)}"}
     else
       _ -> :ok
@@ -159,6 +177,19 @@ defmodule Menard.Lang do
   defp issues("zig", out, base) do
     for [_, line, message] <- Regex.scan(~r/^<stdin>:(\d+):\d+: error: (.+)$/m, out),
         do: %{kind: "zig", message: message, at: "#{base}:#{line}"}
+  end
+
+  defp issues("biome", out, base) do
+    case JSON.decode(out) do
+      {:ok, %{"diagnostics" => found}} ->
+        for %{"category" => "lint/" <> rule, "message" => message, "location" => location} <- found,
+            %{"path" => path, "start" => %{"line" => line}} = location,
+            Path.basename(path) == base,
+            do: %{kind: "biome", message: "#{Path.basename(rule)}: #{message}", at: "#{base}:#{line}"}
+
+      _ ->
+        []
+    end
   end
 
   defp issues("shellcheck", out, base) do

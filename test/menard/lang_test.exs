@@ -162,6 +162,32 @@ defmodule Menard.LangTest do
     assert %{kind: "zig", at: "a.zig:3", message: "unused local constant"} = found
   end
 
+  test "TypeScript that does not parse is refused", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.ts"), "function f( {\n")
+    assert why =~ "parse"
+    assert :ok = Lang.parse(Path.join(dir, "a.tsx"), "export const A = () => <div />;\n")
+  end
+
+  test "a biome.json this biome cannot read refuses nothing that parses", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "biome.json"), ~s({"organizeImports": {"enabled": true}}\n))
+    assert :ok = Lang.parse(Path.join(dir, "a.ts"), "const a = 1;\n")
+  end
+
+  test "biome formats a TypeScript file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.ts", "export const a = { b: 1 };\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.ts", old: "{ b: 1 }", new: "{b:2}"}])
+    assert File.read!(Path.join(dir, "a.ts")) == "export const a = { b: 2 };\n"
+  end
+
+  test "biome lints the lines changed, not the debt around them", %{tmp_dir: dir} do
+    repo(dir, [{"a.ts", "const a = 1;\nexport const b = 2;\n"}])
+
+    assert {:ok, %{changed: [%{lint: [found]}]}} =
+             edit(dir, [%{file: "a.ts", old: "export const b = 2;", new: "const b = 2;"}])
+
+    assert %{kind: "biome", at: "a.ts:2", message: "noUnusedVariables: " <> _} = found
+  end
+
   test "a file with no row is written as it is", %{tmp_dir: dir} do
     refute Lang.known?("a.json")
     assert {:ok, _} = edit(dir, [%{file: "a.json", old: "", new: "{ not json"}])
