@@ -139,6 +139,29 @@ defmodule Menard.LangTest do
              edit(dir, [%{file: "a.nix", old: "a = pkgs.hello", new: "a = let x = 1; in pkgs.hello"}])
   end
 
+  test "Zig that does not parse is refused; an unused local is not, being a change half made", %{
+    tmp_dir: dir
+  } do
+    assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.zig"), "pub fn f( {\n")
+    assert why =~ "expected type expression"
+    assert :ok = Lang.parse(Path.join(dir, "a.zig"), "pub fn f() void {\n    const x = 1;\n}\n")
+  end
+
+  test "zig fmt formats a Zig file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.zig", "pub fn f() u8 {\n    return 1;\n}\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.zig", old: "    return 1;", new: "  return   2;"}])
+    assert File.read!(Path.join(dir, "a.zig")) == "pub fn f() u8 {\n    return 2;\n}\n"
+  end
+
+  test "zig ast-check names an unused local on a line changed, not the debt around it", %{tmp_dir: dir} do
+    repo(dir, [{"a.zig", "pub fn f() void {\n    const a = 1;\n    _ = 2;\n}\n"}])
+
+    assert {:ok, %{changed: [%{lint: [found]}]}} =
+             edit(dir, [%{file: "a.zig", old: "    _ = 2;", new: "    const b = 2;"}])
+
+    assert %{kind: "zig", at: "a.zig:3", message: "unused local constant"} = found
+  end
+
   test "a file with no row is written as it is", %{tmp_dir: dir} do
     refute Lang.known?("a.json")
     assert {:ok, _} = edit(dir, [%{file: "a.json", old: "", new: "{ not json"}])
