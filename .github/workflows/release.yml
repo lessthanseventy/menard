@@ -1,0 +1,56 @@
+name: Release
+
+# bin/release runs the gate locally, then pushes the version tag; that push publishes here.
+# Dispatch it on a tag (`gh workflow run release.yml --ref vX.Y.Z`) to publish one already pushed.
+# Needs the HEX_API_KEY secret: a hex.pm key with api:write.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The tag is this version, on main
+        id: version
+        run: |
+          [[ "$GITHUB_REF_TYPE" == tag ]] || { echo "::error::dispatch this on a tag, not $GITHUB_REF"; exit 1; }
+          version=$(sed -n 's/^  @version "\(.*\)"$/\1/p' mix.exs)
+          [[ "$GITHUB_REF_NAME" == "v$version" ]] || { echo "::error::tag $GITHUB_REF_NAME is not mix.exs's v$version"; exit 1; }
+          git merge-base --is-ancestor HEAD origin/main || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Not on Hex already
+        id: hex
+        run: |
+          status=$(curl -sS -o /dev/null -w '%{http_code}' "https://hex.pm/api/packages/menard/releases/${{ steps.version.outputs.version }}")
+          case "$status" in
+            200) echo "published=true" >> "$GITHUB_OUTPUT"; echo "::notice::menard ${{ steps.version.outputs.version }} is on Hex already" ;;
+            404) echo "published=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::hex.pm answered HTTP $status"; exit 1 ;;
+          esac
+
+      - uses: erlef/setup-beam@v1
+        if: steps.hex.outputs.published == 'false'
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Publish
+        if: steps.hex.outputs.published == 'false'
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+          MIX_ENV: docs
+        run: |
+          [[ -n "$HEX_API_KEY" ]] || { echo "::error::the HEX_API_KEY secret is not set"; exit 1; }
+          mix deps.get
+          mix hex.publish --yes
