@@ -156,6 +156,7 @@ defmodule Menard.Verbs do
     cond do
       under?(abs, root) and under?(real_below(abs, root, real_root), real_root) -> {:ok, abs}
       in_a_checkout?(real(abs), home) -> {:ok, abs}
+      in_the_scratchpad?(real(abs)) -> {:ok, abs}
       true -> {:error, "refused: #{path} is outside #{root}, and in no git checkout under the user's home"}
     end
   end
@@ -178,6 +179,22 @@ defmodule Menard.Verbs do
          false <- String.starts_with?(top, "."),
          repo when is_binary(repo) <- checkout(real, home) do
       ".git" not in Path.split(Path.relative_to(real, repo))
+    else
+      _ -> false
+    end
+  end
+
+  # Claude Code's scratchpad is under /tmp/claude-UID, made by the harness for that user alone: the
+  # name's UID owns it and this process may write it, so it is not another user's.
+  defp in_the_scratchpad?(real) do
+    tmp = real("/tmp")
+
+    with true <- under?(real, tmp) and real != tmp,
+         [top, _ | _] <- Path.split(Path.relative_to(real, tmp)),
+         "claude-" <> uid <- top,
+         {uid, ""} <- Integer.parse(uid),
+         {:ok, %File.Stat{type: :directory, uid: ^uid, access: :read_write}} <- File.stat(Path.join(tmp, top)) do
+      true
     else
       _ -> false
     end
