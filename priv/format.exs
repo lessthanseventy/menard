@@ -135,13 +135,13 @@ format = fn %{root: root, project: project, cache: cache, plugins: plugins?, fil
 end
 
 case System.argv() do
-  [input, output] ->
+  [input, output] when input != "serve" ->
     results = input |> File.read!() |> :erlang.binary_to_term() |> format.()
     # written whole, then named: a reader never sees half a result
     File.write!(output <> ".part", :erlang.term_to_binary(results))
     File.rename!(output <> ".part", output)
 
-  ["serve"] ->
+  ["serve" | log] ->
     port = :erlang.open_port({:fd, 3, 4}, [:binary, :eof, {:packet, 4}])
     # the VM's own pid, first: what the caller kills at a deadline (mise does not exec into it)
     Port.command(port, :erlang.term_to_binary({:pid, System.pid()}))
@@ -171,4 +171,6 @@ case System.argv() do
     end
 
     serve.(serve)
+    # its caller is gone or done with it, and the log it was given is read only when this VM dies
+    Enum.each(log, &File.rm/1)
 end

@@ -114,15 +114,16 @@ defmodule Menard.Format.Worker do
 
   defp open(%{port: nil, project: project} = state) do
     script = Application.app_dir(:menard, "priv/format.exs")
+    name = "menard-format-#{System.pid()}-#{System.unique_integer([:positive])}.log"
+    log = Path.join(System.tmp_dir!(), name)
 
-    case Menard.host_argv(project, ["elixir", script, "serve"]) do
+    # the log goes with the VM too: one menard halted under (an MCP server's exit, the end of a
+    # test run) never runs terminate/2
+    case Menard.host_argv(project, ["elixir", script, "serve", log]) do
       {:refused, _why} ->
         state
 
       {argv, _note} ->
-        name = "menard-format-#{System.pid()}-#{System.unique_integer([:positive])}.log"
-        log = Path.join(System.tmp_dir!(), name)
-
         port =
           Port.open({:spawn_executable, System.find_executable("sh")}, [
             :binary,
