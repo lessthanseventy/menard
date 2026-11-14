@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.12
+
+- A Zig row in `Menard.Lang`: `zig fmt` refuses what does not parse and formats a file in its
+  style at HEAD; `zig ast-check` lints the lines changed. An unused local is a lint, not a
+  refusal: a change half made would be locked out.
+- A TypeScript and JavaScript row: biome checks, formats and lints `.ts`, `.tsx`, `.js`, `.jsx`
+  and their `m`/`c` kin. A write is refused only on biome's own parse diagnostic: biome exits 1 on
+  every file under a `biome.json` it cannot read.
+- A file that is not Elixir is no longer reported as Elixir-formatted beside a host's formatter
+  plugins: the plugin split ran `Code.format_string!` on any file, and a `.ts` edit in a Styler
+  repo was said to become `const(a = 1)`.
+
 ## 0.8.11
 
 - A shell command's hook leaves Zig's `zig-pkg` and `.zig-cache` alone, as it does `deps` and
