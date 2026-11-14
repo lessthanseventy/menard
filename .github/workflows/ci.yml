@@ -15,12 +15,26 @@ jobs:
     env:
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: erlef/setup-beam@v1
+      # the tools of every language menard checks, and mise, which runs a host on its own toolchain
+      - uses: cachix/install-nix-action@v31
+      - run: |
+          nix profile install nixpkgs#{nixfmt,statix,nil,lua,stylua,zig,biome,shfmt,shellcheck,mise}
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v4
         with:
-          version-file: .tool-versions
-          version-type: strict
+          path: ~/.local/share/mise
+          key: mise-${{ hashFiles('.tool-versions') }}-erlang-27.3.4.2-elixir-1.19.4-otp-27
+
+      # menard's toolchain, and the older one the host-toolchain tests pin
+      - run: |
+          mise install
+          mise install erlang@27.3.4.2 elixir@1.19.4-otp-27
+          mise exec -- mix local.hex --force
+          mise exec -- mix local.rebar --force
 
       - uses: actions/cache@v4
         with:
@@ -29,5 +43,5 @@ jobs:
             _build
           key: mix-${{ hashFiles('.tool-versions', 'mix.lock') }}
 
-      - run: mix deps.get
-      - run: mix precommit
+      - run: mise exec -- mix deps.get
+      - run: mise exec -- mix precommit
