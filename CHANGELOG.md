@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.13
+
+- The session's opening text says `edit` is for any file, and which languages are parse-checked
+  and linted: a Zig session read "Every Elixir file written…" as menard being Elixir-only and
+  wrote around it. The note after a run of Edits says "of any language" too.
+- biome formats a new file only where the repo has a `biome.json` or `biome.jsonc` between the
+  file and its top: biome's defaults are no house style.
+
 ## 0.8.12
 
 - A Zig row in `Menard.Lang`: `zig fmt` refuses what does not parse and formats a file in its
