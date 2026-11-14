@@ -41,4 +41,21 @@ defmodule Menard.HostMixTest do
     {out, _status} = Menard.host_mix(dir, ["run", "-e", "Process.sleep(:infinity)"], timeout: 1_999)
     assert out =~ "did not finish in 2s"
   end
+
+  test "an orphan that holds the output pipe does not hold the command: it returns with its output", %{
+    tmp_dir: dir
+  } do
+    # a port's exit_status comes only at end of file on the pipe, so a grandchild that outlived the
+    # command kept `run test` waiting for as long as it lived
+    task =
+      Task.async(fn ->
+        Menard.host_cmd(dir, ["sh", "-c", "sleep 300 & echo $!; echo hi"], timeout: 20_000)
+      end)
+
+    result = Task.yield(task, 10_000) || Task.shutdown(task, :brutal_kill)
+
+    assert {:ok, {out, 0}} = result
+    [pid, "hi"] = out |> String.split("\n", trim: true) |> Enum.take(-2)
+    System.cmd("kill", [pid])
+  end
 end

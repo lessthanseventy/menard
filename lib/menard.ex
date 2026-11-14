@@ -465,9 +465,24 @@ defmodule Menard do
     # stdin is /dev/null: the port's own stays open and never says anything, so a prompt (`mix
     # deps.get` asking "Shall I install Hex? [Yn]") waited forever. System.cmd cannot redirect it;
     # `sh` can, and its `exec` leaves no shell between the deadline's kill and the mix.
-    argv = ["-c", ~s(exec "$@" </dev/null), "sh", exe | argv]
-    {out, status} = bounded_cmd("sh", argv, opts, timeout, label)
-    {note <> out, status}
+    # Output goes to a file, not the port's pipe: the port's exit_status waits for end of file on
+    # that pipe, so a grandchild that outlived the command and inherited it held `run` as long as it lived.
+    file = Path.join(System.tmp_dir!(), "menard-host-#{System.unique_integer([:positive])}.out")
+    argv = ["-c", ~s(out=$1; shift; exec "$@" </dev/null >"$out" 2>&1), "sh", file, exe | argv]
+
+    try do
+      {rest, status} = bounded_cmd("sh", argv, opts, timeout, label)
+      {note <> read_out(file) <> rest, status}
+    after
+      File.rm(file)
+    end
+  end
+
+  defp read_out(file) do
+    case File.read(file) do
+      {:ok, text} -> text
+      {:error, _} -> ""
+    end
   end
 
   defp staged(file, patched) do
