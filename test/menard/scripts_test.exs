@@ -63,6 +63,7 @@ defmodule Menard.ScriptsTest do
 
     assert Scripts.refused(@edit, @menard) =~ "python3 does not run here"
     assert Scripts.upfront(@menard) =~ "There is no python"
+    assert Scripts.upfront(@menard) =~ "`edit` is for any file"
     assert Scripts.upfront(@menard) =~ "elixir -e"
     # a script is not always an edit: waiting on a process was a python loop, refused as one
     assert Scripts.refused(@edit, @menard) =~ "until ! pgrep"

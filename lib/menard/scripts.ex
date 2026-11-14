@@ -92,6 +92,8 @@ defmodule Menard.Scripts do
   def upfront(menard) do
     "Every Elixir file written, by an edit or a shell command, is formatted after with the " <>
       "project's own formatter, and what it changed is said: there is no separate format step. " <>
+      "`edit` is for any file: Nix, shell, Lua, Zig, TypeScript and JavaScript are parse-checked " <>
+      "too, and linted on the lines changed. " <>
       "There is no python, perl, ruby or node in this session: a command that runs one is refused. " <>
       instead(menard) <>
       "\nFor a module too big to read whole, when you want them: `#{menard} outline FILE` lists every " <>
