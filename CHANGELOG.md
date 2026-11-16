@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.8.17
+
+- Every `run` reply says where it ran: `dir`, from the repository's root, and `outer: "."` when
+  that was a project nested in a repository whose root is a mix project too. A session whose shell
+  had drifted into `demo/` read that project's green `check` as the repository's gate.
+- `run test FILE…` with no `dir`, and `edit`'s `then: "test FILE…"`, run in the project above the
+  files (the nearest `mix.exs`), not the caller's directory. Files of two projects are refused.
+- `bin/menard` rebuilding a stale build no longer needs `mktemp`: in a sandbox that denies it, the
+  first call after an edit to menard's own source exited 1.
+
 ## 0.8.16
 
 - `edit` writes a file in Claude Code's scratchpad (`/tmp/claude-UID/…`, owned by that user): it
