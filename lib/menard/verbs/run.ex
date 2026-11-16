@@ -37,6 +37,9 @@ defmodule Menard.Verbs.Run do
       runs once more: one that passes is in `flaky`, not `failures`. A run whose tests were all
       excluded by the project's tags is not ok, and says which to `--include`.
 
+      Every reply's `dir` is where it ran, from the repository's root (`.` is the root). `outer: "."`
+      says that was a project nested in a repository whose root is a mix project too: not its gate.
+
       `committed: true` (`--committed`) runs `check`, `test` or `compile` on the last commit, in a
       worktree menard keeps: the files can be edited while it runs. The reply's `committed` is the
       commit, `uncommitted` how many changed paths it did not see.
@@ -56,7 +59,8 @@ defmodule Menard.Verbs.Run do
     with {:ok, dir} <- resolve(p[:dir] || ".", p),
          {:ok, dir, said} <- at(dir, verb, p[:committed]) do
       opts = if ms = p[:timeout], do: [timeout: ms], else: []
-      {:ok, Map.merge(Menard.Run.lean(Menard.Run.result(dir, verb, p[:args] || [], opts)), said)}
+      reply = Menard.Run.lean(Menard.Run.result(dir, verb, p[:args] || [], opts))
+      {:ok, reply |> Map.merge(said) |> Map.merge(where(dir))}
     end
   end
 
@@ -73,4 +77,21 @@ defmodule Menard.Verbs.Run do
     do: {:error, "run #{verb} is of the working tree: --committed is for check, test and compile"}
 
   defp at(dir, _verb, _committed), do: {:ok, dir, %{}}
+
+  # From the repository's root, so a check of a nested project is not read as the repository's gate.
+  defp where(dir) do
+    case System.cmd("git", ["-C", dir, "rev-parse", "--show-toplevel", "--show-prefix"],
+           stderr_to_stdout: true
+         ) do
+      {out, 0} -> out |> String.split("\n") |> below()
+      _outside -> %{dir: dir}
+    end
+  end
+
+  defp below([_top, "" | _]), do: %{dir: "."}
+
+  defp below([top, prefix | _]) do
+    dir = String.trim_trailing(prefix, "/")
+    if File.regular?(Path.join(top, "mix.exs")), do: %{dir: dir, outer: "."}, else: %{dir: dir}
+  end
 end
