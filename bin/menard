@@ -221,7 +221,9 @@ elif ((!frozen)) && stale; then
   # dies on "module Menard.Source is not available"
   ebin="$build/lib/menard/ebin"
   mkdir -p "$build"
-  good=$(mktemp -d "$build/.menard-last-ebin.XXXXXX")
+  # not mktemp: a sandbox that denies it still lets the build write under _build
+  good="$build/.menard-last-ebin.$$"
+  rm -rf "$good" && mkdir -p "$good"
   [[ -d "$ebin" ]] && cp -a "$ebin/." "$good/"
   if ! quietly ${run[@]+"${run[@]}"} mix compile; then
     rm -rf "$ebin" && mkdir -p "$ebin" && cp -a "$good/." "$ebin/"
