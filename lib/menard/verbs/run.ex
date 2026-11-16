@@ -23,7 +23,8 @@ defmodule Menard.Verbs.Run do
       project formatted first, `formatted` naming what changed, then its `mix precommit`: format,
       warnings-as-errors, tests), `test` (args: files, file:line,
       and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,
-      `--changed` for the lines changed since the last commit). `dir` defaults to the root.
+      `--changed` for the lines changed since the last commit). `dir` defaults to the root; a `test`
+      given no `dir` runs in the project above its files (a `demo/` with its own mix.exs).
 
       While you work, `test` with the test files of what you changed: seconds, and their failures
       alone. `check` once, when the change is done: it is the whole suite and more (a session that
@@ -56,16 +57,47 @@ defmodule Menard.Verbs.Run do
 
   @spec run(Menard.Verbs.params()) :: Menard.Verbs.result()
   def run(%{verb: verb} = p) when verb in @verbs do
-    with {:ok, dir} <- resolve(p[:dir] || ".", p),
+    with {:ok, base} <- resolve(p[:dir] || ".", p),
+         {:ok, dir, args} <- project(verb, p[:dir], base, p[:args] || []),
          {:ok, dir, said} <- at(dir, verb, p[:committed]) do
       opts = if ms = p[:timeout], do: [timeout: ms], else: []
-      reply = Menard.Run.lean(Menard.Run.result(dir, verb, p[:args] || [], opts))
+      reply = Menard.Run.lean(Menard.Run.result(dir, verb, args, opts))
       {:ok, reply |> Map.merge(said) |> Map.merge(where(dir))}
     end
   end
 
   def run(%{verb: verb}), do: {:error, "run has no verb #{inspect(verb)}: one of #{Enum.join(@verbs, ", ")}"}
   def run(_params), do: {:error, "run needs verb: one of #{Enum.join(@verbs, ", ")}"}
+
+  # Test files run in the project above them, wherever the caller stands.
+  defp project("test", nil, base, args) do
+    files =
+      for arg <- args,
+          path = Path.expand(arg, base),
+          File.exists?(bare(path)),
+          into: %{},
+          do: {arg, path}
+
+    case files |> Map.values() |> Enum.map(&mix_root(bare(&1))) |> Enum.uniq() do
+      [project] when is_binary(project) ->
+        {:ok, project, Enum.map(args, &if(path = files[&1], do: Path.relative_to(path, project), else: &1))}
+
+      [_, _ | _] ->
+        {:error, "run test was given files of two projects: run each project's on its own"}
+
+      _none ->
+        {:ok, base, args}
+    end
+  end
+
+  defp project(_verb, _dir, base, args), do: {:ok, base, args}
+
+  defp bare(path), do: Regex.replace(~r/(:\d+)+$/, path, "")
+
+  defp mix_root("/"), do: nil
+
+  defp mix_root(path),
+    do: if(File.regular?(Path.join(path, "mix.exs")), do: path, else: mix_root(Path.dirname(path)))
 
   defp at(dir, verb, true) when verb in ~w(check test compile) do
     with {:ok, %{dir: dir, sha: sha, uncommitted: n}} <- Committed.at_head(dir) do
