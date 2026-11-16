@@ -182,7 +182,7 @@ defmodule Menard.EditThenTest do
 
     File.write!(
       Path.join(server, "test/n_test.exs"),
-      "defmodule NTest do\n  use ExUnit.Case\n  test \"go\", do: assert(N.go() == 2)\nend\n"
+      "defmodule NTest do\n  use ExUnit.Case\n  test \"go\", do: assert(N.go() >= 2)\nend\n"
     )
 
     assert {:ok, %{run: run}} =
@@ -191,6 +191,11 @@ defmodule Menard.EditThenTest do
              })
 
     assert %{ok: true, tests: 1, dir: "server"} = run
+
+    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+             edit(dir, [%{file: "server/lib/n.ex", old: "def go, do: 2", new: "def go, do: 3"}], %{
+               then: "test server/test/n_test.exs"
+             })
   end
 
   @tag :tmp_dir
