@@ -4,7 +4,8 @@
 
 - 0.8.17 on Hex: its release's gate failed on a test that read `--frozen`'s version from a dev
   build older than the version bump (CI's cached `_build`), passing only when an earlier test in
-  the run happened to rebuild it. The test builds first. 0.8.17's changes are in this release.
+  the run happened to rebuild it, under the copies other tests took of it. The suite makes the dev
+  build current before it starts. 0.8.17's changes are in this release.
 
 ## 0.8.17
 
