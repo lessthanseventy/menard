@@ -152,7 +152,8 @@ and answers with the failing run's `seed`. One test or one describe, when you ar
 its line would drift in: go by name, `args: [FILE, "--only", "test:test NAME"]` (inside a describe,
 NAME is the describe's name, a space, then the test's) or `args: [FILE, "--only", "describe:NAME"]`;
 a name that matches nothing answers `ok: false` with no test run. A parse-checked write is a floor, not a proof: finish on
-a green check.
+a green check, and at the right place: a reply's `dir` is where it ran from the repository's root, and
+`outer: "."` means a project nested in it (a `demo/`), not the repository's gate.
 
 Outside Elixir, `edit` and `write` work on any file. Nix, shell, Lua, Zig, TypeScript and JavaScript (`.nix`, `.sh`,
 `.bash`, `.lua`, `.zig`, `.ts`/`.tsx`/`.js`/`.jsx` and their `m`/`c` kin, a script by its shebang) are also parse-checked, formatted if already in their formatter's style at HEAD, and linted on the lines
