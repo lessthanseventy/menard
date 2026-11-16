@@ -5,13 +5,11 @@
 ExUnit.start(exclude: [:corpus], max_cases: max(div(System.schedulers_online(), 2), 2))
 System.put_env("ERL_FLAGS", String.trim("+S 4 " <> (System.get_env("ERL_FLAGS") || "")))
 
-# the bin tests run the dev build (`--frozen`) and copy it: a checkout that has only run its tests
-# (a fresh clone, a worktree) has none
+# the bin tests run the dev build (`--frozen`) and copy it, so it is made current before any runs: a
+# fresh clone has none, and one older than the source (CI's cached _build) was rebuilt mid-suite by
+# whichever test ran it plain first, under the copies the others were taking
 root = Path.expand("..", __DIR__)
-
-if not File.dir?(Path.join(root, "_build/dev/lib/menard/ebin")) do
-  {_, 0} = System.cmd("mix", ["compile"], cd: root, env: [{"MIX_ENV", "dev"}], stderr_to_stdout: true)
-end
+{_, 0} = System.cmd("mix", ["compile"], cd: root, env: [{"MIX_ENV", "dev"}], stderr_to_stdout: true)
 
 # this VM runs in a Claude Code session: a bin/menard a test starts would find the session's own
 # hooks server by this id (Menard.Door) and run the installed plugin's build, not this tree's
