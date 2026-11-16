@@ -298,13 +298,14 @@ defmodule Menard.Verbs do
     end
   end
 
-  # where named test files run: the root, or a sibling checkout's own project when the write was there
+  # where named test files run: the project above them (`Run` picks it), or a sibling checkout's own
+  # project when the write was there
   defp named_dir(reply, p) do
     root = Path.expand(p[:root] || Menard.caller_dir())
 
     case written(reply) do
-      [file | _] -> if under?(file, root), do: root, else: project_of(Path.dirname(file), root)
-      [] -> root
+      [file | _] -> if under?(file, root), do: nil, else: project_of(Path.dirname(file), root)
+      [] -> nil
     end
   end
 
