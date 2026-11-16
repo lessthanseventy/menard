@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.18
+
+- 0.8.17 on Hex: its release's gate failed on a test that read `--frozen`'s version from a dev
+  build older than the version bump (CI's cached `_build`), passing only when an earlier test in
+  the run happened to rebuild it. The test builds first. 0.8.17's changes are in this release.
+
 ## 0.8.17
 
 - Every `run` reply says where it ran: `dir`, from the repository's root, and `outer: "."` when
