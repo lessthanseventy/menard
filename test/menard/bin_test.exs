@@ -121,7 +121,13 @@ defmodule Menard.BinTest do
     assert out == ~s({"value":"5_000"}\n)
   end
 
+  # --frozen runs the dev build as it is: one older than mix.exs (CI's cached _build after a version
+  # bump) names the old version, unless a plain call earlier in the run happened to rebuild it
+  defp dev_built!, do: {_, 0} = System.cmd(@bin, ["version"], env: [{"MIX_ENV", "dev"}])
+
   test "--version and -v are the version verb" do
+    dev_built!()
+
     for flag <- ["--version", "-v"] do
       {out, 0} = System.cmd(@bin, ["--frozen", flag], env: [{"MIX_ENV", "dev"}])
       assert out =~ "menard #{Mix.Project.config()[:version]} on Elixir"
@@ -130,6 +136,7 @@ defmodule Menard.BinTest do
 
   test "--frozen names its version" do
     # the version came from the app spec, never loaded under --frozen, or mix.exs, not there either
+    dev_built!()
     {out, 0} = System.cmd(@bin, ["--frozen", "version"], env: [{"MIX_ENV", "dev"}])
     assert out =~ "menard #{Mix.Project.config()[:version]} on Elixir"
   end
