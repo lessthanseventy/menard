@@ -258,6 +258,61 @@ defmodule Menard.LangTest do
     assert %{kind: "biome", at: "a.ts:2", message: "noUnusedVariables: " <> _} = found
   end
 
+  test "Python that does not parse is refused", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.py"), "def f( :\n    return 1\n")
+    assert why =~ "a.py:1:8: Expected a parameter"
+    assert :ok = Lang.parse(Path.join(dir, "a.py"), "def f():\n    return 1\n")
+  end
+
+  test "ruff formats a Python file in its style at HEAD; a new one only where the repo has a ruff.toml", %{
+    tmp_dir: dir
+  } do
+    repo(dir, [{"a.py", "def f(a, b):\n    return a + b\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.py", old: "return a + b", new: "return a+b+1"}])
+    assert File.read!(Path.join(dir, "a.py")) == "def f(a, b):\n    return a + b + 1\n"
+
+    assert Lang.format(Path.join(dir, "b.py"), "x=1\n") == "x=1\n"
+    File.write!(Path.join(dir, "ruff.toml"), "")
+    assert Lang.format(Path.join(dir, "b.py"), "x=1\n") == "x = 1\n"
+  end
+
+  test "ruff lints the lines changed, not the debt around them", %{tmp_dir: dir} do
+    repo(dir, [{"a.py", "import os\n\n\ndef f():\n    return 1\n"}])
+
+    assert {:ok, %{changed: [%{lint: [found]}]}} =
+             edit(dir, [%{file: "a.py", old: "    return 1", new: "    x = 2\n    return 1"}])
+
+    assert %{kind: "ruff", at: "a.py:5", message: "F841: Local variable `x` is assigned to but never used"} =
+             found
+  end
+
+  test "Go that does not parse is refused, and gofmt formats what does", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} =
+             Lang.parse(Path.join(dir, "a.go"), "package main\nfunc f( {\n}\n")
+
+    assert why =~ "2:9: expected ')'"
+
+    repo(dir, [{"a.go", "package main\n\nfunc f() int {\n\treturn 1\n}\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.go", old: "\treturn 1", new: "return   2"}])
+    assert File.read!(Path.join(dir, "a.go")) == "package main\n\nfunc f() int {\n\treturn 2\n}\n"
+  end
+
+  test "Rust that does not parse is refused; an async fn and a let chain are no older edition's", %{
+    tmp_dir: dir
+  } do
+    assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.rs"), "fn f( {\n}\n")
+    assert why =~ "unclosed delimiter"
+
+    chain = "async fn f(a: Option<u8>) {\n    if let Some(x) = a && x > 1 {}\n}\n"
+    assert :ok = Lang.parse(Path.join(dir, "a.rs"), chain)
+  end
+
+  test "rustfmt formats a Rust file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.rs", "fn f() -> u8 {\n    1\n}\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.rs", old: "    1\n", new: "  1+1\n"}])
+    assert File.read!(Path.join(dir, "a.rs")) == "fn f() -> u8 {\n    1 + 1\n}\n"
+  end
+
   test "a file with no row is written as it is", %{tmp_dir: dir} do
     refute Lang.known?("a.txt")
     assert {:ok, _} = edit(dir, [%{file: "a.txt", old: "", new: "{ not json"}])

@@ -31,7 +31,26 @@ defmodule Menard.Lang do
   # -f: no startup file is read to check another's syntax; the file by name, for its line numbers
   @zsh %{parse: ~w(zsh -f -n /dev/stdin), format: [], lint: []}
 
+  # a ruff.toml ruff cannot read fails the same way and says nothing of the file: `syntax`, as
+  # biome's. A new file is formatted only under a ruff.toml: a pyproject.toml does not say ruff
+  @ruff %{
+    parse: ~w(ruff format --stdin-filename FILE -),
+    syntax: ~r/^error: Failed to parse .*:\d+:\d+: /m,
+    config: ~w(ruff.toml .ruff.toml),
+    format: ~w(ruff format --stdin-filename FILE -),
+    lint: [~w(ruff check --output-format json FILE)]
+  }
+
+  # rustfmt alone reads no Cargo.toml and takes 2015, where an `async fn` does not parse: the
+  # newest edition parses nearly all the older ones hold, and a file its style would change is not
+  # in that style at HEAD, so is left alone
+  @rust %{parse: ~w(rustfmt --edition 2024), format: ~w(rustfmt --edition 2024), lint: []}
+
   @tools %{
+    ".py" => @ruff,
+    ".pyi" => @ruff,
+    ".go" => %{parse: ~w(gofmt), format: ~w(gofmt), lint: []},
+    ".rs" => @rust,
     ".gd" => %{parse: ~w(gdparse -), format: ~w(gdformat -), lint: [~w(gdlint FILE)]},
     ".toml" => %{parse: ~w(taplo fmt -), format: ~w(taplo fmt -), lint: []},
     ".zsh" => @zsh,
@@ -209,6 +228,19 @@ defmodule Menard.Lang do
   defp issues("gdlint", out, base) do
     for [_, line, message] <- Regex.scan(~r/^.+:(\d+): Error: (.+)$/m, out),
         do: %{kind: "gdlint", message: message, at: "#{base}:#{line}"}
+  end
+
+  defp issues("ruff", out, base) do
+    case JSON.decode(out) do
+      {:ok, found} when is_list(found) ->
+        for %{"code" => code, "message" => message, "filename" => file, "location" => %{"row" => line}} <-
+              found,
+            Path.basename(file) == base,
+            do: %{kind: "ruff", message: "#{code}: #{message}", at: "#{base}:#{line}"}
+
+      _ ->
+        []
+    end
   end
 
   defp issues("biome", out, base) do

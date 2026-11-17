@@ -21,7 +21,7 @@ jobs:
       # the tools of every language menard checks, and mise, which runs a host on its own toolchain
       - uses: cachix/install-nix-action@v31
       - run: |
-          nix profile install nixpkgs#{nixfmt,statix,nil,lua,stylua,zig,biome,shfmt,shellcheck,zsh,taplo,gdtoolkit_4,mise}
+          nix profile install nixpkgs#{nixfmt,statix,nil,lua,stylua,zig,biome,shfmt,shellcheck,zsh,taplo,gdtoolkit_4,ruff,go,rustfmt,mise}
           echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
           echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
 

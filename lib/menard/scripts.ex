@@ -93,7 +93,7 @@ defmodule Menard.Scripts do
     "Every Elixir file written, by an edit or a shell command, is formatted after with the " <>
       "project's own formatter, and what it changed is said: there is no separate format step. " <>
       "`edit` is for any file: Nix, shell (bash and zsh), Lua, Zig, TypeScript, JavaScript, JSON, " <>
-      "TOML and GDScript are parse-checked too, and linted on the lines changed. " <>
+      "TOML, GDScript, Python, Go and Rust are parse-checked too, and linted on the lines changed. " <>
       "There is no python, perl, ruby or node in this session: a command that runs one is refused. " <>
       instead(menard) <>
       "\nFor a module too big to read whole, when you want them: `#{menard} outline FILE` lists every " <>
