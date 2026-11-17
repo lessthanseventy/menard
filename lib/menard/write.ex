@@ -9,7 +9,9 @@ defmodule Menard.Write do
   `code` as the content of `path` would be written: `{:ok, content}` with exactly one trailing
   newline, or `{:error, message}` when a `.ex`/`.exs`, or a file `Menard.Lang` knows, does not
   parse. Only those are parsed: a fixture next to them may be anything, and refusing a `.json`
-  because it is not Elixir would be nonsense.
+  because it is not Elixir would be nonsense. A file of another language that did not parse as it
+  is on disk is not that language's (a Helm template named `.yaml`, a `.json` with comments), and
+  is not refused for staying so.
   """
   @spec checked(String.t(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def checked(path, code) do
@@ -21,7 +23,7 @@ defmodule Menard.Write do
         {:error, reason} -> {:error, Menard.Source.unparseable(content, reason)}
       end
     else
-      with :ok <- Menard.Lang.parse(path, content), do: {:ok, content}
+      other(path, content)
     end
   end
 
@@ -76,5 +78,19 @@ defmodule Menard.Write do
     end)
     |> elem(0)
     |> Enum.reverse()
+  end
+
+  defp other(path, content) do
+    case Menard.Lang.parse(path, content) do
+      :ok -> {:ok, content}
+      refused -> if unparseable_already?(path), do: {:ok, content}, else: refused
+    end
+  end
+
+  defp unparseable_already?(path) do
+    case File.read(path) do
+      {:ok, was} -> Menard.Lang.parse(path, was) != :ok
+      _new -> false
+    end
   end
 end

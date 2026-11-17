@@ -313,6 +313,14 @@ defmodule Menard.LangTest do
     assert File.read!(Path.join(dir, "a.rs")) == "fn f() -> u8 {\n    1 + 1\n}\n"
   end
 
+  test "a file that did not parse before the edit is not refused for it", %{tmp_dir: dir} do
+    commented = "{\n  // why\n  \"a\": 1\n}\n"
+    repo(dir, [{"a.json", commented}])
+
+    assert {:ok, _} = edit(dir, [%{file: "a.json", old: ~s("a": 1), new: ~s("a": 2)}])
+    assert File.read!(Path.join(dir, "a.json")) == String.replace(commented, "1", "2")
+  end
+
   test "a file with no row is written as it is", %{tmp_dir: dir} do
     refute Lang.known?("a.txt")
     assert {:ok, _} = edit(dir, [%{file: "a.txt", old: "", new: "{ not json"}])
