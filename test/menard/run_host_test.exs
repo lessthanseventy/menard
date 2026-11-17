@@ -148,7 +148,7 @@ defmodule Menard.RunHostTest do
   end
 
   test "a red run keeps its whole output in a log and names it; a green one names none", %{tmp_dir: dir} do
-    # cap.sh's rule, Hostapp's: run once, read the log; never run again with another grep to see more
+    # a host's rule: run once, read the log; never run again with another grep to see more
     Host.mix_project(dir, :logged)
 
     File.mkdir_p!(Path.join(dir, "test"))

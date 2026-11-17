@@ -586,7 +586,7 @@ defmodule Menard.Run do
   end
 
   # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
-  # reply names it, so what the failures leave out is a grep away, not a second run (Hostapp's cap.sh
+  # reply names it, so what the failures leave out is a grep away, not a second run (a host's cap.sh
   # rule: run once, read the log; 40% of the operator's test runs were run again to see more)
   defp log_path(dir, words) do
     dir = Path.expand(dir)

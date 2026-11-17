@@ -54,7 +54,7 @@ defmodule Menard.RunCredoTest do
 
   @tag :tmp_dir
   test "--changed reads a project below the repo's root by its own paths", %{tmp_dir: dir} do
-    # Hostapp's server/ and console/: credo names lib/a.ex, git's diff says server/lib/a.ex
+    # A host's server/ and console/: credo names lib/a.ex, git's diff says server/lib/a.ex
     git = fn args -> {_, 0} = System.cmd("git", ["-C", dir | args], stderr_to_stdout: true) end
     git.(["init", "-q"])
     project = Path.join(dir, "server")

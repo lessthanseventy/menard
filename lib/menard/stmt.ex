@@ -194,7 +194,7 @@ defmodule Menard.Stmt do
   end
 
   # What a statement is matched by: its text squashed, its comments left out. An agent writes the
-  # statement as it means it, and a `# why` between a map's keys is not part of that (Hostapp ticket 8).
+  # statement as it means it, and a `# why` between a map's keys is not part of that (a host's ticket 8).
   # The parser finds the comments, so a `#` in a string stays.
   defp key(text), do: text |> uncommented() |> Clause.squash()
 

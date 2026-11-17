@@ -26,7 +26,7 @@ defmodule Menard.HostFormatPluginTest do
   end
 
   test "a plugin built by another toolchain than menard's runs on the host's own", %{tmp_dir: dir} do
-    # Hostapp's Quokka, built by OTP 29: an OTP 27 menard could not load it (and logged an error per
+    # A host's Quokka, built by OTP 29: an OTP 27 menard could not load it (and logged an error per
     # try). The host pins its toolchain, and the format runs there: here 27, menard being on 29.
     installs = Path.expand("~/.local/share/mise/installs")
     elixirc = Path.join(installs, "elixir/1.19.4-otp-27/bin/elixirc")
@@ -61,7 +61,7 @@ defmodule Menard.HostFormatPluginTest do
   end
 
   test "a plugin whose beam cannot be read is a plugin that cannot be found, not a crash", %{tmp_dir: dir} do
-    # Hostapp's Quokka, built by OTP 29, read by OTP 27: beam_lib raised a MatchError over the atom
+    # A host's Quokka, built by OTP 29, read by OTP 27: beam_lib raised a MatchError over the atom
     # chunk, and the reply's reason was that crash dump. Stood in for by a beam whose first atom is
     # not UTF-8, which the loader refuses the same way.
     ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
