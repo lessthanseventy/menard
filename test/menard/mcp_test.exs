@@ -883,7 +883,7 @@ defmodule Menard.MCPSessionTest do
     n = System.unique_integer([:positive])
     root = Path.join(System.tmp_dir!(), "menard-mcp-session-#{System.pid()}-#{n}")
     session = "mcp-cwd-#{System.pid()}-#{n}"
-    here = Path.join(root, "sideproject")
+    here = Path.join(root, "app")
     File.mkdir_p!(Path.join(here, "lib"))
     File.write!(Path.join(here, "lib/a.ex"), "defmodule A do\n  def one, do: 1\nend\n")
     Process.put(:menard_cwd, root)

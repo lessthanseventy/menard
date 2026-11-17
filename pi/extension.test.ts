@@ -7,19 +7,19 @@ import { elixirFile } from "./extension.ts";
 
 describe("elixirFile — which edits the guard and formatter act on", () => {
   test("an .ex edit → the file path", () => {
-    expect(elixirFile("edit", { path: "/home/andrew/projects/dotfiles/modules/server/lib/server/mcp/gateway.ex" })).toBe(
-      "/home/andrew/projects/dotfiles/modules/server/lib/server/mcp/gateway.ex",
+    expect(elixirFile("edit", { path: "/home/me/app/lib/app/gateway.ex" })).toBe(
+      "/home/me/app/lib/app/gateway.ex",
     );
   });
 
   test("an .exs write → the file path", () => {
-    expect(elixirFile("write", { path: "/home/andrew/projects/dotfiles/modules/console/config/runtime.exs" })).toBe(
-      "/home/andrew/projects/dotfiles/modules/console/config/runtime.exs",
+    expect(elixirFile("write", { path: "/home/me/app/config/runtime.exs" })).toBe(
+      "/home/me/app/config/runtime.exs",
     );
   });
 
   test("a .ts edit is left alone (not Elixir)", () => {
-    expect(elixirFile("edit", { path: "/home/andrew/projects/menard/pi/extension.ts" })).toBeNull();
+    expect(elixirFile("edit", { path: "/home/me/menard/pi/extension.ts" })).toBeNull();
   });
 
   test("a non-edit/write tool is left alone", () => {
@@ -34,15 +34,15 @@ describe("elixirFile — which edits the guard and formatter act on", () => {
   });
 
   test("a non-Elixir file is left alone", () => {
-    expect(elixirFile("edit", { path: "/home/andrew/projects/menard/.tool-versions" })).toBeNull();
-    expect(elixirFile("edit", { path: "/home/andrew/projects/menard/README.md" })).toBeNull();
+    expect(elixirFile("edit", { path: "/home/me/menard/.tool-versions" })).toBeNull();
+    expect(elixirFile("edit", { path: "/home/me/menard/README.md" })).toBeNull();
   });
 
   // mix.exs IS an .exs file — elixirFile returns it; the guard verb itself exempts it
   // (config/*.exs, .formatter.exs, mix.lock — the decision is menard's, not this extension's).
   test("mix.exs passes through to the guard (it is an .exs)", () => {
-    expect(elixirFile("edit", { path: "/home/andrew/projects/menard/mix.exs" })).toBe(
-      "/home/andrew/projects/menard/mix.exs",
+    expect(elixirFile("edit", { path: "/home/me/menard/mix.exs" })).toBe(
+      "/home/me/menard/mix.exs",
     );
   });
 });

@@ -12,16 +12,16 @@ The ban on scripts in another language landed 09-29. After it:
 | shell calls that start python, perl, ruby or node | count |
 |---|---|
 | after 09-29, all sessions | 2,215 |
-| in sessions with no menard hook (hostapp 2,024, dotfiles 65, `~` 46) | 2,138 |
+| in sessions with no menard hook (the main work repo 2,024, the config repo 65, `~` 46) | 2,138 |
 | in hooked sessions, 09-29 and 09-30, while the ban was being written | 74 |
 | in hooked sessions after 10-01 | 3, all three refused |
 
-The plugin is enabled at `local` scope in 16 Elixir projects and in none other: hostapp and dotfiles
+The plugin is enabled at `local` scope in 16 Elixir projects and in none other: the main work repo and the config repo
 have no `menard@menard` in their settings, and `~/.claude/settings.json`'s `enabledPlugins` has
 none either. No October session ran in any of the 16 but menard itself. So in October the hook
-saw the menard repo and nothing else, while the work was in hostapp.
+saw the menard repo and nothing else, while the work was in the main work repo.
 
-In hostapp, October, by model (shell calls, of them python):
+In the main work repo, October, by model (shell calls, of them python):
 
 | model | shell | python | rate |
 |---|---|---|---|
@@ -78,9 +78,9 @@ Each from the transcripts, a failing test first, its own commit.
 `eval/pile/report.sh` joins every transcript on this machine (per-turn token usage, every tool
 call) to the commits on main that carry its `Claude-Session:` trailer, one row per session id,
 and prints the arms: `hooked` (the menard repo from 10-01, every repo from 10-20, when the plugin
-went to user scope) and `bare` (hostapp and dotfiles from 09-29 to 10-19). Run on 2026-10-20 over
+went to user scope) and `bare` (the main work repo and the config repo from 09-29 to 10-19). Run on 2026-10-20 over
 1,413 transcripts and 3,485 trailer commits in 14 repos; the bare arm, which is the baseline the
-next two weeks are measured against (hostapp from 10-20 is the same models in the same repo):
+next two weeks are measured against (the main work repo from 10-20 is the same models in the same repo):
 
 | model, bare | sessions | commits | Mtok per commit, mean | median per session | python per 100 shell calls | replies piped |
 |---|---|---|---|---|---|---|
@@ -91,7 +91,7 @@ next two weeks are measured against (hostapp from 10-20 is the same models in th
 
 The hooked arm is not readable yet: outside this repo it is hours old (61 sessions, 4 commits),
 and this repo's sessions are the ones that built menard. Rerun `eval/pile/report.sh` around
-2026-11-03 and read hostapp's hooked rows against these. What it will not say: whether the AST verbs
+2026-11-03 and read the main work repo's hooked rows against these. What it will not say: whether the AST verbs
 earn their place; they are called too rarely for a count.
 
 ## 5. The suite, asked why it is slow
@@ -114,7 +114,7 @@ edits run in parallel. The mix runs stay: they are the thing under test.
   moved to a config mise cannot parse, and the formatter's reply keeps mise's reason line.
 - The plugin is enabled at user scope as of this review (`claude plugin install menard@menard
   --scope user`): every project on this machine has the hooks now.
-- 0.6.0 as a dep of hostapp/server (Elixir 1.20) warned three times where the gate's 1.19 said
+- 0.6.0 as a dep of a host project (Elixir 1.20) warned three times where the gate's 1.19 said
   nothing: the branches are gone, and the gate compiles under 1.20 too.
 - A session that started before the plugin was enabled under it met the rules one refusal at a
   time: the first refusal of a session carries the start-of-session text now.

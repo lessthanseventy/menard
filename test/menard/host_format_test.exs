@@ -27,7 +27,7 @@ defmodule Menard.HostFormatTest do
   end
 
   test "a host whose config wants an env var it does not have is formatted all the same", %{tmp_dir: dir} do
-    # phoenix_demo: `mix format` loads the config first, and config/dev.exs fetched a GitHub secret
+    # a Phoenix app: `mix format` loads the config first, and config/dev.exs fetched a GitHub secret
     # from the environment; the host's own formatter never got to run
     File.write!(Path.join(dir, "mix.exs"), """
     defmodule Env.MixProject do
@@ -93,7 +93,7 @@ defmodule Menard.HostFormatTest do
 
   test "a subdirectory's own import_deps resolve, and its formatter takes content not yet on disk",
        %{tmp_dir: dir} do
-    # phoenix_demo: priv/repo/migrations/.formatter.exs imports :ecto_sql, which the root's does not,
+    # a Phoenix app: priv/repo/migrations/.formatter.exs imports :ecto_sql, which the root's does not,
     # and every file in the project failed on "Unknown dependency :ecto_sql"
     host(dir, "[inputs: [\"lib/**/*.ex\"], subdirectories: [\"priv/*/migrations\"]]")
     migrations = Path.join(dir, "priv/repo/migrations")

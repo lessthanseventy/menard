@@ -54,16 +54,16 @@ Bash. Read it as parity, as the 10-01 evals did. Nothing in the pile shows a tok
 | MCP `run` | 60 | 4 | 120 | 0.4 |
 | `mix test` through Bash | 120 | 22 | 421 | 3.8 |
 
-Sixty hours of waiting on menard in three weeks, 25 of them on edits. In hostapp alone: CLI `edit`
+Sixty hours of waiting on menard in three weeks, 25 of them on edits. In the main work repo alone: CLI `edit`
 24 s at the median over 584 calls, MCP `edit` 1 s over 43, native `Edit` 1 s. The same verb, the
 same repo, the same weeks. Idle, the CLI is cheap (`--frozen version` 0.5 s, a frozen `edit` of
-this repo 1.4-1.9 s, 3.3 s with the self-compile check, hostapp's cold `mix format` 2 s), but every
+this repo 1.4-1.9 s, 3.3 s with the self-compile check, the main work repo's cold `mix format` 2 s), but every
 CLI call boots two or three VMs (mise and mix, the host formatter's own, menard's compile check),
 and the seats run at a load of 20-30 on 20 cores, where each boot stretches to seconds. The MCP
 server keeps one warm formatter worker per project and boots nothing. The agents use the CLI
 because the session-start text teaches the CLI heredoc, and nothing else.
 
-`run check`: 48 of 287 ran to the 600 s cap (hostapp's gate is 2,330 tests, credo and an eval). The
+`run check`: 48 of 287 ran to the 600 s cap (the main work repo's gate is 2,330 tests, credo and an eval). The
 reply then has no failures to act on, and the gate is run again.
 
 **Verdict.** Keep the hooks and `edit`/`run`: the interpreter ban held at 100%, a quarter of the
@@ -75,7 +75,7 @@ measured, large return is making the CLI's edits as warm as the MCP door's.
 
 Each from the transcripts, a failing test first, its own commit.
 
-1. **`menard … 2>/dev/null || fallback` was refused** as the reply thrown away: 13 times in hostapp.
+1. **`menard … 2>/dev/null || fallback` was refused** as the reply thrown away: 13 times in the main work repo.
    Only stderr went there. `&>/dev/null`, which does throw the reply away, was not refused and is.
 2. **A dependency's compiler warnings in a green `run test` reply**: 33 replies with `ok: true`
    over `failures` holding styler's and doctest_formatter's warnings under Elixir 1.20. A
@@ -84,7 +84,7 @@ Each from the transcripts, a failing test first, its own commit.
    sandboxed seats whose scratch dir was read-only (10-22 to 11-08). One sentence now, and the files
    written before it put back.
 4. **A build brief that says "find its callers with `menard find calls …`" was refused** as a
-   subagent sent to search (hostapp-57, 11-08). A prompt that names the tool knows it.
+   subagent sent to search (11-08). A prompt that names the tool knows it.
 5. `eval/pile/report.sh` died at exit 128 on two repos with no commits yet, after its ten-minute
    pass.
 
@@ -105,13 +105,13 @@ Each from the transcripts, a failing test first, its own commit.
   `attr`, `directive`, `split`, `module`) and 4,500 of tests, for fifteen calls in three weeks. The
   10-01 decision (frozen until one eval built to favour them) stands; this review adds that nothing
   in three weeks of real work reached for them unprompted. Build the eval, or cut them.
-- `run check` at the cap: 48 of 287. The cap is menard's, the gate's length is hostapp's. *Not
+- `run check` at the cap: 48 of 287. The cap is menard's, the gate's length is the main work repo's. *Not
   menard's (2026-11-09): at 600 s Claude Code moves a command to the background and sends its
-  reply when it ends; across hostapp's transcripts 42 were moved and none killed.*
+  reply when it ends; across the main work repo's transcripts 42 were moved and none killed.*
 - The filter refusal does not say which it saw: a `| head` or a `>/dev/null`. One clause.
 - Reading one function costs 11 s (`clause get`, p50) against a free `Read`; 80 of the 141 were
   piped into `head`. The reading aids earn their place on a module too big to read, not elsewhere.
-  *Through the door (0.8.7), 60-85 ms in hostapp at a load of 22 (2026-11-09).*
+  *Through the door (0.8.7), 60-85 ms in the main work repo at a load of 22 (2026-11-09).*
 - Both MCP servers timed out connecting (30 s) in three sessions (10-12, 11-08 twice), under load:
   a session with no hooks server has no hooks at all, and nothing says so. *Said since 0.8.7
   (`hooks/server-up.sh`). The 11-08 timeouts fall on a toolchain rebuild and a new install's first

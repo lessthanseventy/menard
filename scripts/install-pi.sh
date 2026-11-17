@@ -21,7 +21,7 @@ mkdir -p "$pi_dir"
 [ -f "$mcp" ] || echo '{"mcpServers":{}}' > "$mcp"
 
 # extensions: prune any prior path under <repo>/pi/ then re-add (idempotent + self-healing
-# if the checkout moved). Same prune-then-add pattern dotfiles' flake uses for its adapters.
+# if the checkout moved).
 tmp=$(mktemp)
 jq --arg ext "$ext" --arg repo "$repo" \
   '.extensions = (((.extensions // []) | map(select(startswith($repo + "/pi/") | not))) + [$ext] | unique)

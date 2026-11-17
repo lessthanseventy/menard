@@ -210,7 +210,7 @@ And from before the review:
   shown, and took it for the only way to edit several files at once.
 - Through MCP a relative path is from where the session stands, as the shell's is. The server
   starts in the session's first directory and heard nothing of a `cd`: a session started in
-  `~/projects` and working in `~/projects/sideproject` had `lib/x.ex` looked for, or made, in
+  `~/projects` and working in `~/projects/app` had `lib/x.ex` looked for, or made, in
   `~/projects`. A PreToolUse hook on menard's tools leaves the call's `cwd` for the server, by the
   session's id.
 - An edit through menard's MCP tools gets credo's notes on the lines it changed, as a Write and a
@@ -357,7 +357,7 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
 
 - A host whose `mise.toml` / `.tool-versions` pins erlang or elixir that mise does not load
   (untrusted, ignored) is refused, not run on menard's own toolchain: that run rebuilt the host's
-  `_build` on the wrong OTP (hostapp's `server/` on 27 under a pin of 29). The reply names the config
+  `_build` on the wrong OTP (a host's `server/` on 27 under a pin of 29). The reply names the config
   and `mise trust` for it; formatting there fails with the same reason.
 - A verb whose stderr is a pipe with its reader gone (`menard … 2>&1 >out | true`) exits with the
   verb's own status, not 141 from the shell's SIGPIPE on passing that stderr on.
@@ -368,14 +368,14 @@ From the transcript review of 2026-11-08 (`docs/review/2026-11-08-transcripts.md
 
 - A VM menard starts that crashes no longer leaves `erl_crash.dump` in the caller's project: it goes
   to `$TMPDIR/menard-erl_crash.dump` (`ERL_CRASH_DUMP`, exported by `bin/menard`; one you set
-  wins). The boot crash behind hostapp's dump, a print to a `standard_error` that is gone, is not
+  wins). The boot crash behind a host's dump, a print to a `standard_error` that is gone, is not
   reproduced yet and is in TODO.md.
 
 ## 0.8.3
 
 - A `menard …` command whose reply is piped into a filter that ends the line (`| head -c 3000`,
   `2>&1 | tail -c 1500`, `| jq .failures`) is run bare in its place, and the agent is told in one
-  line that the filter was dropped. It was refused, a turn lost each time: ~200 of hostapp's 271 tool
+  line that the filter was dropped. It was refused, a turn lost each time: ~200 of a host's 271 tool
   denials in 14 days. A filter with a command after it, a heredoc, a loop or `>/dev/null` is still
   refused.
 
@@ -552,7 +552,7 @@ Every proposal still open from the review of 2026-10-01 (`docs/review/2026-10-01
   the third Edit of a run of them. Both name this menard by its path: a plugin's `bin/` is the
   last place a shell looks, and a bare `menard` is whichever one the PATH holds before it.
 - `clause split`: a module into several in one call, `plan` a `{to, functions, as?, moduledoc?}`
-  per new module, all written or none, delegates left unless `delegate: false`. On phoenix_app's
+  per new module, all written or none, delegates left unless `delegate: false`. On a Phoenix app's
   862-line `events.ex`: 34 functions and 19 helpers into three modules in one call, where `clause
   move` took a call per module with fix-ups between.
 - A noun is declared once (`Menard.Verbs.Noun`, `noun/0` in each verb module), and the MCP tools
@@ -628,14 +628,14 @@ agents tripped on, fixed, and what they reached for first, made to work.
   menard's code path for good, checked beam compiler versions before loading, erased Styler's and
   Quokka's cached config, evaluated the host's `.formatter.exs` here, and changed the whole VM's
   cwd under a global lock; a plugin it could not load sent the file to the host's `mix format`,
-  which evaluates `mix.exs` and the config first (phoenix_demo: `config/dev.exs` wanted a GitHub
+  which evaluates `mix.exs` and the config first (a Phoenix app: `config/dev.exs` wanted a GitHub
   secret, and the file went unformatted with three stack frames as its reason). Now `elixir` runs
   `Mix.Tasks.Format.formatter_for_file/2` in the host's project with its plugins from `_build`,
   and a plugin built by a newer OTP simply runs. The process never writes the real file, so one
   killed past its deadline cannot write it later. One process formats every file of one call:
   `run format` over a 69-file Phoenix project takes 1.5s where it took 2.9s; one write pays a VM
   start, ~0.4s, where the in-VM path took ~50ms after its first.
-- A subdirectory's own `import_deps` resolve (phoenix_demo' `priv/repo/migrations/.formatter.exs`
+- A subdirectory's own `import_deps` resolve (a Phoenix app's `priv/repo/migrations/.formatter.exs`
   imports `:ecto_sql`, which the root's does not): every file in the project failed on "Unknown
   dependency :ecto_sql", since only the root's imports were looked up.
 
@@ -678,7 +678,7 @@ agents tripped on, fixed, and what they reached for first, made to work.
   named in the move is refused, naming both. `moduledoc` gives a created
   module its `@moduledoc`. The reply adds `moved`, `carried`, `attributes`, `directives`,
   `qualified`, `delegated`, `published` and `left` (without `delegate`, each call now pointing at nothing). In
-  phoenix-app1 every agent split phoenix_app's 860-line `events.ex` with a Python script copying
+  phoenix-app1 every agent split a Phoenix app's 860-line `events.ex` with a Python script copying
   line ranges and then hand-wrote ~50 delegates; the same split is now three moves and two
   `visibility` calls the first refusal asks for, and it passes step 03's check (grader, credo
   --strict, the API test, the suite). The guard's refusal and the skill say a split is one call

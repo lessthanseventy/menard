@@ -41,8 +41,7 @@ defmodule Menard.MixProject do
       # `menard run check` runs `mix precommit` like it does for every other project; without this
       # alias the one tool in the repo could not gate itself.
       aliases: [
-        # the hooks and bin/menard are bash: shellcheck, following what they source (dotfiles'
-        # flake installs it)
+        # the hooks and bin/menard are bash: shellcheck, following what they source
         precommit: [
           "format --check-formatted",
           "compile --warnings-as-errors",

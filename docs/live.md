@@ -74,7 +74,7 @@ styled, and the `:plugins` stage of an edit is small and local.
 
 A verb takes an optional `version`. If the file no longer hashes to it, the verb refuses and
 replies with the diff since that version, the way LiveView re-syncs a stale client. The hazard is
-real: on 2026-09-25 three sessions shared one dotfiles checkout, and an edit computed against a
+real: on 2026-09-25 three sessions shared one checkout, and an edit computed against a
 file another session had just rewritten would land somewhere wrong or not at all.
 
 ## Phases
