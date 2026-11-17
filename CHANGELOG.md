@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.19
+
+- Nine more languages in `Menard.Lang`, each a parse check that refuses and a formatter for a file
+  already in its style at HEAD: GDScript (`gdparse`, `gdformat`, and `gdlint` on the lines
+  changed), zsh (`zsh -n`, for `.zsh` and a script whose shebang is zsh's: a `.sh` of zsh's had no
+  row), TOML (`taplo`), JSON (biome, which knows a tsconfig's comments by its name), Python (ruff,
+  with its lint on the lines changed; a new file is formatted only under a `ruff.toml`), Go
+  (`gofmt`), Rust (`rustfmt`, given the newest edition), YAML (`yamlfmt`, a new file only under
+  its config) and C# (`csharpier`, the same).
+- A file of another language that did not parse before the edit is not refused for it: a Helm
+  template named `.yaml`, or a `.json` with comments, was refused on every edit for what it
+  already was.
+
 ## 0.8.18
 
 - 0.8.17 on Hex: its release's gate failed on a test that read `--frozen`'s version from a dev

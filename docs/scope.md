@@ -43,7 +43,8 @@ is the operator's own, and biome takes JavaScript with it: one tool, the same pa
 edits than any language but Elixir and TypeScript; zsh, TOML and JSON came with it, each edited
 by the dozen and each one tool the operator's machines already hold. Python, Go and Rust are
 ahead of any pain here, on the operator's say: they are what someone else's repo holds, and each
-is one formatter that refuses what does not parse (ruff, gofmt, rustfmt).
+is one formatter that refuses what does not parse (ruff, gofmt, rustfmt); YAML and C# the same
+(yamlfmt, csharpier), C#'s 25 edits being a Unity project's scripts.
 
 A formatter leaves alone a file not already in its style at HEAD: dotfiles holds no `nixfmt`-style
 Nix, and one line's edit must not rewrite a whole file. A tool that is not installed is skipped,

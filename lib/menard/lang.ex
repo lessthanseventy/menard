@@ -46,7 +46,23 @@ defmodule Menard.Lang do
   # in that style at HEAD, so is left alone
   @rust %{parse: ~w(rustfmt --edition 2024), format: ~w(rustfmt --edition 2024), lint: []}
 
+  @yaml %{
+    parse: ~w(yamlfmt -in),
+    config: ~w(.yamlfmt .yamlfmt.yaml .yamlfmt.yml yamlfmt.yaml yamlfmt.yml),
+    format: ~w(yamlfmt -in),
+    lint: []
+  }
+
   @tools %{
+    ".yaml" => @yaml,
+    ".yml" => @yaml,
+    ".cs" => %{
+      parse: ~w(csharpier format --stdin-path FILE),
+      syntax: ~r/syntax errors/,
+      config: ~w(.csharpierrc .csharpierrc.json .csharpierrc.yaml),
+      format: ~w(csharpier format --stdin-path FILE),
+      lint: []
+    },
     ".py" => @ruff,
     ".pyi" => @ruff,
     ".go" => %{parse: ~w(gofmt), format: ~w(gofmt), lint: []},

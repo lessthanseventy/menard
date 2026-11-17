@@ -326,6 +326,47 @@ defmodule Menard.LangTest do
     assert {:ok, _} = edit(dir, [%{file: "a.txt", old: "", new: "{ not json"}])
   end
 
+  if System.find_executable("yamlfmt") do
+    test "yamlfmt: YAML that does not parse is refused, and a file in its style at HEAD is formatted", %{
+      tmp_dir: dir
+    } do
+      assert {:error, "not parseable: " <> why} =
+               Lang.parse(Path.join(dir, "a.yaml"), "a: 1\nb:\n  - x\n - y\n")
+
+      assert why =~ "line 3"
+
+      repo(dir, [{"a.yml", "a: 1\nb:\n  - x\n"}])
+      assert {:ok, _} = edit(dir, [%{file: "a.yml", old: "a: 1", new: "a:    2"}])
+      assert File.read!(Path.join(dir, "a.yml")) == "a: 2\nb:\n  - x\n"
+    end
+
+    test "yamlfmt: a template that was never YAML is edited as it is", %{tmp_dir: dir} do
+      helm = "name: {{ .Values.name }}\n{{- if .Values.on }}\non: true\n{{- end }}\n"
+      repo(dir, [{"a.yaml", helm}])
+
+      assert {:ok, _} = edit(dir, [%{file: "a.yaml", old: "on: true", new: "on: false"}])
+      assert File.read!(Path.join(dir, "a.yaml")) == String.replace(helm, "true", "false")
+    end
+  end
+
+  if System.find_executable("csharpier") do
+    test "csharpier: C# that does not parse is refused, and a file in its style at HEAD is formatted" do
+      # csharpier skips what a .gitignore above the file names, and menard's names the test's tmp_dir
+      dir = Path.join(System.tmp_dir!(), "menard-lang-#{System.pid()}-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+
+      assert {:error, "not parseable: " <> why} =
+               Lang.parse(Path.join(dir, "A.cs"), "class A {\n  void F( {\n}\n")
+
+      assert why =~ "CS1026"
+
+      repo(dir, [{"A.cs", "class A\n{\n    void F()\n    {\n        var x = 1;\n    }\n}\n"}])
+      assert {:ok, _} = edit(dir, [%{file: "A.cs", old: "var x = 1;", new: "var x=2;"}])
+      assert File.read!(Path.join(dir, "A.cs")) =~ "        var x = 2;\n"
+    end
+  end
+
   if System.find_executable("nixfmt") do
     test "nixfmt: formats a file in its style at HEAD", %{tmp_dir: dir} do
       repo(dir, [{"a.nix", "{\n  a = 1;\n}\n"}])
