@@ -38,7 +38,10 @@ name. `rename`, `clause` and the other AST verbs stay Elixir's: they are years o
 a language server covers much of it elsewhere. A language earns a row from a pain already hit;
 Lua's is ahead of that, on the operator's say, with one `luac` error in 2,957 transcripts. Zig's
 is gamerepo's edits made blind, with the build the first to say a brace was dropped. TypeScript's
-is the operator's own, and biome takes JavaScript with it: one tool, the same pain.
+is the operator's own, and biome takes JavaScript with it: one tool, the same pain. GDScript's is
+870 edits in the transcripts read on 2026-11-17 with 35 `SCRIPT ERROR`s in what ran after, more
+edits than any language but Elixir and TypeScript; zsh, TOML and JSON came with it, each edited
+by the dozen and each one tool the operator's machines already hold.
 
 A formatter leaves alone a file not already in its style at HEAD: dotfiles holds no `nixfmt`-style
 Nix, and one line's edit must not rewrite a whole file. A tool that is not installed is skipped,

@@ -96,7 +96,7 @@ defmodule Menard.LangTest do
     assert [%{kind: "shellcheck", at: "a.sh:3", message: "SC2086: " <> _}] = found
   end
 
-  test "a script with no extension has a row by its shebang, and a .sh of zsh's has none", %{tmp_dir: dir} do
+  test "a script with no extension has a row by its shebang, and a .sh of zsh's is zsh's", %{tmp_dir: dir} do
     assert {:error, "not parseable" <> _} =
              Lang.parse(Path.join(dir, "run"), "#!/usr/bin/env bash\nif true; then\n")
 
@@ -106,9 +106,71 @@ defmodule Menard.LangTest do
 
     # zsh's own syntax, which bash -n refuses
     zsh = "#!/bin/zsh\nfor i ({1..3}) echo $i\n"
-    refute Lang.known?("a.sh", zsh)
     assert :ok = Lang.parse(Path.join(dir, "a.sh"), zsh)
-    refute Lang.known?("bin/z", "#!/usr/bin/env zsh\n")
+
+    assert {:error, "not parseable: " <> _} =
+             Lang.parse(Path.join(dir, "a.sh"), "#!/bin/zsh\nfor i ({1..3}\n")
+
+    assert Lang.known?("bin/z", "#!/usr/bin/env zsh\n")
+    refute Lang.known?("bin/f", "#!/usr/bin/env fish\n")
+  end
+
+  test "zsh that does not parse is refused, with its line", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} =
+             Lang.parse(Path.join(dir, "a.zsh"), "print one\nif [[ -n $x ]] {\n")
+
+    assert why =~ ~r/:3: parse error/
+    assert :ok = Lang.parse(Path.join(dir, "a.zsh"), "if [[ -n $x ]] { print ${(U)x} }\n")
+  end
+
+  test "GDScript that does not parse is refused", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} =
+             Lang.parse(Path.join(dir, "a.gd"), "extends Node\n\nfunc _ready(:\n\tpass\n")
+
+    assert why =~ "line 3"
+    assert :ok = Lang.parse(Path.join(dir, "a.gd"), "extends Node\n\nfunc _ready():\n\tpass\n")
+  end
+
+  test "gdformat formats a GDScript file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.gd", "extends Node\n\n\nfunc f():\n\tvar x = 1\n\tprint(x)\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.gd", old: "var x = 1", new: "var  x=2"}])
+    assert File.read!(Path.join(dir, "a.gd")) == "extends Node\n\n\nfunc f():\n\tvar x = 2\n\tprint(x)\n"
+  end
+
+  test "gdlint is on the lines changed, not the debt around them", %{tmp_dir: dir} do
+    repo(dir, [{"a.gd", "extends Node\n\n\nfunc BadOne():\n\tpass\n\n\nfunc fine():\n\tpass\n"}])
+
+    assert {:ok, %{changed: [%{lint: [found]}]}} =
+             edit(dir, [%{file: "a.gd", old: "func fine():", new: "func AlsoBad():"}])
+
+    assert %{kind: "gdlint", at: "a.gd:8", message: "Function name \"AlsoBad\" is not valid (function-name)"} =
+             found
+  end
+
+  test "TOML that does not parse is refused", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.toml"), "a = 1\n[t\nb = 2\n")
+    assert why =~ "invalid TOML"
+    assert :ok = Lang.parse(Path.join(dir, "a.toml"), "[t]\nb = 2\n")
+  end
+
+  test "taplo formats a TOML file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.toml", "[t]\nb = 2\n"}])
+    assert {:ok, _} = edit(dir, [%{file: "a.toml", old: "b = 2", new: "b   =   [1,2]"}])
+    assert File.read!(Path.join(dir, "a.toml")) == "[t]\nb = [1, 2]\n"
+  end
+
+  test "JSON that does not parse is refused; a tsconfig's comments are its own", %{tmp_dir: dir} do
+    assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.json"), ~s({"a": 1,}\n))
+    assert why =~ "Expected a property"
+    assert :ok = Lang.parse(Path.join(dir, "a.json"), ~s({"a": 1}\n))
+    assert :ok = Lang.parse(Path.join(dir, "tsconfig.json"), ~s({\n  // why\n  "a": 1\n}\n))
+    assert :ok = Lang.parse(Path.join(dir, "a.jsonc"), ~s({\n  // why\n  "a": 1\n}\n))
+  end
+
+  test "biome formats a JSON file in its style at HEAD", %{tmp_dir: dir} do
+    repo(dir, [{"a.json", ~s({ "a": 1 }\n)}])
+    assert {:ok, _} = edit(dir, [%{file: "a.json", old: ~s("a": 1), new: ~s("a":2)}])
+    assert File.read!(Path.join(dir, "a.json")) == ~s({ "a": 2 }\n)
   end
 
   test "Lua that does not parse is refused", %{tmp_dir: dir} do
@@ -197,8 +259,8 @@ defmodule Menard.LangTest do
   end
 
   test "a file with no row is written as it is", %{tmp_dir: dir} do
-    refute Lang.known?("a.json")
-    assert {:ok, _} = edit(dir, [%{file: "a.json", old: "", new: "{ not json"}])
+    refute Lang.known?("a.txt")
+    assert {:ok, _} = edit(dir, [%{file: "a.txt", old: "", new: "{ not json"}])
   end
 
   if System.find_executable("nixfmt") do

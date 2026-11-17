@@ -28,7 +28,7 @@ defmodule Menard.LangMissingTest do
 
   test "each tool is named", %{tmp_dir: dir} do
     assert Menard.Lang.missing(Path.join(dir, "a.lua"), "x = 1\n") == ~w(luac stylua)
-    assert Menard.Lang.missing(Path.join(dir, "a.json"), "{}") == []
+    assert Menard.Lang.missing(Path.join(dir, "a.txt"), "{}") == []
   end
 
   test "a verb's reply says so", %{tmp_dir: dir} do

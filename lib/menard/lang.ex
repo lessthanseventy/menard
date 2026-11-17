@@ -28,7 +28,16 @@ defmodule Menard.Lang do
     lint: [~w(biome lint --colors=off --reporter=json FILE)]
   }
 
+  # -f: no startup file is read to check another's syntax; the file by name, for its line numbers
+  @zsh %{parse: ~w(zsh -f -n /dev/stdin), format: [], lint: []}
+
   @tools %{
+    ".gd" => %{parse: ~w(gdparse -), format: ~w(gdformat -), lint: [~w(gdlint FILE)]},
+    ".toml" => %{parse: ~w(taplo fmt -), format: ~w(taplo fmt -), lint: []},
+    ".zsh" => @zsh,
+    # biome knows the files whose JSON may hold comments (tsconfig.json) by their names
+    ".json" => @biome,
+    ".jsonc" => @biome,
     ".nix" => %{
       parse: ~w(nix-instantiate --parse -),
       format: ~w(nixfmt -),
@@ -125,11 +134,12 @@ defmodule Menard.Lang do
   end
 
   # a script says what it is in its first line: a `.sh` of zsh's does not parse under bash, and is
-  # no row's; one with no extension has a row only by this
+  # zsh's; one with no extension has a row only by this
   defp row(file, code) do
     case {Path.extname(file), shebang(file, code)} do
-      {".sh", other} when other in ~w(zsh fish ksh) -> nil
-      {".bash", other} when other in ~w(zsh fish ksh) -> nil
+      {extension, "zsh"} when extension in ["", ".sh", ".bash"] -> @zsh
+      {".sh", other} when other in ~w(fish ksh) -> nil
+      {".bash", other} when other in ~w(fish ksh) -> nil
       {"", shell} when shell in ~w(bash sh dash) -> @shell
       {extension, _shell} -> @tools[extension]
     end
@@ -173,6 +183,7 @@ defmodule Menard.Lang do
 
   # ast-check says its errors on stderr only
   defp lint_redirect("zig"), do: "2>&1"
+  defp lint_redirect("gdlint"), do: "2>&1"
   defp lint_redirect(_exe), do: "2>/dev/null"
 
   # a formatter whose defaults are no house style (biome's) takes a new file only where the repo
@@ -193,6 +204,11 @@ defmodule Menard.Lang do
   defp issues("zig", out, base) do
     for [_, line, message] <- Regex.scan(~r/^<stdin>:(\d+):\d+: error: (.+)$/m, out),
         do: %{kind: "zig", message: message, at: "#{base}:#{line}"}
+  end
+
+  defp issues("gdlint", out, base) do
+    for [_, line, message] <- Regex.scan(~r/^.+:(\d+): Error: (.+)$/m, out),
+        do: %{kind: "gdlint", message: message, at: "#{base}:#{line}"}
   end
 
   defp issues("biome", out, base) do
