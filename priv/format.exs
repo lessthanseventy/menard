@@ -57,7 +57,7 @@ watch = fn watch, owner, parent ->
   if ppid.() == owner, do: watch.(watch, owner, parent), else: send(parent, :orphaned)
 end
 
-format = fn %{root: root, project: project, cache: cache, plugins: plugins?, files: files} ->
+format = fn %{root: root, project: project, cache: cache, plugins: plugins?, files: files} = request ->
   # The host's last build, whatever env built it: a plugin lives in `_build/*/lib/*/ebin`. Left off
   # the path when the caller asks for no plugins, so a plugin that is there is not found either.
   if plugins? do
@@ -89,7 +89,15 @@ format = fn %{root: root, project: project, cache: cache, plugins: plugins?, fil
         into: %{},
         do: {String.to_atom(Path.basename(dir)), dir}
 
-  deps_paths = Map.merge(cached, fetched)
+  # a git worktree whose deps were never fetched: the main checkout's, behind both
+  inherited =
+    for behind <- List.wrap(request[:behind]),
+        dir <- Path.wildcard(Path.join(behind, "*")),
+        File.regular?(Path.join(dir, ".formatter.exs")),
+        into: %{},
+        do: {String.to_atom(Path.basename(dir)), dir}
+
+  deps_paths = inherited |> Map.merge(cached) |> Map.merge(fetched)
   dot = Path.join(root, ".formatter.exs")
   dot = if File.regular?(dot), do: dot
 

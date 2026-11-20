@@ -81,6 +81,30 @@ defmodule Menard.HostFormatTest do
     assert File.read!(second) =~ "field :c, :d"
   end
 
+  test "in a git worktree with no deps/, import_deps come from the main checkout's", %{tmp_dir: dir} do
+    main =
+      host(
+        Path.join(dir, "main") |> tap(&File.mkdir_p!/1),
+        "[inputs: [\"lib/**/*.ex\"], import_deps: [:dsl]]"
+      )
+
+    File.write!(Path.join(main, ".gitignore"), "deps/\n")
+    dep = Path.join(main, "deps/dsl")
+    File.mkdir_p!(dep)
+    File.write!(Path.join(dep, ".formatter.exs"), "[export: [locals_without_parens: [field: 2]]]")
+    tree = Path.join(dir, "tree")
+    git = fn args -> {_, 0} = System.cmd("git", args, cd: main, stderr_to_stdout: true) end
+    git.(~w(init -q))
+    git.(~w(add -A))
+    git.(~w(-c user.name=t -c user.email=t@t commit -q -m one))
+    git.(["worktree", "add", "-q", tree])
+    on_exit(fn -> Worker.stop(Path.expand(tree)) end)
+
+    file = write(tree, "w.ex", "defmodule W do\n  field   :c, :d\nend\n")
+    assert Menard.format(file, cache: Path.join(dir, "cache")) == :ok
+    assert File.read!(file) =~ "field :c, :d"
+  end
+
   test "a missing dep with no cache leaves the file alone and says why", %{tmp_dir: dir} do
     host(dir, "[inputs: [\"lib/**/*.ex\"], import_deps: [:dsl]]")
     code = "defmodule E do\n  field   :e, :f\nend\n"

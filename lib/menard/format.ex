@@ -8,7 +8,8 @@ defmodule Menard.Format do
   It works while the host is as broken as it gets: `elixir`, not `mix format`, so the host's
   `mix.exs` is never evaluated and its config never loaded. Plugins load from the host's last build
   (`_build/*/lib/*/ebin`), and each `import_deps` entry from `deps/`, else from the copy cached by
-  the last format that found it (`cache:` overrides the cache directory). A dep with neither leaves
+  the last format that found it (`cache:` overrides the cache directory), else, in a git worktree
+  with no `deps/`, from the main checkout's. A dep with none of them leaves
   the file UNformatted with Mix's own reason: without its exports the formatter would add parens to
   every DSL call in the file.
 
@@ -86,6 +87,7 @@ defmodule Menard.Format do
       root: root,
       project: project,
       cache: opts[:cache] || cache_dir(project),
+      behind: main_checkout_deps(project),
       plugins: Keyword.get(opts, :plugins, true),
       files: pairs
     }
@@ -150,6 +152,26 @@ defmodule Menard.Format do
 
   defp cache_dir(project),
     do: Path.join([Menard.cache_dir(), "formatter", Integer.to_string(:erlang.phash2(project))])
+
+  # `deps/` of the same project in the main checkout, where `project` is in a linked git worktree
+  # and has no `deps/` of its own: a new worktree is written to before anything fetches its deps
+  defp main_checkout_deps(project) do
+    with false <- File.dir?(Path.join(project, "deps")),
+         {out, 0} <-
+           System.cmd("git", ~w(rev-parse --path-format=absolute --git-common-dir --show-toplevel),
+             cd: project,
+             stderr_to_stdout: true
+           ),
+         [common, top] <- String.split(out, "\n", trim: true),
+         main = Path.dirname(common),
+         true <- Path.basename(common) == ".git" and main != top,
+         deps = Path.join([main, Path.relative_to(project, top), "deps"]),
+         true <- File.dir?(deps) do
+      deps
+    else
+      _ -> nil
+    end
+  end
 
   defp root(file) do
     dir = file |> Path.expand() |> Path.dirname()
