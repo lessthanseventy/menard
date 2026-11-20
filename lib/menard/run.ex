@@ -10,6 +10,7 @@ defmodule Menard.Run do
   alias Menard.Run.Lint
   alias Menard.Run.Lock
   alias Menard.Run.Output
+  alias Menard.Run.Zig
 
   @keep 40
   @page 2_000
@@ -575,15 +576,26 @@ defmodule Menard.Run do
 
       File.write!(run.log, "$ mise run #{Enum.join([verb | args], " ")}\n#{out}\n", [:append])
       out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
-      %{ok: status == 0, exit: status, failures: [], ran: "mise run #{verb}", tail: Output.tail(out)}
+      reply = %{ok: status == 0, exit: status, failures: [], ran: "mise run #{verb}", tail: Output.tail(out)}
+
+      # a task of its own that runs zig: its failures read as `zig build`'s are
+      if zig?(dir),
+        do: Map.merge(reply, Map.take(Zig.parse(out, status, dir), [:failures, :tests, :failed])),
+        else: reply
     else
       nil ->
-        %{ok: false, failures: [], tail: none}
+        if zig?(dir), do: Zig.result(run, verb, args), else: %{ok: false, failures: [], tail: none}
 
       {out, _status} ->
-        %{ok: false, failures: [], tail: if(out =~ "Task not found", do: none, else: Output.tail(out))}
+        cond do
+          zig?(dir) -> Zig.result(run, verb, args)
+          out =~ "Task not found" -> %{ok: false, failures: [], tail: none}
+          true -> %{ok: false, failures: [], tail: Output.tail(out)}
+        end
     end
   end
+
+  defp zig?(dir), do: File.regular?(Path.join(dir, "build.zig"))
 
   # Every mix a verb runs, its whole output kept in one log, the last #{@keep} per project: a red
   # reply names it, so what the failures leave out is a grep away, not a second run (a host's cap.sh

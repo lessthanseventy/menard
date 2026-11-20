@@ -19,7 +19,8 @@ defmodule Menard.Verbs.Run do
       name: "run",
       doc: """
       In a directory with no mix.exs, `check`, `test` and `compile` run its mise task of that name
-      and answer with its tail. In a mix project, run a verb and get ONE structured answer: `check` (the
+      and answer with its tail; with a build.zig and no such task, `zig build` (`test`, and for `check`
+      `install test`), its compile errors and failed tests as `failures`. In a mix project, run a verb and get ONE structured answer: `check` (the
       project formatted first, `formatted` naming what changed, then its `mix precommit`: format,
       warnings-as-errors, tests), `test` (args: files, file:line,
       and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,

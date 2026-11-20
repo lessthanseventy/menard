@@ -34,7 +34,7 @@ A thin wrapper over one mix task adds surface and nothing else. That's why `insp
 is what a write does around the edit, one table per extension (`Menard.Lang`): a parse check that
 refuses, linters on the lines changed. Nix, Bash, Lua, Zig and TypeScript, because they are what the operator's own
 repos hold; a script with no extension goes by its shebang. `run` and `then` in a repo with no `mix.exs` run its mise task of that
-name. `rename`, `clause` and the other AST verbs stay Elixir's: they are years of edge cases, and
+name, or `zig build` where there is a `build.zig` and no such task, its failures read as mix's are. `rename`, `clause` and the other AST verbs stay Elixir's: they are years of edge cases, and
 a language server covers much of it elsewhere. A language earns a row from a pain already hit;
 Lua's is ahead of that, on the operator's say, with one `luac` error in 2,957 transcripts. Zig's
 is a game's edits made blind, with the build the first to say a brace was dropped. TypeScript's

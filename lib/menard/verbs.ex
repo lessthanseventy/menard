@@ -311,7 +311,7 @@ defmodule Menard.Verbs do
 
   defp project_of(dir, root) do
     cond do
-      File.regular?(Path.join(dir, "mix.exs")) -> dir
+      Enum.any?(~w(mix.exs build.zig), &File.regular?(Path.join(dir, &1))) -> dir
       # a file in a sibling checkout is walked up to its own project, past where the root would stop
       dir == root or dir == Path.dirname(dir) -> root
       true -> project_of(Path.dirname(dir), root)

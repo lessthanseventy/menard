@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.20
+
+- `run test`, `compile` and `check` in a Zig project (a `build.zig`, no `mix.exs`, no mise task
+  of that name) run `zig build` and answer as mix's do: the counts, each compile error once with
+  its file and line, each failed test with its name, line and what it expected, and no `failed
+  command:` line. A repo's own mise task that runs zig has its failures read the same way, and
+  an edit's `then: test` on a `.zig` file finds the `build.zig` above it.
+- In a git worktree with no `deps/`, a file is formatted with the main checkout's `import_deps`,
+  where it was written unformatted with Mix's "Unknown dependency".
+- A new private function whose clauses have no line between them, moved below the public ones,
+  leaves one blank line where it was, not two.
+
 ## 0.8.19
 
 - Nine more languages in `Menard.Lang`, each a parse check that refuses and a formatter for a file

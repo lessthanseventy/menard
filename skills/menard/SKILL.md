@@ -163,6 +163,8 @@ parse-checked, formatted if already in their formatter's style at HEAD, and lint
 changed (`lint` in the reply; a tool not installed is named in `skipped`). A file that did not
 parse before the edit (a Helm template named `.yaml`) is not refused for staying so. In a
 repo with no `mix.exs`, `run` and `then` take `check`, `test` and `compile` to its mise task of that name.
+A Zig project (a `build.zig`) with no such task runs `zig build` for them, and answers as mix's
+do: the counts, each compile error and failed test with its file, line and message.
 `run check --committed` (`committed: true`) runs the last commit in a worktree menard keeps, its
 build warm from the run before: commit, start it in the background, and go on editing. Its reply
 names the commit (`committed`) and how many changed paths it did not see (`uncommitted`).
