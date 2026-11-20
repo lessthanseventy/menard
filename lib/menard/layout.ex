@@ -241,9 +241,10 @@ defmodule Menard.Layout do
 
   # the lines of `spans` (0-based `{a, b}`) taken out and put back before line `to`, or after it, a
   # blank line between them and their new neighbour, and between two where one was; where a span
-  # leaves a blank line on each side, one goes
+  # leaves a blank line on each side, one goes; spans with no line between them are one
   defp place(content, spans, to, close \\ false) do
     lines = List.to_tuple(String.split(content, "\n"))
+    spans = spans |> Enum.sort() |> Enum.reduce([], &touching/2) |> Enum.reverse()
 
     taken =
       Enum.flat_map(spans, fn {a, b} ->
@@ -264,6 +265,9 @@ defmodule Menard.Layout do
     end)
     |> Enum.join("\n")
   end
+
+  defp touching({a, b}, [{c, d} | rest]) when a == d + 1, do: [{c, b} | rest]
+  defp touching(span, acc), do: [span | acc]
 
   # a span's lines, and a blank line beside it: one goes where it had one on each side; taken from
   # between clauses (`close`), the one above goes too, and they come back together with none between

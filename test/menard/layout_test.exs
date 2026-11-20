@@ -55,6 +55,36 @@ defmodule Menard.LayoutTest do
            """
   end
 
+  test "a new defp's clauses with no line between them leave one blank line where they were" do
+    after_edit = """
+    defmodule T do
+      def a, do: helped(1)
+
+      defp helped(1), do: 1
+      defp helped(x), do: x
+
+      def b, do: 2
+
+      defp c, do: 3
+    end
+    """
+
+    assert {code, [_moved]} = Layout.private_last(@before, after_edit)
+
+    assert code == """
+           defmodule T do
+             def a, do: helped(1)
+
+             def b, do: 2
+
+             defp c, do: 3
+
+             defp helped(1), do: 1
+             defp helped(x), do: x
+           end
+           """
+  end
+
   test "a defp renamed or given another arity stays where it is: no private function was added" do
     renamed = """
     defmodule T do
