@@ -22,8 +22,8 @@ dir = "pi"
 run = "bun test"
 
 [tasks."test:elixir"]
-description = "menard's own gate — format + warnings-as-errors + tests"
-run = "mix deps.get && mix format --check-formatted && mix compile --warnings-as-errors && mix test"
+description = "menard's own gate, as CI and a release run it: mix precommit (format, warnings as errors, credo, the docs, shellcheck, the tests)"
+run = "mix deps.get && mix precommit"
 
 [tasks.check]
 description = "menard's gate, as a server's `mise run check` expects it: test:elixir and the pi bun suite"
