@@ -177,6 +177,9 @@ defmodule Menard.Hook do
     :quiet
   end
 
+  # a subagent starts with none of the session's context: what its session was told, it is told
+  defp tool(%{event: "SubagentStart"} = hook), do: {:context, upfront(hook)}
+
   defp tool(%{event: "SessionStart"} = hook) do
     # compacted, what was read is out of the context: a Read of it is no reread
     if hook.source == "compact",

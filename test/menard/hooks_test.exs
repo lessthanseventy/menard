@@ -1061,6 +1061,46 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "a subagent is told at its start what the session was: no SessionStart reaches it", %{tmp_dir: dir} do
+    host(dir)
+
+    payload = %{
+      hook_event_name: "SubagentStart",
+      session_id: "s1",
+      agent_id: "a1",
+      agent_type: "general-purpose"
+    }
+
+    assert {:context, text} =
+             Menard.Hook.run(Map.new(payload, fn {k, v} -> {to_string(k), v} end) |> Map.put("cwd", dir),
+               state_dir: dir
+             )
+
+    assert text =~ "There is no python"
+
+    [%{"hooks" => [%{"command" => command}]}] =
+      @root
+      |> Path.join("hooks/hooks.json")
+      |> File.read!()
+      |> JSON.decode!()
+      |> get_in(["hooks", "SubagentStart"])
+
+    assert command =~ "hooks/subagent-start.sh"
+    input = Path.join(dir, "payload.json")
+    File.write!(input, JSON.encode!(Map.put(payload, :cwd, dir)))
+
+    {out, 0} =
+      System.cmd("bash", ["-c", ~s(bash "$0" < "$1"), Path.join(@root, "hooks/subagent-start.sh"), input],
+        env: [{"CLAUDE_PLUGIN_ROOT", @root}, {"TMPDIR", dir}],
+        stderr_to_stdout: true
+      )
+
+    said = JSON.decode!(out)["hookSpecificOutput"]
+    assert said["hookEventName"] == "SubagentStart"
+    assert said["additionalContext"] =~ "#{@root}/bin/menard edit --then compile"
+  end
+
+  @tag :tmp_dir
   test "a subagent sent to find a function's calls is refused before it starts, with the find that answers it",
        %{tmp_dir: dir} do
     payload = fn prompt ->
