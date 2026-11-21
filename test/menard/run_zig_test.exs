@@ -111,6 +111,8 @@ defmodule Menard.RunZigTest do
 
   describe "in a zig project" do
     @describetag skip: !System.find_executable("zig") && "needs zig"
+    # zig's first run on a cold global cache, as CI's always is, takes two minutes
+    @describetag timeout: 600_000
 
     setup do
       # outside this repo, whose own mise `test` task a directory under it would answer with
