@@ -12,6 +12,9 @@ defmodule Menard.BinCopySeedTest do
     # 0.8.7's first session: its first boot compiled deps and menard from nothing, 40 s, past the
     # harness's 30 s to connect a server, with 0.8.6 built in the directory beside it
     built = checkout_copy!(dir)
+    # what a version that has started once holds: this checkout's own is there only once a test
+    # has run its bin/menard
+    File.cp!(Path.join(built, "mix.lock"), Path.join(built, "deps/.menard-mix-lock"))
     File.write!(Path.join(built, "deps/.seeded-from-sibling"), "")
     fresh = tracked_copy!(dir, "next")
     refute File.exists?(Path.join(fresh, "deps"))
