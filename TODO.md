@@ -10,7 +10,6 @@ commit lands.
   So a server can die mid-reinstall, the case the test is for. Not reproduced in 13 runs alone or 6
   beside the door, bin and hook tests. The test now keeps the server's stderr and prints it when
   the server is gone: read that at the next sighting.
-
 - The door answers only its own checkout's `bin/menard`, so `~/projects/menard/bin/menard` from
   another project boots a VM on every call: 2 s idle against 30 ms for the plugin's `menard`
   (bench, 2026-11-17), and 264 of 292 CLI edits outside this repo since 11-11 were written that
