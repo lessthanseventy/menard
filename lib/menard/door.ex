@@ -72,7 +72,9 @@ defmodule Menard.Door do
     keys =
       List.wrap(opts[:key] || Enum.uniq([System.get_env("CLAUDE_CODE_SESSION_ID"), parent_pid()] -- [nil]))
 
-    files = for key <- keys, do: Path.join(opts[:dir] || System.tmp_dir!(), "menard-door-#{key}")
+    dir = opts[:dir] || System.tmp_dir!()
+    files = for key <- keys, do: Path.join(dir, "menard-door-#{key}")
+    sweep(dir)
     # the checkout this server runs from (bin/menard starts it there): a launcher of another build
     # leaves the door alone
     token = Base.url_encode64(:crypto.strong_rand_bytes(32), padding: false)
@@ -115,6 +117,24 @@ defmodule Menard.Door do
     end
 
     :gen_tcp.close(listen)
+  end
+
+  # A server that is killed removes nothing, and its file holds a token: the files here whose port
+  # nothing listens at go. One that cannot be read is another user's, and stays.
+  defp sweep(dir) do
+    for file <- Path.wildcard(Path.join(dir, "menard-door-*")),
+        File.regular?(file),
+        {:ok, content} <- [File.read(file)],
+        {port, _rest} <- [Integer.parse(content)],
+        not listening?(port),
+        do: File.rm(file)
+  end
+
+  defp listening?(port) do
+    case :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false], 500) do
+      {:ok, socket} -> :gen_tcp.close(socket) == :ok
+      {:error, _refused} -> false
+    end
   end
 
   # `alive`: 0 while the hooks' MCP session takes calls. One that ended is never initialized again by

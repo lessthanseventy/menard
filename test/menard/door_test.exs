@@ -53,6 +53,28 @@ defmodule Menard.DoorTest do
     refute Enum.any?(files, &File.exists?/1)
   end
 
+  test "a door starting removes the files of doors nothing listens at, and no other", ctx do
+    {:ok, gone} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, dead} = :inet.port(gone)
+    :gen_tcp.close(gone)
+    {:ok, open} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, live} = :inet.port(open)
+    killed = Path.join(ctx.tmp, "menard-door-killed")
+    running = Path.join(ctx.tmp, "menard-door-running")
+    other = Path.join(ctx.tmp, "menard-door-#{System.pid()}-a-directory")
+    File.write!(killed, "#{dead}\n#{@root}\ntoken\n")
+    File.write!(running, "#{live}\n#{@root}\ntoken\n")
+    File.mkdir_p!(other)
+
+    start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
+
+    refute File.exists?(killed)
+    assert File.exists?(running)
+    assert File.dir?(other)
+    assert File.exists?(door_file(ctx))
+    :gen_tcp.close(open)
+  end
+
   test "an edit through bin/menard is answered by the running server, no VM of its own", ctx do
     start_supervised!({Menard.Door, key: System.pid(), dir: ctx.tmp})
 
