@@ -13,6 +13,15 @@ defmodule Menard.WriteReplyTest do
     path
   end
 
+  test "a byte that is not UTF-8 is written as its \\xNN, and the reply still answers" do
+    reply = %{ok: false, failures: [%{message: "expected a" <> <<0xFF>> <> "é", left: {<<0xC3>>}}]}
+
+    assert JSON.decode!(Menard.encode(reply)) == %{
+             "ok" => false,
+             "failures" => [%{"message" => "expected a\\xFFé", "left" => ["\\xC3"]}]
+           }
+  end
+
   test "a reply is written what-happened first and hash last: a reader of its first 60 characters saw only the hash" do
     json =
       Menard.encode(%{

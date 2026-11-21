@@ -217,6 +217,7 @@ defmodule Menard do
   def jsonable(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, jsonable(v)} end)
   def jsonable(list) when is_list(list), do: Enum.map(list, &jsonable/1)
   def jsonable(tuple) when is_tuple(tuple), do: tuple |> Tuple.to_list() |> jsonable()
+  def jsonable(text) when is_binary(text), do: if(String.valid?(text), do: text, else: utf8(text, ""))
   def jsonable(other), do: other
 
   @doc """
@@ -437,6 +438,14 @@ defmodule Menard do
       _ -> {:mise, mise}
     end
   end
+
+  # a test's output is the host's bytes: one that is no UTF-8 is said as it would be written
+  defp utf8(<<char::utf8, rest::binary>>, acc), do: utf8(rest, <<acc::binary, char::utf8>>)
+
+  defp utf8(<<byte, rest::binary>>, acc),
+    do: utf8(rest, acc <> "\\x" <> String.pad_leading(Integer.to_string(byte, 16), 2, "0"))
+
+  defp utf8("", acc), do: acc
 
   defp ordered(%{__struct__: _} = struct), do: JSON.encode!(struct)
 
