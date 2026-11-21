@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.21
+
+- A subagent is told at its start what its session was told (a `SubagentStart` hook): the
+  session-start text reaches no subagent, so one learned of `edit`, `run` and the reading aids
+  only from a refusal.
+- A byte that is not UTF-8 in a reply (a failed test's output) is written as its `\xNN`: it
+  crashed the JSON encoder, and the run answered nothing.
+- A door starting removes the files of doors nothing listens at: a server that was killed left
+  its file, token and all, in the tmp dir.
+- `mise run check` is the real gate (`mix precommit`, after `mix deps.get`), so it passes from a
+  clean checkout, and `.worktreeinclude` names `deps` and `_build` for a tool that seeds a new
+  worktree from this one.
+
 ## 0.8.20
 
 - `run test`, `compile` and `check` in a Zig project (a `build.zig`, no `mix.exs`, no mise task
