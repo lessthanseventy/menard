@@ -23,7 +23,7 @@ run = "bun test"
 
 [tasks."test:elixir"]
 description = "menard's own gate — format + warnings-as-errors + tests"
-run = "mix format --check-formatted && mix compile --warnings-as-errors && mix test"
+run = "mix deps.get && mix format --check-formatted && mix compile --warnings-as-errors && mix test"
 
 [tasks.check]
 description = "menard's gate, as a server's `mise run check` expects it: test:elixir and the pi bun suite"
