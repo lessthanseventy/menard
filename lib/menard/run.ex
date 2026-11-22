@@ -70,12 +70,13 @@ defmodule Menard.Run do
   @doc """
   Whether `file`, an absolute path, is among what `mix format` takes in `dir`, or `{:error, why}`
   with the error a `.formatter.exs` that does not evaluate raised. One evaluated in a VM of its
-  own is asked once, and what it gave kept until it is written again: a yes from that is the
-  answer, and a no is asked again, as a file made since is in nothing kept.
+  own is asked once for each file, and what it gave kept until it is written again: a file made
+  since is in nothing kept, so it is asked again the first time it is asked of.
   """
   @spec formatter_takes(String.t(), String.t()) :: {:ok, boolean()} | {:error, String.t()}
   def formatter_takes(dir, file) do
-    with {:ok, false} <- among(dir, file, :kept), do: among(dir, file, :fresh)
+    with {:ok, inputs} <- read_inputs(dir, file),
+         do: {:ok, file in Enum.map(inputs, &Path.expand/1)}
   end
 
   @doc """
@@ -83,7 +84,7 @@ defmodule Menard.Run do
   its own or a subdirectory's, that does not evaluate.
   """
   @spec read_formatter_inputs(String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def read_formatter_inputs(dir), do: read_inputs(dir, :fresh)
+  def read_formatter_inputs(dir), do: read_inputs(dir, nil)
 
   @doc """
   The reply as both doors print it: what a reader looks for, nothing it has to filter out. Green,
@@ -664,13 +665,14 @@ defmodule Menard.Run do
     end)
   end
 
-  # the project's .formatter.exs, or why it could not be read: it is code, and may raise
-  defp formatter_opts(dir, mode) do
+  # the project's .formatter.exs, or why it could not be read: it is code, and may raise. `file` is
+  # the one it is read for, nil when it is read for all it takes.
+  defp formatter_opts(dir, file) do
     dot = Path.join(dir, ".formatter.exs")
 
     try do
       case File.read(dot) do
-        {:ok, source} -> evaluated(dot, dir, source =~ ~r/\b(Path|File|System)\./, mode)
+        {:ok, source} -> evaluated(dot, dir, source =~ ~r/\b(Path|File|System)\./, file)
         {:error, _} -> {:ok, []}
       end
     rescue
@@ -681,27 +683,36 @@ defmodule Menard.Run do
   # A .formatter.exs that asks the file system (`Path.wildcard("lib/*.ex")`) means its own
   # directory, and this VM's is menard's, or the session's first: evaluated in a VM of its own,
   # there. One that is a literal, as nearly all are, costs no VM.
-  defp evaluated(dot, _dir, false, _mode), do: {:ok, elem(Code.eval_file(dot), 0)}
+  defp evaluated(dot, _dir, false, _file), do: {:ok, elem(Code.eval_file(dot), 0)}
 
-  defp evaluated(dot, dir, true, mode) do
+  # What a VM gave is kept with the files it was read for. It holds for a file among its inputs,
+  # and for one it was read for, in or out: any other may have been made since, and is in nothing
+  # kept.
+  defp evaluated(dot, dir, true, file) do
     key = {__MODULE__, :formatter, dot}
     stamp = stamp(dot)
 
-    case :persistent_term.get(key, nil) do
-      {^stamp, opts} when mode == :kept ->
-        {:ok, opts}
+    {opts, asked} =
+      case :persistent_term.get(key, nil) do
+        {^stamp, opts, asked} -> {opts, asked}
+        _other -> {nil, []}
+      end
 
-      _other ->
-        dot |> in_own_vm(dir) |> keep(key, stamp)
+    if opts != nil and file != nil and (file in asked or file in Enum.map(own(dir, opts), &Path.expand/1)) do
+      {:ok, opts}
+    else
+      # one gone by now is not in what the VM gives, and made again it would be: asked again then
+      asked = Enum.filter(Enum.uniq(List.wrap(file) ++ asked), &File.regular?/1)
+      dot |> in_own_vm(dir) |> keep(key, stamp, asked)
     end
   end
 
-  defp keep({:ok, opts} = ok, key, stamp) when stamp != nil do
-    :persistent_term.put(key, {stamp, opts})
+  defp keep({:ok, opts} = ok, key, stamp, asked) when stamp != nil do
+    :persistent_term.put(key, {stamp, opts, asked})
     ok
   end
 
-  defp keep(answer, _key, _stamp), do: answer
+  defp keep(answer, _key, _stamp, _asked), do: answer
 
   # nil while the file is too new for its mtime, in whole seconds, to tell it from its next writing
   defp stamp(dot) do
@@ -723,33 +734,29 @@ defmodule Menard.Run do
     end
   end
 
-  defp among(dir, file, mode) do
-    with {:ok, inputs} <- read_inputs(dir, mode),
-         do: {:ok, file in Enum.map(inputs, &Path.expand/1)}
+  defp read_inputs(dir, file) do
+    with {:ok, opts} <- formatter_opts(dir, file), do: inputs(dir, opts, file)
   end
 
-  defp read_inputs(dir, mode) do
-    with {:ok, opts} <- formatter_opts(dir, mode), do: inputs(dir, opts, mode)
-  end
+  defp inputs(dir, opts, file) do
+    subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob(dir, sub), File.dir?(path), do: path
 
-  defp inputs(dir, opts, mode) do
-    # the glob under dir, not dir joined into it: a dir with glob characters in its name (`p[x]`)
-    # matched nothing
-    glob = fn pattern ->
-      for path <- :filelib.wildcard(to_charlist(pattern), to_charlist(dir)),
-          do: Path.join(dir, to_string(path))
-    end
-
-    subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
-
-    own = Enum.flat_map(List.wrap(opts[:inputs]), glob)
-
-    with {:ok, inputs} <- Enum.reduce_while(subdirs, {:ok, own}, &with_subdirectory(dir, mode, &1, &2)),
+    with {:ok, inputs} <-
+           Enum.reduce_while(subdirs, {:ok, own(dir, opts)}, &with_subdirectory(dir, file, &1, &2)),
          do: {:ok, Enum.uniq(inputs)}
   end
 
-  defp with_subdirectory(dir, mode, sub, {:ok, inputs}) do
-    case read_inputs(sub, mode) do
+  defp own(dir, opts), do: Enum.flat_map(List.wrap(opts[:inputs]), &glob(dir, &1))
+
+  # the glob under dir, not dir joined into it: a dir with glob characters in its name (`p[x]`)
+  # matched nothing
+  defp glob(dir, pattern) do
+    for path <- :filelib.wildcard(to_charlist(pattern), to_charlist(dir)),
+        do: Path.join(dir, to_string(path))
+  end
+
+  defp with_subdirectory(dir, file, sub, {:ok, inputs}) do
+    case read_inputs(sub, file) do
       {:ok, more} -> {:cont, {:ok, inputs ++ more}}
       {:error, why} -> {:halt, {:error, "#{Path.relative_to(sub, dir)}/.formatter.exs: #{why}"}}
     end

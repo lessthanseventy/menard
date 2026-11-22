@@ -164,6 +164,40 @@ defmodule Menard.RunTest do
     assert Run.formatter_takes(dir, a) == {:ok, false}
   end
 
+  test "a file a .formatter.exs evaluated in a VM of its own does not take is asked of once", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "lib"))
+    File.mkdir_p!(Path.join(dir, "elsewhere"))
+    taken = Path.join(dir, "lib/a.ex")
+    out = Path.join(dir, "elsewhere/c.ex")
+    other = Path.join(dir, "elsewhere/d.ex")
+    for file <- [taken, out], do: File.write!(file, "defmodule A do\nend\n")
+    dot = Path.join(dir, ".formatter.exs")
+    File.write!(dot, ~s|File.write!("evaluated", "x", [:append])\n[inputs: Path.wildcard("lib/*.ex")]\n|)
+    File.touch!(dot, System.os_time(:second) - 60)
+    evaluations = fn -> dir |> Path.join("evaluated") |> File.read!() |> byte_size() end
+
+    assert Run.formatter_takes(dir, out) == {:ok, false}
+    assert Run.formatter_takes(dir, out) == {:ok, false}
+    assert evaluations.() == 1
+
+    File.write!(other, "defmodule D do\nend\n")
+    assert Run.formatter_takes(dir, other) == {:ok, false}
+    assert Run.formatter_takes(dir, out) == {:ok, false}
+    assert Run.formatter_takes(dir, other) == {:ok, false}
+    assert evaluations.() == 2
+
+    # an answer is for a file that was there: one gone when the inputs were last read is asked again
+    assert Run.formatter_takes(dir, taken) == {:ok, true}
+    File.rm!(taken)
+    made = Path.join(dir, "elsewhere/e.ex")
+    File.write!(made, "defmodule E do\nend\n")
+    assert Run.formatter_takes(dir, made) == {:ok, false}
+    File.write!(taken, "defmodule A do\nend\n")
+    assert Run.formatter_takes(dir, taken) == {:ok, true}
+  end
+
   test "a run stopped at its deadline says so, not an error some test logged on the way" do
     out = """
     Compiling 1 file (.ex)
