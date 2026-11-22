@@ -367,6 +367,23 @@ defmodule Menard.RunTest do
     assert %{ok: true, changed: [^messy]} = Menard.Run.result(dir, "format", [])
   end
 
+  test "format with no files says a subdirectory's .formatter.exs that does not evaluate", %{tmp_dir: dir} do
+    File.write!(
+      Path.join(dir, ".formatter.exs"),
+      ~s|[inputs: ["lib/**/*.ex"], subdirectories: ["priv/*/migrations"]]|
+    )
+
+    migrations = Path.join(dir, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    File.write!(Path.join(migrations, ".formatter.exs"), ~s|raise "boom in the sub formatter"|)
+
+    assert %{ok: false, failures: [%{kind: "format", at: ".formatter.exs", message: message}]} =
+             Menard.Run.result(dir, "format", [])
+
+    assert message == "priv/repo/migrations/.formatter.exs: boom in the sub formatter"
+    assert Menard.Run.formatter_inputs(dir) == []
+  end
+
   test "lean keeps what a reader looks for: ok and the counts when green, the failures and seed when red" do
     green =
       Output.parse_test(

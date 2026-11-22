@@ -114,6 +114,30 @@ defmodule Menard.WriteReplyTest do
       refute reply.unformatted =~ "no project"
     end
 
+    test "a subdirectory's .formatter.exs that does not evaluate is said too", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), "defmodule Host.MixProject do\n  use Mix.Project\nend\n")
+
+      File.write!(
+        Path.join(dir, ".formatter.exs"),
+        ~s|[inputs: ["lib/**/*.ex"], subdirectories: ["priv/*/migrations"]]|
+      )
+
+      File.mkdir_p!(Path.join(dir, "priv/repo/migrations"))
+
+      File.write!(
+        Path.join(dir, "priv/repo/migrations/.formatter.exs"),
+        ~s|raise "boom in the sub formatter"|
+      )
+
+      wide = "defmodule W do\n  def   go, do: :a\nend\n"
+      file = write_file(dir, "priv/repo/migrations/w.exs", wide)
+
+      assert {:ok, reply} = Menard.write(file, String.replace(wide, ":a", ":b"))
+      assert File.read!(file) == "defmodule W do\n  def   go, do: :b\nend\n"
+      assert reply.unformatted =~ "priv/repo/migrations/.formatter.exs: boom in the sub formatter"
+      refute reply.unformatted =~ "no project"
+    end
+
     test "a file with no mix project above it is written as it is" do
       # under the system's temp directory: this repo's own mix.exs is above tmp_dir
       alone =

@@ -60,7 +60,12 @@ defmodule Menard.Run do
   .formatter.exs inputs (Phoenix's priv/*/migrations), relative to it.
   """
   @spec formatter_inputs(String.t()) :: [String.t()]
-  def formatter_inputs(dir), do: formatter_inputs(dir, :fresh)
+  def formatter_inputs(dir) do
+    case read_formatter_inputs(dir) do
+      {:ok, inputs} -> inputs
+      {:error, _why} -> []
+    end
+  end
 
   @doc """
   Whether `file`, an absolute path, is among what `mix format` takes in `dir`, or `{:error, why}`
@@ -72,6 +77,13 @@ defmodule Menard.Run do
   def formatter_takes(dir, file) do
     with {:ok, false} <- among(dir, file, :kept), do: among(dir, file, :fresh)
   end
+
+  @doc """
+  What `mix format` takes in `dir`, or `{:error, why}` with the error of the `.formatter.exs`,
+  its own or a subdirectory's, that does not evaluate.
+  """
+  @spec read_formatter_inputs(String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def read_formatter_inputs(dir), do: read_inputs(dir, :fresh)
 
   @doc """
   The reply as both doors print it: what a reader looks for, nothing it has to filter out. Green,
@@ -147,10 +159,15 @@ defmodule Menard.Run do
     rel = &Path.relative_to(&1, Path.expand(dir))
 
     {files, broken} =
-      case {files, formatter_opts(dir, :fresh)} do
-        {[], {:ok, opts}} -> {inputs(dir, opts, :fresh), []}
-        {[], {:error, why}} -> {[], [%{kind: "format", message: why, at: ".formatter.exs"}]}
-        {files, _opts} -> {Enum.map(files, &Path.expand(&1, dir)), []}
+      case files do
+        [] ->
+          case read_formatter_inputs(dir) do
+            {:ok, inputs} -> {inputs, []}
+            {:error, why} -> {[], [%{kind: "format", message: why, at: ".formatter.exs"}]}
+          end
+
+        files ->
+          {Enum.map(files, &Path.expand(&1, dir)), []}
       end
 
     {files, missing} = Enum.split_with(files, &File.regular?/1)
@@ -707,15 +724,12 @@ defmodule Menard.Run do
   end
 
   defp among(dir, file, mode) do
-    with {:ok, opts} <- formatter_opts(dir, mode),
-         do: {:ok, file in Enum.map(inputs(dir, opts, mode), &Path.expand/1)}
+    with {:ok, inputs} <- read_inputs(dir, mode),
+         do: {:ok, file in Enum.map(inputs, &Path.expand/1)}
   end
 
-  defp formatter_inputs(dir, mode) do
-    case formatter_opts(dir, mode) do
-      {:ok, opts} -> inputs(dir, opts, mode)
-      {:error, _why} -> []
-    end
+  defp read_inputs(dir, mode) do
+    with {:ok, opts} <- formatter_opts(dir, mode), do: inputs(dir, opts, mode)
   end
 
   defp inputs(dir, opts, mode) do
@@ -728,7 +742,16 @@ defmodule Menard.Run do
 
     subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
 
-    (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs(&1, mode)))
-    |> Enum.uniq()
+    own = Enum.flat_map(List.wrap(opts[:inputs]), glob)
+
+    with {:ok, inputs} <- Enum.reduce_while(subdirs, {:ok, own}, &with_subdirectory(dir, mode, &1, &2)),
+         do: {:ok, Enum.uniq(inputs)}
+  end
+
+  defp with_subdirectory(dir, mode, sub, {:ok, inputs}) do
+    case read_inputs(sub, mode) do
+      {:ok, more} -> {:cont, {:ok, inputs ++ more}}
+      {:error, why} -> {:halt, {:error, "#{Path.relative_to(sub, dir)}/.formatter.exs: #{why}"}}
+    end
   end
 end
