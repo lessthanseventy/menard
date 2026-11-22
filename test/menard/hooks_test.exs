@@ -975,6 +975,54 @@ defmodule Menard.HooksTest do
     assert File.read!(fixture) == "defmodule ATest do\n  def   f(x), do: x\nend\n"
   end
 
+  @tag :tmp_dir
+  test "format-report says a .formatter.exs that does not evaluate, not taken for one that leaves the file out",
+       %{tmp_dir: dir} do
+    host(dir)
+    File.write!(Path.join(dir, ".formatter.exs"), ~s|raise "boom in the formatter file"|)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "printf"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir, counting())
+    File.write!(Path.join(dir, "lib/m.ex"), "defmodule M do\n  def   f(x), do: x\nend\n")
+    {out, 2} = report(Map.put(bash, :hook_event_name, "PostToolUse"), dir, counting())
+    assert out =~ "lib/m.ex"
+    assert out =~ "boom in the formatter file"
+  end
+
+  @tag :tmp_dir
+  test "format-report says a subdirectory's .formatter.exs that does not evaluate, by its path", %{
+    tmp_dir: dir
+  } do
+    host(dir)
+
+    File.write!(
+      Path.join(dir, ".formatter.exs"),
+      ~s|[inputs: ["lib/**/*.ex"], subdirectories: ["priv/*/migrations"]]|
+    )
+
+    migrations = Path.join(dir, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    File.write!(Path.join(migrations, ".formatter.exs"), ~s|raise "boom in the migrations"|)
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "printf"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), dir, counting())
+    File.write!(Path.join(dir, "lib/m.ex"), "defmodule M do\n  def   f(x), do: x\nend\n")
+    {out, 2} = report(Map.put(bash, :hook_event_name, "PostToolUse"), dir, counting())
+    assert out =~ "lib/m.ex"
+    assert out =~ "priv/repo/migrations/.formatter.exs"
+    assert out =~ "boom in the migrations"
+  end
+
   @tag @tag :tmp_dir
 
   @tag @tag :tmp_dir

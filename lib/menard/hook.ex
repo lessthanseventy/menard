@@ -417,9 +417,9 @@ defmodule Menard.Hook do
   defp written(files, hook, keep) do
     reports =
       for {dir, files} <- by_project(files),
-          files = files |> keep.(dir) |> in_inputs(dir),
+          files = keep.(files, dir),
           files != [],
-          do: report(hook, dir, files)
+          do: project_report(hook, dir, files)
 
     reports =
       reports ++
@@ -557,6 +557,24 @@ defmodule Menard.Hook do
   defp text(parts, changes) do
     body = Enum.map_join(parts, &(&1 <> "\n"))
     if changes == [], do: body, else: body <> @moved
+  end
+
+  defp project_report(hook, dir, files) do
+    case in_inputs(files, dir) do
+      {:ok, []} ->
+        %{problems: [], changes: [], notes: []}
+
+      {:ok, files} ->
+        report(hook, dir, files)
+
+      {:error, why} ->
+        problems =
+          for f <- files,
+              do:
+                "#{Path.relative_to(f, dir)} was written but its project's .formatter.exs does not evaluate (#{why})"
+
+        %{problems: problems, changes: [], notes: []}
+    end
   end
 
   defp report(hook, dir, files) do
@@ -724,10 +742,12 @@ defmodule Menard.Hook do
   # to go by: all of them
   defp in_inputs(files, dir) do
     if File.regular?(Path.join(dir, ".formatter.exs")) do
-      inputs = MapSet.new(Menard.Run.formatter_inputs(dir), &Path.expand/1)
-      Enum.filter(files, &MapSet.member?(inputs, Path.expand(&1)))
+      with {:ok, inputs} <- Menard.Run.read_formatter_inputs(dir) do
+        inputs = MapSet.new(inputs, &Path.expand/1)
+        {:ok, Enum.filter(files, &MapSet.member?(inputs, Path.expand(&1)))}
+      end
     else
-      files
+      {:ok, files}
     end
   end
 

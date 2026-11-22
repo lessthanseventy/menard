@@ -131,7 +131,7 @@ defmodule Menard.RunTest do
     File.write!(Path.join(dir, "lib/only_here.ex"), "defmodule OnlyHere do\nend\n")
     File.write!(Path.join(dir, ".formatter.exs"), ~s|[inputs: Path.wildcard("lib/*.ex")]\n|)
 
-    assert Run.formatter_inputs(dir) == [Path.join(dir, "lib/only_here.ex")]
+    assert Run.read_formatter_inputs(dir) == {:ok, [Path.join(dir, "lib/only_here.ex")]}
   end
 
   test "a .formatter.exs evaluated in a VM of its own is evaluated once for the files it takes", %{
@@ -348,7 +348,20 @@ defmodule Menard.RunTest do
              Menard.Run.result(dir, "format", [])
 
     assert message =~ "no_such"
-    assert Menard.Run.formatter_inputs(dir) == []
+    assert {:error, _why} = Menard.Run.read_formatter_inputs(dir)
+  end
+
+  test "format with no files says a subdirectory's .formatter.exs that raises, by its path", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, ".formatter.exs"), ~s|[inputs: [], subdirectories: ["priv/*/migrations"]]|)
+    migrations = Path.join(dir, "priv/repo/migrations")
+    File.mkdir_p!(migrations)
+    File.write!(Path.join(migrations, ".formatter.exs"), ~s|raise "boom in the migrations"|)
+
+    assert %{ok: false, failures: [%{kind: "format", at: ".formatter.exs", message: message}]} =
+             Menard.Run.result(dir, "format", [])
+
+    assert message =~ "priv/repo/migrations/.formatter.exs"
+    assert message =~ "boom in the migrations"
   end
 
   test "format with no files formats a subdirectory's inputs too (Phoenix's migrations)", %{tmp_dir: dir} do
