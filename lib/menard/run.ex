@@ -61,10 +61,19 @@ defmodule Menard.Run do
   """
   @spec formatter_inputs(String.t()) :: [String.t()]
   def formatter_inputs(dir) do
-    case formatter_opts(dir) do
-      {:ok, opts} -> inputs(dir, opts)
+    case read_formatter_inputs(dir) do
+      {:ok, inputs} -> inputs
       {:error, _why} -> []
     end
+  end
+
+  @doc """
+  `formatter_inputs/1` for a caller that must tell a `.formatter.exs` that takes nothing from one
+  that does not evaluate: `{:error, why}` is the error it raised.
+  """
+  @spec read_formatter_inputs(String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def read_formatter_inputs(dir) do
+    with {:ok, opts} <- formatter_opts(dir), do: {:ok, inputs(dir, opts)}
   end
 
   @doc """

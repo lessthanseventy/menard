@@ -23,6 +23,7 @@ defmodule Menard.Format do
   # Under load a host's own toolchain through mise takes past 30s; 60s still leaves the MCP door's
   # 90s deadline room
   @timeout 60_000
+  @not_taken "no project's .formatter.exs takes this file"
 
   @doc "Format `file` in place. `:ok`, or `{:error, reason}` with the file left as it was."
   @spec file(String.t(), keyword()) :: :ok | {:error, String.t()}
@@ -74,21 +75,25 @@ defmodule Menard.Format do
   @doc """
   Whether the project's own `mix format` takes `file`: it is among the `.formatter.exs` inputs of
   the nearest mix project above it, or that project has no `.formatter.exs` to go by. A file with
-  no mix project above it is no project's to format.
+  no mix project above it is no project's to format. `{:error, why}` is why not, a
+  `.formatter.exs` that does not evaluate with the error it raised.
   """
-  @spec covers?(String.t()) :: boolean()
-  def covers?(file) do
+  @spec taken(String.t()) :: :ok | {:error, String.t()}
+  def taken(file) do
     file = Path.expand(file)
+    project = find_up(Path.dirname(file), "mix.exs")
 
-    case find_up(Path.dirname(file), "mix.exs") do
-      nil ->
-        false
-
-      project ->
-        not File.regular?(Path.join(project, ".formatter.exs")) or
-          file in Enum.map(Menard.Run.formatter_inputs(project), &Path.expand/1)
+    cond do
+      project == nil -> {:error, @not_taken}
+      not File.regular?(Path.join(project, ".formatter.exs")) -> :ok
+      true -> among(file, Menard.Run.read_formatter_inputs(project))
     end
   end
+
+  defp among(_file, {:error, why}), do: {:error, "its project's .formatter.exs does not evaluate (#{why})"}
+
+  defp among(file, {:ok, inputs}),
+    do: if(file in Enum.map(inputs, &Path.expand/1), do: :ok, else: {:error, @not_taken})
 
   # `{file, content}` pairs to results, one host process per formatter root
   defp run(pairs, opts) do

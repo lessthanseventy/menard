@@ -108,7 +108,7 @@ defmodule Menard do
   file after every stage. A format failure is NOT a write failure: the bytes are on disk and
   correct, just not reformatted — the reply says so in `unformatted`, and the `:formatter` stage
   carries the reason. So is an existing Elixir file no project's `mix format` takes
-  (`Menard.Format.covers?/1`): it is written as patched. Nothing is printed: that is a door's
+  (`Menard.Format.taken/1`): it is written as patched. Nothing is printed: that is a door's
   business.
   """
   @spec write(String.t(), String.t(), keyword()) ::
@@ -502,9 +502,12 @@ defmodule Menard do
   # An Elixir file no project's formatter takes keeps the lines it has: formatted with the
   # defaults, a one-line edit rewrote the whole file. A new file has no lines to keep.
   defp staged(file, patched, original) do
-    if original != "" and Path.extname(file) in [".ex", ".exs"] and not Menard.Format.covers?(file),
-      do: {patched, nil, "no project's .formatter.exs takes this file: written as it is, not formatted"},
-      else: staged(file, patched)
+    with true <- original != "" and Path.extname(file) in [".ex", ".exs"],
+         {:error, why} <- Menard.Format.taken(file) do
+      {patched, nil, why <> ": written as it is, not formatted"}
+    else
+      _ -> staged(file, patched)
+    end
   end
 
   defp staged(file, patched) do

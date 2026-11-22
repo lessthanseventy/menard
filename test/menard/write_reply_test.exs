@@ -101,6 +101,19 @@ defmodule Menard.WriteReplyTest do
       refute Map.has_key?(reply, :unformatted)
     end
 
+    test "a .formatter.exs that does not evaluate is said, not taken for one that leaves the file out",
+         %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), "defmodule Host.MixProject do\n  use Mix.Project\nend\n")
+      File.write!(Path.join(dir, ".formatter.exs"), ~s|raise "boom in the formatter file"|)
+      wide = "defmodule W do\n  def   go, do: :a\nend\n"
+      file = write_file(dir, "w.ex", wide)
+
+      assert {:ok, reply} = Menard.write(file, String.replace(wide, ":a", ":b"))
+      assert File.read!(file) == "defmodule W do\n  def   go, do: :b\nend\n"
+      assert reply.unformatted =~ "boom in the formatter file"
+      refute reply.unformatted =~ "no project"
+    end
+
     test "a file with no mix project above it is written as it is" do
       # under the system's temp directory: this repo's own mix.exs is above tmp_dir
       alone =
