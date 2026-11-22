@@ -60,20 +60,17 @@ defmodule Menard.Run do
   .formatter.exs inputs (Phoenix's priv/*/migrations), relative to it.
   """
   @spec formatter_inputs(String.t()) :: [String.t()]
-  def formatter_inputs(dir) do
-    case read_formatter_inputs(dir) do
-      {:ok, inputs} -> inputs
-      {:error, _why} -> []
-    end
-  end
+  def formatter_inputs(dir), do: formatter_inputs(dir, :fresh)
 
   @doc """
-  `formatter_inputs/1` for a caller that must tell a `.formatter.exs` that takes nothing from one
-  that does not evaluate: `{:error, why}` is the error it raised.
+  Whether `file`, an absolute path, is among what `mix format` takes in `dir`, or `{:error, why}`
+  with the error a `.formatter.exs` that does not evaluate raised. One evaluated in a VM of its
+  own is asked once, and what it gave kept until it is written again: a yes from that is the
+  answer, and a no is asked again, as a file made since is in nothing kept.
   """
-  @spec read_formatter_inputs(String.t()) :: {:ok, [String.t()]} | {:error, String.t()}
-  def read_formatter_inputs(dir) do
-    with {:ok, opts} <- formatter_opts(dir), do: {:ok, inputs(dir, opts)}
+  @spec formatter_takes(String.t(), String.t()) :: {:ok, boolean()} | {:error, String.t()}
+  def formatter_takes(dir, file) do
+    with {:ok, false} <- among(dir, file, :kept), do: among(dir, file, :fresh)
   end
 
   @doc """
@@ -150,8 +147,8 @@ defmodule Menard.Run do
     rel = &Path.relative_to(&1, Path.expand(dir))
 
     {files, broken} =
-      case {files, formatter_opts(dir)} do
-        {[], {:ok, opts}} -> {inputs(dir, opts), []}
+      case {files, formatter_opts(dir, :fresh)} do
+        {[], {:ok, opts}} -> {inputs(dir, opts, :fresh), []}
         {[], {:error, why}} -> {[], [%{kind: "format", message: why, at: ".formatter.exs"}]}
         {files, _opts} -> {Enum.map(files, &Path.expand(&1, dir)), []}
       end
@@ -651,12 +648,12 @@ defmodule Menard.Run do
   end
 
   # the project's .formatter.exs, or why it could not be read: it is code, and may raise
-  defp formatter_opts(dir) do
+  defp formatter_opts(dir, mode) do
     dot = Path.join(dir, ".formatter.exs")
 
     try do
       case File.read(dot) do
-        {:ok, source} -> evaluated(dot, dir, source =~ ~r/\b(Path|File|System)\./)
+        {:ok, source} -> evaluated(dot, dir, source =~ ~r/\b(Path|File|System)\./, mode)
         {:error, _} -> {:ok, []}
       end
     rescue
@@ -667,9 +664,35 @@ defmodule Menard.Run do
   # A .formatter.exs that asks the file system (`Path.wildcard("lib/*.ex")`) means its own
   # directory, and this VM's is menard's, or the session's first: evaluated in a VM of its own,
   # there. One that is a literal, as nearly all are, costs no VM.
-  defp evaluated(dot, _dir, false), do: {:ok, elem(Code.eval_file(dot), 0)}
+  defp evaluated(dot, _dir, false, _mode), do: {:ok, elem(Code.eval_file(dot), 0)}
 
-  defp evaluated(dot, dir, true) do
+  defp evaluated(dot, dir, true, mode) do
+    key = {__MODULE__, :formatter, dot}
+    stamp = stamp(dot)
+
+    case :persistent_term.get(key, nil) do
+      {^stamp, opts} when mode == :kept ->
+        {:ok, opts}
+
+      _other ->
+        dot |> in_own_vm(dir) |> keep(key, stamp)
+    end
+  end
+
+  defp keep({:ok, opts} = ok, key, stamp) when stamp != nil do
+    :persistent_term.put(key, {stamp, opts})
+    ok
+  end
+
+  defp keep(answer, _key, _stamp), do: answer
+
+  # nil while the file is too new for its mtime, in whole seconds, to tell it from its next writing
+  defp stamp(dot) do
+    %{mtime: mtime, size: size} = File.stat!(dot, time: :posix)
+    if mtime < System.os_time(:second) - 1, do: {mtime, size}
+  end
+
+  defp in_own_vm(dot, dir) do
     code = "IO.write(Base.encode64(:erlang.term_to_binary(elem(Code.eval_file(hd(System.argv())), 0))))"
 
     case Menard.host_cmd(dir, ["elixir", "-e", code, dot], label: "elixir .formatter.exs", timeout: 30_000) do
@@ -683,7 +706,19 @@ defmodule Menard.Run do
     end
   end
 
-  defp inputs(dir, opts) do
+  defp among(dir, file, mode) do
+    with {:ok, opts} <- formatter_opts(dir, mode),
+         do: {:ok, file in Enum.map(inputs(dir, opts, mode), &Path.expand/1)}
+  end
+
+  defp formatter_inputs(dir, mode) do
+    case formatter_opts(dir, mode) do
+      {:ok, opts} -> inputs(dir, opts, mode)
+      {:error, _why} -> []
+    end
+  end
+
+  defp inputs(dir, opts, mode) do
     # the glob under dir, not dir joined into it: a dir with glob characters in its name (`p[x]`)
     # matched nothing
     glob = fn pattern ->
@@ -693,7 +728,7 @@ defmodule Menard.Run do
 
     subdirs = for sub <- List.wrap(opts[:subdirectories]), path <- glob.(sub), File.dir?(path), do: path
 
-    (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs/1))
+    (Enum.flat_map(List.wrap(opts[:inputs]), glob) ++ Enum.flat_map(subdirs, &formatter_inputs(&1, mode)))
     |> Enum.uniq()
   end
 end

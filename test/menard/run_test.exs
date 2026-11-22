@@ -134,6 +134,35 @@ defmodule Menard.RunTest do
     assert Run.formatter_inputs(dir) == [Path.join(dir, "lib/only_here.ex")]
   end
 
+  test "a .formatter.exs evaluated in a VM of its own is evaluated once for the files it takes", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "lib"))
+    a = Path.join(dir, "lib/a.ex")
+    File.write!(a, "defmodule A do\nend\n")
+    dot = Path.join(dir, ".formatter.exs")
+    counted = ~s|File.write!("evaluated", "x", [:append])\n[inputs: Path.wildcard("lib/*.ex")]\n|
+    File.write!(dot, counted)
+    File.touch!(dot, System.os_time(:second) - 60)
+    evaluations = fn -> dir |> Path.join("evaluated") |> File.read!() |> byte_size() end
+
+    assert Run.formatter_takes(dir, a) == {:ok, true}
+    assert Run.formatter_takes(dir, a) == {:ok, true}
+    assert evaluations.() == 1
+
+    # a file made since is in no kept answer: a no is asked again
+    b = Path.join(dir, "lib/b.ex")
+    File.write!(b, "defmodule B do\nend\n")
+    assert Run.formatter_takes(dir, b) == {:ok, true}
+    assert evaluations.() == 2
+
+    assert Run.formatter_takes(dir, Path.join(dir, "elsewhere/c.ex")) == {:ok, false}
+
+    File.write!(dot, String.replace(counted, "lib/*.ex", "lib/b*.ex"))
+    File.touch!(dot, System.os_time(:second) - 30)
+    assert Run.formatter_takes(dir, a) == {:ok, false}
+  end
+
   test "a run stopped at its deadline says so, not an error some test logged on the way" do
     out = """
     Compiling 1 file (.ex)

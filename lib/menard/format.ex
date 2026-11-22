@@ -86,14 +86,13 @@ defmodule Menard.Format do
     cond do
       project == nil -> {:error, @not_taken}
       not File.regular?(Path.join(project, ".formatter.exs")) -> :ok
-      true -> among(file, Menard.Run.read_formatter_inputs(project))
+      true -> among(Menard.Run.formatter_takes(project, file))
     end
   end
 
-  defp among(_file, {:error, why}), do: {:error, "its project's .formatter.exs does not evaluate (#{why})"}
-
-  defp among(file, {:ok, inputs}),
-    do: if(file in Enum.map(inputs, &Path.expand/1), do: :ok, else: {:error, @not_taken})
+  defp among({:error, why}), do: {:error, "its project's .formatter.exs does not evaluate (#{why})"}
+  defp among({:ok, true}), do: :ok
+  defp among({:ok, false}), do: {:error, @not_taken}
 
   # `{file, content}` pairs to results, one host process per formatter root
   defp run(pairs, opts) do
