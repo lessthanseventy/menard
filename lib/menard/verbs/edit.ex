@@ -2,7 +2,7 @@ defmodule Menard.Verbs.Edit do
   @moduledoc """
   The `edit` verb (`Menard.Verbs`): `edits`, each `{file, old, new, all?}`, made in one call by
   `Menard.Edit`, all written or none; `then` runs a `run` verb after (`test`, `check`, `compile`)
-  and puts its answer in the reply's `run`.
+  and puts its answer in the reply's `run`; `no_format` writes the files as patched, unformatted.
   """
 
   import Menard.Verbs
@@ -23,6 +23,8 @@ defmodule Menard.Verbs.Edit do
       wrote. Nix and shell are parse-checked too, formatted if already in their formatter's style,
       and linted on the lines changed (`lint` in the reply). `then` runs `test` (the tests of what it changed, or `test FILE…` those files), `check`
       or `compile` after, its answer in `run`, and credo's findings on the lines changed in `credo`.
+      `no_format: true` writes the files as you patched them, no formatter run, for a file whose
+      lines must stay where they are.
       """,
       deadline: 600_000,
       fields: [
@@ -34,7 +36,8 @@ defmodule Menard.Verbs.Edit do
             new: {:required, :string},
             all: :boolean
           }}, [required: true]},
-        {:then, :string, []}
+        {:then, :string, []},
+        {:no_format, :boolean, []}
       ]
     }
   end
@@ -44,7 +47,8 @@ defmodule Menard.Verbs.Edit do
   def run(p) do
     with :ok <- need(p, [:edits], "edit"),
          {:ok, edits} <- edits(p.edits, p),
-         {:ok, reply} <- Menard.Edit.run(edits, root: p[:root] || Menard.caller_dir()) do
+         {:ok, reply} <-
+           Menard.Edit.run(edits, root: p[:root] || Menard.caller_dir(), format: p[:no_format] != true) do
       files = Enum.map_join(reply.changed, ", ", &Path.basename(&1.file))
       did = "edit #{files}: #{reply.replacements} replacement#{if reply.replacements != 1, do: "s"}"
       {:ok, Map.put(reply, :did, did)}

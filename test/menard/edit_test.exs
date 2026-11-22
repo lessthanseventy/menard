@@ -583,6 +583,19 @@ defmodule Menard.EditTest do
     assert why =~ "nothing was written"
   end
 
+  test "no_format writes a file its project formats as it is, and the reply says so", %{tmp_dir: dir} do
+    File.write!(Path.join(dir, "lib/a.ex"), "defmodule A do\n  def   one, do: 1\nend\n")
+
+    assert {:ok, reply} = edit(dir, [%{file: "lib/a.ex", old: "do: 1", new: "do: 2"}], %{no_format: true})
+    assert read(dir, "lib/a.ex") == "defmodule A do\n  def   one, do: 2\nend\n"
+    assert [%{unformatted: why}] = reply.changed
+    assert why =~ "no_format"
+
+    assert {:ok, reply} = edit(dir, [%{file: "lib/a.ex", old: "do: 2", new: "do: 3"}])
+    assert read(dir, "lib/a.ex") == "defmodule A do\n  def one, do: 3\nend\n"
+    refute match?([%{unformatted: _}], reply.changed)
+  end
+
   @tag :tmp_dir
   test "a reply names a file under the root from the root", %{tmp_dir: dir} do
     # Under the root, a file is named from it

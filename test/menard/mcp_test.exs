@@ -754,7 +754,7 @@ defmodule Menard.MCPTest do
     assert {:reply, %{"isError" => true, "content" => [%{"text" => text}]}, _} =
              Menard.MCP.handle_request(request.("edit", %{"edits" => edits, "then" => "test"}), Frame.new())
 
-    assert text =~ "edit takes: edits [{all, file, new, old}], then"
+    assert text =~ "edit takes: edits [{all, file, new, old}], no_format, then"
     assert text =~ "given: edits [{file, replace, search}], then"
 
     assert {:reply, %{"isError" => true, "content" => [%{"text" => text}]}, _} =

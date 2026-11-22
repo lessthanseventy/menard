@@ -100,6 +100,8 @@ is none (the CLI keeps none).
   is written unless all of it is; `all: true` takes every occurrence; an empty `old` makes a new
   file. Through the shell it reads search/replace blocks: `menard edit --then test - <<'EOF'`,
   then for each: the file, `<<<<<<< SEARCH`, the text, `=======`, the new text, `>>>>>>> REPLACE`.
+  `no_format: true` (`--no-format`) writes the files as patched, with no formatter run: for a file
+  whose lines must stay where they are.
 - **`test` and `describe` are macros, not functions**: `block` reaches them by `label`.
 - **A zero-arity clause, or a function's only clause, takes `head: ""`.** Among several it is
   refused with their heads: copy one.

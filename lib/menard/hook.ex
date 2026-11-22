@@ -283,12 +283,12 @@ defmodule Menard.Hook do
 
   # a command that is menard's own write: its reply said what it found on these files, and the same
   # lint a second time, beside it, says nothing. With a `--then`, its reply has the compiler's and
-  # credo's word on its Elixir too.
+  # credo's word on its Elixir too. With `--no-format`, its Elixir is to stay as written.
   defp not_menards(files, hook) do
     command = hook.input["command"] || ""
 
     cond do
-      command =~ ~r/(^|[\s\/;&|])menard\s+\w+\s[^\n]*--then\s/ ->
+      command =~ ~r/(^|[\s\/;&|])menard\s+\w+\s[^\n]*--(then|no-format)\s/ ->
         Enum.reject(files, &(Menard.Lang.known?(&1) or elixir?(&1)))
 
       command =~ ~r/\A\s*(\S*\/)?menard\s/ ->

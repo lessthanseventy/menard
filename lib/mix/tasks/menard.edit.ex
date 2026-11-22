@@ -22,6 +22,7 @@ defmodule Mix.Tasks.Menard.Edit do
   The text between SEARCH and `=======` is found exactly once in the file, or the call is refused
   and says which text was not there, or was there twice. `--all` takes every occurrence, of every
   block. An empty search makes a new file. `--then` runs that verb after, its answer under `run`.
+  `--no-format` writes the files as patched, with no formatter run.
   """
   use Mix.Task
 
@@ -29,7 +30,7 @@ defmodule Mix.Tasks.Menard.Edit do
 
   import Menard.CLI
 
-  @usage "mix menard.edit [--then test [FILE…]|check|compile] [--all] [--retry N] BLOCKS   (BLOCKS of `-` reads stdin)\n" <>
+  @usage "mix menard.edit [--then test [FILE…]|check|compile] [--all] [--no-format] [--retry N] BLOCKS   (BLOCKS of `-` reads stdin)\n" <>
            "       a block: FILE, `<<<<<<< SEARCH`, the text to find, `=======`, the text to put there, `>>>>>>> REPLACE`"
 
   @impl true
@@ -39,7 +40,7 @@ defmodule Mix.Tasks.Menard.Edit do
     # `--then test FILE… BLOCKS`: the files before the blocks are the then's, as the MCP door's
     # `then: "test FILE…"` names them. Written so seven times in a week, refused with the bare usage
     # line each time, and the edit sent again without its `--then` at all
-    case options(argv, then: :string, all: :boolean, retry: :integer) do
+    case options(argv, then: :string, all: :boolean, retry: :integer, no_format: :boolean) do
       {flags, [blocks]} ->
         edit(stdin(blocks, "menard.edit"), flags)
 
@@ -65,7 +66,7 @@ defmodule Mix.Tasks.Menard.Edit do
          {:ok, edits} <- retried(edits, flags[:retry]) do
       edits = Enum.map(edits, &Map.put(&1, :all, flags[:all] == true))
 
-      case Verbs.call(Verbs.Edit, %{edits: edits, then: flags[:then]}) do
+      case Verbs.call(Verbs.Edit, %{edits: edits, then: flags[:then], no_format: flags[:no_format]}) do
         {:error, why} -> finish({:error, kept(edits, why)})
         reply -> finish(reply)
       end

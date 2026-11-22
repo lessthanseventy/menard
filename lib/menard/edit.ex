@@ -29,7 +29,7 @@ defmodule Menard.Edit do
   and the stages after the patch that changed anything (the formatter's, the plugins'), in the
   order the files were first named, and `replacements`.
   An `old` of `""` makes a file that is not there, of `new`. `root:` is what a refusal names its
-  file under.
+  file under. `format: false` writes each file as patched, unformatted.
   """
   @spec run([edit()], keyword()) :: {:ok, map()} | {:error, String.t()}
   def run(edits, opts \\ [])
@@ -42,7 +42,7 @@ defmodule Menard.Edit do
 
     with {:ok, contents, notes} <- replaced(edits, before),
          :ok <- parsed(files, contents, before),
-         {:ok, changed} <- written(files, contents, before) do
+         {:ok, changed} <- written(files, contents, before, opts[:format] != false) do
       root = opts[:root] || File.cwd!()
 
       # an `all` that made several replacements counts each
@@ -425,13 +425,13 @@ defmodule Menard.Edit do
     end
   end
 
-  defp written(files, contents, before) do
+  defp written(files, contents, before, format) do
     made = files |> Enum.flat_map(&missing(Path.dirname(&1))) |> Enum.uniq()
 
     Enum.reduce_while(files, {:ok, []}, fn file, {:ok, done} ->
       {:ok, text} = contents[file]
 
-      case write(file, text, done, before, made) do
+      case write(file, text, done, before, made, format) do
         {:ok, reply} ->
           {:cont, {:ok, done ++ [lean(reply)]}}
 
@@ -449,9 +449,9 @@ defmodule Menard.Edit do
   end
 
   # a crash in one file's write puts back the files written before it, then is raised as it was
-  defp write(file, text, done, before, made) do
+  defp write(file, text, done, before, made, format) do
     File.mkdir_p!(Path.dirname(file))
-    Menard.write(file, text, did: "edit #{Path.basename(file)}")
+    Menard.write(file, text, did: "edit #{Path.basename(file)}", format: format)
   rescue
     e ->
       restore([file | Enum.map(done, & &1.file)], before, made)

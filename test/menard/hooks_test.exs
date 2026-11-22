@@ -671,6 +671,20 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
+  test "menard's own edit with --no-format is not formatted after it", %{tmp_dir: dir} do
+    file = Path.join(dir, "lib/a.ex")
+    File.mkdir_p!(Path.dirname(file))
+    wide = "defmodule A do\n  def   one, do: 1\nend\n"
+
+    assert :quiet =
+             shell_command(dir, "#{Menard.bin()} edit --no-format - <<'EOF'", fn ->
+               File.write!(file, wide)
+             end)
+
+    assert File.read!(file) == wide
+  end
+
+  @tag :tmp_dir
   test "format-report runs credo once over the files a call formatted, in a project that lints", %{
     tmp_dir: dir
   } do
