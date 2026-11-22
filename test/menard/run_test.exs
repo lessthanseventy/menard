@@ -196,6 +196,11 @@ defmodule Menard.RunTest do
     assert Run.formatter_takes(dir, made) == {:ok, false}
     File.write!(taken, "defmodule A do\nend\n")
     assert Run.formatter_takes(dir, taken) == {:ok, true}
+
+    unmade = Path.join(dir, "lib/f.ex")
+    assert Run.formatter_takes(dir, unmade) == {:ok, false}
+    File.write!(unmade, "defmodule F do\nend\n")
+    assert Run.formatter_takes(dir, unmade) == {:ok, true}
   end
 
   test "a run stopped at its deadline says so, not an error some test logged on the way" do
