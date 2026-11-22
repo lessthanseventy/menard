@@ -157,6 +157,7 @@ defmodule Menard.RunTest do
     assert evaluations.() == 2
 
     assert Run.formatter_takes(dir, Path.join(dir, "elsewhere/c.ex")) == {:ok, false}
+    assert evaluations.() == 3
 
     File.write!(dot, String.replace(counted, "lib/*.ex", "lib/b*.ex"))
     File.touch!(dot, System.os_time(:second) - 30)
