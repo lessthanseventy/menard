@@ -6,6 +6,7 @@ defmodule Menard.DoorsTest do
 
   alias Anubis.Server.Frame
   alias Menard.MCP.Hooks
+  alias Menard.Test.Host
   alias Menard.Verbs.Noun
   alias Mix.Tasks.Menard.Where
 
@@ -275,6 +276,22 @@ defmodule Menard.DoorsTest do
 
     assert {:error, ^why} =
              cli(Mix.Tasks.Menard.Edit, ["lib/a.ex\n<<<<<<< SEARCH\ndef three\n=======\nx\n>>>>>>> REPLACE\n"])
+  end
+
+  test "the CLI's --no-format reaches the verb: the file is written as patched", %{tmp_dir: dir} do
+    Host.mix_project(dir, :doors)
+    File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
+    wide = Path.join(dir, "lib/wide.ex")
+    File.write!(wide, "defmodule Wide do\n  def   one, do: 1\nend\n")
+    block = fn old, new -> "lib/wide.ex\n<<<<<<< SEARCH\n#{old}\n=======\n#{new}\n>>>>>>> REPLACE\n" end
+
+    assert {:ok, reply} = cli(Mix.Tasks.Menard.Edit, ["--no-format", block.("do: 1", "do: 2")])
+    assert File.read!(wide) == "defmodule Wide do\n  def   one, do: 2\nend\n"
+    assert [%{"unformatted" => why}] = reply["changed"]
+    assert why =~ "no_format"
+
+    assert {:ok, _} = cli(Mix.Tasks.Menard.Edit, [block.("do: 2", "do: 3")])
+    assert File.read!(wide) == "defmodule Wide do\n  def one, do: 3\nend\n"
   end
 
   test "the hooks call their own server, PreToolUse fails open fast, and every writing tool is matched" do
