@@ -71,6 +71,25 @@ defmodule Menard.Format do
     for {file, content} <- pairs, match?({:ok, ^content, _}, results[file]), do: file
   end
 
+  @doc """
+  Whether the project's own `mix format` takes `file`: it is among the `.formatter.exs` inputs of
+  the nearest mix project above it, or that project has no `.formatter.exs` to go by. A file with
+  no mix project above it is no project's to format.
+  """
+  @spec covers?(String.t()) :: boolean()
+  def covers?(file) do
+    file = Path.expand(file)
+
+    case find_up(Path.dirname(file), "mix.exs") do
+      nil ->
+        false
+
+      project ->
+        not File.regular?(Path.join(project, ".formatter.exs")) or
+          file in Enum.map(Menard.Run.formatter_inputs(project), &Path.expand/1)
+    end
+  end
+
   # `{file, content}` pairs to results, one host process per formatter root
   defp run(pairs, opts) do
     pairs

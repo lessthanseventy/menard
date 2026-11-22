@@ -77,6 +77,7 @@ defmodule Menard.ModuleTest do
   test "layout moves every private function above a public one below them, comments with them", %{
     tmp_dir: dir
   } do
+    File.write!(Path.join(dir, "mix.exs"), "defmodule Host.MixProject do\n  use Mix.Project\nend\n")
     file = Path.join(dir, "t.ex")
 
     File.write!(file, """

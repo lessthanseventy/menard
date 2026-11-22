@@ -47,6 +47,7 @@ defmodule Menard.WriteReplyTest do
 
   describe "Menard.write/3 — the staged reply" do
     test "returns the reply shape: did, file, version, stages", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), "defmodule Host.MixProject do\n  use Mix.Project\nend\n")
       file = write_file(dir, "a.ex", "defmodule A do\n  def go, do: :a\nend\n")
       original = File.read!(file)
 
@@ -81,7 +82,41 @@ defmodule Menard.WriteReplyTest do
       assert File.read!(file) == patched
     end
 
+    test "a file its project's .formatter.exs inputs leave out is written as it is, and the reply says so",
+         %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), "defmodule Host.MixProject do\n  use Mix.Project\nend\n")
+      File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
+      File.mkdir_p!(Path.join(dir, "lib"))
+      File.mkdir_p!(Path.join(dir, "bench"))
+      wide = "defmodule W do\n  def   go, do: :a\nend\n"
+      outside = write_file(dir, "bench/w.exs", wide)
+      inside = write_file(dir, "lib/w.ex", wide)
+
+      assert {:ok, reply} = Menard.write(outside, String.replace(wide, ":a", ":b"))
+      assert File.read!(outside) == "defmodule W do\n  def   go, do: :b\nend\n"
+      assert reply.unformatted =~ "not formatted"
+
+      assert {:ok, reply} = Menard.write(inside, String.replace(wide, ":a", ":b"))
+      assert File.read!(inside) == "defmodule W do\n  def go, do: :b\nend\n"
+      refute Map.has_key?(reply, :unformatted)
+    end
+
+    test "a file with no mix project above it is written as it is" do
+      # under the system's temp directory: this repo's own mix.exs is above tmp_dir
+      alone =
+        Path.join(System.tmp_dir!(), "menard-alone-#{System.pid()}-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(alone)
+      on_exit(fn -> File.rm_rf!(alone) end)
+      file = write_file(alone, "w.exs", "defmodule W do\n  def   go, do: :a\nend\n")
+
+      assert {:ok, reply} = Menard.write(file, "defmodule W do\n  def   go, do: :b\nend\n")
+      assert File.read!(file) == "defmodule W do\n  def   go, do: :b\nend\n"
+      assert reply.unformatted =~ "not formatted"
+    end
+
     test "the formatter stage is left out when nothing is reformatted", %{tmp_dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), "defmodule Host.MixProject do\n  use Mix.Project\nend\n")
       file = write_file(dir, "d.ex", "defmodule D do\n  def go, do: :a\nend\n")
       patched = String.replace(File.read!(file), ":a", ":b")
 
