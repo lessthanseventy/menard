@@ -258,6 +258,19 @@ defmodule Menard.LangTest do
     assert %{kind: "biome", at: "a.ts:2", message: "noUnusedVariables: " <> _} = found
   end
 
+  test "biome's DOM a11y rules are said only where the repo has a biome config", %{tmp_dir: dir} do
+    jsx = "export const A = () => <button>x</button>;\n"
+    repo(dir, [{"a.tsx", "export const B = 1;\n"}])
+    edit = fn -> edit(dir, [%{file: "a.tsx", old: "export const B = 1;\n", new: jsx}]) end
+
+    assert {:ok, %{changed: [changed]}} = edit.()
+    refute Map.has_key?(changed, :lint)
+
+    File.write!(Path.join(dir, "a.tsx"), "export const B = 1;\n")
+    File.write!(Path.join(dir, "biome.json"), "{}\n")
+    assert {:ok, %{changed: [%{lint: [%{message: "useButtonType: " <> _}]}]}} = edit.()
+  end
+
   test "Python that does not parse is refused", %{tmp_dir: dir} do
     assert {:error, "not parseable: " <> why} = Lang.parse(Path.join(dir, "a.py"), "def f( :\n    return 1\n")
     assert why =~ "a.py:1:8: Expected a parameter"

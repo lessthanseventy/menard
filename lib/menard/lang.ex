@@ -154,8 +154,10 @@ defmodule Menard.Lang do
     code = File.read!(file)
     base = Path.basename(file)
 
+    row = row(file, code) || %{lint: []}
+
     issues =
-      for [exe | _] = argv <- (row(file, code) || %{lint: []}).lint,
+      for [exe | _] = argv <- unconfigured_lint(row, file),
           {out, _status} <- List.wrap(tool(argv, file, code, lint_redirect(exe))),
           issue <- issues(exe, out, base),
           do: issue
@@ -167,6 +169,14 @@ defmodule Menard.Lang do
       for i <- Lint.only_changed(issues, dir), do: %{i | at: Path.join(dir, i.at)}
     end
   end
+
+  # biome's a11y group is for HTML: on GTK or terminal JSX its findings cannot be satisfied. Where
+  # the repo has no biome config to say otherwise, they are left out
+  defp unconfigured_lint(%{lint: [["biome" | _] = argv]} = row, file) do
+    if configured?(row, Path.dirname(file), "/"), do: [argv], else: [argv ++ ["--skip=a11y"]]
+  end
+
+  defp unconfigured_lint(row, _file), do: row.lint
 
   # a script says what it is in its first line: a `.sh` of zsh's does not parse under bash, and is
   # zsh's; one with no extension has a row only by this
