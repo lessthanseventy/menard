@@ -6,6 +6,8 @@ defmodule Menard.MCPReplacedTest do
 
   import Menard.Test.Checkout
 
+  alias Menard.MCP.Reply
+
   @moduletag timeout: 300_000
   @moduletag :tmp_dir
 
@@ -39,6 +41,15 @@ defmodule Menard.MCPReplacedTest do
       params: %{name: "hook", arguments: arguments}
     }) <>
       "\n"
+  end
+
+  test "the newest mtime skips a file that vanished between listing and stat", %{tmp_dir: dir} do
+    kept = Path.join(dir, "kept.ex")
+    File.write!(kept, "")
+    mtime = File.stat!(kept, time: :posix).mtime
+
+    assert Reply.newest_mtime([Path.join(dir, "gone.ex"), kept]) == mtime
+    assert Reply.newest_mtime([Path.join(dir, "gone.ex")]) == 0
   end
 
   test "a hooks server whose install is replaced under it goes on answering", %{tmp_dir: dir} do

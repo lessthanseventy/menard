@@ -76,6 +76,17 @@ if Code.ensure_loaded?(Anubis.Server) do
     def deadline(ms, _verbs, _params), do: ms
 
     @doc """
+    The newest mtime of `files`, 0 where none can be read. A reinstall removes files while this
+    lists them: one gone between the listing and its stat is no source, not a crash of the server.
+    """
+    @spec newest_mtime([Path.t()]) :: non_neg_integer()
+    def newest_mtime(files) do
+      for file <- files, {:ok, stat} <- [File.stat(file, time: :posix)], reduce: 0 do
+        newest -> max(newest, stat.mtime)
+      end
+    end
+
+    @doc """
     Working on menard itself, its source changes under the server, and a server that kept the code
     it started with ran none of the fixes made since (hooks included: they are calls to it). So a
     call first builds menard as it is now (bin/menard, as any verb is built, the last good build kept
@@ -231,9 +242,7 @@ if Code.ensure_loaded?(Anubis.Server) do
       mix = Path.join(root(), "mix.exs")
 
       if File.regular?(mix) and File.regular?(Path.join(root(), "bin/menard")) do
-        [mix | Path.wildcard(Path.join(root(), "lib/**/*.ex"))]
-        |> Enum.map(&File.stat!(&1, time: :posix).mtime)
-        |> Enum.max()
+        newest_mtime([mix | Path.wildcard(Path.join(root(), "lib/**/*.ex"))])
       else
         0
       end
