@@ -94,13 +94,14 @@ defmodule Menard.LspTest do
                         end
                     end)
 
-  @tag timeout: 180_000
+  @tag timeout: 900_000
   @tag skip: @expert_unusable
   test "a warm server adds what the AST cannot see, as references", %{project: project} do
     Menard.Lsp.warm(project)
     params = %{kind: "calls", target: "Bench.Math.total", files: ["lib"], root: project}
 
-    reply = ready(params, System.monotonic_time(:millisecond) + 150_000)
+    await_settled(project)
+    {:ok, reply} = Menard.Verbs.Find.run(params)
     assert reply.lsp == "expert"
 
     found = for hit <- reply.hits, do: {Path.basename(hit.file), hit.line, hit.kind}
@@ -143,14 +144,8 @@ defmodule Menard.LspTest do
     assert first == {:answered, true}
   end
 
-  # a server indexing answers a short list, so ready is the answer that stops changing
-  defp ready(params, deadline) do
-    {:ok, reply} = Menard.Verbs.Find.run(params)
-
-    cond do
-      reply.lsp == "expert" and length(reply.hits) == 4 -> reply
-      System.monotonic_time(:millisecond) > deadline -> reply
-      true -> Process.sleep(1_000) && ready(params, deadline)
-    end
+  # the server's own settled signal, not a wall-clock deadline: the test's timeout is the backstop
+  defp await_settled(project) do
+    unless Menard.Lsp.warm?(project), do: Process.sleep(500) && await_settled(project)
   end
 end
