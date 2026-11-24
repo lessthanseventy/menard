@@ -102,6 +102,19 @@ defmodule Menard.RunZigTest do
     refute Map.has_key?(reply, :tests)
   end
 
+  test "green with some test steps cached: the reply counts them beside the tests that ran" do
+    out =
+      "Build Summary: 7/7 steps succeeded; 4/4 tests passed\ntest success\n" <>
+        "+- run test 4 pass (4 total) 6ms\n+- run test cached\n+- run test cached\n"
+
+    assert %{ok: true, tests: 4, cached: 2} = Zig.parse(out, 0, "/work/app")
+
+    ran =
+      "Build Summary: 5/5 steps succeeded; 3/3 tests passed\ntest success\n+- run test 3 pass (3 total) 6ms\n"
+
+    refute Map.has_key?(Zig.parse(ran, 0, "/work/app"), :cached)
+  end
+
   test "a failure nothing parsed keeps its last lines, without the command" do
     out = "error: no such step: test\nfailed command: /opt/zig/zig build --lots --of --flags\n"
     assert %{ok: false, failures: [], tail: tail} = Zig.parse(out, 1, "/work/app")

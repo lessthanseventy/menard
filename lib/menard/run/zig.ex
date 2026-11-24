@@ -56,7 +56,8 @@ defmodule Menard.Run.Zig do
 
   @doc """
   What `zig build --summary all` printed, exiting `status` in `dir`, as a run reply: `ok`, the
-  `failures`, `tests` and `failed` where tests ran, and a `tail` where neither says it (tests
+  `failures`, `tests` and `failed` where tests ran (with `cached`, the test steps zig skipped as
+  unchanged, when there were any), and a `tail` where neither says it (tests
   cached and not run, or a failure of no shape known here).
   """
   @spec parse(String.t(), non_neg_integer(), String.t()) :: map()
@@ -73,7 +74,9 @@ defmodule Menard.Run.Zig do
             nil -> 0
           end
 
-        Map.merge(reply, %{tests: String.to_integer(total), failed: failed})
+        reply
+        |> Map.merge(%{tests: String.to_integer(total), failed: failed})
+        |> put_cached(out)
 
       [_, steps] when status == 0 ->
         Map.put(reply, :tail, steps <> cached(out))
@@ -87,6 +90,13 @@ defmodule Menard.Run.Zig do
 
       _ ->
         reply
+    end
+  end
+
+  defp put_cached(reply, out) do
+    case length(Regex.scan(~r/^[| +-]*run test.* cached$/m, out)) do
+      0 -> reply
+      n -> Map.put(reply, :cached, n)
     end
   end
 
