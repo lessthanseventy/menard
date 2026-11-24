@@ -248,17 +248,7 @@ defmodule Menard.Verbs do
     runs =
       for {dir, files} <- by_project(written(reply), root) do
         # the mirror of a file's tests is mix's layout: a repo's own task takes what it takes
-        args =
-          cond do
-            verb == "test" and File.regular?(Path.join(dir, "mix.exs")) ->
-              tests_of(files, dir)
-
-            verb == "compile" and not File.regular?(Path.join(dir, "mix.exs")) ->
-              Enum.map(files, &Path.relative_to(&1, dir))
-
-            true ->
-              []
-          end
+        args = run_args(verb, files, dir)
 
         run =
           case args do
@@ -274,6 +264,16 @@ defmodule Menard.Verbs do
 
     run = with [one] <- runs, do: one
     reply |> Map.update(:did, "then run #{verb}", &(&1 <> ", then run #{verb}")) |> Map.put(:run, run)
+  end
+
+  defp run_args(verb, files, dir) do
+    mix? = File.regular?(Path.join(dir, "mix.exs"))
+
+    case verb do
+      "test" when mix? -> tests_of(files, dir)
+      "compile" when not mix? -> Enum.map(files, &Path.relative_to(&1, dir))
+      _ -> []
+    end
   end
 
   # credo on the Elixir lines the write changed: with the check the agent reads, not a call later

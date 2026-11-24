@@ -38,9 +38,6 @@ defmodule Menard.Run do
 
     reply =
       cond do
-        verb == "compile" and zig?(dir) and not File.regular?(Path.join(dir, "mix.exs")) ->
-          Zig.compile(run, args)
-
         verb in @tasks and not File.regular?(Path.join(dir, "mix.exs")) ->
           task(run, verb, args)
 
@@ -596,7 +593,13 @@ defmodule Menard.Run do
   end
 
   # A repo with no mix.exs, whose gate is its own: nothing to parse, so what it printed is the answer
-  defp task(%{dir: dir} = run, verb, args) do
+  defp task(%{dir: dir} = run, "compile", args) do
+    if zig?(dir), do: Zig.compile(run, args), else: task_of(run, "compile", args)
+  end
+
+  defp task(run, verb, args), do: task_of(run, verb, args)
+
+  defp task_of(%{dir: dir} = run, verb, args) do
     none = "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
 
     with mise when is_binary(mise) <- System.find_executable("mise"),
