@@ -99,7 +99,8 @@ defmodule Menard.HostToolchainTest do
                |> List.first()
                |> then(&(&1 && Path.basename(&1)))
 
-  @tag skip: (!System.find_executable("mise") && "needs mise") || (!@zig_version && "needs a mise-installed zig")
+  @tag skip:
+         (!System.find_executable("mise") && "needs mise") || (!@zig_version && "needs a mise-installed zig")
   test "a host that pins a tool of its own, zig, runs in the env its mise.toml sets", %{dir: dir} do
     # a zig compile outside it used the shared ~/.cache/zig that the host's ZIG_GLOBAL_CACHE_DIR
     # keeps off, and two compiles locking its manifests waited on each other for ever
