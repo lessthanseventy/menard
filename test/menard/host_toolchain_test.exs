@@ -82,4 +82,24 @@ defmodule Menard.HostToolchainTest do
     assert message =~ "Invalid TOML in config file"
     refute message =~ "╰"
   end
+
+  @tag skip: !System.find_executable("mise") && "needs mise"
+  test "a host that pins a tool of its own, zig, runs in the env its mise.toml sets", %{dir: dir} do
+    # a zig compile outside it used the shared ~/.cache/zig that the host's ZIG_GLOBAL_CACHE_DIR
+    # keeps off, and two compiles locking its manifests waited on each other for ever
+    zig = Path.wildcard(Path.expand("~/.local/share/mise/installs/zig/*")) |> List.first()
+    version = zig && Path.basename(zig)
+
+    if version do
+      File.write!(
+        Path.join(dir, "mise.toml"),
+        "[tools]\nzig = \"#{version}\"\n\n[env]\nMENARD_PROBE = \"from-mise\"\n"
+      )
+
+      System.cmd("mise", ["trust", Path.join(dir, "mise.toml")])
+
+      assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
+      assert out =~ "from-mise"
+    end
+  end
 end

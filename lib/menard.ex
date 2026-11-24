@@ -415,11 +415,12 @@ defmodule Menard do
     with {out, 0} <- System.cmd(mise, ["ls", "--current", "--json", "-C", dir]),
          {:ok, %{} = tools} <- JSON.decode(out) do
       # pinned by the host: a config in its dir or above it. mise's global default is not the host's,
-      # and the mix on PATH is the one the agent's own `mix` runs: two toolchains in one _build
+      # and any tool counts, not only erlang: a zig repo's [env] (its own ZIG_GLOBAL_CACHE_DIR) is
+      # only set under `mise exec`. The mix on PATH is the one the agent's own `mix` runs: two toolchains in one _build
       # rebuild every dep the other built, each time either runs.
       pinned =
-        for tool <- ["erlang", "elixir"],
-            %{"source" => %{"path" => path}} = v <- tools[tool] || [],
+        for {tool, versions} <- tools,
+            %{"source" => %{"path" => path}} = v <- versions,
             String.starts_with?(Path.expand(dir) <> "/", Path.dirname(path) <> "/"),
             do: {tool, v}
 
