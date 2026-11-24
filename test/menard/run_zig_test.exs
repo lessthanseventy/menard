@@ -145,4 +145,49 @@ defmodule Menard.RunZigTest do
                })
     end
   end
+
+  describe "compile in a zig project is a fast check" do
+    @describetag skip: !System.find_executable("zig") && "needs zig"
+    @describetag timeout: 30_000
+
+    setup do
+      dir = Path.join(System.tmp_dir!(), "menard-zigc-#{System.pid()}-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join(dir, "src"))
+      # a build.zig that would hang the test if compile ran it
+      File.write!(
+        Path.join(dir, "build.zig"),
+        "pub fn build(b: *@import(\"std\").Build) void {\n    _ = b;\n    while (true) {}\n}\n"
+      )
+
+      File.write!(Path.join(dir, "src/root.zig"), "pub const a = 1;\n")
+      on_exit(fn -> File.rm_rf!(dir) end)
+      %{dir: dir}
+    end
+
+    test "run compile ast-checks the files named, and says where the error is", %{dir: dir} do
+      File.write!(Path.join(dir, "src/root.zig"), "pub const a = b;\n")
+
+      {micros, reply} = :timer.tc(fn -> Menard.Run.result(dir, "compile", ["src/root.zig"]) end)
+
+      assert %{ok: false, ran: "zig ast-check", failures: [failure]} = reply
+      assert failure.at == "src/root.zig:1"
+      assert failure.message =~ "undeclared identifier"
+      assert micros < 10_000_000
+    end
+
+    test "an edit's then: compile checks the files it wrote, green and red", %{dir: dir} do
+      edit = fn old, new ->
+        Menard.Verbs.call(Menard.Verbs.Edit, %{
+          root: dir,
+          edits: [%{file: "src/root.zig", old: old, new: new}],
+          then: "compile"
+        })
+      end
+
+      assert {:ok, %{run: %{ok: true, ran: "zig ast-check"}}} = edit.("pub const a = 1;", "pub const a = 2;")
+
+      assert {:ok, %{run: %{ok: false, failures: [%{at: "src/root.zig:1"}]}}} =
+               edit.("pub const a = 2;", "pub const a = nope;")
+    end
+  end
 end

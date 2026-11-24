@@ -249,7 +249,16 @@ defmodule Menard.Verbs do
       for {dir, files} <- by_project(written(reply), root) do
         # the mirror of a file's tests is mix's layout: a repo's own task takes what it takes
         args =
-          if verb == "test" and File.regular?(Path.join(dir, "mix.exs")), do: tests_of(files, dir), else: []
+          cond do
+            verb == "test" and File.regular?(Path.join(dir, "mix.exs")) ->
+              tests_of(files, dir)
+
+            verb == "compile" and not File.regular?(Path.join(dir, "mix.exs")) ->
+              Enum.map(files, &Path.relative_to(&1, dir))
+
+            true ->
+              []
+          end
 
         run =
           case args do

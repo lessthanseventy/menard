@@ -38,9 +38,17 @@ defmodule Menard.Run do
 
     reply =
       cond do
-        verb in @tasks and not File.regular?(Path.join(dir, "mix.exs")) -> task(run, verb, args)
-        verb in ["check", "test"] -> Lock.one_at_a_time(run, fn -> verb(run, verb, args) end)
-        true -> verb(run, verb, args)
+        verb == "compile" and zig?(dir) and not File.regular?(Path.join(dir, "mix.exs")) ->
+          Zig.compile(run, args)
+
+        verb in @tasks and not File.regular?(Path.join(dir, "mix.exs")) ->
+          task(run, verb, args)
+
+        verb in ["check", "test"] ->
+          Lock.one_at_a_time(run, fn -> verb(run, verb, args) end)
+
+        true ->
+          verb(run, verb, args)
       end
 
     if File.exists?(run.log), do: Map.put(reply, :log, run.log), else: reply

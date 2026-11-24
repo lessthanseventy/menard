@@ -28,6 +28,33 @@ defmodule Menard.Run.Zig do
   end
 
   @doc """
+  `compile` in a Zig project: a fast check, not a build. `zig ast-check` on `args` (the `.zig`
+  files changed; every `.zig` file of the project when none), then `zig build check` where
+  `build.zig` defines that step. The full build is `run build`'s.
+  """
+  @spec compile(map(), [String.t()]) :: map()
+  def compile(%{dir: dir} = run, args) do
+    files = if args == [], do: project_files(dir), else: Enum.filter(args, &String.ends_with?(&1, ".zig"))
+
+    {out, status} =
+      Enum.reduce(files, {"", 0}, fn file, {out, status} ->
+        {more, code} = zig(run, ["ast-check", "--color", "off", file], "zig ast-check")
+        {out <> more, max(status, code)}
+      end)
+
+    {out, status, ran} =
+      if status == 0 and quick_step?(dir) do
+        {more, code} = zig(run, ["build", "check"], "zig build check")
+        {out <> more, code, "zig ast-check, zig build check"}
+      else
+        {out, status, "zig ast-check"}
+      end
+
+    File.write!(run.log, "$ #{ran}\n#{out}\n", [:append])
+    %{ok: status == 0, exit: status, failures: compile_errors(out, dir), ran: ran}
+  end
+
+  @doc """
   What `zig build --summary all` printed, exiting `status` in `dir`, as a run reply: `ok`, the
   `failures`, `tests` and `failed` where tests ran, and a `tail` where neither says it (tests
   cached and not run, or a failure of no shape known here).
@@ -114,4 +141,15 @@ defmodule Menard.Run.Zig do
   end
 
   defp relative(file, dir), do: Path.relative_to(file, Path.expand(dir))
+
+  defp zig(%{dir: dir} = run, args, label) do
+    left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
+    Menard.host_cmd(dir, ["zig" | args], timeout: left, label: label)
+  end
+
+  defp quick_step?(dir), do: File.read!(Path.join(dir, "build.zig")) =~ ~s|b.step("check"|
+
+  defp project_files(dir) do
+    for file <- Path.wildcard(Path.join(dir, "{src,test}/**/*.zig")), do: Path.relative_to(file, dir)
+  end
 end
