@@ -96,10 +96,15 @@ defmodule Menard.HostToolchainTest do
         "[tools]\nzig = \"#{version}\"\n\n[env]\nMENARD_PROBE = \"from-mise\"\n"
       )
 
-      System.cmd("mise", ["trust", Path.join(dir, "mise.toml")])
+      # trust by env, not `mise trust`: that writes the user's state dir, which a gate's sandbox lacks
+      System.put_env("MISE_TRUSTED_CONFIG_PATHS", dir)
 
-      assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
-      assert out =~ "from-mise"
+      try do
+        assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
+        assert out =~ "from-mise"
+      after
+        System.delete_env("MISE_TRUSTED_CONFIG_PATHS")
+      end
     end
   end
 end
