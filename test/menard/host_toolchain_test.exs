@@ -8,7 +8,19 @@ defmodule Menard.HostToolchainTest do
       Path.join(System.tmp_dir!(), "menard-toolchain-#{System.pid()}-#{System.unique_integer([:positive])}")
 
     File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+
+    # trusted by env, not `mise trust`: that writes the user's state dir, which a gate's sandbox lacks
+    previous = System.get_env("MISE_TRUSTED_CONFIG_PATHS")
+    System.put_env("MISE_TRUSTED_CONFIG_PATHS", dir)
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("MISE_TRUSTED_CONFIG_PATHS", previous),
+        else: System.delete_env("MISE_TRUSTED_CONFIG_PATHS")
+
+      File.rm_rf!(dir)
+    end)
+
     {:ok, dir: dir}
   end
 
@@ -96,15 +108,8 @@ defmodule Menard.HostToolchainTest do
         "[tools]\nzig = \"#{version}\"\n\n[env]\nMENARD_PROBE = \"from-mise\"\n"
       )
 
-      # trust by env, not `mise trust`: that writes the user's state dir, which a gate's sandbox lacks
-      System.put_env("MISE_TRUSTED_CONFIG_PATHS", dir)
-
-      try do
-        assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
-        assert out =~ "from-mise"
-      after
-        System.delete_env("MISE_TRUSTED_CONFIG_PATHS")
-      end
+      assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
+      assert out =~ "from-mise"
     end
   end
 end
