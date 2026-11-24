@@ -95,21 +95,20 @@ defmodule Menard.HostToolchainTest do
     refute message =~ "╰"
   end
 
-  @tag skip: !System.find_executable("mise") && "needs mise"
+  @zig_version Path.wildcard(Path.expand("~/.local/share/mise/installs/zig/*"))
+               |> List.first()
+               |> then(&(&1 && Path.basename(&1)))
+
+  @tag skip: (!System.find_executable("mise") && "needs mise") || (!@zig_version && "needs a mise-installed zig")
   test "a host that pins a tool of its own, zig, runs in the env its mise.toml sets", %{dir: dir} do
     # a zig compile outside it used the shared ~/.cache/zig that the host's ZIG_GLOBAL_CACHE_DIR
     # keeps off, and two compiles locking its manifests waited on each other for ever
-    zig = Path.wildcard(Path.expand("~/.local/share/mise/installs/zig/*")) |> List.first()
-    version = zig && Path.basename(zig)
+    File.write!(
+      Path.join(dir, "mise.toml"),
+      "[tools]\nzig = \"#{@zig_version}\"\n\n[env]\nMENARD_PROBE = \"from-mise\"\n"
+    )
 
-    if version do
-      File.write!(
-        Path.join(dir, "mise.toml"),
-        "[tools]\nzig = \"#{version}\"\n\n[env]\nMENARD_PROBE = \"from-mise\"\n"
-      )
-
-      assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
-      assert out =~ "from-mise"
-    end
+    assert {out, 0} = Menard.host_cmd(dir, ["sh", "-c", "echo $MENARD_PROBE"])
+    assert out =~ "from-mise"
   end
 end
