@@ -160,7 +160,8 @@ defmodule Menard.Lsp do
   def handle_info({port, {:data, data}}, %{port: port} = state),
     do: {:noreply, frames(%{state | buffer: state.buffer <> data}), @idle}
 
-  def handle_info({port, {:exit_status, _}}, %{port: port} = state), do: {:stop, :normal, state}
+  def handle_info({port, {:exit_status, status}}, %{port: port} = state),
+    do: {:stop, {:shutdown, {:exit_status, status}}, state}
 
   def handle_info({:deadline, id}, state) do
     {from, pending} = Map.pop(state.pending, id)

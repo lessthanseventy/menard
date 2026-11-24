@@ -100,8 +100,17 @@ defmodule Menard.LspTest do
     Menard.Lsp.warm(project)
     params = %{kind: "calls", target: "Bench.Math.total", files: ["lib"], root: project}
 
-    await_settled(project)
-    {:ok, reply} = Menard.Verbs.Find.run(params)
+    await_settled(project, 800_000)
+
+    {:ok, reply} =
+      while_warming(
+        fn ->
+          {:ok, reply} = Menard.Verbs.Find.run(params)
+          if reply.lsp =~ "still indexing", do: :warming, else: {:ok, reply}
+        end,
+        60_000
+      )
+
     assert reply.lsp == "expert"
 
     found = for hit <- reply.hits, do: {Path.basename(hit.file), hit.line, hit.kind}
@@ -144,8 +153,73 @@ defmodule Menard.LspTest do
     assert first == {:answered, true}
   end
 
-  # the server's own settled signal, not a wall-clock deadline: the test's timeout is the backstop
-  defp await_settled(project) do
-    unless Menard.Lsp.warm?(project), do: Process.sleep(500) && await_settled(project)
+  @tag :tmp_dir
+  test "await_settled fails at once, with the exit status, when the server is gone", %{tmp_dir: dir} do
+    stand_in = Path.join(dir, "exits")
+    File.write!(stand_in, "#!/bin/sh\nsleep 0.5\nexit 3\n")
+    File.chmod!(stand_in, 0o755)
+    File.write!(Path.join(dir, "mix.exs"), "")
+    System.put_env("MENARD_LSP", stand_in)
+    on_exit(fn -> System.delete_env("MENARD_LSP") end)
+
+    Menard.Lsp.warm(dir)
+    started = System.monotonic_time(:millisecond)
+    error = assert_raise ExUnit.AssertionError, fn -> await_settled(dir, 60_000) end
+    assert error.message =~ "exit_status, 3"
+    assert System.monotonic_time(:millisecond) - started < 5_000
+  end
+
+  test "a find is retried while it answers :warming, and the first other answer is the one asserted" do
+    {:ok, asked} = Agent.start_link(fn -> 0 end)
+
+    ask = fn ->
+      if Agent.get_and_update(asked, &{&1, &1 + 1}) < 2, do: :warming, else: {:ok, :hits}
+    end
+
+    assert while_warming(ask, 5_000) == {:ok, :hits}
+    assert Agent.get(asked, & &1) == 3
+  end
+
+  # the server's own settled signal, not a wall-clock deadline; a server that exits is no wait at all
+  defp await_settled(project, ms) do
+    pid =
+      project
+      |> Path.expand()
+      |> then(&Registry.lookup(Menard.Lsp.Registry, &1))
+      |> then(fn
+        [{pid, _}] -> pid
+        [] -> flunk("the language server is not running")
+      end)
+
+    ref = Process.monitor(pid)
+    await_settled(project, ref, System.monotonic_time(:millisecond) + ms)
+  end
+
+  defp await_settled(project, ref, deadline) do
+    receive do
+      {:DOWN, ^ref, _, _, reason} ->
+        flunk("the language server stopped before it settled: #{inspect(reason)}")
+    after
+      0 ->
+        cond do
+          Menard.Lsp.warm?(project) -> :ok
+          System.monotonic_time(:millisecond) > deadline -> flunk("the language server never settled")
+          true -> Process.sleep(100) && await_settled(project, ref, deadline)
+        end
+    end
+  end
+
+  defp while_warming(ask, ms), do: while_warming(ask, System.monotonic_time(:millisecond) + ms, nil)
+
+  defp while_warming(ask, deadline, _last) do
+    case ask.() do
+      :warming ->
+        if System.monotonic_time(:millisecond) > deadline,
+          do: flunk("still :warming at the deadline"),
+          else: Process.sleep(50) && while_warming(ask, deadline, :warming)
+
+      answer ->
+        answer
+    end
   end
 end
