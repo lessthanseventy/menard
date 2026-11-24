@@ -795,17 +795,21 @@ defmodule Menard.Hook do
            git(dir, ["check-ignore", "-z", "--stdin"], Enum.join(files, <<0>>)),
          {top, 0} <- git(dir, ["rev-parse", "--show-toplevel"], "") do
       ignored = String.split(out, <<0>>, trim: true)
-      parent = top |> String.trim_trailing("\n") |> Path.dirname()
-      ignored ++ ignored_around(parent, files -- ignored, root)
+      top = String.trim_trailing(top, "\n")
+      ignored ++ ignored_around(top, files -- ignored, root)
     else
       _no_repo -> []
     end
   end
 
-  defp ignored_around(_parent, [], _root), do: []
+  defp ignored_around(_top, [], _root), do: []
 
-  defp ignored_around(parent, files, root) do
-    if parent == root or String.starts_with?(parent, root <> "/"),
+  # a linked worktree (its `.git` a file) is a checkout the agent works in, which the checkout it
+  # hangs from ignores wholesale (`.worktrees/`): that ignore is no verdict on its files
+  defp ignored_around(top, files, root) do
+    parent = Path.dirname(top)
+
+    if File.dir?(Path.join(top, ".git")) and (parent == root or String.starts_with?(parent, root <> "/")),
       do: ignored_in(parent, files, root),
       else: []
   end

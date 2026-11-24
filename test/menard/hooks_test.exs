@@ -786,6 +786,34 @@ defmodule Menard.HooksTest do
     assert File.read!(Path.join(outer, "lib/ok.ex")) =~ "  def f(x), do: x\n"
   end
 
+  test "format-report formats a shell write in a linked worktree the enclosing checkout ignores" do
+    outer = Path.join(System.tmp_dir!(), "menard-hook-#{System.pid()}-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(outer) end)
+    host(outer)
+    File.write!(Path.join(outer, ".gitignore"), "/.worktrees/\n")
+    {_, 0} = System.cmd("git", ["-C", outer, "add", "-A"])
+
+    {_, 0} =
+      System.cmd("git", ["-C", outer, "-c", "user.email=a@b", "-c", "user.name=x", "commit", "-qm", "i"])
+
+    tree = Path.join(outer, ".worktrees/t1")
+    {_, 0} = System.cmd("git", ["-C", outer, "worktree", "add", "-q", tree])
+
+    bash = %{
+      tool_name: "Bash",
+      session_id: "t#{System.unique_integer([:positive])}",
+      tool_input: %{command: "cd .worktrees/t1 && cat > lib/ok.ex <<'EOF'"}
+    }
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PreToolUse"), outer)
+    backdate_format_mark(bash, outer)
+    File.mkdir_p!(Path.join(tree, "lib"))
+    File.write!(Path.join(tree, "lib/ok.ex"), "defmodule Ok do\n  def   f(x), do: x\nend\n")
+
+    {_, 0} = report(Map.put(bash, :hook_event_name, "PostToolUse"), outer)
+    assert File.read!(Path.join(tree, "lib/ok.ex")) =~ "  def f(x), do: x\n"
+  end
+
   test "format-report asks each file's own repo what git ignores, not the session's directory" do
     # a session whose cwd is no repo ran menard's suite: every fixture it wrote was named, and the
     # server kept a formatter warm for each
