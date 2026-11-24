@@ -81,6 +81,25 @@ defmodule Menard.HostFormatPluginTest do
     refute message =~ "no match of right hand side"
   end
 
+  test "in a git worktree never built, the plugin comes from the main checkout's _build", %{tmp_dir: dir} do
+    main = Path.join(dir, "main")
+    File.mkdir_p!(main)
+    plugin = plug(main, "Plug", ~S["# plugged\n" <> contents])
+    host(main, "[inputs: [\"lib/**/*.ex\"], plugins: [#{inspect(plugin)}]]")
+    File.write!(Path.join(main, ".gitignore"), "_build/\n")
+    tree = Path.join(dir, "tree")
+    git = fn args -> {_, 0} = System.cmd("git", args, cd: main, stderr_to_stdout: true) end
+    git.(~w(init -q))
+    git.(~w(add -A))
+    git.(~w(-c user.name=t -c user.email=t@t commit -q -m one))
+    git.(["worktree", "add", "-q", tree])
+    on_exit(fn -> Worker.stop(Path.expand(tree)) end)
+
+    file = write(tree, "w.ex", "defmodule W do\nend\n")
+    assert Menard.format(file, cache: Path.join(dir, "cache")) == :ok
+    assert File.read!(file) =~ "# plugged\n"
+  end
+
   test "a plugin that will not load is never skipped silently — the file is left alone", %{tmp_dir: dir} do
     ebin = Path.join(dir, "_build/dev/lib/plug/ebin")
     File.mkdir_p!(ebin)

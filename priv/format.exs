@@ -61,7 +61,8 @@ format = fn %{root: root, project: project, cache: cache, plugins: plugins?, fil
   # The host's last build, whatever env built it: a plugin lives in `_build/*/lib/*/ebin`. Left off
   # the path when the caller asks for no plugins, so a plugin that is there is not found either.
   if plugins? do
-    for ebin <- Path.wildcard(Path.join(project, "_build/*/lib/*/ebin")), do: Code.append_path(ebin)
+    builds = [Path.join(project, "_build") | List.wrap(request[:built_behind])]
+    for build <- builds, ebin <- Path.wildcard(Path.join(build, "*/lib/*/ebin")), do: Code.append_path(ebin)
   end
 
   # every dep fetched, whatever any `.formatter.exs` here imports (a subdirectory's own too), and

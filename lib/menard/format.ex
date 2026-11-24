@@ -9,7 +9,7 @@ defmodule Menard.Format do
   `mix.exs` is never evaluated and its config never loaded. Plugins load from the host's last build
   (`_build/*/lib/*/ebin`), and each `import_deps` entry from `deps/`, else from the copy cached by
   the last format that found it (`cache:` overrides the cache directory), else, in a git worktree
-  with no `deps/`, from the main checkout's. A dep with none of them leaves
+  with no `deps/`, from the main checkout's (as are plugins its `_build` lacks). A dep with none of them leaves
   the file UNformatted with Mix's own reason: without its exports the formatter would add parens to
   every DSL call in the file.
 
@@ -111,6 +111,7 @@ defmodule Menard.Format do
       project: project,
       cache: opts[:cache] || cache_dir(project),
       behind: main_checkout_deps(project),
+      built_behind: main_checkout_build(project),
       plugins: Keyword.get(opts, :plugins, true),
       files: pairs
     }
@@ -180,17 +181,37 @@ defmodule Menard.Format do
   # and has no `deps/` of its own: a new worktree is written to before anything fetches its deps
   defp main_checkout_deps(project) do
     with false <- File.dir?(Path.join(project, "deps")),
-         {out, 0} <-
+         main when main != nil <- main_checkout(project),
+         deps = Path.join(main, "deps"),
+         true <- File.dir?(deps) do
+      deps
+    else
+      _ -> nil
+    end
+  end
+
+  # `_build/` of the same project in the main checkout, behind the worktree's own: a plugin the
+  # worktree has not built yet is the main checkout's last build of it
+  defp main_checkout_build(project) do
+    with main when main != nil <- main_checkout(project),
+         build = Path.join(main, "_build"),
+         true <- File.dir?(build) do
+      build
+    else
+      _ -> nil
+    end
+  end
+
+  defp main_checkout(project) do
+    with {out, 0} <-
            System.cmd("git", ~w(rev-parse --path-format=absolute --git-common-dir --show-toplevel),
              cd: project,
              stderr_to_stdout: true
            ),
          [common, top] <- String.split(out, "\n", trim: true),
          main = Path.dirname(common),
-         true <- Path.basename(common) == ".git" and main != top,
-         deps = Path.join([main, Path.relative_to(project, top), "deps"]),
-         true <- File.dir?(deps) do
-      deps
+         true <- Path.basename(common) == ".git" and main != top do
+      Path.join(main, Path.relative_to(project, top))
     else
       _ -> nil
     end
