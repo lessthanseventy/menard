@@ -606,17 +606,33 @@ defmodule Menard.Run do
          {_info, 0} <- System.cmd(mise, ["tasks", "info", verb, "--json"], cd: dir, stderr_to_stdout: true) do
       left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
 
-      {out, status} =
+      cmd = fn ->
         Menard.host_cmd(dir, [mise, "run", verb | args], timeout: left, label: "mise run #{verb}")
+      end
+
+      {{out, status}, stuck} = if zig?(dir), do: Zig.watched(dir, cmd), else: {cmd.(), []}
 
       File.write!(run.log, "$ mise run #{Enum.join([verb | args], " ")}\n#{out}\n", [:append])
       out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
-      reply = %{ok: status == 0, exit: status, failures: [], ran: "mise run #{verb}", tail: Output.tail(out)}
+
+      reply = %{
+        ok: status == 0 and stuck == [],
+        exit: status,
+        failures: stuck,
+        ran: "mise run #{verb}",
+        tail: Output.tail(out)
+      }
 
       # a task of its own that runs zig: its failures read as `zig build`'s are
-      if zig?(dir),
-        do: Map.merge(reply, Map.take(Zig.parse(out, status, dir), [:failures, :tests, :failed])),
-        else: reply
+      if zig?(dir) do
+        parsed = Zig.parse(out, status, dir)
+
+        reply
+        |> Map.merge(Map.take(parsed, [:tests, :failed]))
+        |> Map.put(:failures, stuck ++ parsed.failures)
+      else
+        reply
+      end
     else
       nil ->
         if zig?(dir), do: Zig.result(run, verb, args), else: %{ok: false, failures: [], tail: none}

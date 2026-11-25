@@ -312,6 +312,21 @@ defmodule Menard.RunTest do
       refute tail =~ "no mise task"
     end
 
+    @tag skip: !System.find_executable("flock") && "needs flock"
+    test "a zig project's task stuck on a lock no one lets go is ended, and the holder named", %{dir: dir} do
+      File.write!(Path.join(dir, "build.zig"), "")
+      lock = Path.join(dir, "lock")
+      holder = Port.open({:spawn_executable, System.find_executable("flock")}, args: [lock, "sleep", "60"])
+      {:os_pid, pid} = Port.info(holder, :os_pid)
+      mise_task(dir, "test", ~s(sleep 1; flock "#{lock}" true))
+
+      assert %{ok: false, ran: "mise run test", failures: [%{kind: "lock", message: message}]} =
+               Menard.Run.result(dir, "test", [])
+
+      assert message =~ "held by pid #{pid}"
+      System.cmd("pkill", ["-P", "#{pid}"])
+    end
+
     test "edit's then runs the task, and hands it no mix test flags", %{dir: dir} do
       mise_task(dir, "test", ~s(echo "ran with [$*]"))
 

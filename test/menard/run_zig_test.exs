@@ -186,6 +186,85 @@ defmodule Menard.RunZigTest do
       Port.close(other)
       System.cmd("kill", ["#{other_pid}"])
     end
+
+    @tag :tmp_dir
+    test "kills a zig compiler whose build runner is gone, not one whose runner is there", %{tmp_dir: dir} do
+      zig = Path.join(dir, "zig")
+      File.ln_s!(System.find_executable("sh"), zig)
+      pid_file = Path.join(dir, "pid")
+
+      {_, 0} =
+        System.cmd("sh", [
+          "-c",
+          ~s("$1" -c "sleep 300; :" zig --listen=- </dev/null >/dev/null 2>&1 & echo $! >"$2"),
+          "sh",
+          zig,
+          pid_file
+        ])
+
+      orphan = pid_file |> File.read!() |> String.trim() |> String.to_integer()
+
+      runner =
+        Port.open({:spawn_executable, zig}, [:exit_status, args: ["-c", "sleep 300; :", "zig", "--listen=-"]])
+
+      {:os_pid, child} = Port.info(runner, :os_pid)
+
+      assert wait_until(fn -> ppid(orphan) == 1 end)
+      reaped = Zig.reap()
+      assert orphan in reaped
+      refute child in reaped
+      Port.close(runner)
+      System.cmd("kill", ["#{child}"])
+    end
+  end
+
+  describe "watch_locks" do
+    @describetag skip: !System.find_executable("flock") && "needs flock"
+
+    @tag :tmp_dir
+    test "ends a wait on a lock whose holder does no work, and names the holder", %{tmp_dir: dir} do
+      lock = Path.join(dir, "lock")
+      holder = hold(lock, ["sleep", "300"])
+
+      {micros, {{_, status}, [failure]}} =
+        :timer.tc(fn ->
+          Zig.watch_locks(dir, fn -> System.cmd("flock", [lock, "true"], cd: dir) end, 1_000)
+        end)
+
+      assert status != 0
+      assert failure.kind == "lock"
+      assert failure.message =~ "held by pid #{holder} (flock"
+      assert micros < 5_000_000
+      System.cmd("pkill", ["-P", "#{holder}"])
+    end
+
+    @tag :tmp_dir
+    test "keeps waiting on a lock whose holder is working", %{tmp_dir: dir} do
+      lock = Path.join(dir, "lock")
+      hold(lock, ["timeout", "3", "sh", "-c", "while :; do :; done"])
+
+      assert {{_, 0}, []} =
+               Zig.watch_locks(dir, fn -> System.cmd("flock", [lock, "true"], cd: dir) end, 1_000)
+    end
+  end
+
+  defp hold(lock, command) do
+    port =
+      Port.open({:spawn_executable, System.find_executable("flock")}, [:exit_status, args: [lock | command]])
+
+    {:os_pid, pid} = Port.info(port, :os_pid)
+    assert wait_until(fn -> File.read!("/proc/locks") =~ ~r/FLOCK\s+ADVISORY\s+WRITE #{pid} / end)
+    pid
+  end
+
+  defp ppid(pid) do
+    case File.read("/proc/#{pid}/stat") do
+      {:ok, stat} ->
+        stat |> String.split(") ") |> List.last() |> String.split(" ") |> Enum.at(1) |> String.to_integer()
+
+      {:error, _} ->
+        nil
+    end
   end
 
   defp deleted?(pid), do: File.read_link!("/proc/#{pid}/cwd") =~ "(deleted)"

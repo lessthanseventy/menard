@@ -10,38 +10,69 @@ defmodule Menard.Run.Zig do
 
   @steps %{"test" => ~w(test), "compile" => [], "check" => ~w(install test)}
 
+  @stuck_ms 10_000
+
   @doc """
-  Kills the processes a zig run left behind: a build runner whose working directory was a
-  `menard-zigc-*` scratch dir that is now deleted spins forever, and nothing else wants it.
-  Answers the OS pids it killed.
+  Kills the processes a zig run left behind, which nothing wants: a build runner whose working
+  directory was a `menard-zigc-*` scratch dir that is now deleted spins forever, and a compiler
+  (`--listen=-`) whose build runner was killed is left to init holding its cache locks, every
+  later build that needs them waiting behind it. Answers the OS pids it killed.
   """
   @spec reap() :: [non_neg_integer()]
   def reap do
     for entry <- proc_entries(),
         pid = parse_pid(entry),
-        {:ok, cwd} <- [File.read_link("/proc/#{entry}/cwd")],
-        cwd =~ ~r{/menard-zigc-[^/]* \(deleted\)$},
+        left_behind?(entry),
         {_, 0} <- [System.cmd("kill", ["-KILL", entry], stderr_to_stdout: true)] do
       pid
     end
   end
 
+  @doc """
+  Runs `fun`, a zig build in `dir`, as every zig run goes: what earlier runs left behind reaped
+  first, and a wait on a lock that would never end, ended (`watch_locks/3`).
+  """
+  @spec watched(String.t(), (-> result)) :: {result, [map()]} when result: term()
+  def watched(dir, fun) do
+    reap()
+    watch_locks(dir, fun, @stuck_ms)
+  end
+
+  @doc """
+  Runs `fun` while watching the processes working in `dir` for a wait on a file lock (zig's cache
+  takes one per entry) whose holder, with what it runs and what it waits on in turn, used no CPU
+  for `stuck_ms`: that wait would never end, so the waiter is killed and the run ends. Answers
+  `fun`'s answer and a `lock` failure for each wait it ended.
+  """
+  @spec watch_locks(String.t(), (-> result), pos_integer()) :: {result, [map()]} when result: term()
+  def watch_locks(dir, fun, stuck_ms) do
+    watcher = Task.async(fn -> watch(Path.expand(dir), stuck_ms, %{}, []) end)
+    answer = fun.()
+    send(watcher.pid, :stop)
+    {answer, Task.await(watcher)}
+  end
+
   @doc "`verb` (`test`, `compile`, `check`) as `zig build` steps in `run.dir`, `args` passed on."
   @spec result(map(), String.t(), [String.t()]) :: map()
   def result(%{dir: dir} = run, verb, args) do
-    reap()
     steps = Map.fetch!(@steps, verb)
     ran = Enum.join(["zig", "build" | steps], " ")
     left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
 
-    {out, status} =
-      Menard.host_cmd(dir, ["zig", "build"] ++ steps ++ ["--summary", "all" | args],
-        timeout: left,
-        label: ran
+    {{out, status}, stuck} =
+      watched(
+        dir,
+        fn ->
+          Menard.host_cmd(dir, ["zig", "build"] ++ steps ++ ["--summary", "all" | args],
+            timeout: left,
+            label: ran
+          )
+        end
       )
 
     File.write!(run.log, "$ #{ran}\n#{out}\n", [:append])
-    out |> parse(status, dir) |> Map.put(:ran, ran)
+    reply = out |> parse(status, dir) |> Map.put(:ran, ran)
+    if stuck == [], do: reply, else: %{reply | ok: false, failures: stuck ++ reply.failures}
   end
 
   @doc """
@@ -173,6 +204,143 @@ defmodule Menard.Run.Zig do
   defp zig(%{dir: dir} = run, args, label) do
     left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
     Menard.host_cmd(dir, ["zig" | args], timeout: left, label: label)
+  end
+
+  defp left_behind?(entry) do
+    case File.read_link("/proc/#{entry}/cwd") do
+      {:ok, cwd} -> cwd =~ ~r{/menard-zigc-[^/]* \(deleted\)$} or orphan_compiler?(entry)
+      {:error, _} -> false
+    end
+  end
+
+  defp orphan_compiler?(entry) do
+    with {:ok, cmdline} <- File.read("/proc/#{entry}/cmdline"),
+         [exe | args] <- String.split(cmdline, <<0>>, trim: true),
+         true <- Path.basename(exe) == "zig" and "--listen=-" in args do
+      parent(entry) == 1
+    else
+      _ -> false
+    end
+  end
+
+  defp parent(pid) do
+    case stat(pid) do
+      [_state, ppid | _] -> String.to_integer(ppid)
+      nil -> nil
+    end
+  end
+
+  # the fields after `(comm)`, which may itself hold spaces
+  defp stat(pid) do
+    case File.read("/proc/#{pid}/stat") do
+      {:ok, text} -> text |> String.split(") ") |> List.last() |> String.split(" ")
+      {:error, _} -> nil
+    end
+  end
+
+  defp watch(dir, stuck_ms, seen, ended) do
+    receive do
+      :stop -> ended
+    after
+      250 ->
+        now = System.monotonic_time(:millisecond)
+        waits = lock_waits()
+
+        seen =
+          for {waiter, holder} = wait <- waits, cwd(waiter) == dir, into: %{} do
+            ticks = work(holder, waits, MapSet.new())
+
+            case seen do
+              %{^wait => {^ticks, since}} -> {wait, {ticks, since}}
+              _ -> {wait, {ticks, now}}
+            end
+          end
+
+        {stuck, seen} = Map.split_with(seen, fn {_wait, {_ticks, since}} -> now - since >= stuck_ms end)
+
+        ended =
+          ended ++
+            Enum.map(stuck, fn {{waiter, holder}, {_, since}} -> end_wait(waiter, holder, now - since) end)
+
+        watch(dir, stuck_ms, seen, ended)
+    end
+  end
+
+  # waiter => holder, from /proc/locks: a waiter's line is its holder's number with `->`
+  defp lock_waits do
+    locks =
+      case File.read("/proc/locks") do
+        {:ok, text} -> Regex.scan(~r/^(\d+): (-> )?\S+\s+\S+\s+\S+\s+(\d+) /m, text)
+        {:error, _} -> []
+      end
+
+    holders = for [_, id, "", pid] <- locks, into: %{}, do: {id, String.to_integer(pid)}
+
+    for [_, id, "-> ", pid] <- locks,
+        %{^id => holder} <- [holders],
+        into: %{},
+        do: {String.to_integer(pid), holder}
+  end
+
+  # CPU ticks of `pid`, what it runs, and the holder of any lock it waits on: unchanged, none of
+  # them moved
+  defp work(pid, waits, seen) do
+    if pid in seen do
+      0
+    else
+      seen = MapSet.put(seen, pid)
+      own = Enum.sum(for p <- [pid | descendants(pid)], do: ticks(p))
+
+      case waits do
+        %{^pid => holder} -> own + work(holder, waits, seen)
+        _ -> own
+      end
+    end
+  end
+
+  defp ticks(pid) do
+    case stat(pid) do
+      [_ | _] = fields -> String.to_integer(Enum.at(fields, 11)) + String.to_integer(Enum.at(fields, 12))
+      nil -> 0
+    end
+  end
+
+  defp descendants(pid) do
+    children =
+      for task <- Path.wildcard("/proc/#{pid}/task/*/children"),
+          {:ok, text} <- [File.read(task)],
+          child <- String.split(text, " ", trim: true),
+          do: String.to_integer(child)
+
+    children ++ Enum.flat_map(children, &descendants/1)
+  end
+
+  defp cwd(pid) do
+    case File.read_link("/proc/#{pid}/cwd") do
+      {:ok, cwd} -> cwd
+      {:error, _} -> nil
+    end
+  end
+
+  defp end_wait(waiter, holder, ms) do
+    System.cmd("kill", ["-KILL", "#{waiter}"], stderr_to_stdout: true)
+
+    %{
+      kind: "lock",
+      message:
+        "waited #{div(ms, 1000)}s on a lock held by pid #{holder} (#{command(holder)}), which did no work in that time: " <>
+          "stopped, as that wait would never end"
+    }
+  end
+
+  defp command(pid) do
+    case File.read("/proc/#{pid}/cmdline") do
+      {:ok, cmdline} ->
+        cmdline |> String.split(<<0>>, trim: true) |> Enum.take(2) |> Enum.map_join(" ", &Path.basename/1)
+
+      {:error, _} ->
+        "gone"
+    end
   end
 
   defp quick_step?(dir), do: File.read!(Path.join(dir, "build.zig")) =~ ~s|b.step("check"|
