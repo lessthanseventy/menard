@@ -161,7 +161,9 @@ defmodule Menard.RunZigTest do
 
   describe "reap" do
     test "kills a process left in a deleted menard-zigc dir, and only that" do
-      dir = Path.join(System.tmp_dir!(), "menard-zigc-reap-#{System.unique_integer([:positive])}")
+      dir =
+        Path.join(System.tmp_dir!(), "menard-zigc-reap-#{System.pid()}-#{System.unique_integer([:positive])}")
+
       File.mkdir_p!(dir)
 
       port =
