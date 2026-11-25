@@ -483,20 +483,58 @@ defmodule Menard do
     file =
       Path.join(System.tmp_dir!(), "menard-host-#{System.pid()}-#{System.unique_integer([:positive])}.out")
 
-    argv = ["-c", ~s(out=$1; shift; exec "$@" </dev/null >"$out" 2>&1), "sh", file, exe | argv]
+    # With setsid the command leads its own process group, whose id is the pid `sh` wrote: whatever
+    # it started (zig's build runner) dies with it when the run ends or times out, not only the
+    # command itself.
+    # The output file's first line is that pid, which `read_out` leaves out.
+    # `setsid -w` forks when its caller already leads a group, and waits for the child, whose pid
+    # is the group's.
+    {launcher, argv} =
+      case System.find_executable("setsid") do
+        nil ->
+          {"sh", ["-c", ~s(out=$1; shift; exec "$@" </dev/null >"$out" 2>&1), "sh", file, exe | argv]}
+
+        setsid ->
+          {setsid,
+           [
+             "-w",
+             "sh",
+             "-c",
+             ~s(out=$1; shift; echo $$ >"$out"; exec "$@" </dev/null >>"$out" 2>&1),
+             "sh",
+             file,
+             exe | argv
+           ]}
+      end
 
     try do
-      {rest, status} = bounded_cmd("sh", argv, opts, timeout, label)
+      {rest, status} = bounded_cmd(launcher, argv, opts, timeout, label)
       {note <> read_out(file) <> rest, status}
     after
+      kill_group(file)
       File.rm(file)
     end
   end
 
+  defp kill_group(file) do
+    with {:ok, text} <- File.read(file),
+         [first | _] <- String.split(text, "\n", parts: 2),
+         {pid, ""} when pid > 1 <- Integer.parse(first) do
+      System.cmd("kill", ["-KILL", "--", "-#{pid}"], stderr_to_stdout: true)
+    end
+
+    :ok
+  end
+
   defp read_out(file) do
     case File.read(file) do
-      {:ok, text} -> text
-      {:error, _} -> ""
+      {:ok, text} ->
+        if System.find_executable("setsid"),
+          do: text |> String.split("\n", parts: 2) |> List.last(),
+          else: text
+
+      {:error, _} ->
+        ""
     end
   end
 

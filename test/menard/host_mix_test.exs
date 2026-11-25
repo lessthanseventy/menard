@@ -74,4 +74,33 @@ defmodule Menard.HostMixTest do
     [pid, "hi"] = out |> String.split("\n", trim: true) |> Enum.take(-2)
     System.cmd("kill", [pid])
   end
+
+  describe "what a command started and left running is killed with it" do
+    defp grandchild(dir, script, opts) do
+      {out, status} = Menard.host_cmd(dir, ["sh", "-c", script], opts)
+      [pid | _] = String.split(out, "\n", trim: true)
+      {pid, status}
+    end
+
+    defp gone?(pid, tries \\ 50) do
+      stat = File.read("/proc/#{pid}/stat")
+
+      cond do
+        match?({:error, _}, stat) -> true
+        elem(stat, 1) =~ ") Z " -> true
+        tries == 0 -> false
+        true -> Process.sleep(100) && gone?(pid, tries - 1)
+      end
+    end
+
+    test "when it ends", %{tmp_dir: dir} do
+      {pid, 0} = grandchild(dir, "sleep 300 & echo $!", timeout: 20_000)
+      assert gone?(pid)
+    end
+
+    test "when it times out", %{tmp_dir: dir} do
+      {pid, _} = grandchild(dir, "sleep 300 & echo $!; sleep 300", timeout: 1_000)
+      assert gone?(pid)
+    end
+  end
 end

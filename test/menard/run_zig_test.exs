@@ -175,12 +175,25 @@ defmodule Menard.RunZigTest do
       {:os_pid, pid} = Port.info(port, :os_pid)
       other = Port.open({:spawn_executable, System.find_executable("sleep")}, [:exit_status, args: ["300"]])
       {:os_pid, other_pid} = Port.info(other, :os_pid)
-      Process.sleep(300)
+
+      assert wait_until(fn ->
+               match?({:ok, <<_::binary>>}, File.read_link("/proc/#{pid}/cwd")) and deleted?(pid)
+             end)
 
       assert pid in Zig.reap()
       assert_receive {^port, {:exit_status, _}}, 5_000
       refute other_pid in Zig.reap()
       Port.close(other)
+    end
+  end
+
+  defp deleted?(pid), do: File.read_link!("/proc/#{pid}/cwd") =~ "(deleted)"
+
+  defp wait_until(fun, tries \\ 100) do
+    cond do
+      fun.() -> true
+      tries == 0 -> false
+      true -> Process.sleep(50) && wait_until(fun, tries - 1)
     end
   end
 

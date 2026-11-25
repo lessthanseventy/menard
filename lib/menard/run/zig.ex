@@ -17,7 +17,7 @@ defmodule Menard.Run.Zig do
   """
   @spec reap() :: [non_neg_integer()]
   def reap do
-    for entry <- File.ls!("/proc"),
+    for entry <- proc_entries(),
         pid = parse_pid(entry),
         {:ok, cwd} <- [File.read_link("/proc/#{entry}/cwd")],
         cwd =~ ~r{/menard-zigc-[^/]* \(deleted\)$},
@@ -179,6 +179,13 @@ defmodule Menard.Run.Zig do
 
   defp project_files(dir) do
     for file <- Path.wildcard(Path.join(dir, "{src,test}/**/*.zig")), do: Path.relative_to(file, dir)
+  end
+
+  defp proc_entries do
+    case File.ls("/proc") do
+      {:ok, entries} -> entries
+      {:error, _} -> []
+    end
   end
 
   defp parse_pid(entry) do
