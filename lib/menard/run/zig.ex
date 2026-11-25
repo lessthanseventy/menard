@@ -10,9 +10,26 @@ defmodule Menard.Run.Zig do
 
   @steps %{"test" => ~w(test), "compile" => [], "check" => ~w(install test)}
 
+  @doc """
+  Kills the processes a zig run left behind: a build runner whose working directory was a
+  `menard-zigc-*` scratch dir that is now deleted spins forever, and nothing else wants it.
+  Answers the OS pids it killed.
+  """
+  @spec reap() :: [non_neg_integer()]
+  def reap do
+    for entry <- File.ls!("/proc"),
+        pid = parse_pid(entry),
+        {:ok, cwd} <- [File.read_link("/proc/#{entry}/cwd")],
+        cwd =~ ~r{/menard-zigc-[^/]* \(deleted\)$},
+        {_, 0} <- [System.cmd("kill", ["-KILL", entry], stderr_to_stdout: true)] do
+      pid
+    end
+  end
+
   @doc "`verb` (`test`, `compile`, `check`) as `zig build` steps in `run.dir`, `args` passed on."
   @spec result(map(), String.t(), [String.t()]) :: map()
   def result(%{dir: dir} = run, verb, args) do
+    reap()
     steps = Map.fetch!(@steps, verb)
     ran = Enum.join(["zig", "build" | steps], " ")
     left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
@@ -34,6 +51,7 @@ defmodule Menard.Run.Zig do
   """
   @spec compile(map(), [String.t()]) :: map()
   def compile(%{dir: dir} = run, args) do
+    reap()
     files = if args == [], do: project_files(dir), else: Enum.filter(args, &String.ends_with?(&1, ".zig"))
 
     {out, status} =
@@ -161,5 +179,12 @@ defmodule Menard.Run.Zig do
 
   defp project_files(dir) do
     for file <- Path.wildcard(Path.join(dir, "{src,test}/**/*.zig")), do: Path.relative_to(file, dir)
+  end
+
+  defp parse_pid(entry) do
+    case Integer.parse(entry) do
+      {pid, ""} -> pid
+      _ -> nil
+    end
   end
 end

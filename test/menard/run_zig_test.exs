@@ -159,6 +159,29 @@ defmodule Menard.RunZigTest do
     end
   end
 
+  describe "reap" do
+    test "kills a process left in a deleted menard-zigc dir, and only that" do
+      dir = Path.join(System.tmp_dir!(), "menard-zigc-reap-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+
+      port =
+        Port.open({:spawn_executable, System.find_executable("sh")}, [
+          :exit_status,
+          args: ["-c", ~s(cd "$1" && rm -rf "$1" && exec sleep 300), "sh", dir]
+        ])
+
+      {:os_pid, pid} = Port.info(port, :os_pid)
+      other = Port.open({:spawn_executable, System.find_executable("sleep")}, [:exit_status, args: ["300"]])
+      {:os_pid, other_pid} = Port.info(other, :os_pid)
+      Process.sleep(300)
+
+      assert pid in Zig.reap()
+      assert_receive {^port, {:exit_status, _}}, 5_000
+      refute other_pid in Zig.reap()
+      Port.close(other)
+    end
+  end
+
   describe "compile in a zig project is a fast check" do
     @describetag skip: !System.find_executable("zig") && "needs zig"
     @describetag timeout: 30_000
