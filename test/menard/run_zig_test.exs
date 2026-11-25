@@ -184,6 +184,7 @@ defmodule Menard.RunZigTest do
       assert_receive {^port, {:exit_status, _}}, 5_000
       refute other_pid in Zig.reap()
       Port.close(other)
+      System.cmd("kill", ["#{other_pid}"])
     end
   end
 
