@@ -80,7 +80,9 @@ defmodule Menard.RunZigTest do
   end
 
   test "a test that failed without output is a failure with its name and its declaration's line" do
-    dir = Path.join(System.tmp_dir!(), "menard-zig-silent-#{System.unique_integer([:positive])}")
+    dir =
+      Path.join(System.tmp_dir!(), "menard-zig-silent-#{System.pid()}-#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(Path.join(dir, "src"))
     on_exit(fn -> File.rm_rf!(dir) end)
 
