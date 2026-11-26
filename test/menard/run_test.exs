@@ -325,6 +325,13 @@ defmodule Menard.RunTest do
       assert tail =~ "no mise task e2e"
     end
 
+    test "e2e with no such task in a zig repo refuses, not a zig build", %{dir: dir} do
+      File.write!(Path.join(dir, "build.zig"), "")
+
+      assert %{ok: false, failures: [], tail: tail} = Menard.Run.result(dir, "e2e", [])
+      assert tail =~ "no mise task e2e"
+    end
+
     test "no such task is said in menard's words, not mix's", %{dir: dir} do
       assert %{ok: false, failures: [], tail: tail} = Menard.Run.result(dir, "compile", [])
       assert tail =~ "no mix.exs in #{dir}, and no mise task compile"

@@ -671,11 +671,11 @@ defmodule Menard.Run do
       end
     else
       nil ->
-        if zig?(dir), do: Zig.result(run, verb, args), else: %{ok: false, failures: [], tail: none}
+        if zig_verb?(dir, verb), do: Zig.result(run, verb, args), else: %{ok: false, failures: [], tail: none}
 
       {out, _status} ->
         cond do
-          zig?(dir) -> Zig.result(run, verb, args)
+          zig_verb?(dir, verb) -> Zig.result(run, verb, args)
           out =~ "Task not found" -> %{ok: false, failures: [], tail: none}
           true -> %{ok: false, failures: [], tail: Output.tail(out)}
         end
@@ -683,10 +683,13 @@ defmodule Menard.Run do
   end
 
   defp no_task(dir, verb) do
-    if File.regular?(Path.join(dir, "mix.exs")),
+    if verb == "e2e" or File.regular?(Path.join(dir, "mix.exs")),
       do: "no mise task #{verb} in #{dir}",
       else: "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
   end
+
+  # zig's own build has no e2e step to fall back to
+  defp zig_verb?(dir, verb), do: zig?(dir) and verb != "e2e"
 
   defp zig?(dir), do: File.regular?(Path.join(dir, "build.zig"))
 
