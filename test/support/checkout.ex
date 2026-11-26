@@ -13,8 +13,11 @@ defmodule Menard.Test.Checkout do
     # one OS process each, not File.cp_r!: thousands of files through the VM's one file server,
     # four copies at once, stalled every other test's File.cwd!/File.regular? for a minute
     File.mkdir_p!(Path.join(copy, "_build"))
-    {_, 0} = System.cmd("cp", ["-a", Path.join(@root, "deps"), Path.join(copy, "deps")])
-    {_, 0} = System.cmd("cp", ["-a", Path.join(@root, "_build/dev"), Path.join(copy, "_build/dev")])
+    cp_a!(Path.join(@root, "deps"), Path.join(copy, "deps"))
+    dev = Path.join(@root, "_build/dev")
+
+    # a gate's worktree runs the test env and may carry no dev build: compile one in the copy
+    if File.dir?(dev), do: cp_a!(dev, Path.join(copy, "_build/dev")), else: compile_dev!(copy)
     copy
   end
 
@@ -48,6 +51,20 @@ defmodule Menard.Test.Checkout do
         flunk(
           "#{f} is tracked and could not be copied (#{why}): a git operation rewriting this checkout while the suite runs?"
         )
+    end
+  end
+
+  defp cp_a!(src, dest) do
+    case System.cmd("cp", ["-a", src, dest], stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {out, status} -> flunk("cp -a #{src} #{dest} exited #{status}: #{out}")
+    end
+  end
+
+  defp compile_dev!(copy) do
+    case System.cmd("mix", ["compile"], cd: copy, env: [{"MIX_ENV", "dev"}], stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {out, status} -> flunk("MIX_ENV=dev mix compile in #{copy} exited #{status}: #{out}")
     end
   end
 end
