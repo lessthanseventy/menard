@@ -150,7 +150,7 @@ While you work, `run {verb: "test", args: [FILES]}` with the test files of what 
 {verb: "check"}` once, when the change is done. `check` is format, warnings-as-errors and the tests in one JSON line: green, `ok`
 and the counts; red, the failures. Every `run` verb answers `failures` in one shape: `kind` (`test`, `error`, `warning`, `format`, `credo`, and `step`: a precommit step nothing else read, named in `step`), `message`
 (why) and `at` (`file:line`); a test failure adds its `source` and the assertion's `left`/`right`. `mix test`'s own flags pass through `args`, and what they would print is data in the reply: `--slowest 10` answers `slowest`, `--slowest-modules 10` answers `slowest_modules` (either makes ExUnit run one test at a time, so the run is far longer than the suite's). `run {verb: "test", args: [FILE, "--repeat-until-failure", "50"]}` hunts a flake
-and answers with the failing run's `seed`. One test or one describe, when you are editing the file
+and answers with the failing run's `seed`. `run {verb: "e2e"}` runs only the repo's `e2e` mise task (each failing step is `{kind: "e2e", name, screen}`); no such task, it refuses at once. One test or one describe, when you are editing the file
 its line would drift in: go by name, `args: [FILE, "--only", "test:test NAME"]` (inside a describe,
 NAME is the describe's name, a space, then the test's) or `args: [FILE, "--only", "describe:NAME"]`;
 a name that matches nothing answers `ok: false` with no test run. A parse-checked write is a floor, not a proof: finish on

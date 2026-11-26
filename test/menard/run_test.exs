@@ -297,6 +297,34 @@ defmodule Menard.RunTest do
       assert tail =~ "gate-said-no"
     end
 
+    test "e2e runs its mise task, and each FAIL line is a failure with its screen", %{dir: dir} do
+      mise_task(dir, "e2e", ~S"""
+      echo "ok    first step"
+      echo "FAIL  the strip shows"
+      echo "      | row one"
+      echo "      | row two"
+      echo "FAIL  second step"
+      echo "      | other"
+      exit 1
+      """)
+
+      assert %{
+               ok: false,
+               ran: "mise run e2e",
+               failures: [
+                 %{kind: "e2e", name: "the strip shows", screen: "row one\nrow two"},
+                 %{kind: "e2e", name: "second step", screen: "other"}
+               ]
+             } = Menard.Run.result(dir, "e2e", [])
+    end
+
+    test "e2e with no such task refuses at once, in a mix project too", %{dir: dir} do
+      File.write!(Path.join(dir, "mix.exs"), "")
+
+      assert %{ok: false, failures: [], tail: tail} = Menard.Run.result(dir, "e2e", [])
+      assert tail =~ "no mise task e2e"
+    end
+
     test "no such task is said in menard's words, not mix's", %{dir: dir} do
       assert %{ok: false, failures: [], tail: tail} = Menard.Run.result(dir, "compile", [])
       assert tail =~ "no mix.exs in #{dir}, and no mise task compile"

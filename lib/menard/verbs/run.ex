@@ -10,7 +10,7 @@ defmodule Menard.Verbs.Run do
 
   import Menard.Verbs
 
-  @verbs ~w(check test format compile credo)
+  @verbs ~w(check test format compile credo e2e)
 
   @doc "The noun, as both doors are made from it (`Menard.Verbs.Noun`)."
   @spec noun() :: Menard.Verbs.Noun.t()
@@ -26,6 +26,11 @@ defmodule Menard.Verbs.Run do
       and any `mix test` flag), `format` (args: files), `compile`, `credo` (args: files, `--strict`,
       `--changed` for the lines changed since the last commit). `dir` defaults to the root; a `test`
       given no `dir` runs in the project above its files (a `demo/` with its own mix.exs).
+
+      `e2e` runs the repo's own `e2e` mise task alone (a mix project or not), with `run check`'s
+      process-group handling: a failing step is a `failures` entry `{kind: "e2e", name, screen}` from
+      the task's `FAIL  name` lines and the `      | ` screen under each. With no `e2e` task it
+      refuses at once and says so.
 
       While you work, `test` with the test files of what you changed: seconds, and their failures
       alone. `check` once, when the change is done: it is the whole suite and more (a session that
@@ -48,7 +53,7 @@ defmodule Menard.Verbs.Run do
       """,
       deadline: 600_000,
       fields: [
-        {:verb, :enum, [values: ["check", "test", "format", "compile", "credo"], required: true]},
+        {:verb, :enum, [values: ["check", "test", "format", "compile", "credo", "e2e"], required: true]},
         {:args, {:list, :string}, []},
         {:dir, :string, []},
         {:committed, :boolean, []}

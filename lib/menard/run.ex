@@ -38,6 +38,9 @@ defmodule Menard.Run do
 
     reply =
       cond do
+        verb == "e2e" ->
+          e2e(run, args)
+
         verb in @tasks and not File.regular?(Path.join(dir, "mix.exs")) ->
           task(run, verb, args)
 
@@ -614,8 +617,29 @@ defmodule Menard.Run do
 
   defp task(run, verb, args), do: task_of(run, verb, args)
 
+  # The repo's own `e2e` mise task, in a mix project or not. Its report is `FAIL  name` then the
+  # screen, each line prefixed `      | `.
+  defp e2e(run, args) do
+    reply = task_of(run, "e2e", args)
+    out = if File.exists?(run.log), do: File.read!(run.log), else: ""
+    failures = e2e_failures(String.split(out, "\n"))
+    if failures == [], do: reply, else: %{reply | failures: failures}
+  end
+
+  defp e2e_failures(["FAIL  " <> name | rest]) do
+    {screen, rest} = Enum.split_while(rest, &String.starts_with?(&1, "      |"))
+    screen = Enum.map_join(screen, "\n", &String.replace_prefix(&1, "      | ", ""))
+    [%{kind: "e2e", name: name, screen: screen} | e2e_failures(rest)]
+  end
+
+  defp e2e_failures([_line | rest]), do: e2e_failures(rest)
+  defp e2e_failures([]), do: []
+
   defp task_of(%{dir: dir} = run, verb, args) do
-    none = "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
+    none =
+      if File.regular?(Path.join(dir, "mix.exs")),
+        do: "no mise task #{verb} in #{dir}",
+        else: "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
 
     with mise when is_binary(mise) <- System.find_executable("mise"),
          {_info, 0} <- System.cmd(mise, ["tasks", "info", verb, "--json"], cd: dir, stderr_to_stdout: true) do
