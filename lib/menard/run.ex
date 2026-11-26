@@ -636,10 +636,7 @@ defmodule Menard.Run do
   defp e2e_failures([]), do: []
 
   defp task_of(%{dir: dir} = run, verb, args) do
-    none =
-      if File.regular?(Path.join(dir, "mix.exs")),
-        do: "no mise task #{verb} in #{dir}",
-        else: "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
+    none = no_task(dir, verb)
 
     with mise when is_binary(mise) <- System.find_executable("mise"),
          {_info, 0} <- System.cmd(mise, ["tasks", "info", verb, "--json"], cd: dir, stderr_to_stdout: true) do
@@ -683,6 +680,12 @@ defmodule Menard.Run do
           true -> %{ok: false, failures: [], tail: Output.tail(out)}
         end
     end
+  end
+
+  defp no_task(dir, verb) do
+    if File.regular?(Path.join(dir, "mix.exs")),
+      do: "no mise task #{verb} in #{dir}",
+      else: "no mix.exs in #{dir}, and no mise task #{verb} to run instead"
   end
 
   defp zig?(dir), do: File.regular?(Path.join(dir, "build.zig"))
