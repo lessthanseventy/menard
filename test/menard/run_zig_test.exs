@@ -79,6 +79,33 @@ defmodule Menard.RunZigTest do
            }
   end
 
+  test "a test that failed without output is a failure with its name and its declaration's line" do
+    dir = Path.join(System.tmp_dir!(), "menard-zig-silent-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(Path.join(dir, "src"))
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    File.write!(
+      Path.join(dir, "src/draw.zig"),
+      "const std = @import(\"std\");\n\ntest \"no output\" {\n    return error.Nope;\n}\n"
+    )
+
+    out = """
+    test
+    +- run test 227 pass, 1 fail (228 total)
+    error: 'draw.test.no output' failed without output
+    Build Summary: 3/5 steps succeeded (1 failed); 227/228 tests passed (1 failed)
+    """
+
+    assert %{ok: false, tests: 228, failed: 1, failures: [failure]} = Zig.parse(out, 1, dir)
+
+    assert failure == %{
+             kind: "test",
+             name: "draw.test.no output",
+             at: "src/draw.zig:3",
+             message: "failed without output"
+           }
+  end
+
   test "a compile error is said once, with its place, and no command line" do
     reply = Zig.parse(@broken, 1, "/work/app")
 

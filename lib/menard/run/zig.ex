@@ -161,7 +161,33 @@ defmodule Menard.Run.Zig do
     end
   end
 
-  defp failed_tests(out, dir) do
+  defp failed_tests(out, dir), do: silent_tests(out, dir) ++ said_tests(out, dir)
+
+  defp silent_tests(out, dir) do
+    for [_, name] <- Regex.scan(~r/^error: '(.+)' failed without output$/m, out) do
+      %{kind: "test", name: name, message: "failed without output"}
+      |> Map.merge(declaration(name, dir))
+    end
+  end
+
+  # a test that printed nothing has no trace, so its place is where its `test "name"` is declared
+  defp declaration(name, dir) do
+    short = name |> String.split(".test.", parts: 2) |> List.last()
+    decls = [~s(test "#{short}"), "test #{short} "]
+
+    place =
+      for file <- project_files(dir),
+          {line, n} <- file |> then(&Path.join(dir, &1)) |> File.stream!() |> Stream.with_index(1),
+          String.trim_leading(line) |> String.starts_with?(decls),
+          do: "#{file}:#{n}"
+
+    case place do
+      [at | _] -> %{at: at}
+      [] -> %{}
+    end
+  end
+
+  defp said_tests(out, dir) do
     for [_, name, inline, body] <- Regex.scan(~r/^error: '(.+)' failed:[ \t]*(.*)\n((?:[ \t]+.*\n?)*)/m, out) do
       lines = body |> String.split("\n", trim: true) |> Enum.map(&String.trim/1)
       {said, trace} = Enum.split_while(lines, &(frame(&1) == nil))
