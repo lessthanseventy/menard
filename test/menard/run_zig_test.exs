@@ -146,9 +146,21 @@ defmodule Menard.RunZigTest do
 
   test "a failure nothing parsed keeps its last lines, without the command" do
     out = "error: no such step: test\nfailed command: /opt/zig/zig build --lots --of --flags\n"
-    assert %{ok: false, failures: [], tail: tail} = Zig.parse(out, 1, "/work/app")
-    assert tail =~ "no such step: test"
-    refute tail =~ "failed command"
+
+    assert %{ok: false, failures: [%{kind: "build", message: "no such step: test"}]} =
+             Zig.parse(out, 1, "/work/app")
+  end
+
+  test "a file handed to run test in a zig project is refused before any build" do
+    dir = Path.join(System.tmp_dir!(), "zig-files-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, "build.zig"), "")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    assert %{ok: false, failures: [%{kind: "usage", message: message}]} =
+             Menard.Run.result(dir, "test", ["src/board.zig"])
+
+    assert message =~ "--test-filter"
   end
 
   describe "in a zig project" do

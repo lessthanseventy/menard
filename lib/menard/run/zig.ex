@@ -113,6 +113,7 @@ defmodule Menard.Run.Zig do
   def parse(out, status, dir) do
     out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
     failures = compile_errors(out, dir) ++ failed_tests(out, dir)
+    failures = if failures == [] and status != 0, do: build_errors(out), else: failures
     reply = %{ok: status == 0, exit: status, failures: failures}
 
     case Regex.run(~r/^Build Summary: (.+?)(?:; (\d+)\/(\d+) tests passed(.*))?$/m, out) do
@@ -158,6 +159,13 @@ defmodule Menard.Run.Zig do
   defp compile_errors(out, dir) do
     for [_, file, line, message] <- Regex.scan(~r/^(\S[^:\n]*):(\d+):\d+: error: (.+)$/m, out), uniq: true do
       %{kind: "compile", at: "#{relative(file, dir)}:#{line}", message: message}
+    end
+  end
+
+  # `error: no such step: x`, `error: unable to ...`: zig's own, outside any file or test
+  defp build_errors(out) do
+    for [_, message] <- Regex.scan(~r/^error: (?!'.*' failed:)(.+)$/m, out), uniq: true do
+      %{kind: "build", message: message}
     end
   end
 

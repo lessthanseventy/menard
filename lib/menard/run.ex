@@ -597,6 +597,21 @@ defmodule Menard.Run do
     if zig?(dir), do: Zig.compile(run, args), else: task_of(run, "compile", args)
   end
 
+  # `zig build test` takes steps and flags, no files: handed one, it fails as `no such step` after
+  # a whole build. A file is not a test name, so mapping it to `--test-filter` would pass with nothing run.
+  defp task(%{dir: dir} = run, "test", args) do
+    case zig?(dir) && Enum.filter(args, &String.ends_with?(&1, ".zig")) do
+      [_ | _] = files ->
+        message =
+          "zig build test takes no files here (#{Enum.join(files, ", ")}): run the whole suite, or pass --test-filter NAME"
+
+        %{ok: false, failures: [%{kind: "usage", message: message}]}
+
+      _ ->
+        task_of(run, "test", args)
+    end
+  end
+
   defp task(run, verb, args), do: task_of(run, verb, args)
 
   defp task_of(%{dir: dir} = run, verb, args) do
