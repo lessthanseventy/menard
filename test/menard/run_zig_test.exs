@@ -152,7 +152,9 @@ defmodule Menard.RunZigTest do
   end
 
   test "a file handed to run test in a zig project is refused before any build" do
-    dir = Path.join(System.tmp_dir!(), "zig-files-#{System.unique_integer([:positive])}")
+    dir =
+      Path.join(System.tmp_dir!(), "menard-zig-files-#{System.pid()}-#{System.unique_integer([:positive])}")
+
     File.mkdir_p!(dir)
     File.write!(Path.join(dir, "build.zig"), "")
     on_exit(fn -> File.rm_rf!(dir) end)
