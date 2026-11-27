@@ -94,15 +94,19 @@ defmodule Menard.LspTest do
                         end
                     end)
 
-  @tag timeout: 900_000
+  # expert's index is minutes of work that a loaded suite can starve: `mix precommit` runs this
+  # alone, after the suite
+  @tag :expert_index
+  @tag timeout: 400_000
   @tag skip: @expert_unusable
   test "a warm server adds what the AST cannot see, as references", %{project: project} do
     Menard.Lsp.warm(project)
+    on_exit(fn -> stop_server(project) end)
     math = Path.join(project, "lib/math.ex")
 
     # settled is no promise the index is built: under load expert's build began over 3s after its
     # engine, and until then it answered null or a short list. Only the index knows the delegate.
-    await_server(project, 800_000, fn ->
+    await_server(project, 300_000, fn ->
       with {:ok, found} <- Menard.Lsp.references(project, math, 3, 7, 5_000),
            true <- Enum.any?(found, &(Path.basename(&1.file) == "deleg.ex")),
            do: :ok,
@@ -187,20 +191,41 @@ defmodule Menard.LspTest do
       end)
 
     ref = Process.monitor(pid)
-    ask_until(ref, System.monotonic_time(:millisecond) + ms, ask)
+    ask_until(ref, {System.monotonic_time(:millisecond) + ms, ms}, ask)
   end
 
-  defp ask_until(ref, deadline, ask) do
+  defp ask_until(ref, {deadline, ms} = wait, ask) do
     receive do
       {:DOWN, ^ref, _, _, reason} ->
         flunk("the language server stopped before it answered: #{inspect(reason)}")
     after
       0 ->
         cond do
-          ask.() == :ok -> :ok
-          System.monotonic_time(:millisecond) > deadline -> flunk("the language server never answered")
-          true -> Process.sleep(100) && ask_until(ref, deadline, ask)
+          ask.() == :ok ->
+            :ok
+
+          System.monotonic_time(:millisecond) > deadline ->
+            flunk("#{Menard.Lsp.server()} did not answer in #{div(ms, 1000)} s (#{load()})")
+
+          true ->
+            Process.sleep(100) && ask_until(ref, wait, ask)
         end
     end
+  end
+
+  # a red that names the machine's state, not a mystery
+  defp load do
+    case File.read("/proc/loadavg") do
+      {:ok, avg} ->
+        "load #{avg |> String.split() |> Enum.take(3) |> Enum.join(" ")} on #{System.schedulers_online()} cores"
+
+      {:error, _} ->
+        "load unknown"
+    end
+  end
+
+  defp stop_server(project) do
+    for {pid, _} <- Registry.lookup(Menard.Lsp.Registry, Path.expand(project)),
+        do: DynamicSupervisor.terminate_child(Menard.Lsp.Workers, pid)
   end
 end

@@ -55,7 +55,8 @@ defmodule Menard.MixProject do
           # purpose looks like a leak from inside the very suite that started it — this runs
           # `mix test` as its own process so it can tell "still warm" from "leaked" once that
           # process is actually gone.
-          "test_no_leaks"
+          "test_no_leaks",
+          ~s(cmd sh -c "MIX_ENV=test mix test --only expert_index")
         ]
       ]
     ]
