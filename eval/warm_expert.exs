@@ -9,9 +9,14 @@ deadline = System.monotonic_time(:second) + 600
 
 wait = fn wait ->
   cond do
-    Menard.Lsp.warm?(dir) -> IO.puts("expert warm in #{dir}")
-    System.monotonic_time(:second) > deadline -> raise "expert not ready in #{dir} after 600s"
-    true -> Process.sleep(1_000) && wait.(wait)
+    match?({:ok, _}, Menard.Lsp.references(dir, Path.join(dir, "mix.exs"), 1, 1, 5_000)) ->
+      IO.puts("expert warm in #{dir}")
+
+    System.monotonic_time(:second) > deadline ->
+      raise "expert not ready in #{dir} after 600s"
+
+    true ->
+      Process.sleep(1_000) && wait.(wait)
   end
 end
 
