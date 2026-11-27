@@ -325,6 +325,15 @@ defmodule Menard.RunTest do
       assert tail =~ "no mise task e2e"
     end
 
+    test "the CLI takes the e2e verb, not the usage line", %{dir: dir} do
+      out =
+        ExUnit.CaptureIO.capture_io(fn ->
+          catch_exit(Mix.Tasks.Menard.Run.run(["--in", dir, "e2e"]))
+        end)
+
+      assert out =~ "no mise task e2e"
+    end
+
     test "e2e with no such task in a zig repo refuses, not a zig build", %{dir: dir} do
       File.write!(Path.join(dir, "build.zig"), "")
 

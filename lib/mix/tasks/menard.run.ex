@@ -37,12 +37,12 @@ defmodule Mix.Tasks.Menard.Run do
     {committed, args} = {"--committed" in args, args -- ["--committed"]}
 
     case args do
-      [verb | rest] when verb in ~w(check test format compile credo) ->
+      [verb | rest] when verb in ~w(check test format compile credo e2e) ->
         finish(Verbs.Run.run(%{verb: verb, args: rest, dir: dir, committed: committed}))
 
       _ ->
         usage(
-          "mix menard.run [--in DIR] [--committed] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed])"
+          "mix menard.run [--in DIR] [--committed] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed]|e2e)"
         )
     end
   end
