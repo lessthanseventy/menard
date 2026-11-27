@@ -30,7 +30,8 @@ defmodule Menard.Verbs.Run do
       `e2e` runs the repo's own `e2e` mise task alone (a mix project or not), with `run check`'s
       process-group handling: a failing step is a `failures` entry `{kind: "e2e", name, screen}` from
       the task's `FAIL  name` lines and the `      | ` screen under each. With no `e2e` task it
-      refuses at once and says so.
+      refuses at once and says so. `--only REGEX` (in `args`) sets `E2E_ONLY` for the task, to run
+      only its matching steps; no other variable of the caller's reaches it.
 
       While you work, `test` with the test files of what you changed: seconds, and their failures
       alone. `check` once, when the change is done: it is the whole suite and more (a session that

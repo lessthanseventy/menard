@@ -613,8 +613,10 @@ defmodule Menard.Run do
 
   # The repo's own `e2e` mise task, in a mix project or not. Its report is `FAIL  name` then the
   # screen, each line prefixed `      | `.
+  # `--only REGEX` is the task's E2E_ONLY, and only that: the server's own environment is not the caller's.
   defp e2e(run, args) do
-    reply = task_of(run, "e2e", args)
+    {only, args} = only(args, nil, [])
+    reply = task_of(run, "e2e", args, [{"E2E_ONLY", only}])
     out = if File.exists?(run.log), do: File.read!(run.log), else: ""
     failures = e2e_failures(String.split(out, "\n"))
     if failures == [], do: reply, else: %{reply | failures: failures}
@@ -629,7 +631,12 @@ defmodule Menard.Run do
   defp e2e_failures([_line | rest]), do: e2e_failures(rest)
   defp e2e_failures([]), do: []
 
-  defp task_of(%{dir: dir} = run, verb, args) do
+  defp only(["--only", regex | rest], _only, acc), do: only(rest, regex, acc)
+  defp only(["--only=" <> regex | rest], _only, acc), do: only(rest, regex, acc)
+  defp only([arg | rest], only, acc), do: only(rest, only, [arg | acc])
+  defp only([], only, acc), do: {only, Enum.reverse(acc)}
+
+  defp task_of(%{dir: dir} = run, verb, args, env \\ []) do
     none = no_task(dir, verb)
 
     with mise when is_binary(mise) <- System.find_executable("mise"),
@@ -637,7 +644,7 @@ defmodule Menard.Run do
       left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
 
       cmd = fn ->
-        Menard.host_cmd(dir, [mise, "run", verb | args], timeout: left, label: "mise run #{verb}")
+        Menard.host_cmd(dir, [mise, "run", verb | args], timeout: left, label: "mise run #{verb}", env: env)
       end
 
       {{out, status}, stuck} = if zig?(dir), do: Zig.watched(dir, cmd), else: {cmd.(), []}

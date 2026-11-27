@@ -318,6 +318,18 @@ defmodule Menard.RunTest do
              } = Menard.Run.result(dir, "e2e", [])
     end
 
+    test "e2e --only REGEX runs its task with E2E_ONLY set, and without it unset", %{dir: dir} do
+      mise_task(dir, "e2e", ~S|echo "only=[${E2E_ONLY-unset}] args=[$*]"|)
+
+      assert %{ok: true, tail: tail} = Menard.Run.result(dir, "e2e", ["--only", "click"])
+      assert tail =~ "only=[click] args=[]"
+
+      System.put_env("E2E_ONLY", "leaked")
+      on_exit(fn -> System.delete_env("E2E_ONLY") end)
+      assert %{ok: true, tail: tail} = Menard.Run.result(dir, "e2e", [])
+      assert tail =~ "only=[unset] args=[]"
+    end
+
     test "e2e with no such task refuses at once, in a mix project too", %{dir: dir} do
       File.write!(Path.join(dir, "mix.exs"), "")
 

@@ -10,7 +10,8 @@ defmodule Mix.Tasks.Menard.Run do
       mix menard.run credo [FILES] [--strict] [--changed]
                                           # the project's credo, when it has one: {ok, failures};
                                           # --changed, only lines changed since the last commit
-      mix menard.run e2e                  # the repo's own e2e mise task: {ok, failures: [{kind: "e2e", name, screen}], tail}
+      mix menard.run e2e [--only REGEX]   # the repo's own e2e mise task: {ok, failures: [{kind: "e2e", name, screen}], tail};
+                                          # --only sets E2E_ONLY, to run the matching steps alone
       mix menard.run check --committed   # check, test or compile on the last commit, in a worktree
                                           # menard keeps: the files can be edited while it runs
 
@@ -43,7 +44,7 @@ defmodule Mix.Tasks.Menard.Run do
 
       _ ->
         usage(
-          "mix menard.run [--in DIR] [--committed] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed]|e2e)"
+          "mix menard.run [--in DIR] [--committed] (check [--strict]|test [FILE[:LINE]] [MIX TEST FLAGS]|format [FILES]|compile|credo [FILES] [--strict] [--changed]|e2e [--only REGEX])"
         )
     end
   end
