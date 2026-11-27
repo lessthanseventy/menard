@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.23
+
+- `menard run e2e` on the command line: 0.8.22 was tagged before the CLI took the verb, so
+  `bin/menard run e2e` still answered the usage line with no e2e. A running session picks the
+  release up with `claude plugin update menard@menard --scope user` and a restart of the
+  session, since its warm server is the old build.
+
 ## 0.8.22
 
 - `run e2e`: runs a repo's `e2e` mise task alone and reads each FAIL step as a failure with its
