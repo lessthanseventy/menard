@@ -278,7 +278,6 @@ defmodule Menard.RunZigTest do
 
       {:os_pid, child} = Port.info(runner, :os_pid)
 
-      assert wait_until(fn -> ppid(orphan) == 1 end)
       reaped = Zig.reap()
       assert orphan in reaped
       refute child in reaped
@@ -324,16 +323,6 @@ defmodule Menard.RunZigTest do
     {:os_pid, pid} = Port.info(port, :os_pid)
     assert wait_until(fn -> File.read!("/proc/locks") =~ ~r/FLOCK\s+ADVISORY\s+WRITE #{pid} / end)
     pid
-  end
-
-  defp ppid(pid) do
-    case File.read("/proc/#{pid}/stat") do
-      {:ok, stat} ->
-        stat |> String.split(") ") |> List.last() |> String.split(" ") |> Enum.at(1) |> String.to_integer()
-
-      {:error, _} ->
-        nil
-    end
   end
 
   defp deleted?(pid), do: File.read_link!("/proc/#{pid}/cwd") =~ "(deleted)"

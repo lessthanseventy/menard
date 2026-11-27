@@ -15,7 +15,7 @@ defmodule Menard.Run.Zig do
   @doc """
   Kills the processes a zig run left behind, which nothing wants: a build runner whose working
   directory was a `menard-zigc-*` scratch dir that is now deleted spins forever, and a compiler
-  (`--listen=-`) whose build runner was killed is left to init holding its cache locks, every
+  (`--listen=-`) whose build runner was killed is left to init (or systemd's user manager) holding its cache locks, every
   later build that needs them waiting behind it. Answers the OS pids it killed.
   """
   @spec reap() :: [non_neg_integer()]
@@ -301,11 +301,16 @@ defmodule Menard.Run.Zig do
     with {:ok, cmdline} <- File.read("/proc/#{entry}/cmdline"),
          [exe | args] <- String.split(cmdline, <<0>>, trim: true),
          true <- Path.basename(exe) == "zig" and "--listen=-" in args do
-      parent(entry) == 1
+      adopted?(parent(entry))
     else
       _ -> false
     end
   end
+
+  # an orphan goes to the nearest subreaper, which in a systemd session is the user's manager, not init
+  defp adopted?(1), do: true
+  defp adopted?(nil), do: false
+  defp adopted?(pid), do: File.read("/proc/#{pid}/comm") == {:ok, "systemd\n"}
 
   defp parent(pid) do
     case stat(pid) do
