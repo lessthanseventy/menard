@@ -367,12 +367,12 @@ defmodule Menard.RunZigTest do
     test "run compile ast-checks the files named, and says where the error is", %{dir: dir} do
       File.write!(Path.join(dir, "src/root.zig"), "pub const a = b;\n")
 
-      {micros, reply} = :timer.tc(fn -> Menard.Run.result(dir, "compile", ["src/root.zig"]) end)
+      # `ran` says no build ran; the build.zig that loops forever is there in case one did
+      reply = Menard.Run.result(dir, "compile", ["src/root.zig"])
 
       assert %{ok: false, ran: "zig ast-check", failures: [failure]} = reply
       assert failure.at == "src/root.zig:1"
       assert failure.message =~ "undeclared identifier"
-      assert micros < 10_000_000
     end
 
     test "an edit's then: compile checks the files it wrote, green and red", %{dir: dir} do
