@@ -76,6 +76,56 @@ defmodule Menard.Run.Zig do
   end
 
   @doc """
+  `test` on named `.zig` files: `zig test FILE` for each (a `:LINE` suffix dropped), the rest of
+  `args` passed on, and the counts and failures summed into one reply. A file that imports a
+  module the build defines can't be run alone, and the reply says so.
+  """
+  @spec test_files(map(), [String.t()], [String.t()]) :: map()
+  def test_files(run, files, args) do
+    files = Enum.map(files, &String.replace(&1, ~r/:\d+$/, ""))
+    ran = Enum.map_join(files, ", ", &"zig test #{&1}")
+
+    {replies, stuck} =
+      Enum.map_reduce(files, [], fn file, stuck ->
+        {reply, more} = test_file(run, file, args)
+        {reply, stuck ++ more}
+      end)
+
+    failures = stuck ++ Enum.flat_map(replies, & &1.failures)
+
+    counts =
+      for key <- [:tests, :failed],
+          into: %{},
+          do: {key, replies |> Enum.map(&Map.get(&1, key, 0)) |> Enum.sum()}
+
+    Map.merge(counts, %{
+      ok: Enum.all?(replies, & &1.ok) and stuck == [],
+      exit: replies |> Enum.map(& &1.exit) |> Enum.max(fn -> 0 end),
+      failures: failures,
+      ran: ran
+    })
+  end
+
+  @doc """
+  What `zig test FILE` printed, exiting `status`, as a run reply: `ok`, the `failures` (a failed
+  test's name, place and message, a compile error's place and message), `tests` and `failed`.
+  """
+  @spec parse_test(String.t(), non_neg_integer(), String.t(), String.t()) :: map()
+  def parse_test(out, status, dir, file) do
+    out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
+    {tests, failed} = test_counts(out)
+
+    failures =
+      case compile_errors(out, dir) do
+        [] -> test_failures(String.split(out, "\n"), dir)
+        errors -> Enum.map(errors, &needs_build(&1, file))
+      end
+
+    failures = if failures == [] and status != 0, do: build_errors(out), else: failures
+    %{ok: status == 0, exit: status, failures: failures, tests: tests, failed: failed}
+  end
+
+  @doc """
   `compile` in a Zig project: a fast check, not a build. `zig ast-check` on `args` (the `.zig`
   files changed; every `.zig` file of the project when none), then `zig build check` where
   `build.zig` defines that step. The full build is `run build`'s.
@@ -395,5 +445,73 @@ defmodule Menard.Run.Zig do
       {pid, ""} -> pid
       _ -> nil
     end
+  end
+
+  defp needs_build(%{message: "no module named" <> _ = message} = error, file),
+    do: %{
+      error
+      | message:
+          "#{message}: #{file} needs the build's modules, run the whole suite or pass --test-filter NAME"
+    }
+
+  defp needs_build(error, _file), do: error
+
+  defp test_counts(out) do
+    case {Regex.run(~r/^(\d+) passed; (\d+) skipped; (\d+) failed\./m, out),
+          Regex.run(~r/^All (\d+) tests passed\./m, out)} do
+      {[_, passed, skipped, failed], _} ->
+        {String.to_integer(passed) + String.to_integer(skipped) + String.to_integer(failed),
+         String.to_integer(failed)}
+
+      {nil, [_, passed]} ->
+        {String.to_integer(passed), 0}
+
+      _ ->
+        {0, 0}
+    end
+  end
+
+  defp test_failures([line | rest], dir) do
+    case Regex.run(~r/^\d+\/\d+ (.+?)\.\.\.(.*)$/, line) do
+      [_, _name, said] when said in ["OK", "SKIP"] ->
+        test_failures(rest, dir)
+
+      [_, name, said] ->
+        {body, rest} = Enum.split_while(rest, &(not Regex.match?(~r/^(\d+\/\d+ |\d+ passed; |error: )/, &1)))
+        [test_failure(name, said, body, dir) | test_failures(rest, dir)]
+
+      nil ->
+        test_failures(rest, dir)
+    end
+  end
+
+  defp test_failures([], _dir), do: []
+
+  defp test_failure(name, said, body, dir) do
+    {said, body} = if said =~ ~r/^FAIL \(/, do: {"", [said | body]}, else: {said, body}
+    {head, trace} = Enum.split_while(body, &(frame(String.trim(&1)) == nil))
+
+    kind =
+      head
+      |> Enum.find_value(&Regex.run(~r/^FAIL \((.+)\)$/, &1, capture: :all_but_first))
+      |> List.wrap()
+      |> List.first()
+
+    {at, code} = place(Enum.map(trace, &String.trim/1), dir)
+    message = if said == "", do: kind || "failed", else: said
+
+    Map.reject(%{kind: "test", name: name, at: at, message: message, code: code}, fn {_key, value} ->
+      value == nil
+    end)
+  end
+
+  defp test_file(%{dir: dir} = run, file, args) do
+    {{out, status}, stuck} =
+      watched(dir, fn ->
+        zig(run, ["test", file | args], "zig test #{file}")
+      end)
+
+    File.write!(run.log, "$ zig test #{file}\n#{out}\n", [:append])
+    {parse_test(out, status, dir, file), stuck}
   end
 end

@@ -151,18 +151,33 @@ defmodule Menard.RunZigTest do
              Zig.parse(out, 1, "/work/app")
   end
 
-  test "a file handed to run test in a zig project is refused before any build" do
-    dir =
-      Path.join(System.tmp_dir!(), "menard-zig-files-#{System.pid()}-#{System.unique_integer([:positive])}")
+  test "zig test's report: the counts, and a failed test's name, place and message" do
+    out = """
+    1/2 a.test.a ok...OK
+    2/2 a.test.a bad...expected 5, found 4
+    FAIL (TestExpectedEqual)
+    /usr/lib/zig/std/testing.zig:57:5: 0x1254af4 in expectEqual (a.zig)
+        return expectEqualInner(T, expected, actual);
+        ^
+    /work/app/src/a.zig:3:16: 0x1254b3b in test.a bad (a.zig)
+    test "a bad" { try std.testing.expectEqual(@as(i32, 5), 4); }
+                   ^
+    1 passed; 0 skipped; 1 failed.
+    error: the following test command failed with exit code 1:
+    .zig-cache/o/46c/test --seed=0xab4b7621
+    """
 
-    File.mkdir_p!(dir)
-    File.write!(Path.join(dir, "build.zig"), "")
-    on_exit(fn -> File.rm_rf!(dir) end)
+    assert %{ok: false, tests: 2, failed: 1, failures: [failure]} =
+             Zig.parse_test(out, 1, "/work/app", "src/a.zig")
 
-    assert %{ok: false, failures: [%{kind: "usage", message: message}]} =
-             Menard.Run.result(dir, "test", ["src/board.zig"])
+    assert %{kind: "test", name: "a.test.a bad", at: "src/a.zig:3", message: "expected 5, found 4"} = failure
+  end
 
-    assert message =~ "--test-filter"
+  test "a file that imports a build module says it can't run alone" do
+    out = "src/a.zig:1:19: error: no module named 'app' available within module a\n"
+
+    assert %{ok: false, failures: [%{message: message}]} = Zig.parse_test(out, 1, "/w", "src/a.zig")
+    assert message =~ "needs the build's modules"
   end
 
   describe "in a zig project" do
@@ -188,6 +203,17 @@ defmodule Menard.RunZigTest do
       assert failure.name =~ "menard fails"
       assert failure.at =~ ~r/^src\/root\.zig:\d+$/
       assert failure.message == "return error.Nope;"
+    end
+
+    test "run test FILE runs that file's tests alone", %{zig: zig} do
+      File.write!(Path.join(zig, "src/a.zig"), ~s|test "a one" {}\ntest "a two" {}\n|)
+      File.write!(Path.join(zig, "src/b.zig"), ~s|test "b fails" {\n    return error.Nope;\n}\n|)
+
+      assert %{ok: true, tests: 2, failed: 0, ran: "zig test src/a.zig"} =
+               Menard.Run.result(zig, "test", ["src/a.zig"])
+
+      assert %{ok: false, tests: 1, failed: 1, failures: [%{name: "b.test.b fails", at: "src/b.zig:2"}]} =
+               Menard.Run.result(zig, "test", ["src/b.zig:1"])
     end
 
     test "an edit's then: test runs the tests of the zig project the file is in", %{dir: dir} do
