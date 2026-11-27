@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.8.22
+
+- `run e2e`: runs a repo's `e2e` mise task alone and reads each FAIL step as a failure with its
+  screen. It was on main but not in 0.8.21, so sessions got "no such verb".
+- `run test FILE` in a Zig repo runs `zig test FILE` and answers the usual counts and failures;
+  a test that failed without output is a failure with its name and declaration line, and zig's
+  own `error:` lines become failures.
+- `run compile` in a Zig repo is a fast check: `zig ast-check` on the changed files, plus
+  `zig build check` where `build.zig` has it. `run test` says how many test steps were cached.
+- Zig runs reap build runners and compilers orphaned by a killed build, and end a wait on a
+  cache lock no one works under; a host command leads its own process group, killed when the
+  run ends.
+- In a linked worktree, files are no longer ignored because the main checkout ignores
+  `.worktrees/`, and the formatter's plugins fall back to the main checkout's `_build`.
+- `edit --no-format` (`no_format: true`) writes the files as patched; a `.formatter.exs` that
+  does not evaluate is said with its error, and one evaluated in its own VM is asked once.
+- `edit`: biome's a11y lint group is skipped where the repo has no biome config.
+- A tool the host pins, not only erlang or elixir, runs under `mise exec`.
+- `deps`: mint 1.10.0 to 1.11.0 (hpax 1.1.0), clearing hex.audit's advisories.
+
 ## 0.8.21
 
 - A subagent is told at its start what its session was told (a `SubagentStart` hook): the
