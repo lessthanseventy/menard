@@ -98,18 +98,19 @@ defmodule Menard.LspTest do
   @tag skip: @expert_unusable
   test "a warm server adds what the AST cannot see, as references", %{project: project} do
     Menard.Lsp.warm(project)
-    params = %{kind: "calls", target: "Bench.Math.total", files: ["lib"], root: project}
+    math = Path.join(project, "lib/math.ex")
 
-    await_settled(project, 800_000)
+    # settled is no promise the index is built: under load expert's build began over 3s after its
+    # engine, and until then it answered null or a short list. Only the index knows the delegate.
+    await_server(project, 800_000, fn ->
+      with {:ok, found} <- Menard.Lsp.references(project, math, 3, 7, 5_000),
+           true <- Enum.any?(found, &(Path.basename(&1.file) == "deleg.ex")),
+           do: :ok,
+           else: (_ -> :warming)
+    end)
 
     {:ok, reply} =
-      while_warming(
-        fn ->
-          {:ok, reply} = Menard.Verbs.Find.run(params)
-          if reply.lsp =~ "still indexing", do: :warming, else: {:ok, reply}
-        end,
-        60_000
-      )
+      Menard.Verbs.Find.run(%{kind: "calls", target: "Bench.Math.total", files: ["lib"], root: project})
 
     assert reply.lsp == "expert"
 
@@ -154,7 +155,7 @@ defmodule Menard.LspTest do
   end
 
   @tag :tmp_dir
-  test "await_settled fails at once, with the exit status, when the server is gone", %{tmp_dir: dir} do
+  test "await_server fails at once, with the exit status, when the server is gone", %{tmp_dir: dir} do
     stand_in = Path.join(dir, "exits")
     File.write!(stand_in, "#!/bin/sh\nsleep 0.5\nexit 3\n")
     File.chmod!(stand_in, 0o755)
@@ -164,24 +165,18 @@ defmodule Menard.LspTest do
 
     Menard.Lsp.warm(dir)
     started = System.monotonic_time(:millisecond)
-    error = assert_raise ExUnit.AssertionError, fn -> await_settled(dir, 60_000) end
+
+    ask = fn ->
+      if match?({:ok, _}, Menard.Lsp.references(dir, Path.join(dir, "mix.exs"), 1, 1, 1_000)), do: :ok
+    end
+
+    error = assert_raise ExUnit.AssertionError, fn -> await_server(dir, 60_000, ask) end
     assert error.message =~ "exit_status, 3"
     assert System.monotonic_time(:millisecond) - started < 5_000
   end
 
-  test "a find is retried while it answers :warming, and the first other answer is the one asserted" do
-    {:ok, asked} = Agent.start_link(fn -> 0 end)
-
-    ask = fn ->
-      if Agent.get_and_update(asked, &{&1, &1 + 1}) < 2, do: :warming, else: {:ok, :hits}
-    end
-
-    assert while_warming(ask, 5_000) == {:ok, :hits}
-    assert Agent.get(asked, & &1) == 3
-  end
-
-  # the server's own settled signal, not a wall-clock deadline; a server that exits is no wait at all
-  defp await_settled(project, ms) do
+  # asks until `ask` answers :ok; a server that exits is no wait at all
+  defp await_server(project, ms, ask) do
     pid =
       project
       |> Path.expand()
@@ -192,34 +187,20 @@ defmodule Menard.LspTest do
       end)
 
     ref = Process.monitor(pid)
-    await_settled(project, ref, System.monotonic_time(:millisecond) + ms)
+    ask_until(ref, System.monotonic_time(:millisecond) + ms, ask)
   end
 
-  defp await_settled(project, ref, deadline) do
+  defp ask_until(ref, deadline, ask) do
     receive do
       {:DOWN, ^ref, _, _, reason} ->
-        flunk("the language server stopped before it settled: #{inspect(reason)}")
+        flunk("the language server stopped before it answered: #{inspect(reason)}")
     after
       0 ->
         cond do
-          Menard.Lsp.warm?(project) -> :ok
-          System.monotonic_time(:millisecond) > deadline -> flunk("the language server never settled")
-          true -> Process.sleep(100) && await_settled(project, ref, deadline)
+          ask.() == :ok -> :ok
+          System.monotonic_time(:millisecond) > deadline -> flunk("the language server never answered")
+          true -> Process.sleep(100) && ask_until(ref, deadline, ask)
         end
-    end
-  end
-
-  defp while_warming(ask, ms), do: while_warming(ask, System.monotonic_time(:millisecond) + ms, nil)
-
-  defp while_warming(ask, deadline, _last) do
-    case ask.() do
-      :warming ->
-        if System.monotonic_time(:millisecond) > deadline,
-          do: flunk("still :warming at the deadline"),
-          else: Process.sleep(50) && while_warming(ask, deadline, :warming)
-
-      answer ->
-        answer
     end
   end
 end

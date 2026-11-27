@@ -63,19 +63,6 @@ defmodule Menard.Lsp do
     :exit, _ -> :off
   end
 
-  @doc "Whether `project`'s server is up and done indexing: what a warm-up waits for."
-  @spec warm?(String.t()) :: boolean()
-  def warm?(project) do
-    with registry when is_pid(registry) <- Process.whereis(Menard.Lsp.Registry),
-         [{pid, _}] <- Registry.lookup(Menard.Lsp.Registry, Path.expand(project)) do
-      GenServer.call(pid, :ready?)
-    else
-      _ -> false
-    end
-  catch
-    :exit, _ -> false
-  end
-
   @doc """
   The protocol's `character` for a 1-based `column` of `text`: a 0-based count of UTF-16 units,
   where a column counts characters, so one past an emoji is two further on.
@@ -137,8 +124,6 @@ defmodule Menard.Lsp do
   end
 
   @impl true
-  def handle_call(:ready?, _from, state), do: {:reply, ready?(state), state, @idle}
-
   def handle_call({:references, file, line, column, ms}, from, state) do
     if ready?(state) do
       state =
