@@ -10,7 +10,8 @@ defmodule Mix.Tasks.Menard.Run do
       mix menard.run credo [FILES] [--strict] [--changed]
                                           # the project's credo, when it has one: {ok, failures};
                                           # --changed, only lines changed since the last commit
-      mix menard.run check --committed    # check, test or compile on the last commit, in a worktree
+      mix menard.run e2e                  # the repo's own e2e mise task: {ok, failures: [{kind: "e2e", name, screen}], tail}
+      mix menard.run check --committed   # check, test or compile on the last commit, in a worktree
                                           # menard keeps: the files can be edited while it runs
 
   Every verb's `failures` is one shape: `{kind, message, at}`, where `kind` is `test`, `error`,
