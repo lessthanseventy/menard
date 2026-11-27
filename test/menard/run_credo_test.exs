@@ -53,6 +53,28 @@ defmodule Menard.RunCredoTest do
   end
 
   @tag :tmp_dir
+  test "--changed keeps a finding on a def line when a line inside that function changed", %{tmp_dir: dir} do
+    # credo anchors a complexity or arity finding on the def, which a change to the body leaves alone
+    git = fn args -> {_, 0} = System.cmd("git", ["-C", dir | args], stderr_to_stdout: true) end
+    git.(["init", "-q"])
+
+    source =
+      "defmodule A do\n  def a(x) do\n    x\n  end\n\n  def b(x) do\n    x\n  end\n\n  def c(x), do: x\nend\n"
+
+    File.write!(Path.join(dir, "a.ex"), source)
+    git.(["add", "a.ex"])
+    git.(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "base"])
+
+    File.write!(
+      Path.join(dir, "a.ex"),
+      String.replace(source, "  def a(x) do\n    x", "  def a(x) do\n    x + 1")
+    )
+
+    issues = for at <- ~w(a.ex:1 a.ex:2 a.ex:6 a.ex:10), do: %{kind: "credo", message: "m", at: at}
+    assert Enum.map(Run.Lint.only_changed(issues, dir), & &1.at) == ~w(a.ex:2)
+  end
+
+  @tag :tmp_dir
   test "--changed reads a project below the repo's root by its own paths", %{tmp_dir: dir} do
     # A host's server/ and console/: credo names lib/a.ex, git's diff says server/lib/a.ex
     git = fn args -> {_, 0} = System.cmd("git", ["-C", dir | args], stderr_to_stdout: true) end

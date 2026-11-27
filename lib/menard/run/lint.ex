@@ -54,9 +54,13 @@ defmodule Menard.Run.Lint do
   end
 
   # Only what an edit brought: issues on the lines changed since the last commit, every line of a file
-  # git does not track yet. Old debt in the file is not the edit's to answer for.
+  # git does not track yet. Old debt in the file is not the edit's to answer for. Credo anchors a
+  # function's complexity or arity on its def line, so a finding there counts a change anywhere in it.
   # Two git calls for every file at once, not two per file: which are tracked, and one diff.
-  @doc "The `issues` on lines changed since the last commit in the repo at `dir`, every one of an untracked file."
+  @doc """
+  The `issues` on lines changed since the last commit in the repo at `dir`, every one of an
+  untracked file, and those on a def line whose function holds a changed line.
+  """
   @spec only_changed([Run.issue()], String.t()) :: [Run.issue()]
   def only_changed(issues, dir) do
     files = issues |> Enum.map(&(&1.at |> String.split(":") |> hd())) |> Enum.uniq()
@@ -67,10 +71,15 @@ defmodule Menard.Run.Lint do
     {diff, _} = git.(["diff", "-U0", "--relative", "HEAD", "--" | files])
     hunks = hunks(diff)
     lines = Map.new(files, &{&1, if(&1 in tracked, do: Map.get(hunks, &1, MapSet.new()), else: :all)})
+    defs = Map.new(Map.keys(hunks), &{&1, def_spans(Path.join(dir, &1))})
 
     Enum.filter(issues, fn %{at: at} ->
       [file, line] = String.split(at, ":")
-      lines[file] == :all or String.to_integer(line) in lines[file]
+      line = String.to_integer(line)
+      changed = lines[file]
+
+      changed == :all or line in changed or
+        Enum.any?(get_in(defs, [file, line]) || [], &(&1 in changed))
     end)
   end
 
@@ -80,6 +89,44 @@ defmodule Menard.Run.Lint do
       message: "#{i["message"]} (#{i["check"] |> String.split(".") |> List.last()})",
       at: "#{i["filename"]}:#{i["line_no"]}"
     }
+  end
+
+  # each def's first line and the lines it spans; none where the file does not parse
+  defp def_spans(path) do
+    with {:ok, source} <- File.read(path),
+         {:ok, ast} <- Code.string_to_quoted(source, token_metadata: true) do
+      {_, spans} =
+        Macro.prewalk(ast, %{}, fn
+          {kind, meta, [_ | _]} = node, acc when kind in [:def, :defp, :defmacro, :defmacrop] ->
+            {node, Map.put(acc, meta[:line], meta[:line]..last_line(node))}
+
+          node, acc ->
+            {node, acc}
+        end)
+
+      spans
+    else
+      _ -> %{}
+    end
+  end
+
+  defp last_line(node) do
+    {_, last} =
+      Macro.prewalk(node, 0, fn
+        {_, meta, _} = n, acc when is_list(meta) ->
+          {n,
+           Enum.max([
+             acc,
+             meta[:line] || 0,
+             get_in(meta, [:end, :line]) || 0,
+             get_in(meta, [:closing, :line]) || 0
+           ])}
+
+        n, acc ->
+          {n, acc}
+      end)
+
+    last
   end
 
   # each file's changed lines, from one diff of them all
