@@ -191,13 +191,13 @@ defmodule Menard.LspTest do
       end)
 
     ref = Process.monitor(pid)
-    ask_until(ref, {System.monotonic_time(:millisecond) + ms, ms}, ask)
+    ask_until(ref, {System.monotonic_time(:millisecond) + ms, ms, project}, ask)
   end
 
-  defp ask_until(ref, {deadline, ms} = wait, ask) do
+  defp ask_until(ref, {deadline, ms, project} = wait, ask) do
     receive do
       {:DOWN, ^ref, _, _, reason} ->
-        flunk("the language server stopped before it answered: #{inspect(reason)}")
+        flunk("the language server stopped before it answered: #{inspect(reason)}#{logs(project)}")
     after
       0 ->
         cond do
@@ -205,7 +205,7 @@ defmodule Menard.LspTest do
             :ok
 
           System.monotonic_time(:millisecond) > deadline ->
-            flunk("#{Menard.Lsp.server()} did not answer in #{div(ms, 1000)} s (#{load()})")
+            flunk("#{Menard.Lsp.server()} did not answer in #{div(ms, 1000)} s (#{load()})#{logs(project)}")
 
           true ->
             Process.sleep(100) && ask_until(ref, wait, ask)
@@ -222,6 +222,16 @@ defmodule Menard.LspTest do
       {:error, _} ->
         "load unknown"
     end
+  end
+
+  # where expert stopped (engine, build, index), read before on_exit removes the project
+  defp logs(project) do
+    for name <- ["expert.log", "project.log"],
+        {:ok, text} <- [File.read(Path.join([project, ".expert", name]))],
+        into: "",
+        do:
+          "\n\n--- .expert/#{name}, last 30 lines ---\n" <>
+            (text |> String.split("\n") |> Enum.take(-30) |> Enum.join("\n"))
   end
 
   defp stop_server(project) do
