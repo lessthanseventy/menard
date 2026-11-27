@@ -178,6 +178,7 @@ defmodule Menard.RunZigTest do
 
     assert %{ok: false, failures: [%{message: message}]} = Zig.parse_test(out, 1, "/w", "src/a.zig")
     assert message =~ "needs the build's modules"
+    refute message =~ "test-filter"
   end
 
   describe "in a zig project" do

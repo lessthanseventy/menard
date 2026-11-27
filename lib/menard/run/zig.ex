@@ -456,7 +456,7 @@ defmodule Menard.Run.Zig do
     do: %{
       error
       | message:
-          "#{message}: #{file} needs the build's modules, run the whole suite or pass --test-filter NAME"
+          "#{message}: #{file} needs the build's modules, run the whole suite (`run test` with no file)"
     }
 
   defp needs_build(error, _file), do: error
