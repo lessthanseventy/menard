@@ -1,6 +1,8 @@
 defmodule Menard.Run.Lint do
   @moduledoc "Credo for the run verbs: whether a project has it and how strictly it gates, its JSON report as failures, and the issues on the lines changed since the last commit."
 
+  require Menard.Tree, as: Tree
+
   alias Menard.Run
 
   @doc """
@@ -97,7 +99,7 @@ defmodule Menard.Run.Lint do
          {:ok, ast} <- Code.string_to_quoted(source, token_metadata: true) do
       {_, spans} =
         Macro.prewalk(ast, %{}, fn
-          {kind, meta, [_ | _]} = node, acc when kind in [:def, :defp, :defmacro, :defmacrop] ->
+          {kind, meta, [_ | _]} = node, acc when Tree.is_def(kind) ->
             {node, Map.put(acc, meta[:line], meta[:line]..last_line(node))}
 
           node, acc ->
