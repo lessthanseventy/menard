@@ -1,6 +1,7 @@
 defmodule Menard.EditThenTest do
-  # `edit --then`: a run verb after the edits, in the project of the files it wrote. Apart from
-  # the other edit tests: each runs the host's mix, and they run beside each other here.
+  # `edit --then`: a run verb after the edits, in the project of the files it wrote. What `then`
+  # picks to run is read from a runner in the host mix's place (`picked/0`): a host's mix is a new
+  # VM and a compile, as long as the box's load makes it. The two that run one have its bound.
   use ExUnit.Case, async: true
 
   import Menard.Test.Edits
@@ -20,6 +21,16 @@ defmodule Menard.EditThenTest do
     :ok
   end
 
+  defp picked do
+    test = self()
+
+    fn dir, verb, args ->
+      send(test, {:ran, dir, verb, args})
+      %{ok: true}
+    end
+  end
+
+  @tag timeout: 150_000
   test "then: a run verb after the edits, its answer in the reply", %{tmp_dir: dir} do
     assert {:ok, %{run: %{ok: true}} = reply} =
              edit(dir, [%{file: "lib/a.ex", old: "def two, do: 2", new: "def two, do: 22"}], %{
@@ -54,14 +65,16 @@ defmodule Menard.EditThenTest do
       "defmodule ElsewhereTest do\n  use ExUnit.Case\n  test \"elsewhere\", do: assert(false)\nend\n"
     )
 
-    assert {:ok, %{run: %{ok: true, tests: 1}}} =
-             edit(dir, [%{file: "lib/c.ex", old: "do: 3", new: "do: 33"}], %{then: "test"})
+    assert {:ok, %{run: %{ok: true}}} =
+             edit(dir, [%{file: "lib/c.ex", old: "do: 3", new: "do: 33"}], %{then: "test", run: picked()})
+
+    assert_received {:ran, ^dir, "test", ["test/uses_c_test.exs"]}
 
     # nothing names D: no run of the suite in its place, and the reply says so
-    assert {:ok, %{run: %{skipped: why} = run}} =
-             edit(dir, [%{file: "lib/d.ex", old: "do: 4", new: "do: 44"}], %{then: "test"})
+    assert {:ok, %{run: %{skipped: why}}} =
+             edit(dir, [%{file: "lib/d.ex", old: "do: 4", new: "do: 44"}], %{then: "test", run: picked()})
 
-    refute Map.has_key?(run, :tests)
+    refute_received {:ran, _, _, _}
     assert why =~ "D"
   end
 
@@ -76,15 +89,17 @@ defmodule Menard.EditThenTest do
       "defmodule UsesCTest do\n  use ExUnit.Case\n  test \"c\", do: assert(C.three() == 33)\nend\n"
     )
 
-    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+    assert {:ok, %{run: %{ok: true}}} =
              edit(
                dir,
                [
                  %{file: "hooks.json", old: "${x}", new: "${y}"},
                  %{file: "lib/c.ex", old: "do: 3", new: "do: 33"}
                ],
-               %{then: "test"}
+               %{then: "test", run: picked()}
              )
+
+    assert_received {:ran, ^dir, "test", ["test/uses_c_test.exs"]}
   end
 
   test "then: credo's findings on the lines changed are in the reply, where the check is read", %{
@@ -93,9 +108,13 @@ defmodule Menard.EditThenTest do
     File.write!(Path.join(dir, "mix.lock"), ~s(%{"credo": {:hex, :credo, "1.7.0"}}\n))
     test = self()
 
-    lint = fn _dir, "credo", args ->
-      send(test, {:credo, args})
-      %{ok: false, failures: [%{kind: "credo", at: "lib/a.ex:2", message: "a nit (Nesting)"}]}
+    lint = fn
+      _dir, "credo", args ->
+        send(test, {:credo, args})
+        %{ok: false, failures: [%{kind: "credo", at: "lib/a.ex:2", message: "a nit (Nesting)"}]}
+
+      _dir, "compile", [] ->
+        %{ok: true}
     end
 
     edits = [
@@ -125,19 +144,26 @@ defmodule Menard.EditThenTest do
       "defmodule BTest do\n  use ExUnit.Case\n  test \"elsewhere\", do: assert(false)\nend\n"
     )
 
-    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+    assert {:ok, %{run: %{ok: true}}} =
              edit(dir, [%{file: "lib/a.ex", old: "def two, do: 2", new: "def two, do: 22"}], %{
-               then: "test"
+               then: "test",
+               run: picked()
              })
 
+    assert_received {:ran, ^dir, "test", ["test/a_test.exs"]}
+
     # an edited test file is its own test
-    assert {:ok, %{run: %{ok: false, tests: 1}}} =
+    assert {:ok, %{run: %{ok: true}}} =
              edit(dir, [%{file: "test/b_test.exs", old: "elsewhere", new: "still elsewhere"}], %{
-               then: "test"
+               then: "test",
+               run: picked()
              })
+
+    assert_received {:ran, ^dir, "test", ["test/b_test.exs"]}
   end
 
   @tag :tmp_dir
+  @tag timeout: 150_000
   test "every writing verb takes then, as edit does", %{tmp_dir: dir} do
     # every writing verb takes `then`, as edit does: a test added with block add was run by a second call
     File.mkdir_p!(Path.join(dir, "test"))
@@ -187,15 +213,20 @@ defmodule Menard.EditThenTest do
 
     assert {:ok, %{run: run}} =
              edit(dir, [%{file: "server/lib/n.ex", old: "def go, do: 1", new: "def go, do: 2"}], %{
-               then: "test"
+               then: "test",
+               run: picked()
              })
 
-    assert %{ok: true, tests: 1, dir: "server"} = run
+    assert %{ok: true, dir: "server"} = run
+    assert_received {:ran, ^server, "test", ["test/n_test.exs"]}
 
-    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+    assert {:ok, %{run: %{ok: true}}} =
              edit(dir, [%{file: "server/lib/n.ex", old: "def go, do: 2", new: "def go, do: 3"}], %{
-               then: "test server/test/n_test.exs"
+               then: "test server/test/n_test.exs",
+               run: picked()
              })
+
+    assert_received {:ran, ^server, "test", ["test/n_test.exs"]}
   end
 
   @tag :tmp_dir
@@ -215,10 +246,13 @@ defmodule Menard.EditThenTest do
       "defmodule BTest do\n  use ExUnit.Case\n  test \"b\", do: assert(A.two() == 22)\nend\n"
     )
 
-    assert {:ok, %{run: %{ok: true, tests: 1}}} =
+    assert {:ok, %{run: %{ok: true}}} =
              edit(dir, [%{file: "lib/a.ex", old: "def two, do: 2", new: "def two, do: 22"}], %{
-               then: "test test/b_test.exs"
+               then: "test test/b_test.exs",
+               run: picked()
              })
+
+    assert_received {:ran, ^dir, "test", ["test/b_test.exs"]}
 
     assert {:error, why} =
              edit(dir, [%{file: "lib/a.ex", old: "def two, do: 22", new: "def two, do: 2"}], %{

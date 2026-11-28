@@ -237,7 +237,9 @@ defmodule Menard.Verbs do
   # the files named: those, in the root
   defp then_run(reply, p, "test", [_ | _] = files) do
     run =
-      ran(Map.merge(Map.take(p, [:root, :timeout]), %{verb: "test", args: files, dir: named_dir(reply, p)}))
+      ran(
+        Map.merge(Map.take(p, [:root, :timeout, :run]), %{verb: "test", args: files, dir: named_dir(reply, p)})
+      )
 
     reply |> Map.update(:did, "then run test", &(&1 <> ", then run test")) |> Map.put(:run, run)
   end
@@ -256,7 +258,7 @@ defmodule Menard.Verbs do
               %{skipped: why}
 
             args ->
-              ran(Map.merge(Map.take(p, [:root, :timeout]), %{verb: verb, args: args, dir: dir}))
+              ran(Map.merge(Map.take(p, [:root, :timeout, :run]), %{verb: verb, args: args, dir: dir}))
           end
 
         if dir == root, do: run, else: Map.put(run, :dir, Path.relative_to(dir, root))

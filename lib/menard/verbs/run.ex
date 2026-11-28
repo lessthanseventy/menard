@@ -70,7 +70,9 @@ defmodule Menard.Verbs.Run do
          {:ok, dir, args} <- project(verb, p[:dir], base, p[:args] || []),
          {:ok, dir, said} <- at(dir, verb, p[:committed]) do
       opts = if ms = p[:timeout], do: [timeout: ms], else: []
-      reply = Menard.Run.lean(Menard.Run.result(dir, verb, args, opts))
+      # `run`: the runner a test gives in the host mix's place, as `then`'s credo takes it
+      result = if run = p[:run], do: run.(dir, verb, args), else: Menard.Run.result(dir, verb, args, opts)
+      reply = Menard.Run.lean(result)
       {:ok, reply |> Map.merge(said) |> Map.merge(where(dir))}
     end
   end
