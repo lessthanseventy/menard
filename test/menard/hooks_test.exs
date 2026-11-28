@@ -209,8 +209,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-
-  @tag :tmp_dir
   test "shell-edits names a module a Bash command changed, and stays quiet otherwise", %{tmp_dir: dir} do
     module = Path.join(dir, "lib/a.ex")
     File.mkdir_p!(Path.dirname(module))
@@ -573,7 +571,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-  @tag :tmp_dir
   test "under the hooks server credo is off the call's path: its notes come with the session's next answer",
        %{tmp_dir: dir} do
     # 2 s of CPU and up to 10 s of wall under load, paid at every write
@@ -841,26 +838,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
   test "format-report with MENARD_HOOK_COMPILE names a compiler warning in the file written", %{tmp_dir: tmp} do
     # a project path with a regex's characters in it: `[x]` matched no path, and every warning dropped
     dir = Path.join(tmp, "p[x]")
@@ -889,8 +866,6 @@ defmodule Menard.HooksTest do
              ~s(lib/w.ex:3 variable "y" is unused)
   end
 
-  @tag :tmp_dir
-
   # A host menard can format: a mix.exs and a formatter, nothing fetched
   defp host(dir) do
     File.mkdir_p!(Path.join(dir, "lib"))
@@ -904,10 +879,6 @@ defmodule Menard.HooksTest do
 
     File.write!(Path.join(dir, ".formatter.exs"), "[inputs: [\"lib/**/*.ex\"]]")
   end
-
-  @tag :tmp_dir
-
-  @tag :tmp_dir
 
   @tag :tmp_dir
   test "format-report leaves a file a merge stopped on alone: git wrote its conflict markers", %{tmp_dir: dir} do
@@ -955,10 +926,6 @@ defmodule Menard.HooksTest do
   end
 
   @tag :tmp_dir
-
-  @tag :tmp_dir
-
-  @tag @tag :tmp_dir
   test "format-report formats what a shell command wrote within the second of its mark", %{tmp_dir: dir} do
     # a stat's time is whole seconds: newer-than-the-mark missed every file a quick command wrote
     host(dir)
@@ -1051,9 +1018,7 @@ defmodule Menard.HooksTest do
     assert out =~ "boom in the migrations"
   end
 
-  @tag @tag :tmp_dir
-
-  @tag @tag :tmp_dir
+  @tag :tmp_dir
   test "the third Edit of a run is told of edit, once a session; a command between two Edits ends the run", %{
     tmp_dir: dir
   } do
@@ -1105,7 +1070,7 @@ defmodule Menard.HooksTest do
     assert Path.wildcard(Path.join(dir, "menard-written-*")) == []
   end
 
-  @tag @tag :tmp_dir
+  @tag :tmp_dir
   test "every session is told at its start what is refused, and a script is refused before it runs", %{
     tmp_dir: dir
   } do
@@ -1548,8 +1513,6 @@ defmodule Menard.HooksTest do
     assert {:deny, why} = hook.("PreToolUse", "Read", %{"file_path" => file})
     assert why =~ "unchanged since you read it"
   end
-
-  @tag :tmp_dir
 
   @tag :tmp_dir
   test "the old command-hook wiring run under Claude Code says once to restart it", %{tmp_dir: dir} do
