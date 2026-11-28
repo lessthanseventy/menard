@@ -167,6 +167,9 @@ parse before the edit (a Helm template named `.yaml`) is not refused for staying
 repo with no `mix.exs`, `run` and `then` take `check`, `test` and `compile` to its mise task of that name.
 A Zig project (a `build.zig`) with no such task runs `zig build` for them, and answers as mix's
 do: the counts, each compile error and failed test with its file, line and message.
+`run test FILE.zig` is `zig test FILE`; `run test --test-filter NAME` is
+`zig build test -Dtest-filter=NAME`, where `build.zig` declares a `test-filter` option, and is
+refused before any build where it doesn't.
 Run a Zig project's builds and tests through `run`, not a bare `zig build` in the shell. A killed
 `zig build` leaves its compiler holding a cache lock, and every later build sharing that cache
 hangs behind it. `run` kills the build's whole process group when it ends, reaps compilers

@@ -181,6 +181,13 @@ defmodule Menard.RunZigTest do
     refute message =~ "test-filter"
   end
 
+  test "where the build takes a test filter, that file is told of it" do
+    out = "src/a.zig:1:19: error: no module named 'app' available within module a\n"
+
+    assert %{failures: [%{message: message}]} = Zig.parse_test(out, 1, "/w", "src/a.zig", true)
+    assert message =~ "`run test --test-filter NAME`"
+  end
+
   describe "in a zig project" do
     @describetag skip: !System.find_executable("zig") && "needs zig"
     # zig's first run on a cold global cache, as CI's always is, takes two minutes
@@ -195,6 +202,8 @@ defmodule Menard.RunZigTest do
       {_, 0} = System.cmd("zig", ["init"], cd: zig, stderr_to_stdout: true)
       %{dir: dir, zig: zig}
     end
+
+    @needs_module ~s|test "needs" {\n    _ = @import("native").bufferedPrint;\n}\n|
 
     test "run test answers its failed test", %{zig: zig} do
       root = Path.join(zig, "src/root.zig")
@@ -215,6 +224,56 @@ defmodule Menard.RunZigTest do
 
       assert %{ok: false, tests: 1, failed: 1, failures: [%{name: "b.test.b fails", at: "src/b.zig:2"}]} =
                Menard.Run.result(zig, "test", ["src/b.zig:1"])
+    end
+
+    test "--test-filter, where build.zig declares no such option, is refused before any build", %{zig: zig} do
+      assert %{ok: false, failures: [%{kind: "build", message: message}]} =
+               Menard.Run.result(zig, "test", ["--test-filter", "menard"])
+
+      assert message =~ "build.zig declares no test-filter option"
+
+      File.write!(Path.join(zig, "src/needs.zig"), @needs_module)
+      assert %{failures: [%{message: alone}]} = Menard.Run.result(zig, "test", ["src/needs.zig"])
+      assert alone =~ "needs the build's modules"
+      refute alone =~ "test-filter"
+    end
+
+    test "--test-filter NAME runs the build's tests of that name, where build.zig declares the option",
+         %{zig: zig} do
+      build = Path.join(zig, "build.zig")
+
+      File.write!(
+        build,
+        build
+        |> File.read!()
+        |> String.replace(
+          "const mod_tests = b.addTest(.{",
+          """
+          const filters = b.option([]const []const u8, "test-filter", "run the tests of this name") orelse &.{};
+              const mod_tests = b.addTest(.{
+                  .filters = filters,
+          """
+        )
+      )
+
+      root = Path.join(zig, "src/root.zig")
+
+      File.write!(
+        root,
+        File.read!(root) <> ~s|\ntest "menard fails" {\n    return error.Nope;\n}\ntest "menard other" {}\n|
+      )
+
+      assert %{ok: true, failures: [], ran: "zig build test -Dtest-filter=menard other"} =
+               Menard.Run.result(zig, "test", ["--test-filter", "menard other"])
+
+      assert %{ok: false, failures: [%{name: name}]} =
+               Menard.Run.result(zig, "test", ["--test-filter", "menard fails"])
+
+      assert name =~ "menard fails"
+
+      File.write!(Path.join(zig, "src/needs.zig"), @needs_module)
+      assert %{failures: [%{message: alone}]} = Menard.Run.result(zig, "test", ["src/needs.zig"])
+      assert alone =~ "`run test --test-filter NAME`"
     end
 
     test "an edit's then: test runs the tests of the zig project the file is in", %{dir: dir} do

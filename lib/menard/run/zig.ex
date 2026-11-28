@@ -56,7 +56,7 @@ defmodule Menard.Run.Zig do
   @spec result(map(), String.t(), [String.t()]) :: map()
   def result(%{dir: dir} = run, verb, args) do
     steps = Map.fetch!(@steps, verb)
-    ran = Enum.join(["zig", "build" | steps], " ")
+    ran = Enum.join(["zig", "build"] ++ steps ++ args, " ")
     left = if at = run.deadline, do: max(at - System.monotonic_time(:millisecond), 1_000)
 
     {{out, status}, stuck} =
@@ -107,18 +107,38 @@ defmodule Menard.Run.Zig do
   end
 
   @doc """
+  `test` with `--test-filter NAME` and no file: `zig build test -Dtest-filter=NAME`, the rest of
+  `args` passed on, where `build.zig` declares that option. Where it doesn't, nothing runs and the
+  reply says so: the build would only refuse the flag.
+  """
+  @spec test_filtered(map(), [String.t()]) :: map()
+  def test_filtered(%{dir: dir} = run, args) do
+    if test_filter?(run) do
+      result(run, "test", filter_options(args))
+    else
+      message =
+        "build.zig declares no test-filter option, so #{dir}'s tests can't be run by name: " <>
+          "run the whole suite (`run test` with no flag)"
+
+      %{ok: false, exit: 1, failures: [%{kind: "build", message: message}]}
+    end
+  end
+
+  @doc """
   What `zig test FILE` printed, exiting `status`, as a run reply: `ok`, the `failures` (a failed
   test's name, place and message, a compile error's place and message), `tests` and `failed`.
+  A file that needs the build's modules is told to run the whole suite, and of `--test-filter`
+  too when `filter?`, the build taking one.
   """
-  @spec parse_test(String.t(), non_neg_integer(), String.t(), String.t()) :: map()
-  def parse_test(out, status, dir, file) do
+  @spec parse_test(String.t(), non_neg_integer(), String.t(), String.t(), boolean()) :: map()
+  def parse_test(out, status, dir, file, filter? \\ false) do
     out = String.replace(out, ~r/\e\[[0-9;]*m/, "")
     {tests, failed} = test_counts(out)
 
     failures =
       case compile_errors(out, dir) do
         [] -> test_failures(String.split(out, "\n"), dir)
-        errors -> Enum.map(errors, &needs_build(&1, file))
+        errors -> Enum.map(errors, &needs_build(&1, file, filter?))
       end
 
     failures = if failures == [] and status != 0, do: build_errors(out), else: failures
@@ -452,14 +472,28 @@ defmodule Menard.Run.Zig do
     end
   end
 
-  defp needs_build(%{message: "no module named" <> _ = message} = error, file),
-    do: %{
+  defp needs_build(%{message: "no module named" <> _ = message} = error, file, filter?) do
+    by_name = if filter?, do: " or its tests by name (`run test --test-filter NAME`)", else: ""
+
+    %{
       error
       | message:
-          "#{message}: #{file} needs the build's modules, run the whole suite (`run test` with no file)"
+          "#{message}: #{file} needs the build's modules, run the whole suite (`run test` with no file)" <>
+            by_name
     }
+  end
 
-  defp needs_build(error, _file), do: error
+  defp needs_build(error, _file, _filter?), do: error
+
+  # zig's own cache holds the build runner per build.zig, so asking again is 40ms and never stale
+  defp test_filter?(run) do
+    {out, _status} = zig(run, ["build", "-h"], "zig build -h")
+    out =~ ~r/^\s+-Dtest-filter=/m
+  end
+
+  defp filter_options(["--test-filter", name | rest]), do: ["-Dtest-filter=#{name}" | filter_options(rest)]
+  defp filter_options([arg | rest]), do: [arg | filter_options(rest)]
+  defp filter_options([]), do: []
 
   defp test_counts(out) do
     case {Regex.run(~r/^(\d+) passed; (\d+) skipped; (\d+) failed\./m, out),
@@ -517,6 +551,7 @@ defmodule Menard.Run.Zig do
       end)
 
     File.write!(run.log, "$ zig test #{file}\n#{out}\n", [:append])
-    {parse_test(out, status, dir, file), stuck}
+    filter? = out =~ "no module named" and test_filter?(run)
+    {parse_test(out, status, dir, file, filter?), stuck}
   end
 end

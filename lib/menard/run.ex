@@ -604,8 +604,14 @@ defmodule Menard.Run do
   # after a whole build, so a file's tests run as `zig test FILE`.
   defp task(%{dir: dir} = run, "test", args) do
     case zig?(dir) && Enum.split_with(args, &(&1 =~ ~r/\.zig(:\d+)?$/)) do
-      {[_ | _] = files, rest} -> Zig.test_files(run, files, rest)
-      _ -> task_of(run, "test", args)
+      {[_ | _] = files, rest} ->
+        Zig.test_files(run, files, rest)
+
+      {[], _} ->
+        if "--test-filter" in args, do: Zig.test_filtered(run, args), else: task_of(run, "test", args)
+
+      _ ->
+        task_of(run, "test", args)
     end
   end
 
