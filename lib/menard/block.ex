@@ -174,11 +174,21 @@ defmodule Menard.Block do
     with {:ok, node} <- one(source, name, opts) do
       %{start: [line: a, column: _], end: [line: b, column: _]} = Sourceror.get_range(node)
       lines = String.split(source, "\n")
-      first = a - Menard.Source.comment_lines_above(lines, a - 1)
+      first = a - glued_above(lines, a - 1)
       blank_after? = Enum.at(lines, b) == "" and (first == 1 or Enum.at(lines, first - 2) == "")
       last = if blank_after?, do: b + 1, else: b
       Menard.Source.delete_lines(source, first, last)
     end
+  end
+
+  # the `#` and `@tag` lines directly above line `i + 1`: a test's tags are its own, and left behind
+  # they land on the next one
+  defp glued_above(lines, i) do
+    lines
+    |> Enum.take(i)
+    |> Enum.reverse()
+    |> Enum.take_while(&(String.trim_leading(&1) =~ ~r/^(#|@tag\b)/))
+    |> length()
   end
 
   # The range of the label STRING itself, quotes included — patching a wider range would reflow the
@@ -393,6 +403,8 @@ defmodule Menard.Block do
   # `@tag :tmp_dir` above a whole test is how a test is written, and was taken for a body: the block
   # came out wrapped in a bare `test do`. The tags go to `tag:`, which writes them above the block.
   # `tmp_dir` is the tag `:tmp_dir`; `:tmp_dir` and `timeout: 5_000` are as written
+  defp tag("@tag " <> tag), do: tag |> String.trim() |> tag()
+
   defp tag(tag) do
     if Regex.match?(~r/^[a-z_][a-zA-Z0-9_]*[?!]?$/, tag), do: ":" <> tag, else: tag
   end
@@ -403,7 +415,7 @@ defmodule Menard.Block do
         tags =
           for [tag] <- Regex.scan(~r/@tag\s+([^\n]+)/, lines, capture: :all_but_first), do: String.trim(tag)
 
-        {rest, Keyword.update(opts, :tag, tags, &(List.wrap(&1) ++ tags))}
+        {rest, Keyword.update(opts, :tag, tags, &Enum.uniq_by(List.wrap(&1) ++ tags, fn t -> tag(t) end))}
 
       nil ->
         {code, opts}

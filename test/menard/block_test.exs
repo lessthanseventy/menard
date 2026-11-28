@@ -232,6 +232,39 @@ defmodule Menard.BlockTest do
     assert {:error, _} = Block.delete(src, "test", label: "nope")
   end
 
+  test "delete takes the test's @tag lines, and the comment above them, with it" do
+    # left behind, the tags land on the next test: a deleted skipped test skips its neighbour
+    src = """
+    defmodule ATest do
+      use ExUnit.Case
+      @moduletag :slow
+
+      # about two
+      @tag :skip
+      # why the timeout
+      @tag timeout: 5_000
+      test "two" do
+        assert 2
+      end
+
+      test "three" do
+        assert 3
+      end
+    end
+    """
+
+    assert Block.delete(src, "test", label: "two") == """
+           defmodule ATest do
+             use ExUnit.Case
+             @moduletag :slow
+
+             test "three" do
+               assert 3
+             end
+           end
+           """
+  end
+
   test "add writes a test that takes the context" do
     src = """
     defmodule ATest do
@@ -305,6 +338,13 @@ defmodule Menard.BlockTest do
     # variable, and the test file did not compile
     out = Block.add(@src, "test", "c", "assert dir", in: "two", args: "%{tmp_dir: dir}", tag: ["tmp_dir"])
     assert out =~ ~s(    @tag :tmp_dir\n    test "c")
+
+    # a tag given as the line it writes is that line, not `@tag @tag :tmp_dir`
+    out =
+      Block.add(@src, "test", "c", "assert dir", in: "two", args: "%{tmp_dir: dir}", tag: ["@tag :tmp_dir"])
+
+    assert out =~ ~s(    @tag :tmp_dir\n    test "c")
+    refute out =~ "@tag @tag"
   end
 
   test "add with no macro name is refused, naming the fix, not written as unparseable code" do
@@ -401,6 +441,10 @@ defmodule Menard.BlockTest do
 
     assert out =~ ~s|    @tag :tmp_dir\n    test "d", %{tmp_dir: dir} do\n      assert File.dir?(dir)|
     refute out =~ "test do"
+
+    # the same tag as `tag:` and above the code is written once
+    out = Block.add(@src, "test", nil, code, in: "two", tag: ["tmp_dir"])
+    assert length(String.split(out, "@tag :tmp_dir")) == 2
   end
 
   # Work counted, not timed: the calling process's reductions for listing a module's blocks, the
